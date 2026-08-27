@@ -703,31 +703,15 @@ automaticamente; o lote permanece intacto.** Cobre lote antigo e novo pela mesma
 regra (não existe mais "legado" vs "ledger"). Importações sem pagamento de fatura
 seguem pelo undo normal (vínculos cross-project + soft-delete do lote).
 
-### §16.3 A liquidação nunca "avança"
+### §16.3 UI do detalhe bloqueado
 
-- Estratégia por vencimento (`resolveTargetDueMonth`): alvo resolvido mas sem
-  parcela `PLANEJADO` no ciclo (já liquidado por outro pagamento) ⇒ devolve
-  `{ purchases: [] }`. **Não** cai no fallback nem paga outra fatura.
-- A janela do `card-invoice-match` (prévia de `getImportDetail`) é `{payMonth,
-  payMonth+1}` — a mesma do motor real, para não prometer vínculos que a
-  liquidação não confirma.
+Em `ImportHistoryModal`, `canUndo === false` renderiza o aviso "Não é possível
+desfazer automaticamente" e mantém a ação **"Desfazer importação" visível, mas
+`disabled` + `aria-disabled` e ≥44px** — o usuário vê que a ação existe e por que
+não pode usá-la. Nenhuma promessa de "fatura reaberta". O histórico por conta na
+Visão Conta e o refresh após X/Concluir seguem inalterados.
 
-### §16.4 Compra híbrida e resultado honesto do commit
-
-- **Híbrida (`cardLast4` + `bankLast4`):** também é movimento de conta. Fica
-  **fora** do target, do ranking e dos dois fallbacks da liquidação
-  (`prepareSettleInvoice`/`prepareUnsettleInvoice` filtram `bankLast4: null`) —
-  e fora dos candidatos físicos de cartão em `card-invoice-match`.
-- **Commit honesto:** o pagamento de fatura **nasce com `cardLast4: null`**. O
-  `cardLast4` só é gravado (update condicional) **depois** da liquidação e
-  **apenas se `flippedEntries.length > 0`**. Pagamento sem cartão casado ou sem
-  flip fica `cardLast4: null`: sai do caixa mas **não abate nenhuma fatura no
-  read-model** (`implicitPaymentsDetailed` exige `cardLast4`), e não pode ser
-  usado para quitar uma fatura adjacente. `cardPayments` só incrementa com flip
-  real; senão o aviso é "nenhuma fatura compatível foi liquidada"
-  (`unlinkedCardPayments`).
-
-### §16.5 Desfazer manual não alcança pagamento importado
+### §16.4 Desfazer manual não alcança pagamento importado
 
 `monthly-overview.undoInvoicePayment` (cockpit) só aceita pagamento **manual**.
 Se **qualquer** pagamento casado com a fatura tem `importId != null`, a ação
@@ -735,4 +719,3 @@ Se **qualquer** pagamento casado com a fatura tem `importId != null`, a ação
 sem escrita — inclui o caso de um pagamento manual **e** um importado casados na
 mesma fatura. O pagamento importado **continua contando** no status da fatura;
 só `BankAccountService.undoImport` o removeria — e agora ele também é fail-closed.
-`prepareUnsettleInvoice` exclui híbridos (`bankLast4 != null`).

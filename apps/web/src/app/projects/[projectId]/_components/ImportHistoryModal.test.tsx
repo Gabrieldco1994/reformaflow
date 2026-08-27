@@ -90,9 +90,12 @@ describe('ImportHistoryModal', () => {
       await screen.findByText(/contém pagamento de fatura e não pode ser desfeita/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/fatura reaberta/i)).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /desfazer importação/i }),
-    ).not.toBeInTheDocument();
+
+    // A ação continua VISÍVEL, mas inerte: disabled + aria-disabled.
+    const undoBtn = screen.getByRole('button', { name: 'Desfazer importação' });
+    expect(undoBtn).toBeDisabled();
+    expect(undoBtn).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(undoBtn);
     expect(apiDelete).not.toHaveBeenCalled();
   });
 

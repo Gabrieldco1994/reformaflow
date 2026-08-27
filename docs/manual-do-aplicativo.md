@@ -901,8 +901,9 @@ visões de Mês/Ano.
     removidos e os vínculos cross-project são desfeitos.
   - Importações que **contêm um pagamento de fatura de cartão** não podem ser
     desfeitas automaticamente: o preview mostra "**Não é possível desfazer
-    automaticamente**" e bloqueia a confirmação. O lote inteiro permanece
-    intacto por segurança — nada é removido nem alterado.
+    automaticamente**", a ação "Desfazer importação" fica visível mas
+    desabilitada, e o lote inteiro permanece intacto — nada é removido nem
+    alterado. Não há desfazer manual para esse pagamento.
   - Recorrências já propagadas (Casa/Carro) continuam sendo um efeito não
     revertido pelo desfazer.
 - Quando há mais de uma conta, o deep-link sem uma conta específica pede uma

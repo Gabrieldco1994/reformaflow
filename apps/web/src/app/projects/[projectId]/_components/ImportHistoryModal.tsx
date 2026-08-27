@@ -174,12 +174,23 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
               {error && (
                 <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
               )}
-              <div className="flex justify-end pt-1">
+              <div className="flex justify-end gap-2 pt-1">
                 <button
                   onClick={() => setDetail(null)}
                   className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
                 >
                   Voltar ao histórico
+                </button>
+                {/* Ação visível mas inerte — o usuário vê que existe e por que não pode usá-la. */}
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  title="Esta importação contém pagamento de fatura e não pode ser desfeita."
+                  className="flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white opacity-50 cursor-not-allowed"
+                >
+                  <Undo2 className="h-4 w-4" />
+                  Desfazer importação
                 </button>
               </div>
             </div>

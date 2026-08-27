@@ -93,7 +93,7 @@ export interface BankCommitResult {
   failedItems?: FailedImportItem[];
   receiptsInserted: number;
   cardPayments: number;
-  /** Pagamentos de fatura em que nenhuma fatura compatível foi liquidada (saem do caixa, não quitam fatura). */
+  /** Pagamentos de fatura que entraram SEM cartão identificado (saem do caixa, não quitam fatura). */
   unlinkedCardPayments?: number;
   aiReclassified: number;
   recurrencesCreated: number;

@@ -198,12 +198,6 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     );
     expect(result.cardPayments).toBe(1);
 
-    // fix 2 (caminho positivo): houve flip ⇒ o pagamento GANHOU `cardLast4`.
-    const payment = await setupPrisma.expense.findFirst({
-      where: { tenantId: TENANT, importId: result.importId, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" },
-    });
-    expect(payment?.cardLast4).toBe(LAST4);
-
     const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
     expect(detail.canUndo).toBe(false);
     expect(detail.blocking.cardInvoicePayments).toBe(1);
@@ -293,77 +287,6 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     ).not.toBeNull();
   });
 
-  it("#5/#6 — zero flip: cardLast4 null, cardPayments:0, nenhuma fatura adjacente abatida, undo 409", async () => {
-    // Fatura de maio (fora da janela {jul,ago}) — o pagamento não casa com ela.
-    await createPurchase({
-      id: "p5-april",
-      purchaseDate: new Date("2026-04-10T12:00:00.000Z"),
-      valor: 300_000,
-      status: "PLANEJADO",
-    });
-    // Fatura ADJACENTE, dentro da janela, mas de total diferente do pagamento —
-    // não pode ser abatida por um pagamento que não a fecha.
-    await createPurchase({
-      id: "p5-july",
-      purchaseDate: new Date("2026-07-10T12:00:00.000Z"),
-      valor: 999_000,
-      status: "PLANEJADO",
-    });
-
-    const result = await commit(
-      bankOfx(ofxDebit("20260728", 300_000, `PAGTO CART CRED ${LAST4}`, "T5-PAY")),
-      "2026-07",
-    );
-    // #569: nada foi liquidado ⇒ resultado honesto.
-    expect(result.cardPayments).toBe(0);
-    expect(result.unlinkedCardPayments).toBe(1);
-    expect(await statusOf("p5-april-entry")).toBe("PLANEJADO");
-    expect(await statusOf("p5-july-entry")).toBe("PLANEJADO");
-
-    // fix 2/3: sem flip ⇒ o pagamento NÃO tem `cardLast4` — não abate fatura no
-    // read-model (`implicitPaymentsDetailed` exige `cardLast4`).
-    const payment = await setupPrisma.expense.findFirst({
-      where: { tenantId: TENANT, importId: result.importId, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" },
-    });
-    expect(payment?.cardLast4).toBeNull();
-    expect(payment?.bankLast4).toBe(BANK_LAST4); // continua saindo do caixa
-    expect(payment?.status).toBe("PAGO");
-
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
-    expect(detail.canUndo).toBe(false);
-
-    await expect(
-      service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER),
-    ).rejects.toBeInstanceOf(ConflictException);
-    expect(await statusOf("p5-april-entry")).toBe("PLANEJADO");
-    expect(await statusOf("p5-july-entry")).toBe("PLANEJADO");
-  });
-
-  it("#7 — alvo DUE resolvido mas sem parcela PLANEJADO: não cai no fallback", async () => {
-    // Fatura de julho já toda PAGA; a compra "mais antiga em aberto" está numa
-    // fatura POSTERIOR e não pode ser tocada pelo fallback.
-    await createPurchase({
-      id: "p7-june",
-      purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
-      valor: 700_000,
-      status: "PAGO", // fatura de julho — já quitada
-    });
-    await createPurchase({
-      id: "p7-july",
-      purchaseDate: new Date("2026-07-10T12:00:00.000Z"),
-      valor: 700_000,
-      status: "PLANEJADO", // fatura de agosto — NÃO pode ser abatida por este pagamento
-    });
-
-    const result = await commit(
-      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "T7-PAY")),
-      "2026-06",
-    );
-    expect(result.cardPayments).toBe(0);
-    expect(result.unlinkedCardPayments).toBe(1);
-    // A parcela de agosto continua PLANEJADO — o fallback não avançou para ela.
-    expect(await statusOf("p7-july-entry")).toBe("PLANEJADO");
-  });
 
   /** Import "cru" + pagamento de fatura ligado a ele, com `createdAt` e
    *  `deletedAt` controlados — cobre despesa ADOTADA e SOFT-DELETADA. */

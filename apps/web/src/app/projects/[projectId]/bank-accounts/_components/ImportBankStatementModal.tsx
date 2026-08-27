@@ -364,9 +364,8 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
         {!!result.cardPayments && <p><strong>{result.cardPayments}</strong> pagamentos de fatura detectados</p>}
         {!!result.unlinkedCardPayments && (
           <p className="text-amber-700">
-            <strong>{result.unlinkedCardPayments}</strong> pagamento(s) de fatura em que
-            nenhuma fatura compatível foi liquidada — saíram do saldo, mas nenhuma
-            fatura foi quitada.
+            <strong>{result.unlinkedCardPayments}</strong> pagamento(s) de fatura sem cartão
+            identificado — saíram do saldo, mas nenhuma fatura foi quitada.
           </p>
         )}
         {!!result.aiReclassified && <p><strong>{result.aiReclassified}</strong> reclassificadas pela IA</p>}

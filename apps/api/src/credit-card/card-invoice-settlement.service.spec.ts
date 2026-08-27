@@ -25,9 +25,8 @@ function makePrisma(seed: {
 
   const matchWhere = (row: any, where: any): boolean => {
     for (const [k, v] of Object.entries(where ?? {})) {
-      if (k === 'deletedAt' || v === null) {
-        // Prisma: `{ campo: null }` casa NULL — no mock, `undefined` também.
-        if ((row[k] ?? null) !== (v ?? null)) return false;
+      if (k === 'deletedAt') {
+        if ((row.deletedAt ?? null) !== (v ?? null)) return false;
       } else if (v && typeof v === 'object' && 'notIn' in v) {
         if ((v.notIn as any[]).includes(row[k])) return false;
       } else if (v && typeof v === 'object' && 'not' in v) {
@@ -71,25 +70,6 @@ function makePrisma(seed: {
         const en = entries.find((x) => x.id === where.id);
         Object.assign(en, data);
         return Promise.resolve(en);
-      }),
-      // #569: `applyPreparedSettlement` faz update CONDICIONAL (só flipa quem
-      // ainda está PLANEJADO). O mock respeita id/status/deletedAt e devolve
-      // `{ count }` — ignora `tenantId` (irrelevante neste mock in-memory).
-      updateMany: jest.fn(({ where, data }: any) => {
-        let count = 0;
-        for (const en of entries) {
-          if (where.id != null && en.id !== where.id) continue;
-          if (where.status != null && en.status !== where.status) continue;
-          if (
-            where.deletedAt !== undefined &&
-            (en.deletedAt ?? null) !== (where.deletedAt ?? null)
-          ) {
-            continue;
-          }
-          Object.assign(en, data);
-          count += 1;
-        }
-        return Promise.resolve({ count });
       }),
     },
     creditCardStatementImport: {
@@ -254,34 +234,6 @@ describe('CardInvoiceSettlementService', () => {
     // paidParcelas registra índice 0; despesa segue PLANEJADO (não tudo pago).
     expect(expense.paidParcelas).toBe(JSON.stringify([0]));
     expect(expense.status).toBe('PLANEJADO');
-  });
-
-  it('#569 (blocker 4): compra HÍBRIDA (cartão + conta) fica fora do target/ranking e não é liquidada', async () => {
-    const pure = {
-      id: 'pure', tenantId: 't1', cardLast4: '5868', bankLast4: null, tipoDespesa: 'OUTROS',
-      formaPagamento: 'A_VISTA', quantidadeParcela: null, status: 'PLANEJADO',
-      paidParcelas: null, deletedAt: null, importId: 'imp1',
-    };
-    const hybrid = {
-      id: 'hybrid', tenantId: 't1', cardLast4: '5868', bankLast4: '9999', tipoDespesa: 'OUTROS',
-      formaPagamento: 'A_VISTA', quantidadeParcela: null, status: 'PLANEJADO',
-      paidParcelas: null, deletedAt: null, importId: 'imp1',
-    };
-    const entries = [
-      { id: 'pure-e', expenseId: 'pure', status: 'PLANEJADO', parcela: null, data: d('2026-06-15'), valor: 5000, deletedAt: null },
-      { id: 'hybrid-e', expenseId: 'hybrid', status: 'PLANEJADO', parcela: null, data: d('2026-06-15'), valor: 5000, deletedAt: null },
-    ];
-    const prisma = makePrisma({ expenses: [pure, hybrid], entries });
-    const svc = new CardInvoiceSettlementService(prisma);
-
-    // Total da fatura visto pelo motor = só a compra pura (R$50). Pagamento de R$50
-    // fecha a fatura e liquida a pura; a híbrida nunca é tocada.
-    const res = await svc.settleInvoice({
-      tenantId: 't1', card: CARD, amountCents: 5000, paymentDate: d('2026-07-10'), requester: REQUESTER,
-    });
-    expect(res.settledParcelas).toBe(1);
-    expect(entries.find((e) => e.id === 'pure-e')!.status).toBe('PAGO');
-    expect(entries.find((e) => e.id === 'hybrid-e')!.status).toBe('PLANEJADO');
   });
 
   it('due-month: à vista no cartão vira PAGO quando a fatura vence no mês', async () => {

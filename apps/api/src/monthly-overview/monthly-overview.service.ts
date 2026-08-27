@@ -3373,8 +3373,7 @@ export class MonthlyOverviewService {
           createdByUserId,
         },
       });
-      const { settledExpenses, settledParcelas } =
-        await this.cardSettlement.applyPreparedSettlement(tx, prepared);
+      const settled = await this.cardSettlement.applyPreparedSettlement(tx, prepared);
 
       return {
         ok: true,
@@ -3384,8 +3383,7 @@ export class MonthlyOverviewService {
         accountId: account.id,
         month,
         amountCents,
-        settledExpenses,
-        settledParcelas,
+        ...settled,
       };
     });
   }

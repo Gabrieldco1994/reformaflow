@@ -78,12 +78,6 @@ export interface PreparedInvoiceSettlement {
   purchases: SettlePurchase[];
 }
 
-/** Um `CashFlowEntry` que `applyPreparedSettlement` de fato moveu PLANEJADO → PAGO. */
-export interface FlippedSettlementEntry {
-  cashFlowEntryId: string;
-  expenseId: string;
-}
-
 /**
  * Liquidação automática de fatura de cartão (modelo de caixa real).
  *
@@ -136,11 +130,7 @@ export class CardInvoiceSettlementService {
         ...params,
         tx,
       });
-      const applied = await this.applyPreparedSettlement(tx, prepared);
-      return {
-        settledExpenses: applied.settledExpenses,
-        settledParcelas: applied.settledParcelas,
-      };
+      return this.applyPreparedSettlement(tx, prepared);
     });
   }
 
@@ -180,11 +170,6 @@ export class CardInvoiceSettlementService {
         cardLast4: card.last4,
         deletedAt: null,
         tipoDespesa: { notIn: neutral },
-        // #569 (blocker 4): compra HÍBRIDA (`cardLast4` + `bankLast4`) também
-        // representa um movimento de conta — a liquidação de fatura nunca pode
-        // mudar o status dela. Fica de fora do target, do ranking e dos dois
-        // fallbacks.
-        bankLast4: null,
       },
       select: {
         id: true,
@@ -223,11 +208,7 @@ export class CardInvoiceSettlementService {
           card,
           target,
         );
-        // #569 (blocker 2): o alvo foi RESOLVIDO. Se não sobrou parcela
-        // PLANEJADO nesse ciclo (já liquidado por outro pagamento), NÃO caia no
-        // fallback nem avance para outra fatura — devolve o resultado real
-        // (possivelmente vazio).
-        return { purchases: prepared };
+        if (prepared.length > 0) return { purchases: prepared };
       }
     }
 
@@ -348,9 +329,6 @@ export class CardInvoiceSettlementService {
         cardLast4: card.last4,
         deletedAt: null,
         tipoDespesa: { notIn: neutral },
-        // #569 (blocker 4): compra HÍBRIDA (`cardLast4` + `bankLast4`) também é
-        // movimento de conta — a reversão de liquidação nunca pode mexer nela.
-        bankLast4: null,
       },
       include: {
         project: {
@@ -635,44 +613,22 @@ export class CardInvoiceSettlementService {
   async applyPreparedSettlement(
     tx: Prisma.TransactionClient,
     prepared: PreparedInvoiceSettlement,
-  ): Promise<{
-    settledExpenses: number;
-    settledParcelas: number;
-    flippedEntries: FlippedSettlementEntry[];
-  }> {
+  ): Promise<{ settledExpenses: number; settledParcelas: number }> {
     let settledParcelas = 0;
-    let settledExpenses = 0;
-    const flippedEntries: FlippedSettlementEntry[] = [];
     for (const purchase of prepared.purchases) {
-      // #569: update CONDICIONAL. Uma parcela que já saiu de PLANEJADO entre o
-      // prepare e o apply (outra corrida, edição concorrente) tem `count === 0`
-      // e NÃO entra na recomputação da despesa nem no ledger — só as que este
-      // pagamento de fato moveu contam.
-      const flippedForPurchase: EntryRow[] = [];
       for (const entry of purchase.entries) {
-        const { count } = await tx.cashFlowEntry.updateMany({
-          where: {
-            id: entry.id,
-            tenantId: purchase.expense.tenantId,
-            deletedAt: null,
-            status: 'PLANEJADO',
-          },
+        await tx.cashFlowEntry.update({
+          where: { id: entry.id },
           data: { status: 'PAGO' },
         });
-        if (count === 1) {
-          flippedForPurchase.push(entry);
-          flippedEntries.push({
-            cashFlowEntryId: entry.id,
-            expenseId: purchase.expense.id,
-          });
-        }
       }
-      if (flippedForPurchase.length === 0) continue;
-      await this.applyPaid(tx, purchase.expense, flippedForPurchase);
-      settledExpenses += 1;
-      settledParcelas += flippedForPurchase.length;
+      await this.applyPaid(tx, purchase.expense, purchase.entries);
+      settledParcelas += purchase.entries.length;
     }
-    return { settledExpenses, settledParcelas, flippedEntries };
+    return {
+      settledExpenses: prepared.purchases.length,
+      settledParcelas,
+    };
   }
 
   /**

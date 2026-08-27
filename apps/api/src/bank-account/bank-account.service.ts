@@ -982,7 +982,7 @@ export class BankAccountService {
           receiptsInserted > 0 ? `${receiptsInserted} recebimento(s)` : null,
           cardPayments > 0 ? `${cardPayments} pagto(s) de cartão vinculado(s)` : null,
           unlinkedCardPayments > 0
-            ? `${unlinkedCardPayments} pagto(s) de fatura sem liquidação (nenhuma fatura compatível foi liquidada)`
+            ? `${unlinkedCardPayments} pagto(s) de fatura SEM cartão identificado`
             : null,
           linked > 0 ? `${linked} vinculada(s) a planejado` : null,
           aiReclassified > 0 ? `${aiReclassified} categoria(s) por regra` : null,
@@ -2200,28 +2200,12 @@ export class BankAccountService {
           matchedCard,
           cardPaymentInfo.last4,
         );
-        const applied = await this.cardSettlement.applyPreparedSettlement(
-          client,
-          currentSettlement,
-        );
-        // #569: resultado HONESTO. Cartão identificado mas nenhuma parcela
-        // mudou de PLANEJADO → PAGO ⇒ não houve liquidação. Não conta como
-        // `cardPayment` (vinculado); cai no aviso de "nenhuma fatura compatível
-        // foi liquidada".
-        const flippedSomething = applied.flippedEntries.length > 0;
-        // fix 2: só agora, e só se houve flip, o pagamento ganha `cardLast4` —
-        // aí ele casa no read-model exatamente com a fatura que de fato quitou.
-        if (flippedSomething) {
-          await client.expense.update({
-            where: { id: e.id },
-            data: { cardLast4: matchedCard.last4 },
-          });
-        }
+        await this.cardSettlement.applyPreparedSettlement(client, currentSettlement);
         return {
           inserted: false,
           receiptInserted: false,
-          cardPayment: flippedSomething,
-          unlinkedCardPayment: !flippedSomething,
+          cardPayment: true,
+          unlinkedCardPayment: false,
           expenseId: e.id,
         };
       }
@@ -2314,7 +2298,7 @@ export class BankAccountService {
     importId: string,
     createdByUserId: string | null,
     matchedCard: MatchedSettlementCard | null,
-    _detectedLast4: string | null,
+    detectedLast4: string | null,
   ): Promise<{ id: string }> {
     return client.expense.create({
       data: {
@@ -2334,12 +2318,7 @@ export class BankAccountService {
         importId,
         externalId: transaction.externalId,
         bankLast4: account.last4,
-        // #569 (fix 2): NUNCA persiste `cardLast4` na criação. Ele só é gravado
-        // DEPOIS da liquidação, e só se ≥1 parcela virou PAGO — o caller faz o
-        // update condicional. Pagamento sem flip fica `cardLast4: null`: sai do
-        // caixa mas não abate nenhuma fatura no read-model
-        // (`implicitPaymentsDetailed` exige `cardLast4`).
-        cardLast4: null,
+        cardLast4: matchedCard?.last4 ?? detectedLast4,
         createdByUserId,
       },
       select: { id: true },
@@ -2430,9 +2409,6 @@ export class BankAccountService {
           expense: {
             projectId: card.projectId,
             cardLast4: card.last4,
-            // #569 (blocker 4): compra HÍBRIDA (cartão + conta) fica fora do
-            // ranking de faturas — ela é também movimento de conta.
-            bankLast4: null,
             deletedAt: null,
             tipoDespesa: { notIn: Array.from(NEUTRAL_EXPENSE_TYPES) },
           },
