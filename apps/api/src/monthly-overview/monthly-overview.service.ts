@@ -1005,16 +1005,6 @@ export class MonthlyOverviewService {
         amount: expense.valorTotal,
         importId: expense.importId ?? null,
       }));
-    // #569: um pagamento de fatura CRIADO PELA IMPORTAÇÃO (`importId != null`)
-    // ainda ABATE a fatura (entra em `implicitPayments`), mas NÃO é desfazível
-    // pelo cockpit — só `BankAccountService.undoImport` o remove. Por isso o
-    // mapa que alimenta o verbo `undo` e o id exposto usa só os manuais.
-    const manualImplicitPaymentsDetailed = implicitPaymentsDetailed.filter(
-      (payment) => payment.importId == null,
-    );
-    const importedImplicitPaymentsDetailed = implicitPaymentsDetailed.filter(
-      (payment) => payment.importId != null,
-    );
     const implicitPayments = implicitPaymentsDetailed.map((payment) => ({
       payMonth: payment.payMonth,
       cardLast4: payment.cardLast4,
@@ -1037,19 +1027,28 @@ export class MonthlyOverviewService {
       residualByInvoice,
     );
     const paidInvoiceKeys = settlementTotals.paidInvoiceKeys;
-    const implicitPaymentByInvoice = matchPaidInvoiceExpenseIds(
+    // #569: o verbo `undo` do cockpit ESPELHA `undoInvoicePayment` — um único
+    // `assignImplicitPayments` sobre TODOS os pagamentos (manuais + importados),
+    // agrupado por fatura. Só expõe `id`/ação quando o grupo tem exatamente 1
+    // assignment E esse pagamento é manual (`importId == null`). Qualquer
+    // pagamento importado casado, ou 2+ assignments na mesma fatura ⇒ sem CTA.
+    const assignmentsByInvoice = new Map<
+      string,
+      Array<{ expenseId: string; importId: string | null }>
+    >();
+    for (const { payment, invoiceKey } of assignImplicitPayments(
       settlementInvoices,
-      manualImplicitPaymentsDetailed,
-    );
-    // #569: se a MESMA fatura também tem um pagamento importado casado, o
-    // desfazer do cockpit fica indisponível — reverter só o manual deixaria o
-    // read-model inconsistente (o importado seguiria abatendo a fatura).
-    const importedPaymentByInvoice = matchPaidInvoiceExpenseIds(
-      settlementInvoices,
-      importedImplicitPaymentsDetailed,
-    );
-    for (const invoiceKey of importedPaymentByInvoice.keys()) {
-      implicitPaymentByInvoice.delete(invoiceKey);
+      implicitPaymentsDetailed,
+    )) {
+      const list = assignmentsByInvoice.get(invoiceKey) ?? [];
+      list.push({ expenseId: payment.expenseId, importId: payment.importId });
+      assignmentsByInvoice.set(invoiceKey, list);
+    }
+    const implicitPaymentByInvoice = new Map<string, string>();
+    for (const [invoiceKey, group] of assignmentsByInvoice) {
+      if (group.length === 1 && group[0].importId == null) {
+        implicitPaymentByInvoice.set(invoiceKey, group[0].expenseId);
+      }
     }
 
     for (const [invoiceKey, invoice] of invoiceByMonthCard) {
@@ -3716,9 +3715,6 @@ export interface PaymentForMatch {
   cardLast4: string;
   amount: number;
 }
-interface PaymentForMatchWithExpenseId extends PaymentForMatch {
-  expenseId: string;
-}
 
 type InvoiceAdjustmentReasonValue =
   | 'JUROS_ROTATIVO'
@@ -3821,29 +3817,6 @@ export function matchPaidInvoices(
   return computeInvoiceSettlementTotals(invoices, payments, []).paidInvoiceKeys;
 }
 
-function matchPaidInvoiceExpenseIds(
-  invoices: InvoiceForMatch[],
-  payments: PaymentForMatchWithExpenseId[],
-): Map<string, string> {
-  const matched = new Map<string, string>();
-  const paidAmountByInvoice = computeInvoiceSettlementTotals(invoices, payments, []).paidAmountByInvoice;
-  const singleByInvoice = new Map<string, string>();
-  const countByInvoice = new Map<string, number>();
-  const assignments = assignImplicitPayments(invoices, payments);
-  for (const { payment, invoiceKey } of assignments) {
-    const key = invoiceKey;
-    const amount = paidAmountByInvoice.get(key) ?? 0;
-    if (amount <= 0) continue;
-    countByInvoice.set(key, (countByInvoice.get(key) ?? 0) + 1);
-    if (!singleByInvoice.has(key)) {
-      singleByInvoice.set(key, payment.expenseId);
-    }
-  }
-  for (const [key, expenseId] of singleByInvoice) {
-    if ((countByInvoice.get(key) ?? 0) === 1) matched.set(key, expenseId);
-  }
-  return matched;
-}
 
 interface InvoiceSettlementTotals {
   paidInvoiceKeys: Set<string>;
