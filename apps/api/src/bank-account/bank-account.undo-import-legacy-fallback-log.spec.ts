@@ -237,16 +237,31 @@ describe("BankAccountService — pagamento legado e ledger (issue #569, fase 2)"
       },
     });
 
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId);
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId, REQUESTER);
     expect(detail.impact.invoiceLiquidations).toBe(0);
     expect(detail.irreversible.notRevertibleInvoiceLiquidations).toBe(1);
   });
 
   it("índice único parcial: duas reivindicações ATIVAS para a mesma parcela são impossíveis", async () => {
+    const purchase = await setupPrisma.expense.create({
+      data: {
+        tenantId: TENANT,
+        projectId: PESSOAL,
+        tipoDespesa: "OUTROS",
+        titulo: "compra",
+        valor: 1,
+        quantidade: 1,
+        valorTotal: 1,
+        formaPagamento: "A_VISTA",
+        status: "PAGO",
+        cardLast4: LAST4,
+      },
+    });
     const entry = await setupPrisma.cashFlowEntry.create({
       data: {
         tenantId: TENANT,
         projectId: PESSOAL,
+        expenseId: purchase.id,
         valor: 1,
         tipo: "DESPESA",
         data: new Date("2026-06-10T12:00:00.000Z"),
@@ -286,11 +301,11 @@ describe("BankAccountService — pagamento legado e ledger (issue #569, fase 2)"
     const a = await makeSettlement("dup-a");
     const b = await makeSettlement("dup-b");
     await setupPrisma.importedCardInvoiceSettlementEntry.create({
-      data: { tenantId: TENANT, settlementId: a.id, cashFlowEntryId: entry.id },
+      data: { tenantId: TENANT, settlementId: a.id, cashFlowEntryId: entry.id, expenseId: purchase.id },
     });
     await expect(
       setupPrisma.importedCardInvoiceSettlementEntry.create({
-        data: { tenantId: TENANT, settlementId: b.id, cashFlowEntryId: entry.id },
+        data: { tenantId: TENANT, settlementId: b.id, cashFlowEntryId: entry.id, expenseId: purchase.id },
       }),
     ).rejects.toThrow();
 
@@ -301,7 +316,7 @@ describe("BankAccountService — pagamento legado e ledger (issue #569, fase 2)"
     });
     await expect(
       setupPrisma.importedCardInvoiceSettlementEntry.create({
-        data: { tenantId: TENANT, settlementId: b.id, cashFlowEntryId: entry.id },
+        data: { tenantId: TENANT, settlementId: b.id, cashFlowEntryId: entry.id, expenseId: purchase.id },
       }),
     ).resolves.toBeTruthy();
   });

@@ -559,7 +559,17 @@ describe('BankAccountService', () => {
       });
       const settleSpy = jest
         .spyOn(settlement, 'applyPreparedSettlement')
-        .mockResolvedValue({ settledExpenses: 3, settledParcelas: 3, flippedEntries: [] });
+        .mockResolvedValue({
+          settledExpenses: 3,
+          settledParcelas: 3,
+          // #569 (blocker 5): `settledParcelas > 0` ⇒ `flippedEntries` não pode
+          // ser vazio — é isso que faz `cardPayments` contar como liquidado.
+          flippedEntries: [
+            { cashFlowEntryId: 'cfe-1', expenseId: 'purchase-1' },
+            { cashFlowEntryId: 'cfe-2', expenseId: 'purchase-2' },
+            { cashFlowEntryId: 'cfe-3', expenseId: 'purchase-3' },
+          ],
+        });
 
       prisma.expense.create.mockClear();
       const preview = await service.previewImport(

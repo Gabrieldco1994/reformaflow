@@ -186,7 +186,12 @@ describe('BankAccountService.undoImport — ACL do ledger de liquidação (#569)
       },
     });
     await setupPrisma.importedCardInvoiceSettlementEntry.create({
-      data: { tenantId: TENANT, settlementId: settlement.id, cashFlowEntryId: entry.id },
+      data: {
+        tenantId: TENANT,
+        settlementId: settlement.id,
+        cashFlowEntryId: entry.id,
+        expenseId: purchase.id,
+      },
     });
     return { purchaseId: purchase.id, entryId: entry.id };
   }

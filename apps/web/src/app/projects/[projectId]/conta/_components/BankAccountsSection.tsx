@@ -258,16 +258,16 @@ export default function BankAccountsSection({
                       data-bank-account-action
                     >
                       <History className="h-4 w-4" />
-                      Importações
+                      Histórico
                     </button>
                     <button
                       type="button"
                       onClick={() => openEdit(account)}
                       aria-label={`Editar ${accountName(account)}, final ${account.last4}`}
-                      className="min-h-11 rounded-lg border border-lifeone-hairline px-3 text-xs font-semibold text-lifeone-blue transition-colors hover:bg-lifeone-surface"
+                      className="inline-flex min-h-11 items-center rounded-lg border border-lifeone-hairline px-3 text-xs font-semibold text-lifeone-blue transition-colors hover:bg-lifeone-surface"
                       data-bank-account-action
                     >
-                      Editar conta e saldo inicial
+                      Editar
                     </button>
                   </div>
                 </div>

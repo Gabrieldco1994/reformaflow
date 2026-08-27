@@ -725,3 +725,58 @@ histórico exato de liquidação — reabra a fatura manualmente se necessário"
 > Não confundir com **§14 "Desfazer pagamento de fatura"**, que é o inverso do
 > pagamento **manual** do cockpit (`payInvoice`) e continua usando o motor por
 > `dueMonth`. São ações de faturas diferentes.
+
+### §16.1 Validação no momento do undo (rodada corretiva)
+
+`getImportDetail` e `undoImport` **revalidam o ledger dentro da própria
+transação** (nenhuma escrita no `getImportDetail`), e `getImportDetail` recebe o
+`requester`:
+
+- **Autorização agora:** o `cardProjectId` de cada ledger e o projeto de cada
+  parcela registrada são reautorizados (`assertCanAccessProject`, módulo
+  `creditCards`). Revogação de qualquer participante, ou relação cross-tenant ⇒
+  **404 indistinguível**, antes de qualquer payload/escrita.
+- **Drift do lançamento ⇒ 409:** um filho ativo cuja `CashFlowEntry` sumiu,
+  mudou de tenant, deixou de apontar para a `expense` registrada (coluna
+  `expense_id` do filho) ou saiu de `PAGO` torna a importação **não
+  desfazível**: `getImportDetail.canUndo = false`,
+  `blocking.changedInvoiceLiquidations > 0`, `undoImport` → **409, zero writes**
+  (nunca procura um "substituto" por data/parcela).
+- **Outro pagamento ativo pela mesma fatura ⇒ 409:** se um ledger íntegro tem
+  outra liquidação ativa (`cardId+targetDueMonth` **ou**
+  `cardId+matchedCardImportId`), de OUTRA importação com pagamento vivo, ele não
+  pode ser revertido agora — `blocking.invoiceLiquidationsWithOtherPayments > 0`.
+  Pagamentos do MESMO lote não bloqueiam uns aos outros.
+- `impact.invoiceLiquidations` conta **apenas** ledgers com filhos íntegros e
+  reversíveis **naquele momento**.
+
+### §16.2 A liquidação nunca "avança"
+
+- `strategy = NONE` significa **só** "nenhum alvo foi resolvido". Uma liquidação
+  `DUE_MONTH`/`IMPORTED_STATEMENT` **sem filhos** (fatura já quitada por outro
+  pagamento) mantém a estratégia — os filhos são o efeito físico, a estratégia é
+  o alvo.
+- Estratégia por vencimento: alvo resolvido mas sem parcela `PLANEJADO` ⇒
+  `DUE_MONTH` com `purchases: []`. **Não** cai no fallback nem paga outra fatura.
+- Fallback importado: se já existe liquidação ativa para
+  `cardId + matchedCardImportId`, devolve `IMPORTED_STATEMENT` com
+  `purchases: []` — **não avança** para a próxima parcela em aberto.
+
+### §16.3 Compra híbrida e resultado honesto do commit
+
+- **Híbrida (`cardLast4` + `bankLast4`):** também é movimento de conta. Fica
+  **fora** do target, do ranking (`loadCardsWithEntries`) e dos dois fallbacks —
+  a liquidação nunca muda o status de um lançamento que também representa
+  movimento de conta.
+- **Commit honesto:** `cardPayments` só incrementa quando o pagamento de fato
+  moveu ≥1 parcela `PLANEJADO → PAGO`. Cartão identificado mas nada liquidado ⇒
+  cai no aviso "saiu do saldo, nenhuma fatura quitada" (`unlinkedCardPayments`),
+  não em "vinculado".
+
+### §16.4 Desfazer manual não alcança pagamento importado
+
+`monthly-overview.undoInvoicePayment` (cockpit) só aceita pagamento **manual**
+(`importId: null`) — na seleção de candidatos, no mapa que produz o verbo `undo`
+em `cartoes[]` e na releitura dentro da transação. Chamada direta para um
+pagamento importado ⇒ **404**. O pagamento importado **continua contando** no
+status da fatura; só `BankAccountService.undoImport` o remove.

@@ -37,6 +37,17 @@ interface ImportDetail {
     recurrencesPropagated: number;
     notRevertibleInvoiceLiquidations: number;
   };
+  /**
+   * #569: `false` quando a liquidação de fatura registrada por esta importação
+   * mudou desde o preview (parcela regenerada/despagada, ou outro pagamento
+   * ativo pela mesma fatura). Ausente para importações de fatura de cartão
+   * (contrato antigo) — tratado como permitido.
+   */
+  canUndo?: boolean;
+  blocking?: {
+    changedInvoiceLiquidations: number;
+    invoiceLiquidationsWithOtherPayments: number;
+  };
 }
 
 interface Props {
@@ -114,6 +125,12 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
 
   const irrev = detail?.irreversible;
   const hasIrreversible = !!irrev && (irrev.recurrencesPropagated > 0 || irrev.notRevertibleInvoiceLiquidations > 0);
+  // #569 (blocker 8): `canUndo === false` = a liquidação registrada mudou desde
+  // o preview. Diferente do legado irreversível (que só avisa) — aqui o desfazer
+  // fica BLOQUEADO. `undefined` (importação de fatura de cartão) = permitido.
+  const undoBlocked = detail?.canUndo === false && !detail?.alreadyUndone;
+  const blockedByChange = (detail?.blocking?.changedInvoiceLiquidations ?? 0) > 0;
+  const blockedByOtherPayment = (detail?.blocking?.invoiceLiquidationsWithOtherPayments ?? 0) > 0;
 
   return (
     <Modal open onClose={onClose} title={title} size="lg">
@@ -145,6 +162,33 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
           {detail.alreadyUndone ? (
             <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
               Esta importação já foi desfeita.
+            </div>
+          ) : undoBlocked ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle className="h-4 w-4" /> Não é possível desfazer agora
+                </div>
+                <p className="mt-1">
+                  {blockedByChange &&
+                    'Uma parcela de fatura que esta importação havia quitado foi alterada ou recriada depois. '}
+                  {blockedByOtherPayment &&
+                    'Outra importação ativa já quitou a mesma fatura. '}
+                  Revise as alterações ou os pagamentos posteriores antes de tentar
+                  desfazer — nada será removido enquanto isso não for resolvido.
+                </p>
+              </div>
+              {error && (
+                <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+              )}
+              <div className="flex justify-end pt-1">
+                <button
+                  onClick={() => setDetail(null)}
+                  className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+                >
+                  Voltar ao histórico
+                </button>
+              </div>
             </div>
           ) : (
             <>
@@ -245,6 +289,9 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                     <button
                       onClick={() => void openDetail(row)}
                       disabled={detailLoading}
+                      aria-label={`Desfazer importação ${row.periodLabel}${
+                        row.fileName ? ` · ${row.fileName}` : ''
+                      } · ${fmtDate(row.createdAt)}`}
                       className="flex min-h-11 items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
                     >
                       <RotateCcw className="h-4 w-4" /> Desfazer

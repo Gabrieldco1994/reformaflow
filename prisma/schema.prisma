@@ -263,6 +263,7 @@ model Expense {
   rateioAsTarget      RateioAllocation[]       @relation("RateioTarget")
   financingInstallment FinancingInstallment?
   importedCardInvoiceSettlement ImportedCardInvoiceSettlement? @relation("ImportedCardInvoiceSettlementPayment")
+  importedCardInvoiceSettlementEntries ImportedCardInvoiceSettlementEntry[]
 
   @@unique([tenantId, projectId, externalId])
   @@index([linkedExpenseId])
@@ -1092,15 +1093,18 @@ model ImportedCardInvoiceSettlementEntry {
   tenantId        String    @map("tenant_id")
   settlementId    String    @map("settlement_id")
   cashFlowEntryId String    @map("cash_flow_entry_id") // a parcela que ESTE pagamento moveu PLANEJADO → PAGO
+  expenseId       String    @map("expense_id") // compra de cartão dona da parcela no momento do registro — o undo confirma que a CFE ainda aponta para ELA
   createdAt       DateTime  @default(now()) @map("created_at")
   releasedAt      DateTime? @map("released_at")
 
   settlement    ImportedCardInvoiceSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   cashFlowEntry CashFlowEntry                 @relation(fields: [cashFlowEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  expense       Expense                       @relation(fields: [expenseId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([settlementId])
   @@index([tenantId])
   @@index([cashFlowEntryId])
+  @@index([expenseId])
   @@map("imported_card_invoice_settlement_entries")
 }
 

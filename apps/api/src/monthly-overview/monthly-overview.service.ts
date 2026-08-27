@@ -1003,7 +1003,15 @@ export class MonthlyOverviewService {
         payMonth: monthKeyOf(accountExpenseDate(expense)),
         cardLast4: expense.cardLast4 as string,
         amount: expense.valorTotal,
+        importId: expense.importId ?? null,
       }));
+    // #569: um pagamento de fatura CRIADO PELA IMPORTAÇÃO (`importId != null`)
+    // ainda ABATE a fatura (entra em `implicitPayments`), mas NÃO é desfazível
+    // pelo cockpit — só `BankAccountService.undoImport` o remove. Por isso o
+    // mapa que alimenta o verbo `undo` e o id exposto usa só os manuais.
+    const manualImplicitPaymentsDetailed = implicitPaymentsDetailed.filter(
+      (payment) => payment.importId == null,
+    );
     const implicitPayments = implicitPaymentsDetailed.map((payment) => ({
       payMonth: payment.payMonth,
       cardLast4: payment.cardLast4,
@@ -1028,7 +1036,7 @@ export class MonthlyOverviewService {
     const paidInvoiceKeys = settlementTotals.paidInvoiceKeys;
     const implicitPaymentByInvoice = matchPaidInvoiceExpenseIds(
       settlementInvoices,
-      implicitPaymentsDetailed,
+      manualImplicitPaymentsDetailed,
     );
 
     for (const [invoiceKey, invoice] of invoiceByMonthCard) {
@@ -3468,6 +3476,9 @@ export class MonthlyOverviewService {
         status: 'PAGO',
         bankLast4: { not: null },
         settlesInvoiceKey: null,
+        // #569: o desfazer manual só alcança pagamento MANUAL. Pagamento de
+        // importação (`importId != null`) só sai por `BankAccountService.undoImport`.
+        importId: null,
         deletedAt: null,
       },
       select: {
@@ -3541,6 +3552,7 @@ export class MonthlyOverviewService {
           tenantId,
           projectId,
           tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          importId: null,
           deletedAt: null,
         },
         data: { deletedAt: new Date() },

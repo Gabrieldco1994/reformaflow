@@ -904,6 +904,10 @@ visões de Mês/Ano.
     nenhuma compra do cartão é alterada — reabra a fatura manualmente se
     precisar. Recorrências já propagadas (Casa/Carro) continuam sendo o outro
     efeito não revertido.
+  - Se uma parcela de fatura que a importação havia quitado foi **alterada ou
+    recriada** depois, ou se **outra importação** já quitou a mesma fatura, o
+    preview mostra "**Não é possível desfazer agora**" e bloqueia a confirmação
+    — nada é removido até você resolver as alterações/pagamentos posteriores.
 - Quando há mais de uma conta, o deep-link sem uma conta específica pede uma
   escolha explícita. Um `accountId` inválido mostra erro em vez de editar outra.
 - **Deep-link do cockpit:** o banner de estado degradado leva a

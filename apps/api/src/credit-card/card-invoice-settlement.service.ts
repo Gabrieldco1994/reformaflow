@@ -199,6 +199,11 @@ export class CardInvoiceSettlementService {
         cardLast4: card.last4,
         deletedAt: null,
         tipoDespesa: { notIn: neutral },
+        // #569 (blocker 4): compra HÍBRIDA (`cardLast4` + `bankLast4`) também
+        // representa um movimento de conta — a liquidação de fatura nunca pode
+        // mudar o status dela. Fica de fora do target, do ranking e dos dois
+        // fallbacks.
+        bankLast4: null,
       },
       select: {
         id: true,
@@ -237,14 +242,15 @@ export class CardInvoiceSettlementService {
           card,
           target,
         );
-        if (prepared.length > 0) {
-          return {
-            purchases: prepared,
-            strategy: 'DUE_MONTH',
-            targetDueMonth: target,
-            matchedCardImportId: null,
-          };
-        }
+        // #569 (blocker 2): o alvo foi RESOLVIDO. Se não sobrou parcela
+        // PLANEJADO nesse ciclo (já liquidado por outro pagamento), NÃO caia no
+        // fallback nem avance para outra fatura — devolve DUE_MONTH sem filhos.
+        return {
+          purchases: prepared,
+          strategy: 'DUE_MONTH',
+          targetDueMonth: target,
+          matchedCardImportId: null,
+        };
       }
     }
 
@@ -265,6 +271,27 @@ export class CardInvoiceSettlementService {
       };
     }
 
+    // #569 (blocker 2): já existe uma liquidação ATIVA por essa mesma fatura
+    // importada (outro pagamento do mesmo total). NÃO avance para a próxima
+    // parcela em aberto — devolve IMPORTED_STATEMENT sem filhos.
+    const priorFallback = await tx.importedCardInvoiceSettlement.findFirst({
+      where: {
+        tenantId,
+        cardId: card.id,
+        matchedCardImportId: matchedImport.id,
+        revertedAt: null,
+      },
+      select: { id: true },
+    });
+    if (priorFallback) {
+      return {
+        purchases: [],
+        strategy: 'IMPORTED_STATEMENT',
+        targetDueMonth: null,
+        matchedCardImportId: matchedImport.id,
+      };
+    }
+
     const importPurchases = purchases.filter(
       (purchase) => purchase.importId === matchedImport.id,
     );
@@ -274,9 +301,9 @@ export class CardInvoiceSettlementService {
     );
     return {
       purchases: prepared,
-      strategy: prepared.length > 0 ? 'IMPORTED_STATEMENT' : 'NONE',
+      strategy: 'IMPORTED_STATEMENT',
       targetDueMonth: null,
-      matchedCardImportId: prepared.length > 0 ? matchedImport.id : null,
+      matchedCardImportId: matchedImport.id,
     };
   }
 
@@ -746,20 +773,23 @@ export class CardInvoiceSettlementService {
   async recomputeExpensePaidState(
     client: Prisma.TransactionClient,
     expenseId: string,
+    tenantId: string,
   ): Promise<void> {
-    const e = (await client.expense.findUnique({
-      where: { id: expenseId },
+    // #569 (blocker 7): toda leitura/escrita filtra por `id + tenantId +
+    // deletedAt: null` — nunca lê nem toca Expense/CFE de outro tenant.
+    const e = (await client.expense.findFirst({
+      where: { id: expenseId, tenantId, deletedAt: null },
       select: { id: true, formaPagamento: true, quantidadeParcela: true },
     })) as { id: string; formaPagamento: string; quantidadeParcela: number | null } | null;
     if (!e) return;
     const n = e.quantidadeParcela ?? 1;
     const paid = (await client.cashFlowEntry.findMany({
-      where: { expenseId, deletedAt: null, status: 'PAGO' },
+      where: { expenseId, tenantId, deletedAt: null, status: 'PAGO' },
     })) as EntryRow[];
 
     if (isSinglePaymentForm(e.formaPagamento) || n <= 1) {
-      await client.expense.update({
-        where: { id: expenseId },
+      await client.expense.updateMany({
+        where: { id: expenseId, tenantId, deletedAt: null },
         data: { status: paid.length > 0 ? 'PAGO' : 'PLANEJADO', paidParcelas: null },
       });
       return;
@@ -775,8 +805,8 @@ export class CardInvoiceSettlementService {
       allPaid || set.size === 0
         ? null
         : JSON.stringify(Array.from(set).sort((a, b) => a - b));
-    await client.expense.update({
-      where: { id: expenseId },
+    await client.expense.updateMany({
+      where: { id: expenseId, tenantId, deletedAt: null },
       data: { status: allPaid ? 'PAGO' : 'PLANEJADO', paidParcelas },
     });
   }

@@ -271,6 +271,11 @@ async function expectSingleAuthorizedPayment(
   result: Awaited<ReturnType<typeof commit>>,
   expectedExternalId: string,
 ): Promise<void> {
+  // #569 (blocker 5): cartão AUTORIZADO mas SEM compra participante ⇒ nenhuma
+  // parcela liquidada ⇒ resultado honesto: não conta como `cardPayments`
+  // (vinculado), cai no aviso de "saiu do saldo, nenhuma fatura quitada". O
+  // pagamento continua criado — o teste segue provando que o lote NÃO foi
+  // rejeitado por ACL.
   expect(result).toEqual(
     expect.objectContaining({
       source: "OFX",
@@ -279,8 +284,8 @@ async function expectSingleAuthorizedPayment(
       duplicated: 0,
       failedItems: [],
       receiptsInserted: 0,
-      cardPayments: 1,
-      unlinkedCardPayments: 0,
+      cardPayments: 0,
+      unlinkedCardPayments: 1,
       skipped: 0,
       linked: 0,
     }),

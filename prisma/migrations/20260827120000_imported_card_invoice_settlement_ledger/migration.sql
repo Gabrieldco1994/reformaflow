@@ -40,10 +40,12 @@ CREATE TABLE "imported_card_invoice_settlement_entries" (
     "tenant_id" TEXT NOT NULL,
     "settlement_id" TEXT NOT NULL,
     "cash_flow_entry_id" TEXT NOT NULL,
+    "expense_id" TEXT NOT NULL,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "released_at" DATETIME,
     CONSTRAINT "imported_card_invoice_settlement_entries_settlement_id_fkey" FOREIGN KEY ("settlement_id") REFERENCES "imported_card_invoice_settlements" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "imported_card_invoice_settlement_entries_cash_flow_entry_id_fkey" FOREIGN KEY ("cash_flow_entry_id") REFERENCES "cash_flow_entries" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "imported_card_invoice_settlement_entries_cash_flow_entry_id_fkey" FOREIGN KEY ("cash_flow_entry_id") REFERENCES "cash_flow_entries" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "imported_card_invoice_settlement_entries_expense_id_fkey" FOREIGN KEY ("expense_id") REFERENCES "expenses" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateIndex
@@ -56,6 +58,7 @@ CREATE INDEX "imported_card_invoice_settlements_card_id_idx" ON "imported_card_i
 CREATE INDEX "imported_card_invoice_settlement_entries_settlement_id_idx" ON "imported_card_invoice_settlement_entries"("settlement_id");
 CREATE INDEX "imported_card_invoice_settlement_entries_tenant_id_idx" ON "imported_card_invoice_settlement_entries"("tenant_id");
 CREATE INDEX "imported_card_invoice_settlement_entries_cash_flow_entry_id_idx" ON "imported_card_invoice_settlement_entries"("cash_flow_entry_id");
+CREATE INDEX "imported_card_invoice_settlement_entries_expense_id_idx" ON "imported_card_invoice_settlement_entries"("expense_id");
 
 -- CreateIndex: uma parcela só pode estar reivindicada por UMA liquidação ativa
 CREATE UNIQUE INDEX "imported_card_invoice_settlement_entries_active_cash_flow_entry_key" ON "imported_card_invoice_settlement_entries"("cash_flow_entry_id") WHERE "released_at" IS NULL;

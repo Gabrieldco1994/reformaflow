@@ -325,9 +325,14 @@ describe("BankAccountsSection", () => {
         name: "Importações de Conta A, final 1111",
       }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: /^desfazer$/i }));
+    // #569 (blocker 10): a ação da lista tem nome acessível contextual.
     fireEvent.click(
-      await screen.findByRole("button", { name: /desfazer importação/i }),
+      await screen.findByRole("button", {
+        name: /^Desfazer importação 2026-07 · extrato\.ofx/,
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Desfazer importação$/i }),
     );
 
     await waitFor(() =>

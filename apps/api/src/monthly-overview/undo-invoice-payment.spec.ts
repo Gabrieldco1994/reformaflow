@@ -629,6 +629,73 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
     expect(JSON.parse(JSON.stringify({ expenses, entries }))).toEqual(before);
   });
 
+  it('#569: pagamento de fatura IMPORTADO não é desfazível pelo cockpit — 404 e o verbo undo não aparece', async () => {
+    const expenses = [
+      {
+        id: 'exp-a',
+        tenantId,
+        projectId,
+        project,
+        tipoDespesa: 'ALIMENTACAO',
+        titulo: 'Mercado',
+        fornecedor: 'Mercado',
+        valor: 5_000,
+        valorTotal: 5_000,
+        cardLast4: '1234',
+        bankLast4: null,
+        formaPagamento: 'A_VISTA',
+        quantidadeParcela: null,
+        dataPagamento: null,
+        dataInicioParcela: null,
+        createdAt: d('2026-05-05'),
+        importId: 'imp-extrato-1',
+        linkedExpenseId: null,
+        settledByExpenseId: null,
+        status: 'PAGO',
+        paidParcelas: null,
+        settlesInvoiceKey: null,
+        deletedAt: null,
+      },
+      {
+        id: 'pay-import',
+        tenantId,
+        projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        cardLast4: '1234',
+        bankLast4: '9999',
+        formaPagamento: 'A_VISTA',
+        quantidadeParcela: null,
+        status: 'PAGO',
+        paidParcelas: null,
+        settlesInvoiceKey: null,
+        // criado pela importação de extrato — só `BankAccountService.undoImport` remove.
+        importId: 'imp-extrato-1',
+        valorTotal: 5_000,
+        dataPagamento: d('2026-05-20'),
+        createdAt: d('2026-05-20'),
+        deletedAt: null,
+      },
+    ];
+    const entries = [
+      { id: 'a1', expenseId: 'exp-a', receiptId: null, tenantId, projectId, tipo: 'DESPESA', status: 'PAGO', categoria: 'ALIMENTACAO', subcategoria: null, formaPagamento: 'CARTAO_CREDITO', parcela: null, data: d('2026-05-05'), createdAt: d('2026-05-05'), valor: 5_000, deletedAt: null },
+    ];
+    const prisma = buildPrisma({ tenantId, projectId, card, account, expenses, entries });
+    const service = await buildService(prisma);
+
+    await expect(
+      service.undoInvoicePayment(tenantId, projectId, { cardLast4: '1234', dueMonth: '2026-05' }, requester),
+    ).rejects.toThrow('Nenhum pagamento encontrado');
+
+    // A fatura continua contando como PAGA — o pagamento importado abate.
+    const view: any = await service.getAccountView(tenantId, projectId, '2026-05');
+    const cartao = view.cartoes.find((c: any) => c.last4 === '1234');
+    expect(cartao.status).toBe('paga');
+    expect(cartao.actions ?? []).not.toContain('undo');
+
+    // Nada foi mutado.
+    expect(expenses.find((e) => e.id === 'pay-import')?.deletedAt).toBeNull();
+  });
+
   it('recusa com 404 quando não há pagamento casado com a fatura', async () => {
     const expenses = baseExpenses();
     const entries = baseEntries();

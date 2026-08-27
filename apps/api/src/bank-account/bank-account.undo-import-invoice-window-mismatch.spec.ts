@@ -266,7 +266,9 @@ describe("BankAccountService — undo de importação dirigido pelo ledger (#569
       bankOfx(ofxDebit("20260728", 300_000, `PAGTO CART CRED ${LAST4}`, "M2-PAY")),
       "2026-07",
     );
-    expect(result.cardPayments).toBe(1);
+    // #569 (blocker 5): nada foi liquidado ⇒ resultado honesto.
+    expect(result.cardPayments).toBe(0);
+    expect(result.unlinkedCardPayments).toBe(1);
 
     expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-april-entry" } }))?.status).toBe("PLANEJADO");
 
@@ -277,7 +279,7 @@ describe("BankAccountService — undo de importação dirigido pelo ledger (#569
     expect(ledger?.strategy).toBe("NONE");
     expect(ledger?.entries).toHaveLength(0);
 
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
     expect(detail.impact.invoiceLiquidations).toBe(0);
     expect(detail.irreversible.notRevertibleInvoiceLiquidations).toBe(0);
   });
