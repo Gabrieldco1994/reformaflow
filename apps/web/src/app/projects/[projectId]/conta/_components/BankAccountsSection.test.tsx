@@ -8,6 +8,7 @@ import ContaPage from "../page";
 const apiGetMock = vi.fn();
 const apiPatchMock = vi.fn();
 const apiPostMock = vi.fn();
+const apiDeleteMock = vi.fn();
 const routerReplaceMock = vi.fn();
 let searchQuery = "";
 let hasBankAccountsModule = true;
@@ -39,7 +40,9 @@ vi.mock("@/lib/api", () => ({
     get: (...args: unknown[]) => apiGetMock(...args),
     patch: (...args: unknown[]) => apiPatchMock(...args),
     post: (...args: unknown[]) => apiPostMock(...args),
+    delete: (...args: unknown[]) => apiDeleteMock(...args),
   },
+  ApiResponseError: class extends Error {},
 }));
 
 vi.mock("sonner", () => ({
@@ -100,6 +103,7 @@ describe("BankAccountsSection", () => {
     hasBankAccountsModule = true;
     routerReplaceMock.mockReset();
     apiGetMock.mockReset().mockResolvedValue(ACCOUNTS);
+    apiDeleteMock.mockReset().mockResolvedValue({ ok: true });
     apiPatchMock.mockReset().mockResolvedValue({});
     apiPostMock.mockReset().mockResolvedValue({
       bankAccount: ACCOUNTS[0],
@@ -248,6 +252,99 @@ describe("BankAccountsSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
     expect(await screen.findByText("Conta A")).toBeVisible();
+  });
+
+  const IMPORTS = [
+    {
+      id: "imp1",
+      periodLabel: "2026-07",
+      fileName: "extrato.ofx",
+      source: "OFX",
+      inserted: 4,
+      duplicated: 0,
+      totalAmountCents: 40000,
+      createdAt: "2026-07-01T12:00:00.000Z",
+      deletedAt: null,
+    },
+  ];
+  const DETAIL = {
+    importId: "imp1",
+    periodLabel: "2026-07",
+    fileName: "extrato.ofx",
+    createdAt: "2026-07-01T12:00:00.000Z",
+    alreadyUndone: false,
+    totalAmountCents: 40000,
+    impact: {
+      expenses: 4,
+      cashFlowEntries: 4,
+      crossProjectLinks: 0,
+      invoiceLiquidations: 1,
+    },
+  };
+
+  function mockImportsFor(accountId: string) {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path === "/projects/p1/bank-accounts") return Promise.resolve(ACCOUNTS);
+      if (path === `/projects/p1/bank-accounts/${accountId}/imports`)
+        return Promise.resolve(IMPORTS);
+      if (path === `/projects/p1/bank-accounts/${accountId}/imports/imp1`)
+        return Promise.resolve(DETAIL);
+      return Promise.resolve([]);
+    });
+  }
+
+  it("cada conta abre o próprio histórico de importações com o accountId correto", async () => {
+    mockImportsFor("acc-b");
+    renderSection();
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Importações de Conta B, final 2222",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(apiGetMock).toHaveBeenCalledWith(
+        "/projects/p1/bank-accounts/acc-b/imports",
+      ),
+    );
+    expect(apiGetMock).not.toHaveBeenCalledWith(
+      "/projects/p1/bank-accounts/acc-a/imports",
+    );
+    expect(await screen.findByText(/2026-07 · extrato\.ofx/)).toBeInTheDocument();
+  });
+
+  it("desfazer uma importação invalida bank-accounts e chama onChanged", async () => {
+    mockImportsFor("acc-a");
+    const onChanged = vi.fn();
+    renderSection("PESSOAL" as ProjectType, onChanged);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Importações de Conta A, final 1111",
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^desfazer$/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /desfazer importação/i }),
+    );
+
+    await waitFor(() =>
+      expect(apiDeleteMock).toHaveBeenCalledWith(
+        "/projects/p1/bank-accounts/acc-a/imports/imp1",
+      ),
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["bank-accounts", "p1"],
+    });
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("sem módulo bankAccounts não expõe a ação Importações", () => {
+    hasBankAccountsModule = false;
+    renderSection();
+    expect(screen.queryByRole("button", { name: /^Importações de/ })).toBeNull();
   });
 
   it("invalida todos os prefixes financeiros ao salvar pela página Conta", async () => {
