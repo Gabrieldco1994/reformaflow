@@ -669,114 +669,64 @@ B1a cobriu três unidades de mudança, mergeadas em `main` em 2026-08-19:
 
 ---
 
-## §16 Ledger de liquidação de fatura por importação de extrato (#569, ago/2026)
+## §16 Undo de importação de extrato com pagamento de fatura — fail-closed (#569, ago/2026)
 
-Quando a importação de um **extrato bancário** cria um `PAGAMENTO_FATURA_CARTAO` e a
-liquidação automática (`CardInvoiceSettlementService`) marca compras do cartão como
-pagas, a identidade exata dessa liquidação passa a viver em duas tabelas:
+Quando a importação de um **extrato bancário** cria um `PAGAMENTO_FATURA_CARTAO`,
+a liquidação automática (`CardInvoiceSettlementService`) pode marcar compras do
+cartão como pagas. Reverter esse lote com exatidão (sem tocar faturas quitadas
+por outros pagamentos) exigiria um ledger dedicado; a decisão do PO para este
+hotfix é **fail-closed**: o lote inteiro fica **não reversível** enquanto o undo
+exato não existir. A reversão exata continua rastreada no
+[issue #569](https://github.com/Gabrieldco1994/reformaflow/issues/569).
 
-- **`ImportedCardInvoiceSettlement`** — 1:1 com o pagamento
-  (`payment_expense_id` UNIQUE). Guarda `bank_statement_import_id`, `card_id`,
-  `card_project_id` (denormalizado para autorizar o undo), a `strategy`
-  (`DUE_MONTH` | `IMPORTED_STATEMENT` | `NONE`), `target_due_month` (**só
-  auditoria** — o undo nunca lê isto) e `matched_card_import_id` (a fatura
-  importada casada, quando `IMPORTED_STATEMENT`).
-- **`ImportedCardInvoiceSettlementEntry`** — uma linha por `CashFlowEntry` que
-  **aquele pagamento** moveu `PLANEJADO → PAGO`. Índice único parcial
-  `cash_flow_entry_id WHERE released_at IS NULL`: uma parcela nunca fica
-  reivindicada por duas liquidações ativas (a 2ª tentativa estoura constraint e
-  a transação do import inteira faz rollback).
+### §16.1 `getImportDetail`
 
-Ambas ficam em `modelsWithoutSoftDelete`; o ciclo de vida é `reverted_at` no pai e
-`released_at` nos filhos. Substituíram `Expense.settledInvoiceKey` (a chave
-`"{last4}:{dueMonth}"`, que nunca chegou ao `main`): ela era ambígua no fallback por
-fatura importada e forçava o undo a adivinhar o mês.
+- `cardInvoicePayments` = despesas do lote com `tipoDespesa =
+  'PAGAMENTO_FATURA_CARTAO'` (sem lookup de cartão, fatura ou projeto externo,
+  sem reconstrução de `dueMonth`).
+- `canUndo = false` quando há ≥1 (e o lote não foi desfeito ainda); o campo
+  `blocking.cardInvoicePayments` reporta a quantidade, e
+  `impact.invoiceLiquidations` / `irreversible.notRevertibleInvoiceLiquidations`
+  espelham o mesmo número.
+- Importação **sem** pagamento de fatura → `canUndo = true`, contrato inalterado.
 
-**`getImportDetail`** conta `invoiceLiquidations` **só** pelo ledger (strategy ≠
-`NONE` e ≥1 entrada ativa). Nada de inferência por `last4`, dias atuais do cartão ou
-mera presença do pagamento — a prévia de 3 meses do `card-invoice-match` promete
-vínculos que a liquidação real (janela de 2 meses) não confirma.
+### §16.2 `undoImport`
 
-**`undoImport`** é dirigido pelo ledger:
+Dentro da transação, releitura de conta, projeto, import e despesas do lote.
+**Antes da primeira escrita**, se existir qualquer `PAGAMENTO_FATURA_CARTAO`:
+`ConflictException` (**409**) com mensagem clara, sem ids nem valores — nenhuma
+despesa, recebimento, caixa, vínculo ou import é alterado. Cobre lote antigo e
+novo pela mesma regra (não existe mais "legado" vs "ledger"). Importações sem
+pagamento de fatura seguem pelo undo normal (vínculos cross-project + soft-delete
+do lote).
 
-1. carrega os settlements por `tenant_id + bank_statement_import_id` com
-   `reverted_at IS NULL`;
-2. autoriza `card_project_id` **e** todo projeto dono de uma parcela registrada,
-   **antes** da primeira escrita (`assertCanAccessProject`, módulo `creditCards`);
-   sem acesso → 404 e zero write;
-3. reverte **só** os `cash_flow_entry_id` registrados que ainda estão ativos e
-   `PAGO` (update condicional); recomputa `Expense.status/paidParcelas`
-   (`recomputeExpensePaidState`); marca filhos `released_at` e pai `reverted_at`.
-   Compras de outro lote / faturas quitadas por outro pagamento **nunca** são
-   tocadas — não têm entrada no ledger deste import.
+### §16.3 A liquidação nunca "avança"
 
-**Fallback reversível:** `IMPORTED_STATEMENT` (fallback por fatura importada) é
-revertível normalmente **quando tem entradas registradas** — o ledger guarda os ids
-exatos, não um `dueMonth`.
+- Estratégia por vencimento (`resolveTargetDueMonth`): alvo resolvido mas sem
+  parcela `PLANEJADO` no ciclo (já liquidado por outro pagamento) ⇒ devolve
+  `{ purchases: [] }`. **Não** cai no fallback nem paga outra fatura.
+- A janela do `card-invoice-match` (prévia de `getImportDetail`) é `{payMonth,
+  payMonth+1}` — a mesma do motor real, para não prometer vínculos que a
+  liquidação não confirma.
 
-**Legado conservador (decisão do PO):** um `PAGAMENTO_FATURA_CARTAO` de importação
-**sem** linha no ledger (gravado antes do #569) não é recalculado nem adivinhado no
-undo. Ele sai com o lote como qualquer despesa, **nenhuma compra/parcela do cartão é
-tocada**, o undo devolve `notRevertibleInvoiceLiquidations` e loga um `warn` com
-`paymentExpenseId` + `importId` (sem valores nem dados sensíveis). O texto no preview
-de impacto do "Desfazer importação" reflete isso: "pagamento de fatura legado, sem
-histórico exato de liquidação — reabra a fatura manualmente se necessário".
-
-> Não confundir com **§14 "Desfazer pagamento de fatura"**, que é o inverso do
-> pagamento **manual** do cockpit (`payInvoice`) e continua usando o motor por
-> `dueMonth`. São ações de faturas diferentes.
-
-### §16.1 Validação no momento do undo (rodada corretiva)
-
-`getImportDetail` e `undoImport` **revalidam o ledger dentro da própria
-transação** (nenhuma escrita no `getImportDetail`), e `getImportDetail` recebe o
-`requester`:
-
-- **Autorização agora:** o `cardProjectId` de cada ledger e o projeto de cada
-  parcela registrada são reautorizados (`assertCanAccessProject`, módulo
-  `creditCards`). Revogação de qualquer participante, ou relação cross-tenant ⇒
-  **404 indistinguível**, antes de qualquer payload/escrita.
-- **Drift do lançamento ⇒ 409:** um filho ativo cuja `CashFlowEntry` sumiu,
-  mudou de tenant, deixou de apontar para a `expense` registrada (coluna
-  `expense_id` do filho) ou saiu de `PAGO` torna a importação **não
-  desfazível**: `getImportDetail.canUndo = false`,
-  `blocking.changedInvoiceLiquidations > 0`, `undoImport` → **409, zero writes**
-  (nunca procura um "substituto" por data/parcela).
-- **Outro pagamento ativo pela mesma fatura ⇒ 409:** se um ledger íntegro tem
-  outra liquidação ativa (`cardId+targetDueMonth` **ou**
-  `cardId+matchedCardImportId`), de OUTRA importação com pagamento vivo, ele não
-  pode ser revertido agora — `blocking.invoiceLiquidationsWithOtherPayments > 0`.
-  Pagamentos do MESMO lote não bloqueiam uns aos outros.
-- `impact.invoiceLiquidations` conta **apenas** ledgers com filhos íntegros e
-  reversíveis **naquele momento**.
-
-### §16.2 A liquidação nunca "avança"
-
-- `strategy = NONE` significa **só** "nenhum alvo foi resolvido". Uma liquidação
-  `DUE_MONTH`/`IMPORTED_STATEMENT` **sem filhos** (fatura já quitada por outro
-  pagamento) mantém a estratégia — os filhos são o efeito físico, a estratégia é
-  o alvo.
-- Estratégia por vencimento: alvo resolvido mas sem parcela `PLANEJADO` ⇒
-  `DUE_MONTH` com `purchases: []`. **Não** cai no fallback nem paga outra fatura.
-- Fallback importado: se já existe liquidação ativa para
-  `cardId + matchedCardImportId`, devolve `IMPORTED_STATEMENT` com
-  `purchases: []` — **não avança** para a próxima parcela em aberto.
-
-### §16.3 Compra híbrida e resultado honesto do commit
+### §16.4 Compra híbrida e resultado honesto do commit
 
 - **Híbrida (`cardLast4` + `bankLast4`):** também é movimento de conta. Fica
-  **fora** do target, do ranking (`loadCardsWithEntries`) e dos dois fallbacks —
-  a liquidação nunca muda o status de um lançamento que também representa
-  movimento de conta.
+  **fora** do target, do ranking e dos dois fallbacks da liquidação
+  (`prepareSettleInvoice`/`prepareUnsettleInvoice` filtram `bankLast4: null`) —
+  e fora dos candidatos físicos de cartão em `card-invoice-match`.
 - **Commit honesto:** `cardPayments` só incrementa quando o pagamento de fato
-  moveu ≥1 parcela `PLANEJADO → PAGO`. Cartão identificado mas nada liquidado ⇒
-  cai no aviso "saiu do saldo, nenhuma fatura quitada" (`unlinkedCardPayments`),
-  não em "vinculado".
+  moveu ≥1 parcela `PLANEJADO → PAGO` (`applyPreparedSettlement` faz update
+  condicional e devolve `flippedEntries`). Cartão identificado mas nada
+  liquidado ⇒ cai no aviso "nenhuma fatura compatível foi liquidada"
+  (`unlinkedCardPayments`), não em "vinculado".
 
-### §16.4 Desfazer manual não alcança pagamento importado
+### §16.5 Desfazer manual não alcança pagamento importado
 
-`monthly-overview.undoInvoicePayment` (cockpit) só aceita pagamento **manual**
-(`importId: null`) — na seleção de candidatos, no mapa que produz o verbo `undo`
-em `cartoes[]` e na releitura dentro da transação. Chamada direta para um
-pagamento importado ⇒ **404**. O pagamento importado **continua contando** no
-status da fatura; só `BankAccountService.undoImport` o remove.
+`monthly-overview.undoInvoicePayment` (cockpit) só aceita pagamento **manual**.
+Se **qualquer** pagamento casado com a fatura tem `importId != null`, a ação
+`undo` não aparece em `cartoes[]`/`saidas[]` e a chamada direta responde **404**
+sem escrita — inclui o caso de um pagamento manual **e** um importado casados na
+mesma fatura. O pagamento importado **continua contando** no status da fatura;
+só `BankAccountService.undoImport` o removeria — e agora ele também é fail-closed.
+`prepareUnsettleInvoice` exclui híbridos (`bankLast4 != null`).

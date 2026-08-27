@@ -143,7 +143,7 @@ async function main() {
   const debitsBeforeUndo = await liveDespesaCents(tenant.id, '4247');
   assert(debitsBeforeUndo > 0, `caixa de débitos > 0 (got ${debitsBeforeUndo})`);
 
-  const detail: any = await svc.getImportDetail(tenant.id, pessoal.id, acc.id, importId, requester);
+  const detail: any = await svc.getImportDetail(tenant.id, pessoal.id, acc.id, importId);
   assert(detail.impact.expenses >= 3, `detail: >=3 despesas (super+enel+pagto) (got ${detail.impact.expenses})`);
   assert(detail.impact.receipts === 1, `detail: 1 recebimento (got ${detail.impact.receipts})`);
   assert(detail.impact.invoiceLiquidations >= 1, `detail: >=1 liquidação de fatura (got ${detail.impact.invoiceLiquidations})`);

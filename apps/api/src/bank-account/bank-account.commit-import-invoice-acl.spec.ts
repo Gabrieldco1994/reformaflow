@@ -110,8 +110,6 @@ async function cleanupTransient(): Promise<void> {
   await setup.crossProjectSettlement.deleteMany({
     where: { tenantId: TENANT },
   });
-  await setup.importedCardInvoiceSettlementEntry.deleteMany({ where: { tenantId: TENANT } });
-  await setup.importedCardInvoiceSettlement.deleteMany({ where: { tenantId: TENANT } });
   await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
   await setup.expense.deleteMany({ where: { tenantId: TENANT } });
   await setup.receipt.deleteMany({ where: { tenantId: TENANT } });

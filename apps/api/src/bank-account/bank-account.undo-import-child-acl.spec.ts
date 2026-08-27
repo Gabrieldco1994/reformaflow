@@ -48,8 +48,6 @@ async function cleanupTransient() {
   await setupPrisma.crossProjectSettlement.deleteMany({
     where: { tenantId: TENANT },
   });
-  await setupPrisma.importedCardInvoiceSettlementEntry.deleteMany({ where: { tenantId: TENANT } });
-  await setupPrisma.importedCardInvoiceSettlement.deleteMany({ where: { tenantId: TENANT } });
   await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
   await setupPrisma.expense.deleteMany({ where: { tenantId: TENANT } });
   await setupPrisma.receipt.deleteMany({ where: { tenantId: TENANT } });

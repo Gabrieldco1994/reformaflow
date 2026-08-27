@@ -74,27 +74,8 @@ export interface PreparedInvoiceUnsettlement {
   purchases: UnsettlePurchase[];
 }
 
-export type InvoiceSettlementStrategy =
-  | 'DUE_MONTH'
-  | 'IMPORTED_STATEMENT'
-  | 'NONE';
-
 export interface PreparedInvoiceSettlement {
   purchases: SettlePurchase[];
-  /**
-   * Como a liquidação resolveu a fatura alvo — issue #569:
-   *  - `DUE_MONTH`: estratégia 1 (por vencimento) achou e fechou uma fatura;
-   *  - `IMPORTED_STATEMENT`: fallback por fatura importada casou pelo total;
-   *  - `NONE`: nada casou (`purchases` vazio).
-   * O caller de importação (`bank-account.service`) grava isto no ledger
-   * `ImportedCardInvoiceSettlement` do pagamento, junto dos ids EXATOS dos
-   * `CashFlowEntry` que a aplicação de fato moveu PLANEJADO → PAGO.
-   */
-  strategy: InvoiceSettlementStrategy;
-  /** "YYYY-MM" da fatura alvo quando `strategy === 'DUE_MONTH'` — SÓ auditoria. */
-  targetDueMonth: string | null;
-  /** `CreditCardStatementImport.id` casado quando `strategy === 'IMPORTED_STATEMENT'`. */
-  matchedCardImportId: string | null;
 }
 
 /** Um `CashFlowEntry` que `applyPreparedSettlement` de fato moveu PLANEJADO → PAGO. */
@@ -244,13 +225,9 @@ export class CardInvoiceSettlementService {
         );
         // #569 (blocker 2): o alvo foi RESOLVIDO. Se não sobrou parcela
         // PLANEJADO nesse ciclo (já liquidado por outro pagamento), NÃO caia no
-        // fallback nem avance para outra fatura — devolve DUE_MONTH sem filhos.
-        return {
-          purchases: prepared,
-          strategy: 'DUE_MONTH',
-          targetDueMonth: target,
-          matchedCardImportId: null,
-        };
+        // fallback nem avance para outra fatura — devolve o resultado real
+        // (possivelmente vazio).
+        return { purchases: prepared };
       }
     }
 
@@ -262,35 +239,7 @@ export class CardInvoiceSettlementService {
       amountCents,
       paymentDate,
     );
-    if (!matchedImport) {
-      return {
-        purchases: [],
-        strategy: 'NONE',
-        targetDueMonth: null,
-        matchedCardImportId: null,
-      };
-    }
-
-    // #569 (blocker 2): já existe uma liquidação ATIVA por essa mesma fatura
-    // importada (outro pagamento do mesmo total). NÃO avance para a próxima
-    // parcela em aberto — devolve IMPORTED_STATEMENT sem filhos.
-    const priorFallback = await tx.importedCardInvoiceSettlement.findFirst({
-      where: {
-        tenantId,
-        cardId: card.id,
-        matchedCardImportId: matchedImport.id,
-        revertedAt: null,
-      },
-      select: { id: true },
-    });
-    if (priorFallback) {
-      return {
-        purchases: [],
-        strategy: 'IMPORTED_STATEMENT',
-        targetDueMonth: null,
-        matchedCardImportId: matchedImport.id,
-      };
-    }
+    if (!matchedImport) return { purchases: [] };
 
     const importPurchases = purchases.filter(
       (purchase) => purchase.importId === matchedImport.id,
@@ -299,12 +248,7 @@ export class CardInvoiceSettlementService {
       tx,
       importPurchases,
     );
-    return {
-      purchases: prepared,
-      strategy: 'IMPORTED_STATEMENT',
-      targetDueMonth: null,
-      matchedCardImportId: matchedImport.id,
-    };
+    return { purchases: prepared };
   }
 
   /**
@@ -404,6 +348,9 @@ export class CardInvoiceSettlementService {
         cardLast4: card.last4,
         deletedAt: null,
         tipoDespesa: { notIn: neutral },
+        // #569 (blocker 4): compra HÍBRIDA (`cardLast4` + `bankLast4`) também é
+        // movimento de conta — a reversão de liquidação nunca pode mexer nela.
+        bankLast4: null,
       },
       include: {
         project: {
@@ -476,42 +423,6 @@ export class CardInvoiceSettlementService {
       !this.canRequesterSeeCardProject(
         requester,
         storedCard.project,
-        params.requiredModule,
-      )
-    ) {
-      throw new NotFoundException(
-        params.notFoundMessage ?? INVOICE_NOT_FOUND_MESSAGE,
-      );
-    }
-  }
-
-  /**
-   * Autoriza um requester a MEXER nas compras de um projeto durante o undo de
-   * importação (#569): o projeto tem que existir, ser do tenant, estar vivo e
-   * ser visível ao requester pelo módulo do CARTÃO (mesma porta do #480 SEC-1).
-   * Usado por `bank-account.undoImport` para o projeto do cartão e para todo
-   * projeto dono de uma parcela registrada no ledger, ANTES da primeira escrita.
-   */
-  async assertCanAccessProject(params: {
-    tenantId: string;
-    projectId: string;
-    tx: Prisma.TransactionClient;
-    requester: RateioRequester;
-    requiredModule?: string;
-    notFoundMessage?: string;
-  }): Promise<void> {
-    assertRateioRequester(params.requester);
-    const project = await params.tx.project.findFirst({
-      where: { id: params.projectId, tenantId: params.tenantId, deletedAt: null },
-      select: { id: true, type: true, tenantId: true, deletedAt: true },
-    });
-    if (
-      !project ||
-      project.tenantId !== params.tenantId ||
-      project.deletedAt !== null ||
-      !this.canRequesterSeeCardProject(
-        params.requester,
-        project,
         params.requiredModule,
       )
     ) {
@@ -762,53 +673,6 @@ export class CardInvoiceSettlementService {
       settledParcelas += flippedForPurchase.length;
     }
     return { settledExpenses, settledParcelas, flippedEntries };
-  }
-
-  /**
-   * Recomputa `Expense.status`/`paidParcelas` a partir da VERDADE do cashflow
-   * (quais `CashFlowEntry` estão PAGO agora), sem depender de qual chamada mudou
-   * o quê. Idempotente — usado por `undoImport` (#569) depois de liberar as
-   * parcelas de um pagamento importado.
-   */
-  async recomputeExpensePaidState(
-    client: Prisma.TransactionClient,
-    expenseId: string,
-    tenantId: string,
-  ): Promise<void> {
-    // #569 (blocker 7): toda leitura/escrita filtra por `id + tenantId +
-    // deletedAt: null` — nunca lê nem toca Expense/CFE de outro tenant.
-    const e = (await client.expense.findFirst({
-      where: { id: expenseId, tenantId, deletedAt: null },
-      select: { id: true, formaPagamento: true, quantidadeParcela: true },
-    })) as { id: string; formaPagamento: string; quantidadeParcela: number | null } | null;
-    if (!e) return;
-    const n = e.quantidadeParcela ?? 1;
-    const paid = (await client.cashFlowEntry.findMany({
-      where: { expenseId, tenantId, deletedAt: null, status: 'PAGO' },
-    })) as EntryRow[];
-
-    if (isSinglePaymentForm(e.formaPagamento) || n <= 1) {
-      await client.expense.updateMany({
-        where: { id: expenseId, tenantId, deletedAt: null },
-        data: { status: paid.length > 0 ? 'PAGO' : 'PLANEJADO', paidParcelas: null },
-      });
-      return;
-    }
-
-    const set = new Set<number>();
-    for (const en of paid) {
-      const idx = this.parcelaIndex(en.parcela);
-      if (idx != null && idx >= 0 && idx < n) set.add(idx);
-    }
-    const allPaid = set.size === n;
-    const paidParcelas =
-      allPaid || set.size === 0
-        ? null
-        : JSON.stringify(Array.from(set).sort((a, b) => a - b));
-    await client.expense.updateMany({
-      where: { id: expenseId, tenantId, deletedAt: null },
-      data: { status: allPaid ? 'PAGO' : 'PLANEJADO', paidParcelas },
-    });
   }
 
   /**

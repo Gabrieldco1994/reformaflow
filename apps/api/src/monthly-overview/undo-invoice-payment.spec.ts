@@ -696,6 +696,52 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
     expect(expenses.find((e) => e.id === 'pay-import')?.deletedAt).toBeNull();
   });
 
+  it('#569: manual + importado casados na mesma fatura — undo indisponível e chamada direta falha sem escrita', async () => {
+    const expenses = [
+      {
+        id: 'exp-a', tenantId, projectId, project,
+        tipoDespesa: 'ALIMENTACAO', titulo: 'Mercado', fornecedor: 'Mercado',
+        valor: 5_000, valorTotal: 5_000, cardLast4: '1234', bankLast4: null,
+        formaPagamento: 'A_VISTA', quantidadeParcela: null, dataPagamento: null,
+        dataInicioParcela: null, createdAt: d('2026-05-05'), importId: null,
+        linkedExpenseId: null, settledByExpenseId: null, status: 'PAGO',
+        paidParcelas: null, settlesInvoiceKey: null, deletedAt: null,
+      },
+      {
+        id: 'pay-manual', tenantId, projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', cardLast4: '1234', bankLast4: '9999',
+        formaPagamento: 'A_VISTA', quantidadeParcela: null, status: 'PAGO',
+        paidParcelas: null, settlesInvoiceKey: null, importId: null,
+        valorTotal: 5_000, dataPagamento: d('2026-05-20'), createdAt: d('2026-05-20'),
+        deletedAt: null,
+      },
+      {
+        id: 'pay-import', tenantId, projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', cardLast4: '1234', bankLast4: '9999',
+        formaPagamento: 'A_VISTA', quantidadeParcela: null, status: 'PAGO',
+        paidParcelas: null, settlesInvoiceKey: null, importId: 'imp-extrato-1',
+        valorTotal: 5_000, dataPagamento: d('2026-05-21'), createdAt: d('2026-05-21'),
+        deletedAt: null,
+      },
+    ];
+    const entries = [
+      { id: 'a1', expenseId: 'exp-a', receiptId: null, tenantId, projectId, tipo: 'DESPESA', status: 'PAGO', categoria: 'ALIMENTACAO', subcategoria: null, formaPagamento: 'CARTAO_CREDITO', parcela: null, data: d('2026-05-05'), createdAt: d('2026-05-05'), valor: 5_000, deletedAt: null },
+    ];
+    const prisma = buildPrisma({ tenantId, projectId, card, account, expenses, entries });
+    const service = await buildService(prisma);
+    const before = JSON.parse(JSON.stringify({ expenses, entries }));
+
+    await expect(
+      service.undoInvoicePayment(tenantId, projectId, { cardLast4: '1234', dueMonth: '2026-05' }, requester),
+    ).rejects.toThrow('Nenhum pagamento encontrado');
+
+    const view: any = await service.getAccountView(tenantId, projectId, '2026-05');
+    const cartao = view.cartoes.find((c: any) => c.last4 === '1234');
+    expect(cartao.actions ?? []).not.toContain('undo');
+
+    expect(JSON.parse(JSON.stringify({ expenses, entries }))).toEqual(before);
+  });
+
   it('recusa com 404 quando não há pagamento casado com a fatura', async () => {
     const expenses = baseExpenses();
     const entries = baseEntries();

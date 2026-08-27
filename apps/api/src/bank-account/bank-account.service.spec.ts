@@ -61,15 +61,6 @@ function makePrismaMock() {
       findFirst: jest.fn().mockResolvedValue(null),
     },
     creditCard: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null) },
-    importedCardInvoiceSettlement: {
-      create: jest.fn().mockResolvedValue({ id: 'ledger1' }),
-      findMany: jest.fn().mockResolvedValue([]),
-      update: jest.fn().mockResolvedValue({}),
-    },
-    importedCardInvoiceSettlementEntry: {
-      create: jest.fn().mockResolvedValue({}),
-      update: jest.fn().mockResolvedValue({}),
-    },
     recurringBill: { create: jest.fn(), findFirst: jest.fn() },
     crossProjectSettlement: {
       findUnique: jest.fn().mockResolvedValue(null),

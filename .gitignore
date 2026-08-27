@@ -16,7 +16,6 @@ coverage
 *.db
 *.db-journal
 *.db.bak*
-.release-gate-*/
 prisma/dev.db*
 uploads/
 apps/api/uploads/

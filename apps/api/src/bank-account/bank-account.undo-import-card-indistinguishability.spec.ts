@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require("../../../../scripts/test-db-env.cjs");
 
-import { HttpException } from "@nestjs/common";
+import { ConflictException, HttpException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { BankAccountService } from "./bank-account.service";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
@@ -61,9 +61,7 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
     await setupPrisma.crossProjectSettlement.deleteMany({
       where: { tenantId: TENANT },
     });
-    await setupPrisma.importedCardInvoiceSettlementEntry.deleteMany({ where: { tenantId: TENANT } });
-  await setupPrisma.importedCardInvoiceSettlement.deleteMany({ where: { tenantId: TENANT } });
-  await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+    await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.expense.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.receipt.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.bankStatementImport.deleteMany({
@@ -297,39 +295,48 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
     };
   }
 
-  // #569: o undo NÃO consulta mais cartão por `last4` — ele reverte só o que o
-  // LEDGER registrou. Um pagamento SEM ledger (aqui, todos) é LEGADO: sai com o
-  // lote, nenhuma compra de cartão é tocada, `notRevertedInvoiceLiquidations` é
-  // reportado. Como não há lookup de cartão, o estado do cartão
-  // (ausente/ambíguo/cross-tenant/oculto) é literalmente inobservável — não há
-  // canal lateral de existência de cartão a proteger.
   it.each([
     ["same-last4 missing", "missing"],
     ["same-last4 ambíguo", "ambiguous"],
     ["same-last4 cross-tenant", "cross-tenant"],
     ["same-last4 hidden", "hidden"],
   ] as const)(
-    "%s: legado sem ledger — resultado idêntico, nenhuma compra tocada",
+    // #569 (hotfix fail-closed): o undo não consulta mais cartão por `last4`.
+    // Basta o lote conter um `PAGAMENTO_FATURA_CARTAO` para o undo em lote ser
+    // barrado com 409, ANTES de qualquer escrita — o estado do cartão
+    // (ausente/ambíguo/cross-tenant/oculto) é literalmente inobservável, e o
+    // snapshot fica integralmente idêntico nos quatro cenários.
+    "%s retorna o mesmo 409 fail-closed e preserva snapshot integral",
     async (_label, scenario) => {
       await createCardScenario(scenario);
       const importId = await createImportedPayment(scenario);
-      const paymentEntryBefore = await setupPrisma.cashFlowEntry.findUnique({
-        where: { id: `sec4-${scenario}-payment-entry` },
-      });
-      expect(paymentEntryBefore?.status).toBe("PAGO");
+      const before = await snapshot();
 
-      const result = await service.undoImport(TENANT, PESSOAL, accountId, importId, MANAGED);
+      let error: unknown;
+      try {
+        await service.undoImport(TENANT, PESSOAL, accountId, importId, MANAGED);
+      } catch (caught) {
+        error = caught;
+      }
       const after = await snapshot();
 
-      expect(result).toMatchObject({
-        ok: true,
-        alreadyUndone: false,
-        notRevertedInvoiceLiquidations: 1,
-        revertedInvoiceParcelas: 0,
+      expect(rejectionShape(error)).toEqual({
+        name: ConflictException.name,
+        status: 409,
+        message:
+          "Esta importação contém pagamento de fatura de cartão e não pode ser " +
+          "desfeita automaticamente sem risco de alterar outros pagamentos. " +
+          "Reabra a fatura manualmente se necessário.",
+        body: {
+          message:
+            "Esta importação contém pagamento de fatura de cartão e não pode ser " +
+            "desfeita automaticamente sem risco de alterar outros pagamentos. " +
+            "Reabra a fatura manualmente se necessário.",
+          error: "Conflict",
+          statusCode: 409,
+        },
       });
-      // Lote removido; nenhum cartão foi lido nem alterado.
-      expect(after.imports).toEqual([{ id: importId, deletedAt: expect.any(Date) }]);
-      expect(after.cards.every((c) => c.deletedAt === null)).toBe(true);
+      expect(after).toEqual(before);
     },
   );
 });

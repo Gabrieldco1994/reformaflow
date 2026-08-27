@@ -98,11 +98,6 @@ function makePrisma(seed: {
         return Promise.resolve(rows[0] ?? null);
       }),
     },
-    importedCardInvoiceSettlement: {
-      // #569 (blocker 2): `prepareSettleInvoice` checa se já há liquidação ativa
-      // pela mesma fatura importada. O mock não guarda ledgers — nunca há.
-      findFirst: jest.fn(() => Promise.resolve(null)),
-    },
     creditCard: {
       findFirst: jest.fn(({ where }: any) => {
         const card = cards.find((candidate) => matchWhere(candidate, where));

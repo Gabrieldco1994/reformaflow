@@ -2,6 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require("../../../../scripts/test-db-env.cjs");
 
+import { ConflictException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { BankAccountService } from "./bank-account.service";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
@@ -11,19 +12,16 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { RateioRequester } from "../expense/rateio.types";
 
 /**
- * issue #569 — o undo da importação reverte SÓ o que aquele pagamento moveu.
+ * issue #569 (hotfix fail-closed) — qualquer importação de extrato que crie um
+ * `PAGAMENTO_FATURA_CARTAO` fica NÃO revertível como lote:
+ *  - `getImportDetail` devolve `canUndo: false`;
+ *  - `undoImport` lança 409 ANTES de qualquer escrita — nenhuma fatura é
+ *    reaberta, nada é reconstruído por data;
+ *  - importações sem pagamento de fatura continuam reversíveis.
  *
- * Antes: `undoImport` reconstruía o ciclo da fatura pelos dias ATUAIS do cartão
- * e pelo mês do PAGAMENTO (`resolveUndoDueMonth`), então podia despagar a fatura
- * errada — inclusive uma quitada por OUTRO pagamento. E `getImportDetail` contava
- * `invoiceLiquidations` só por "tem cartão com dias configurados", mesmo quando a
- * liquidação real (janela de 2 meses) não achou nada.
- *
- * Agora a importação grava um ledger (`ImportedCardInvoiceSettlement` + filhos)
- * com os ids EXATOS dos `CashFlowEntry` que cada pagamento moveu PLANEJADO → PAGO.
- * O undo reverte só esses; o detail conta só o que o ledger registrou.
+ * A reversão exata dessas liquidações continua aberta no issue #569.
  */
-describe("BankAccountService — undo de importação dirigido pelo ledger (#569)", () => {
+describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)", () => {
   const setupPrisma = new PrismaClient();
   const prisma = new PrismaService();
   let service: BankAccountService;
@@ -86,8 +84,6 @@ describe("BankAccountService — undo de importação dirigido pelo ledger (#569
   }
 
   async function cleanup(): Promise<void> {
-    await setupPrisma.importedCardInvoiceSettlementEntry.deleteMany({ where: { tenantId: TENANT } });
-    await setupPrisma.importedCardInvoiceSettlement.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.crossProjectSettlement.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
@@ -185,124 +181,161 @@ describe("BankAccountService — undo de importação dirigido pelo ledger (#569
     });
   }
 
-  it("M1 — reverte só a fatura de julho que ESTE pagamento quitou; a de junho (paga por outro) fica intacta", async () => {
+  async function statusOf(entryId: string): Promise<string | undefined> {
+    return (await setupPrisma.cashFlowEntry.findUnique({ where: { id: entryId } }))?.status;
+  }
+
+  it("#1 — lote com pagamento de fatura: getImportDetail devolve canUndo:false", async () => {
     await createPurchase({
-      id: "purchase-may",
-      purchaseDate: new Date("2026-05-10T12:00:00.000Z"),
-      valor: 500_000,
-      status: "PAGO", // fatura de junho — já quitada por OUTRO pagamento
-    });
-    await createPurchase({
-      id: "purchase-june",
-      purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
-      valor: 700_000,
-      status: "PLANEJADO", // fatura de julho — a ser quitada pelo pagamento importado
-    });
-
-    const result = await commit(
-      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "M1-PAY")),
-      "2026-06",
-    );
-    expect(result.cardPayments).toBe(1);
-
-    // A liquidação real (janela {jun, jul}) escolheu julho e marcou a compra de junho.
-    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-entry" } }))?.status).toBe("PAGO");
-    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-may-entry" } }))?.status).toBe("PAGO");
-
-    const ledger = await setupPrisma.importedCardInvoiceSettlement.findFirst({
-      where: { tenantId: TENANT, bankStatementImportId: result.importId },
-      include: { entries: true },
-    });
-    expect(ledger?.strategy).toBe("DUE_MONTH");
-    expect(ledger?.targetDueMonth).toBe("2026-07");
-    expect(ledger?.entries.map((e) => e.cashFlowEntryId)).toEqual(["purchase-june-entry"]);
-
-    await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
-
-    expect({
-      june: (await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-entry" } }))?.status,
-      may: (await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-may-entry" } }))?.status,
-      juneExpense: (await setupPrisma.expense.findUnique({ where: { id: "purchase-june" } }))?.status,
-    }).toEqual({ june: "PLANEJADO", may: "PAGO", juneExpense: "PLANEJADO" });
-
-    // Ledger fechado, filhos liberados, pagamento e import removidos.
-    const closed = await setupPrisma.importedCardInvoiceSettlement.findFirst({
-      where: { id: ledger!.id },
-      include: { entries: true },
-    });
-    expect(closed?.revertedAt).not.toBeNull();
-    expect(closed?.entries.every((e) => e.releasedAt !== null)).toBe(true);
-  });
-
-  it("M1b — segundo undo é idempotente: não mexe de novo na fatura", async () => {
-    await createPurchase({
-      id: "purchase-june-idem",
+      id: "p1-june",
       purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
       valor: 700_000,
       status: "PLANEJADO",
     });
     const result = await commit(
-      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "M1B-PAY")),
+      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "T1-PAY")),
       "2026-06",
     );
-    await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
-    // Reabrimos a compra à mão — um segundo undo NÃO pode ressuscitar/re-tocar.
-    await setupPrisma.cashFlowEntry.update({ where: { id: "purchase-june-idem-entry" }, data: { status: "PAGO" } });
+    expect(result.cardPayments).toBe(1);
 
-    const second = await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
-    expect(second.alreadyUndone).toBe(true);
-    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-idem-entry" } }))?.status).toBe("PAGO");
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
+    expect(detail.canUndo).toBe(false);
+    expect(detail.blocking.cardInvoicePayments).toBe(1);
+    expect(detail.impact.invoiceLiquidations).toBe(1);
   });
 
-  it("M2 — nada casou na janela real: ledger NONE, getImportDetail conta 0 liquidações e 0 não-revertíveis", async () => {
+  it("#2 — DELETE desse lote: 409 e snapshot integralmente idêntico", async () => {
     await createPurchase({
-      id: "purchase-april",
+      id: "p2-june",
+      purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
+      valor: 700_000,
+      status: "PLANEJADO",
+    });
+    const result = await commit(
+      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "T2-PAY")),
+      "2026-06",
+    );
+    expect(await statusOf("p2-june-entry")).toBe("PAGO");
+
+    const before = {
+      imports: await setupPrisma.bankStatementImport.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
+      expenses: await setupPrisma.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
+      entries: await setupPrisma.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
+    };
+
+    await expect(
+      service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    const after = {
+      imports: await setupPrisma.bankStatementImport.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
+      expenses: await setupPrisma.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
+      entries: await setupPrisma.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
+    };
+    expect(after).toEqual(before);
+  });
+
+  it("#3 — cenário junho/julho: undo não reabre nenhuma das duas faturas", async () => {
+    await createPurchase({
+      id: "p3-may",
+      purchaseDate: new Date("2026-05-10T12:00:00.000Z"),
+      valor: 500_000,
+      status: "PAGO", // fatura de junho — já quitada por OUTRO pagamento
+    });
+    await createPurchase({
+      id: "p3-june",
+      purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
+      valor: 700_000,
+      status: "PLANEJADO", // fatura de julho — quitada pelo pagamento importado
+    });
+
+    const result = await commit(
+      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "T3-PAY")),
+      "2026-06",
+    );
+    expect(result.cardPayments).toBe(1);
+    expect(await statusOf("p3-june-entry")).toBe("PAGO");
+    expect(await statusOf("p3-may-entry")).toBe("PAGO");
+
+    await expect(
+      service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // Nenhuma das duas faturas foi reaberta; o pagamento e o import continuam.
+    expect(await statusOf("p3-june-entry")).toBe("PAGO");
+    expect(await statusOf("p3-may-entry")).toBe("PAGO");
+    expect(
+      (await setupPrisma.bankStatementImport.findUnique({ where: { id: result.importId } }))?.deletedAt,
+    ).toBeNull();
+  });
+
+  it("#4 — lote sem pagamento de fatura continua reversível", async () => {
+    const result = await commit(
+      bankOfx(ofxDebit("20260615", 4_299, "MERCADO BOM PRECO", "T4-MKT")),
+      "2026-06",
+    );
+    expect(result.inserted).toBe(1);
+
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
+    expect(detail.canUndo).toBe(true);
+    expect(detail.blocking.cardInvoicePayments).toBe(0);
+
+    const undo = await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
+    expect(undo).toMatchObject({ ok: true, alreadyUndone: false, removedExpenses: 1 });
+    expect(
+      (await setupPrisma.bankStatementImport.findUnique({ where: { id: result.importId } }))?.deletedAt,
+    ).not.toBeNull();
+  });
+
+  it("#5/#6 — pagamento sem flip: cardPayments:0, e ainda assim o undo do lote é 409", async () => {
+    await createPurchase({
+      id: "p5-april",
       purchaseDate: new Date("2026-04-10T12:00:00.000Z"),
       valor: 300_000,
       status: "PLANEJADO", // fatura de maio — fora da janela {jul, ago}
     });
 
     const result = await commit(
-      bankOfx(ofxDebit("20260728", 300_000, `PAGTO CART CRED ${LAST4}`, "M2-PAY")),
+      bankOfx(ofxDebit("20260728", 300_000, `PAGTO CART CRED ${LAST4}`, "T5-PAY")),
       "2026-07",
     );
-    // #569 (blocker 5): nada foi liquidado ⇒ resultado honesto.
+    // #569: nada foi liquidado ⇒ resultado honesto.
     expect(result.cardPayments).toBe(0);
     expect(result.unlinkedCardPayments).toBe(1);
+    expect(await statusOf("p5-april-entry")).toBe("PLANEJADO");
 
-    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-april-entry" } }))?.status).toBe("PLANEJADO");
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
+    expect(detail.canUndo).toBe(false);
 
-    const ledger = await setupPrisma.importedCardInvoiceSettlement.findFirst({
-      where: { tenantId: TENANT, bankStatementImportId: result.importId },
-      include: { entries: true },
-    });
-    expect(ledger?.strategy).toBe("NONE");
-    expect(ledger?.entries).toHaveLength(0);
-
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
-    expect(detail.impact.invoiceLiquidations).toBe(0);
-    expect(detail.irreversible.notRevertibleInvoiceLiquidations).toBe(0);
+    await expect(
+      service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(await statusOf("p5-april-entry")).toBe("PLANEJADO");
   });
 
-  it("M3 — cartão soft-deletado depois do import não muda o conjunto revertido pelo undo", async () => {
+  it("#7 — alvo DUE resolvido mas sem parcela PLANEJADO: não cai no fallback", async () => {
+    // Fatura de julho já toda PAGA; a compra "mais antiga em aberto" está numa
+    // fatura POSTERIOR e não pode ser tocada pelo fallback.
     await createPurchase({
-      id: "purchase-june-del",
+      id: "p7-june",
       purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
       valor: 700_000,
-      status: "PLANEJADO",
+      status: "PAGO", // fatura de julho — já quitada
     });
+    await createPurchase({
+      id: "p7-july",
+      purchaseDate: new Date("2026-07-10T12:00:00.000Z"),
+      valor: 700_000,
+      status: "PLANEJADO", // fatura de agosto — NÃO pode ser abatida por este pagamento
+    });
+
     const result = await commit(
-      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "M3-PAY")),
+      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "T7-PAY")),
       "2026-06",
     );
-    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-del-entry" } }))?.status).toBe("PAGO");
-
-    await setupPrisma.creditCard.update({ where: { id: cardId }, data: { deletedAt: new Date() } });
-    try {
-      await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
-      expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-del-entry" } }))?.status).toBe("PLANEJADO");
-    } finally {
-      await setupPrisma.creditCard.update({ where: { id: cardId }, data: { deletedAt: null } });
-    }
+    expect(result.cardPayments).toBe(0);
+    expect(result.unlinkedCardPayments).toBe(1);
+    // A parcela de agosto continua PLANEJADO — o fallback não avançou para ela.
+    expect(await statusOf("p7-july-entry")).toBe("PLANEJADO");
   });
 });

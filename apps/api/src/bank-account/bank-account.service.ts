@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
@@ -61,7 +61,6 @@ import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import {
   CardInvoiceSettlementService,
   type PreparedInvoiceSettlement,
-  type FlippedSettlementEntry,
   type SettleCard,
 } from '../credit-card/card-invoice-settlement.service';
 import {
@@ -226,8 +225,6 @@ function detectRecurrence(merchant: string): RecurrenceHint | null {
 
 @Injectable()
 export class BankAccountService {
-  private readonly logger = new Logger(BankAccountService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly merchantClassifier: MerchantClassifierService,
@@ -985,7 +982,7 @@ export class BankAccountService {
           receiptsInserted > 0 ? `${receiptsInserted} recebimento(s)` : null,
           cardPayments > 0 ? `${cardPayments} pagto(s) de cartão vinculado(s)` : null,
           unlinkedCardPayments > 0
-            ? `${unlinkedCardPayments} pagto(s) de fatura sem liquidação (cartão não identificado ou nenhuma fatura compatível foi liquidada)`
+            ? `${unlinkedCardPayments} pagto(s) de fatura sem liquidação (nenhuma fatura compatível foi liquidada)`
             : null,
           linked > 0 ? `${linked} vinculada(s) a planejado` : null,
           aiReclassified > 0 ? `${aiReclassified} categoria(s) por regra` : null,
@@ -1020,288 +1017,29 @@ export class BankAccountService {
   // ─── Desfazer importação ─────────────────────────────────
 
   /**
-   * Grava o ledger `ImportedCardInvoiceSettlement` (+ filhos) de UMA liquidação
-   * automática disparada pela importação de extrato — issue #569.
-   *
-   * Chamado na MESMA transação, logo após `applyPreparedSettlement`. `flipped`
-   * são só os `CashFlowEntry` que a aplicação de fato moveu PLANEJADO → PAGO
-   * (update condicional `count === 1`).
-   *
-   * #569 (blocker 2): os FILHOS representam o efeito FÍSICO; a `strategy`
-   * representa o ALVO RESOLVIDO. Uma liquidação `DUE_MONTH`/`IMPORTED_STATEMENT`
-   * sem filhos (fatura já quitada por outro pagamento) NÃO é rebaixada para
-   * `NONE` — `NONE` significa só "nenhum alvo foi resolvido". `getImportDetail`
-   * é quem decide contar ou não como liquidação (precisa de filhos válidos).
-   *
-   * O índice único parcial (`cash_flow_entry_id WHERE released_at IS NULL`)
-   * garante que uma parcela nunca fique reivindicada por duas liquidações
-   * ativas — se dois pagamentos do mesmo lote disputarem a mesma parcela, o
-   * segundo `create` estoura constraint e a transação inteira faz rollback.
-   */
-  private async recordImportedCardInvoiceSettlement(
-    tx: Prisma.TransactionClient,
-    params: {
-      tenantId: string;
-      bankStatementImportId: string;
-      paymentExpenseId: string;
-      cardId: string;
-      prepared: PreparedInvoiceSettlement;
-      flipped: FlippedSettlementEntry[];
-    },
-  ): Promise<void> {
-    const card = await tx.creditCard.findUnique({
-      where: { id: params.cardId },
-      select: { projectId: true },
-    });
-    if (!card) throw new NotFoundException(CARD_NOT_FOUND_MESSAGE);
-
-    const { strategy, targetDueMonth, matchedCardImportId } = params.prepared;
-    const settlement = await tx.importedCardInvoiceSettlement.create({
-      data: {
-        tenantId: params.tenantId,
-        bankStatementImportId: params.bankStatementImportId,
-        paymentExpenseId: params.paymentExpenseId,
-        cardId: params.cardId,
-        cardProjectId: card.projectId,
-        strategy,
-        targetDueMonth: strategy === 'DUE_MONTH' ? targetDueMonth : null,
-        matchedCardImportId:
-          strategy === 'IMPORTED_STATEMENT' ? matchedCardImportId : null,
-      },
-      select: { id: true },
-    });
-    for (const entry of params.flipped) {
-      await tx.importedCardInvoiceSettlementEntry.create({
-        data: {
-          tenantId: params.tenantId,
-          settlementId: settlement.id,
-          cashFlowEntryId: entry.cashFlowEntryId,
-          expenseId: entry.expenseId,
-        },
-      });
-    }
-  }
-
-  /**
-   * Carrega os ledgers ATIVOS de um import e valida cada filho ativo dentro da
-   * transação (#569 blockers 1/6/7). Retorna a base que `getImportDetail` e
-   * `undoImport` compartilham — nenhuma escrita aqui.
-   *
-   * - **Autorização** (blocker 6/7): `cardProjectId` de cada ledger + projeto de
-   *   cada parcela registrada são reautorizados AGORA (`assertCanAccessProject`,
-   *   módulo `creditCards`) — revogação/cross-tenant ⇒ 404 indistinguível,
-   *   ANTES de qualquer payload/escrita.
-   * - **Drift** (blocker 1): um filho ativo cuja `CashFlowEntry` sumiu, mudou de
-   *   tenant, deixou de apontar para a `expense` esperada, saiu de `PAGO` ou cuja
-   *   `Expense` sumiu/mudou de tenant torna o ledger NÃO revertível
-   *   (`changedInvoiceLiquidations`).
-   * - **Outro pagamento ativo** (blocker 2): um ledger íntegro cuja mesma fatura
-   *   (`cardId+targetDueMonth` ou `cardId+matchedCardImportId`) tem outro ledger
-   *   ativo, de OUTRA importação com pagamento vivo, não pode ser revertido agora
-   *   (`invoiceLiquidationsWithOtherPayments`).
-   */
-  private async loadAndValidateImportLedgers(
-    tx: Prisma.TransactionClient,
-    tenantId: string,
-    importId: string,
-    requester: RateioRequester,
-  ): Promise<{
-    ledgers: Array<{
-      id: string;
-      paymentExpenseId: string;
-      cardId: string;
-      cardProjectId: string;
-      strategy: string;
-      targetDueMonth: string | null;
-      matchedCardImportId: string | null;
-      /** Filhos ativos que passaram por TODAS as checagens de drift. */
-      validEntries: Array<{ entryId: string; cashFlowEntryId: string; expenseId: string }>;
-      hasActiveChildren: boolean;
-      drifted: boolean;
-      blockedByOtherPayment: boolean;
-    }>;
-    changedInvoiceLiquidations: number;
-    invoiceLiquidationsWithOtherPayments: number;
-    invoiceLiquidations: number;
-    canUndo: boolean;
-  }> {
-    const raw = await tx.importedCardInvoiceSettlement.findMany({
-      where: { tenantId, bankStatementImportId: importId, revertedAt: null },
-      select: {
-        id: true,
-        paymentExpenseId: true,
-        cardId: true,
-        cardProjectId: true,
-        strategy: true,
-        targetDueMonth: true,
-        matchedCardImportId: true,
-        entries: {
-          where: { releasedAt: null },
-          select: { id: true, cashFlowEntryId: true, expenseId: true },
-        },
-      },
-    });
-
-    // 1) Autorização — projeto do cartão + projeto de cada parcela registrada.
-    //    Feita ANTES do resto: revogação de qualquer participante ⇒ 404, sem
-    //    payload parcial nem escrita.
-    const projectIds = new Set<string>();
-    for (const l of raw) {
-      projectIds.add(l.cardProjectId);
-      for (const e of l.entries) {
-        const cfe = await tx.cashFlowEntry.findFirst({
-          where: { id: e.cashFlowEntryId },
-          select: { projectId: true },
-        });
-        if (cfe) projectIds.add(cfe.projectId);
-        const exp = await tx.expense.findFirst({
-          where: { id: e.expenseId },
-          select: { projectId: true },
-        });
-        if (exp) projectIds.add(exp.projectId);
-      }
-    }
-    for (const pid of projectIds) {
-      await this.cardSettlement.assertCanAccessProject({
-        tenantId,
-        projectId: pid,
-        tx,
-        requester,
-        requiredModule: CREDIT_CARD_MODULE,
-        notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
-      });
-    }
-
-    // 2) Drift por ledger.
-    const ledgers = [];
-    let changedInvoiceLiquidations = 0;
-    for (const l of raw) {
-      const validEntries: Array<{ entryId: string; cashFlowEntryId: string; expenseId: string }> = [];
-      let drifted = false;
-      for (const e of l.entries) {
-        const cfe = await tx.cashFlowEntry.findFirst({
-          where: { id: e.cashFlowEntryId, tenantId, deletedAt: null },
-          select: { id: true, expenseId: true, status: true },
-        });
-        const exp = cfe
-          ? await tx.expense.findFirst({
-              where: { id: e.expenseId, tenantId, deletedAt: null },
-              select: { id: true },
-            })
-          : null;
-        const ok =
-          !!cfe &&
-          cfe.expenseId === e.expenseId &&
-          cfe.status === 'PAGO' &&
-          !!exp;
-        if (ok) {
-          validEntries.push({ entryId: e.id, cashFlowEntryId: e.cashFlowEntryId, expenseId: e.expenseId });
-        } else {
-          drifted = true;
-        }
-      }
-      const hasActiveChildren = l.entries.length > 0;
-      if (hasActiveChildren && drifted) changedInvoiceLiquidations += 1;
-      ledgers.push({
-        id: l.id,
-        paymentExpenseId: l.paymentExpenseId,
-        cardId: l.cardId,
-        cardProjectId: l.cardProjectId,
-        strategy: l.strategy,
-        targetDueMonth: l.targetDueMonth,
-        matchedCardImportId: l.matchedCardImportId,
-        validEntries,
-        hasActiveChildren,
-        drifted,
-        blockedByOtherPayment: false,
-      });
-    }
-
-    // 3) Outro pagamento ativo pela mesma fatura (outra importação).
-    let invoiceLiquidationsWithOtherPayments = 0;
-    for (const l of ledgers) {
-      if (!l.hasActiveChildren || l.drifted) continue;
-      const identity: Prisma.ImportedCardInvoiceSettlementWhereInput[] = [];
-      if (l.targetDueMonth) {
-        identity.push({ cardId: l.cardId, targetDueMonth: l.targetDueMonth });
-      }
-      if (l.matchedCardImportId) {
-        identity.push({ cardId: l.cardId, matchedCardImportId: l.matchedCardImportId });
-      }
-      if (identity.length === 0) continue;
-      const other = await tx.importedCardInvoiceSettlement.findFirst({
-        where: {
-          tenantId,
-          revertedAt: null,
-          bankStatementImportId: { not: importId },
-          payment: { deletedAt: null },
-          OR: identity,
-        },
-        select: { id: true },
-      });
-      if (other) {
-        l.blockedByOtherPayment = true;
-        invoiceLiquidationsWithOtherPayments += 1;
-      }
-    }
-
-    const invoiceLiquidations = ledgers.filter(
-      (l) => l.hasActiveChildren && !l.drifted && !l.blockedByOtherPayment,
-    ).length;
-    const canUndo = changedInvoiceLiquidations === 0 && invoiceLiquidationsWithOtherPayments === 0;
-
-    return {
-      ledgers,
-      changedInvoiceLiquidations,
-      invoiceLiquidationsWithOtherPayments,
-      invoiceLiquidations,
-      canUndo,
-    };
-  }
-
-  /**
    * Detalhe de um lote de importação de extrato: o que ele criou e o que será
    * revertido (ou não) se for desfeito. Alimenta o preview de impacto do
    * "Desfazer importação".
+   *
+   * #569 (hotfix fail-closed): qualquer lote que contenha um
+   * `PAGAMENTO_FATURA_CARTAO` fica NÃO revertível como lote (`canUndo: false`).
+   * O undo exato dessas liquidações continua aberto no issue #569 — aqui apenas
+   * não arriscamos alterar outros pagamentos. Nenhum lookup de cartão, fatura ou
+   * projeto externo, nenhuma reconstrução de `dueMonth`.
    */
-  async getImportDetail(
-    tenantId: string,
-    projectId: string,
-    accountId: string,
-    importId: string,
-    requester: RateioRequester,
-  ) {
-    assertRateioRequester(requester, new NotFoundException('Importação não encontrada'));
-    return this.prisma.$transaction(async (tx) =>
-      this.getImportDetailTx(tx, tenantId, projectId, accountId, importId, requester),
-    );
-  }
-
-  private async getImportDetailTx(
-    tx: Prisma.TransactionClient,
-    tenantId: string,
-    projectId: string,
-    accountId: string,
-    importId: string,
-    requester: RateioRequester,
-  ) {
-    // Releitura DENTRO da transação (blocker 7): conta/import/projeto.
-    const account = await tx.bankAccount.findFirst({
-      where: { id: accountId, tenantId, projectId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!account) throw new NotFoundException('Importação não encontrada');
-    const importRecord = await tx.bankStatementImport.findFirst({
+  async getImportDetail(tenantId: string, projectId: string, accountId: string, importId: string) {
+    await this.findAccount(tenantId, projectId, accountId);
+    const importRecord = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, tenantId, accountId },
     });
     if (!importRecord) throw new NotFoundException('Importação não encontrada');
 
-    const createdExpenses = await tx.expense.findMany({
+    const createdExpenses = await this.prisma.expense.findMany({
       where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
       select: { id: true, titulo: true, valorTotal: true, status: true, tipoDespesa: true, cardLast4: true, fornecedor: true, linkedExpenseId: true },
       orderBy: { createdAt: 'asc' },
     });
-    const createdReceipts = await tx.receipt.findMany({
+    const createdReceipts = await this.prisma.receipt.findMany({
       where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
       select: { id: true, descricao: true, valor: true, linkedReceiptId: true },
       orderBy: { createdAt: 'asc' },
@@ -1310,7 +1048,7 @@ export class BankAccountService {
     const receiptIds = createdReceipts.map((r) => r.id);
 
     const cashFlowEntries = (expenseIds.length || receiptIds.length)
-      ? await tx.cashFlowEntry.count({
+      ? await this.prisma.cashFlowEntry.count({
           where: {
             deletedAt: null,
             OR: [
@@ -1321,29 +1059,18 @@ export class BankAccountService {
         })
       : 0;
     const settlements = expenseIds.length
-      ? await tx.crossProjectSettlement.count({ where: { sourceExpenseId: { in: expenseIds } } })
+      ? await this.prisma.crossProjectSettlement.count({ where: { sourceExpenseId: { in: expenseIds } } })
       : 0;
     const rateios = expenseIds.length
-      ? await tx.rateioAllocation.count({ where: { sourceExpenseId: { in: expenseIds } } })
+      ? await this.prisma.rateioAllocation.count({ where: { sourceExpenseId: { in: expenseIds } } })
       : 0;
 
-    // Liquidação automática de fatura — SÓ o ledger, validado AGORA (#569
-    // blockers 1/2/6). Autoriza participantes (404 indistinguível), detecta
-    // drift do lançamento e outra liquidação ativa pela mesma fatura.
-    const ledgerValidation = await this.loadAndValidateImportLedgers(
-      tx,
-      tenantId,
-      importId,
-      requester,
+    // #569 (fail-closed): basta um pagamento de fatura no lote para o undo
+    // automático ficar bloqueado. Nada de lookup de cartão/fatura/projeto.
+    const cardInvoicePayments = createdExpenses.filter(
+      (e) => e.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO',
     );
-    const ledgeredPaymentIds = new Set(ledgerValidation.ledgers.map((l) => l.paymentExpenseId));
-    const invoiceLiquidations = ledgerValidation.invoiceLiquidations;
-    // Pagamento de fatura deste lote SEM ledger = legado (gravado antes do #569).
-    let notRevertibleInvoiceLiquidations = 0;
-    for (const e of createdExpenses) {
-      if (e.tipoDespesa !== 'PAGAMENTO_FATURA_CARTAO' || !e.cardLast4) continue;
-      if (!ledgeredPaymentIds.has(e.id)) notRevertibleInvoiceLiquidations++;
-    }
+    const hasCardInvoicePayment = cardInvoicePayments.length > 0;
 
     // Recorrências propagadas (RecurringBill) — efeito IRREVERSÍVEL (upsert sem
     // snapshot). Contadas por best-effort re-rodando detectRecurrence.
@@ -1356,12 +1083,10 @@ export class BankAccountService {
       createdAt: importRecord.createdAt,
       alreadyUndone: importRecord.deletedAt != null,
       totalAmountCents: createdExpenses.reduce((s, e) => s + e.valorTotal, 0),
-      // #569 blocker 1/6: o histórico só pode PROMETER o undo quando não há
-      // drift de lançamento nem outra liquidação ativa pela mesma fatura.
-      canUndo: importRecord.deletedAt != null ? true : ledgerValidation.canUndo,
+      // #569: lote com pagamento de fatura não pode ser desfeito como lote.
+      canUndo: importRecord.deletedAt != null ? true : !hasCardInvoicePayment,
       blocking: {
-        changedInvoiceLiquidations: ledgerValidation.changedInvoiceLiquidations,
-        invoiceLiquidationsWithOtherPayments: ledgerValidation.invoiceLiquidationsWithOtherPayments,
+        cardInvoicePayments: cardInvoicePayments.length,
       },
       impact: {
         expenses: createdExpenses.length,
@@ -1370,11 +1095,11 @@ export class BankAccountService {
         crossProjectSettlements: settlements,
         rateioAllocations: rateios,
         crossProjectLinks: settlements + rateios + createdReceipts.filter((r) => r.linkedReceiptId != null).length,
-        invoiceLiquidations,
+        invoiceLiquidations: cardInvoicePayments.length,
       },
       irreversible: {
         recurrencesPropagated,
-        notRevertibleInvoiceLiquidations,
+        notRevertibleInvoiceLiquidations: cardInvoicePayments.length,
       },
       expenses: createdExpenses.map((e) => ({
         id: e.id, titulo: e.titulo, valorTotal: e.valorTotal, status: e.status,
@@ -1452,7 +1177,6 @@ export class BankAccountService {
         select: {
           id: true,
           tipoDespesa: true,
-          cardLast4: true,
         },
       });
       const receipts = await tx.receipt.findMany({
@@ -1467,48 +1191,26 @@ export class BankAccountService {
       const receiptIds = receipts.map((r) => r.id);
       const now = new Date();
 
-      // ── #569: reversão da liquidação automática de fatura, DIRIGIDA PELO LEDGER
-      //    e VALIDADA agora (blockers 1/2/6/7). O helper autoriza participantes
-      //    (404 indistinguível ANTES de qualquer escrita), detecta drift do
-      //    lançamento e outra liquidação ativa pela mesma fatura.
-      const ledgerValidation = await this.loadAndValidateImportLedgers(
-        tx,
-        tenantId,
-        importId,
-        requester,
+      // ── #569 (hotfix fail-closed): um lote que criou QUALQUER
+      //    `PAGAMENTO_FATURA_CARTAO` não pode ser desfeito automaticamente — o
+      //    undo exato da liquidação de fatura continua aberto no issue #569.
+      //    Barrado AQUI, ANTES da primeira escrita: nenhuma despesa, recebimento,
+      //    caixa, vínculo ou import é tocado. Cobre lote antigo e novo pela
+      //    mesma regra.
+      const cardInvoicePayments = created.filter(
+        (payment) => payment.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO',
       );
-      if (!ledgerValidation.canUndo) {
-        // Zero writes: o helper só lê. 409 = o estado mudou desde o preview
-        // (parcela regenerada/despagada, ou outro pagamento ativo pela fatura).
-        throw new ConflictException({
-          message:
-            'A liquidação de fatura registrada por esta importação mudou desde o preview — ' +
-            'revise as alterações ou pagamentos posteriores antes de desfazer.',
-          blocking: {
-            changedInvoiceLiquidations: ledgerValidation.changedInvoiceLiquidations,
-            invoiceLiquidationsWithOtherPayments:
-              ledgerValidation.invoiceLiquidationsWithOtherPayments,
-          },
-        });
-      }
-      const ledgers = ledgerValidation.ledgers;
-      const ledgeredPaymentIds = new Set(ledgers.map((l) => l.paymentExpenseId));
-
-      // Pagamentos de fatura deste lote SEM ledger = legado (gravado antes do
-      // #569). Decisão de produto: não recalcular nem adivinhar `dueMonth`, não
-      // tocar compras/parcelas do cartão; some com o lote como qualquer despesa,
-      // e o undo só reporta `notRevertibleInvoiceLiquidations` + loga `warn`.
-      let notRevertedInvoiceLiquidations = 0;
-      for (const payment of created) {
-        if (payment.tipoDespesa !== 'PAGAMENTO_FATURA_CARTAO' || !payment.cardLast4) continue;
-        if (ledgeredPaymentIds.has(payment.id)) continue;
-        notRevertedInvoiceLiquidations++;
-        this.logger.warn(
-          'undoImport: PAGAMENTO_FATURA_CARTAO sem ledger de liquidação (legado, #569) — ' +
-            'removido com o lote, nenhuma compra de cartão tocada. ' +
-            `paymentExpenseId=${payment.id} importId=${importId}`,
+      if (cardInvoicePayments.length > 0) {
+        throw new ConflictException(
+          'Esta importação contém pagamento de fatura de cartão e não pode ser ' +
+            'desfeita automaticamente sem risco de alterar outros pagamentos. ' +
+            'Reabra a fatura manualmente se necessário.',
         );
       }
+      // Sempre 0 daqui pra frente (o guard acima já barrou o único caso) —
+      // mantido no retorno só para estabilidade do contrato da resposta.
+      const notRevertedInvoiceLiquidations = 0;
+      const revertedInvoiceParcelas = 0;
 
       await this.conciliacao.assertCanReverseSources(
         tx,
@@ -1557,42 +1259,9 @@ export class BankAccountService {
         if (res.mode !== 'none') revertedSettlements += res.targets.length;
       }
 
-      // 3) Reverte a liquidação automática de faturas pelo LEDGER (#569): só os
-      //    filhos que passaram na validação de drift (`validEntries`), ainda
-      //    ativos e PAGO. Compras de OUTRO lote / faturas quitadas por OUTRO
-      //    pagamento nunca são tocadas — não têm entrada no ledger deste import,
-      //    e o `canUndo` acima já barrou drift/outro-pagamento.
-      let revertedInvoiceParcelas = 0;
-      const affectedExpenseIds = new Set<string>();
-      for (const ledger of ledgers) {
-        for (const entry of ledger.validEntries) {
-          const { count } = await tx.cashFlowEntry.updateMany({
-            where: {
-              id: entry.cashFlowEntryId,
-              tenantId,
-              deletedAt: null,
-              status: 'PAGO',
-              expenseId: entry.expenseId,
-            },
-            data: { status: 'PLANEJADO' },
-          });
-          if (count === 1) {
-            revertedInvoiceParcelas += 1;
-            affectedExpenseIds.add(entry.expenseId);
-          }
-          await tx.importedCardInvoiceSettlementEntry.updateMany({
-            where: { id: entry.entryId, tenantId, releasedAt: null },
-            data: { releasedAt: now },
-          });
-        }
-        await tx.importedCardInvoiceSettlement.updateMany({
-          where: { id: ledger.id, tenantId, revertedAt: null },
-          data: { revertedAt: now },
-        });
-      }
-      for (const expenseId of affectedExpenseIds) {
-        await this.cardSettlement.recomputeExpensePaidState(tx, expenseId, tenantId);
-      }
+      // 3) Liquidação automática de fatura: nunca há o que reverter aqui — o
+      //    guard fail-closed (#569) já barrou qualquer lote com pagamento de
+      //    fatura antes da primeira escrita.
 
       // 4) Despesas apenas ADOTADAS na dedup (se houver): remove o carimbo.
       for (const a of adopted) {
@@ -2521,21 +2190,10 @@ export class BankAccountService {
           client,
           currentSettlement,
         );
-        // #569: grava o ledger na MESMA transação — ids exatos das parcelas
-        // que este pagamento moveu PLANEJADO → PAGO (ou strategy NONE se
-        // nenhuma), base única de `undoImport`/`getImportDetail`.
-        await this.recordImportedCardInvoiceSettlement(client, {
-          tenantId,
-          bankStatementImportId: importId,
-          paymentExpenseId: e.id,
-          cardId: matchedCard.id,
-          prepared: currentSettlement,
-          flipped: applied.flippedEntries,
-        });
-        // #569 (blocker 5): resultado HONESTO. Cartão identificado mas nenhuma
-        // parcela mudou de PLANEJADO → PAGO ⇒ não houve liquidação. Não conta
-        // como `cardPayment` (vinculado); cai no mesmo aviso de "saiu do saldo,
-        // nenhuma fatura quitada".
+        // #569: resultado HONESTO. Cartão identificado mas nenhuma parcela
+        // mudou de PLANEJADO → PAGO ⇒ não houve liquidação. Não conta como
+        // `cardPayment` (vinculado); cai no aviso de "saiu do saldo, nenhuma
+        // fatura compatível foi liquidada".
         const flippedSomething = applied.flippedEntries.length > 0;
         return {
           inserted: false,

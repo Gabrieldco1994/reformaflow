@@ -1012,6 +1012,9 @@ export class MonthlyOverviewService {
     const manualImplicitPaymentsDetailed = implicitPaymentsDetailed.filter(
       (payment) => payment.importId == null,
     );
+    const importedImplicitPaymentsDetailed = implicitPaymentsDetailed.filter(
+      (payment) => payment.importId != null,
+    );
     const implicitPayments = implicitPaymentsDetailed.map((payment) => ({
       payMonth: payment.payMonth,
       cardLast4: payment.cardLast4,
@@ -1038,6 +1041,16 @@ export class MonthlyOverviewService {
       settlementInvoices,
       manualImplicitPaymentsDetailed,
     );
+    // #569: se a MESMA fatura também tem um pagamento importado casado, o
+    // desfazer do cockpit fica indisponível — reverter só o manual deixaria o
+    // read-model inconsistente (o importado seguiria abatendo a fatura).
+    const importedPaymentByInvoice = matchPaidInvoiceExpenseIds(
+      settlementInvoices,
+      importedImplicitPaymentsDetailed,
+    );
+    for (const invoiceKey of importedPaymentByInvoice.keys()) {
+      implicitPaymentByInvoice.delete(invoiceKey);
+    }
 
     for (const [invoiceKey, invoice] of invoiceByMonthCard) {
       const paidAmount = settlementTotals.paidAmountByInvoice.get(invoiceKey) ?? 0;
@@ -3476,9 +3489,6 @@ export class MonthlyOverviewService {
         status: 'PAGO',
         bankLast4: { not: null },
         settlesInvoiceKey: null,
-        // #569: o desfazer manual só alcança pagamento MANUAL. Pagamento de
-        // importação (`importId != null`) só sai por `BankAccountService.undoImport`.
-        importId: null,
         deletedAt: null,
       },
       select: {
@@ -3487,6 +3497,7 @@ export class MonthlyOverviewService {
         valorTotal: true,
         dataPagamento: true,
         createdAt: true,
+        importId: true,
       },
     });
 
@@ -3504,6 +3515,17 @@ export class MonthlyOverviewService {
     );
 
     if (assignments.length === 0) {
+      throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
+    }
+    // #569: o desfazer do cockpit só alcança pagamento MANUAL. Se QUALQUER
+    // pagamento casado com a fatura veio de importação (`importId != null`), a
+    // ação não existe aqui — só `BankAccountService.undoImport` o remove — e a
+    // chamada direta falha sem escrita.
+    const importedMatched = assignments.some((assignment) => {
+      const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
+      return candidate?.importId != null;
+    });
+    if (importedMatched) {
       throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
     }
     if (assignments.length > 1) {

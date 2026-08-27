@@ -38,15 +38,14 @@ interface ImportDetail {
     notRevertibleInvoiceLiquidations: number;
   };
   /**
-   * #569: `false` quando a liquidação de fatura registrada por esta importação
-   * mudou desde o preview (parcela regenerada/despagada, ou outro pagamento
-   * ativo pela mesma fatura). Ausente para importações de fatura de cartão
-   * (contrato antigo) — tratado como permitido.
+   * #569 (hotfix fail-closed): `false` quando o lote contém um pagamento de
+   * fatura de cartão — não pode ser desfeito automaticamente sem risco de
+   * alterar outros pagamentos. Ausente no contrato antigo → tratado como
+   * permitido.
    */
   canUndo?: boolean;
   blocking?: {
-    changedInvoiceLiquidations: number;
-    invoiceLiquidationsWithOtherPayments: number;
+    cardInvoicePayments: number;
   };
 }
 
@@ -125,12 +124,10 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
 
   const irrev = detail?.irreversible;
   const hasIrreversible = !!irrev && (irrev.recurrencesPropagated > 0 || irrev.notRevertibleInvoiceLiquidations > 0);
-  // #569 (blocker 8): `canUndo === false` = a liquidação registrada mudou desde
-  // o preview. Diferente do legado irreversível (que só avisa) — aqui o desfazer
-  // fica BLOQUEADO. `undefined` (importação de fatura de cartão) = permitido.
+  // #569 (hotfix fail-closed): `canUndo === false` = o lote contém pagamento de
+  // fatura de cartão. Diferente do legado irreversível (que só avisa) — aqui o
+  // desfazer fica BLOQUEADO. `undefined` (contrato antigo) = permitido.
   const undoBlocked = detail?.canUndo === false && !detail?.alreadyUndone;
-  const blockedByChange = (detail?.blocking?.changedInvoiceLiquidations ?? 0) > 0;
-  const blockedByOtherPayment = (detail?.blocking?.invoiceLiquidationsWithOtherPayments ?? 0) > 0;
 
   return (
     <Modal open onClose={onClose} title={title} size="lg">
@@ -167,15 +164,11 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
             <div className="space-y-3">
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                 <div className="flex items-center gap-2 font-semibold">
-                  <AlertTriangle className="h-4 w-4" /> Não é possível desfazer agora
+                  <AlertTriangle className="h-4 w-4" /> Não é possível desfazer automaticamente
                 </div>
                 <p className="mt-1">
-                  {blockedByChange &&
-                    'Uma parcela de fatura que esta importação havia quitado foi alterada ou recriada depois. '}
-                  {blockedByOtherPayment &&
-                    'Outra importação ativa já quitou a mesma fatura. '}
-                  Revise as alterações ou os pagamentos posteriores antes de tentar
-                  desfazer — nada será removido enquanto isso não for resolvido.
+                  Esta importação contém pagamento de fatura e não pode ser desfeita
+                  automaticamente sem risco de alterar outros pagamentos.
                 </p>
               </div>
               {error && (
@@ -222,8 +215,8 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                     )}
                     {!!irrev && irrev.notRevertibleInvoiceLiquidations > 0 && (
                       <li>
-                        {irrev.notRevertibleInvoiceLiquidations} pagamento(s) de fatura legado(s),
-                        sem histórico exato de liquidação — reabra a fatura manualmente se necessário.
+                        {irrev.notRevertibleInvoiceLiquidations} pagamento(s) de fatura de cartão —
+                        reabra a fatura manualmente se necessário.
                       </li>
                     )}
                   </ul>
