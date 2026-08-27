@@ -74,18 +74,33 @@ export interface PreparedInvoiceUnsettlement {
   purchases: UnsettlePurchase[];
 }
 
+export type InvoiceSettlementStrategy =
+  | 'DUE_MONTH'
+  | 'IMPORTED_STATEMENT'
+  | 'NONE';
+
 export interface PreparedInvoiceSettlement {
   purchases: SettlePurchase[];
   /**
-   * Fatura ("{cardLast4}:{dueMonth}") que este settlement efetivamente
-   * escolheu e vai quitar — resolvida por `resolveTargetDueMonth`
-   * (estratégia 1, por vencimento). `null` quando a liquidação usou o
-   * fallback por fatura importada (estratégia 2) ou quando nada foi
-   * liquidado (`purchases` vazio): nesses casos não há um único `dueMonth`
-   * a que atribuir a chave. O caller (import de extrato) persiste esta
-   * chave em `Expense.settledInvoiceKey` do pagamento — issue #569.
+   * Como a liquidação resolveu a fatura alvo — issue #569:
+   *  - `DUE_MONTH`: estratégia 1 (por vencimento) achou e fechou uma fatura;
+   *  - `IMPORTED_STATEMENT`: fallback por fatura importada casou pelo total;
+   *  - `NONE`: nada casou (`purchases` vazio).
+   * O caller de importação (`bank-account.service`) grava isto no ledger
+   * `ImportedCardInvoiceSettlement` do pagamento, junto dos ids EXATOS dos
+   * `CashFlowEntry` que a aplicação de fato moveu PLANEJADO → PAGO.
    */
-  settledInvoiceKey: string | null;
+  strategy: InvoiceSettlementStrategy;
+  /** "YYYY-MM" da fatura alvo quando `strategy === 'DUE_MONTH'` — SÓ auditoria. */
+  targetDueMonth: string | null;
+  /** `CreditCardStatementImport.id` casado quando `strategy === 'IMPORTED_STATEMENT'`. */
+  matchedCardImportId: string | null;
+}
+
+/** Um `CashFlowEntry` que `applyPreparedSettlement` de fato moveu PLANEJADO → PAGO. */
+export interface FlippedSettlementEntry {
+  cashFlowEntryId: string;
+  expenseId: string;
 }
 
 /**
@@ -133,7 +148,7 @@ export class CardInvoiceSettlementService {
     requester: RateioRequester;
     /** Ver `assertCanAccessCard.requiredModule` (#480 SEC-1). */
     requiredModule?: string;
-  }): Promise<{ settledExpenses: number; settledParcelas: number; settledInvoiceKey: string | null }> {
+  }): Promise<{ settledExpenses: number; settledParcelas: number }> {
     assertRateioRequester(params.requester);
     return this.prisma.$transaction(async (tx) => {
       const prepared = await this.prepareSettleInvoice({
@@ -142,13 +157,8 @@ export class CardInvoiceSettlementService {
       });
       const applied = await this.applyPreparedSettlement(tx, prepared);
       return {
-        ...applied,
-        // #569: repassa a fatura efetivamente escolhida por esta liquidação
-        // (ou `null` quando nada foi liquidado / fallback por importação) —
-        // usado por quem chama `settleInvoice` (não `prepareSettleInvoice`
-        // diretamente) e precisa persistir a chave em
-        // `Expense.settledInvoiceKey` do pagamento correspondente.
-        settledInvoiceKey: applied.settledExpenses > 0 ? prepared.settledInvoiceKey : null,
+        settledExpenses: applied.settledExpenses,
+        settledParcelas: applied.settledParcelas,
       };
     });
   }
@@ -228,7 +238,12 @@ export class CardInvoiceSettlementService {
           target,
         );
         if (prepared.length > 0) {
-          return { purchases: prepared, settledInvoiceKey: `${card.last4}:${target}` };
+          return {
+            purchases: prepared,
+            strategy: 'DUE_MONTH',
+            targetDueMonth: target,
+            matchedCardImportId: null,
+          };
         }
       }
     }
@@ -241,7 +256,14 @@ export class CardInvoiceSettlementService {
       amountCents,
       paymentDate,
     );
-    if (!matchedImport) return { purchases: [], settledInvoiceKey: null };
+    if (!matchedImport) {
+      return {
+        purchases: [],
+        strategy: 'NONE',
+        targetDueMonth: null,
+        matchedCardImportId: null,
+      };
+    }
 
     const importPurchases = purchases.filter(
       (purchase) => purchase.importId === matchedImport.id,
@@ -250,9 +272,12 @@ export class CardInvoiceSettlementService {
       tx,
       importPurchases,
     );
-    // Fallback por fatura importada não resolve um único dueMonth (cada
-    // compra pode ter uma parcela em aberto de mês diferente) — sem chave.
-    return { purchases: prepared, settledInvoiceKey: null };
+    return {
+      purchases: prepared,
+      strategy: prepared.length > 0 ? 'IMPORTED_STATEMENT' : 'NONE',
+      targetDueMonth: null,
+      matchedCardImportId: prepared.length > 0 ? matchedImport.id : null,
+    };
   }
 
   /**
@@ -424,6 +449,42 @@ export class CardInvoiceSettlementService {
       !this.canRequesterSeeCardProject(
         requester,
         storedCard.project,
+        params.requiredModule,
+      )
+    ) {
+      throw new NotFoundException(
+        params.notFoundMessage ?? INVOICE_NOT_FOUND_MESSAGE,
+      );
+    }
+  }
+
+  /**
+   * Autoriza um requester a MEXER nas compras de um projeto durante o undo de
+   * importação (#569): o projeto tem que existir, ser do tenant, estar vivo e
+   * ser visível ao requester pelo módulo do CARTÃO (mesma porta do #480 SEC-1).
+   * Usado por `bank-account.undoImport` para o projeto do cartão e para todo
+   * projeto dono de uma parcela registrada no ledger, ANTES da primeira escrita.
+   */
+  async assertCanAccessProject(params: {
+    tenantId: string;
+    projectId: string;
+    tx: Prisma.TransactionClient;
+    requester: RateioRequester;
+    requiredModule?: string;
+    notFoundMessage?: string;
+  }): Promise<void> {
+    assertRateioRequester(params.requester);
+    const project = await params.tx.project.findFirst({
+      where: { id: params.projectId, tenantId: params.tenantId, deletedAt: null },
+      select: { id: true, type: true, tenantId: true, deletedAt: true },
+    });
+    if (
+      !project ||
+      project.tenantId !== params.tenantId ||
+      project.deletedAt !== null ||
+      !this.canRequesterSeeCardProject(
+        params.requester,
+        project,
         params.requiredModule,
       )
     ) {
@@ -636,22 +697,88 @@ export class CardInvoiceSettlementService {
   async applyPreparedSettlement(
     tx: Prisma.TransactionClient,
     prepared: PreparedInvoiceSettlement,
-  ): Promise<{ settledExpenses: number; settledParcelas: number }> {
+  ): Promise<{
+    settledExpenses: number;
+    settledParcelas: number;
+    flippedEntries: FlippedSettlementEntry[];
+  }> {
     let settledParcelas = 0;
+    let settledExpenses = 0;
+    const flippedEntries: FlippedSettlementEntry[] = [];
     for (const purchase of prepared.purchases) {
+      // #569: update CONDICIONAL. Uma parcela que já saiu de PLANEJADO entre o
+      // prepare e o apply (outra corrida, edição concorrente) tem `count === 0`
+      // e NÃO entra na recomputação da despesa nem no ledger — só as que este
+      // pagamento de fato moveu contam.
+      const flippedForPurchase: EntryRow[] = [];
       for (const entry of purchase.entries) {
-        await tx.cashFlowEntry.update({
-          where: { id: entry.id },
+        const { count } = await tx.cashFlowEntry.updateMany({
+          where: {
+            id: entry.id,
+            tenantId: purchase.expense.tenantId,
+            deletedAt: null,
+            status: 'PLANEJADO',
+          },
           data: { status: 'PAGO' },
         });
+        if (count === 1) {
+          flippedForPurchase.push(entry);
+          flippedEntries.push({
+            cashFlowEntryId: entry.id,
+            expenseId: purchase.expense.id,
+          });
+        }
       }
-      await this.applyPaid(tx, purchase.expense, purchase.entries);
-      settledParcelas += purchase.entries.length;
+      if (flippedForPurchase.length === 0) continue;
+      await this.applyPaid(tx, purchase.expense, flippedForPurchase);
+      settledExpenses += 1;
+      settledParcelas += flippedForPurchase.length;
     }
-    return {
-      settledExpenses: prepared.purchases.length,
-      settledParcelas,
-    };
+    return { settledExpenses, settledParcelas, flippedEntries };
+  }
+
+  /**
+   * Recomputa `Expense.status`/`paidParcelas` a partir da VERDADE do cashflow
+   * (quais `CashFlowEntry` estão PAGO agora), sem depender de qual chamada mudou
+   * o quê. Idempotente — usado por `undoImport` (#569) depois de liberar as
+   * parcelas de um pagamento importado.
+   */
+  async recomputeExpensePaidState(
+    client: Prisma.TransactionClient,
+    expenseId: string,
+  ): Promise<void> {
+    const e = (await client.expense.findUnique({
+      where: { id: expenseId },
+      select: { id: true, formaPagamento: true, quantidadeParcela: true },
+    })) as { id: string; formaPagamento: string; quantidadeParcela: number | null } | null;
+    if (!e) return;
+    const n = e.quantidadeParcela ?? 1;
+    const paid = (await client.cashFlowEntry.findMany({
+      where: { expenseId, deletedAt: null, status: 'PAGO' },
+    })) as EntryRow[];
+
+    if (isSinglePaymentForm(e.formaPagamento) || n <= 1) {
+      await client.expense.update({
+        where: { id: expenseId },
+        data: { status: paid.length > 0 ? 'PAGO' : 'PLANEJADO', paidParcelas: null },
+      });
+      return;
+    }
+
+    const set = new Set<number>();
+    for (const en of paid) {
+      const idx = this.parcelaIndex(en.parcela);
+      if (idx != null && idx >= 0 && idx < n) set.add(idx);
+    }
+    const allPaid = set.size === n;
+    const paidParcelas =
+      allPaid || set.size === 0
+        ? null
+        : JSON.stringify(Array.from(set).sort((a, b) => a - b));
+    await client.expense.update({
+      where: { id: expenseId },
+      data: { status: allPaid ? 'PAGO' : 'PLANEJADO', paidParcelas },
+    });
   }
 
   /**

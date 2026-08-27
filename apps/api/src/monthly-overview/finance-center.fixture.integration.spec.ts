@@ -732,7 +732,7 @@ describe("synthetic deterministic finance-center persisted contract", () => {
 
     expect(migrations).toHaveLength(65);
     expect(migrations.at(-1)?.migration_name).toBe(
-      "20260826194251_add_settled_invoice_key",
+      "20260827120000_imported_card_invoice_settlement_ledger",
     );
     expect(
       migrations.every(

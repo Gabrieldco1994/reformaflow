@@ -1,3 +1,4 @@
+// The database guard must run before PrismaClient is imported.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require("../../../../scripts/test-db-env.cjs");
 
@@ -10,22 +11,23 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { RateioRequester } from "../expense/rateio.types";
 
 /**
- * Issue #569 (fase 2) — decisão de produto 2.
+ * issue #569 (fase 2) — decisão de produto para PAGAMENTO legado.
  *
- * Faturas de PAGAMENTO_FATURA_CARTAO gravadas ANTES deste campo existir não
- * têm `settledInvoiceKey`. `undoImport` continua revertendo essas faturas
- * LEGADAS pelo fallback antigo (mês do pagamento) — mas esse caminho tem que
- * LOGAR `warn` toda vez que for usado (condição não-negociável do PO), para
- * poder ser rastreado se o volume crescer ou o bug reaparecer.
+ * Pagamentos de fatura criados por importações ANTERIORES ao ledger
+ * (`ImportedCardInvoiceSettlement`) não têm registro do que moveram. Decisão do
+ * PO: no undo NÃO recalcular/adivinhar `dueMonth`, NÃO tocar compras/parcelas
+ * do cartão — só remover o pagamento com o lote, reportar
+ * `notRevertibleInvoiceLiquidations` e LOGAR `warn` com `paymentExpenseId` e
+ * `importId` (sem valores nem dados sensíveis).
  *
- * Este spec cobre APENAS o log — o comportamento funcional do fallback já é
- * espelho do que existia antes do #569 e não é o alvo de M1/M2.
+ * Cobre também o índice único parcial que impede duas reivindicações ativas
+ * para a mesma parcela.
  */
-describe("BankAccountService — log do fallback legado em undoImport (issue #569, fase 2)", () => {
+describe("BankAccountService — pagamento legado e ledger (issue #569, fase 2)", () => {
   const setupPrisma = new PrismaClient();
   const prisma = new PrismaService();
   let service: BankAccountService;
-  let cardSettlement: CardInvoiceSettlementService;
+  let warnSpy: jest.SpyInstance;
 
   const TENANT = "bank-569-legacy-tenant";
   const PESSOAL = "bank-569-legacy-pessoal";
@@ -38,9 +40,11 @@ describe("BankAccountService — log do fallback legado em undoImport (issue #56
   };
 
   let accountId: string;
-  let warnSpy: jest.SpyInstance;
+  let cardId: string;
 
   async function cleanup(): Promise<void> {
+    await setupPrisma.importedCardInvoiceSettlementEntry.deleteMany({ where: { tenantId: TENANT } });
+    await setupPrisma.importedCardInvoiceSettlement.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.crossProjectSettlement.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
@@ -68,7 +72,7 @@ describe("BankAccountService — log do fallback legado em undoImport (issue #56
       data: { tenantId: TENANT, projectId: PESSOAL, institution: "ITAU", nickname: "Conta 569 legacy", last4: "9013" },
     });
     accountId = account.id;
-    await setupPrisma.creditCard.create({
+    const card = await setupPrisma.creditCard.create({
       data: {
         tenantId: TENANT,
         projectId: PESSOAL,
@@ -80,17 +84,20 @@ describe("BankAccountService — log do fallback legado em undoImport (issue #56
         dueDay: 5,
       },
     });
-    cardSettlement = new CardInvoiceSettlementService(prisma);
+    cardId = card.id;
     service = new BankAccountService(
       prisma,
       new MerchantClassifierService(prisma),
       new ConciliacaoService(prisma),
-      cardSettlement,
+      new CardInvoiceSettlementService(prisma),
     );
   });
 
   beforeEach(() => {
-    warnSpy = jest.spyOn((service as unknown as { logger: { warn: (msg: string) => void } }).logger, "warn");
+    warnSpy = jest.spyOn(
+      (service as unknown as { logger: { warn: (msg: string) => void } }).logger,
+      "warn",
+    );
   });
 
   afterEach(async () => {
@@ -106,7 +113,8 @@ describe("BankAccountService — log do fallback legado em undoImport (issue #56
     await setupPrisma.$disconnect();
   });
 
-  it("undoImport, ao encontrar PAGAMENTO_FATURA_CARTAO sem settledInvoiceKey, cai no fallback legado e LOGA warn com o id do pagamento, o cardLast4 e a fatura derivada", async () => {
+  it("undoImport de pagamento SEM ledger: não toca a compra do cartão, reporta notRevertible e loga warn com paymentExpenseId + importId", async () => {
+    // Compra PLANEJADO cuja parcela ficou PAGO por um pagamento legado.
     await setupPrisma.expense.create({
       data: {
         id: "purchase-legacy",
@@ -150,11 +158,7 @@ describe("BankAccountService — log do fallback legado em undoImport (issue #56
         totalAmountCents: 100_000,
       },
     });
-
-    // Pagamento LEGADO: sem `settledInvoiceKey` — simula despesa gravada
-    // antes deste campo existir (o import atual sempre preenche a chave
-    // quando a liquidação por vencimento resolve uma fatura).
-    const paymentDate = new Date("2026-06-28T12:00:00.000Z");
+    // Pagamento legado: importId preenchido, SEM linha no ledger.
     await setupPrisma.expense.create({
       data: {
         id: "payment-legacy",
@@ -166,14 +170,13 @@ describe("BankAccountService — log do fallback legado em undoImport (issue #56
         quantidade: 1,
         valorTotal: 100_000,
         formaPagamento: "A_VISTA",
-        dataPagamento: paymentDate,
+        dataPagamento: new Date("2026-06-28T12:00:00.000Z"),
         status: "PAGO",
         cardLast4: LAST4,
         bankLast4: "9013",
         accountId,
         importId,
         origin: "import",
-        settledInvoiceKey: null,
       },
     });
     await setupPrisma.cashFlowEntry.create({
@@ -184,20 +187,122 @@ describe("BankAccountService — log do fallback legado em undoImport (issue #56
         expenseId: "payment-legacy",
         valor: 100_000,
         tipo: "DESPESA",
-        data: paymentDate,
+        data: new Date("2026-06-28T12:00:00.000Z"),
         categoria: "Pagamento de fatura",
         formaPagamento: "A_VISTA",
         status: "PAGO",
       },
     });
 
-    await service.undoImport(TENANT, PESSOAL, accountId, importId, REQUESTER);
+    const result = await service.undoImport(TENANT, PESSOAL, accountId, importId, REQUESTER);
 
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const [message] = warnSpy.mock.calls[0];
-    expect(message).toEqual(expect.stringContaining("payment-legacy"));
-    expect(message).toEqual(expect.stringContaining(LAST4));
-    // O fallback deriva a fatura pelo mês do PAGAMENTO (28/06 -> 2026-06).
-    expect(message).toEqual(expect.stringContaining("2026-06"));
+    expect(result.notRevertedInvoiceLiquidations).toBe(1);
+    expect(result.revertedInvoiceParcelas).toBe(0);
+    // A parcela da compra do cartão NÃO foi tocada (decisão do PO).
+    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-legacy-entry" } }))?.status).toBe("PAGO");
+    expect((await setupPrisma.expense.findUnique({ where: { id: "purchase-legacy" } }))?.deletedAt).toBeNull();
+
+    const legacyWarns = warnSpy.mock.calls
+      .map(([m]) => String(m))
+      .filter((m) => m.includes("sem ledger"));
+    expect(legacyWarns).toHaveLength(1);
+    expect(legacyWarns[0]).toContain("payment-legacy");
+    expect(legacyWarns[0]).toContain(importId);
+    // Sem valores nem dados sensíveis.
+    expect(legacyWarns[0]).not.toContain("100000");
+  });
+
+  it("getImportDetail: pagamento sem ledger conta como notRevertibleInvoiceLiquidations, não como liquidação", async () => {
+    const importId = "import-569-legacy-detail";
+    await setupPrisma.bankStatementImport.create({
+      data: { id: importId, tenantId: TENANT, accountId, periodLabel: "2026-06", source: "OFX", inserted: 1, totalAmountCents: 100_000 },
+    });
+    await setupPrisma.expense.create({
+      data: {
+        id: "payment-legacy-detail",
+        tenantId: TENANT,
+        projectId: PESSOAL,
+        tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+        titulo: "Pagamento fatura",
+        valor: 100_000,
+        quantidade: 1,
+        valorTotal: 100_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-28T12:00:00.000Z"),
+        status: "PAGO",
+        cardLast4: LAST4,
+        accountId,
+        importId,
+        origin: "import",
+      },
+    });
+
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId);
+    expect(detail.impact.invoiceLiquidations).toBe(0);
+    expect(detail.irreversible.notRevertibleInvoiceLiquidations).toBe(1);
+  });
+
+  it("índice único parcial: duas reivindicações ATIVAS para a mesma parcela são impossíveis", async () => {
+    const entry = await setupPrisma.cashFlowEntry.create({
+      data: {
+        tenantId: TENANT,
+        projectId: PESSOAL,
+        valor: 1,
+        tipo: "DESPESA",
+        data: new Date("2026-06-10T12:00:00.000Z"),
+        categoria: "OUTROS",
+        status: "PAGO",
+      },
+    });
+    async function makeSettlement(id: string) {
+      const payment = await setupPrisma.expense.create({
+        data: {
+          id,
+          tenantId: TENANT,
+          projectId: PESSOAL,
+          tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+          titulo: "p",
+          valor: 1,
+          quantidade: 1,
+          valorTotal: 1,
+          formaPagamento: "A_VISTA",
+          status: "PAGO",
+        },
+      });
+      const bankImport = await setupPrisma.bankStatementImport.create({
+        data: { tenantId: TENANT, accountId, periodLabel: "2026-06", source: "OFX" },
+      });
+      return setupPrisma.importedCardInvoiceSettlement.create({
+        data: {
+          tenantId: TENANT,
+          bankStatementImportId: bankImport.id,
+          paymentExpenseId: payment.id,
+          cardId,
+          cardProjectId: PESSOAL,
+          strategy: "DUE_MONTH",
+        },
+      });
+    }
+    const a = await makeSettlement("dup-a");
+    const b = await makeSettlement("dup-b");
+    await setupPrisma.importedCardInvoiceSettlementEntry.create({
+      data: { tenantId: TENANT, settlementId: a.id, cashFlowEntryId: entry.id },
+    });
+    await expect(
+      setupPrisma.importedCardInvoiceSettlementEntry.create({
+        data: { tenantId: TENANT, settlementId: b.id, cashFlowEntryId: entry.id },
+      }),
+    ).rejects.toThrow();
+
+    // Mas depois de liberar a primeira, a segunda pode reivindicar.
+    await setupPrisma.importedCardInvoiceSettlementEntry.updateMany({
+      where: { settlementId: a.id },
+      data: { releasedAt: new Date() },
+    });
+    await expect(
+      setupPrisma.importedCardInvoiceSettlementEntry.create({
+        data: { tenantId: TENANT, settlementId: b.id, cashFlowEntryId: entry.id },
+      }),
+    ).resolves.toBeTruthy();
   });
 });

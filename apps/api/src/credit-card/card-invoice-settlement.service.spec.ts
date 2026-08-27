@@ -71,6 +71,25 @@ function makePrisma(seed: {
         Object.assign(en, data);
         return Promise.resolve(en);
       }),
+      // #569: `applyPreparedSettlement` faz update CONDICIONAL (só flipa quem
+      // ainda está PLANEJADO). O mock respeita id/status/deletedAt e devolve
+      // `{ count }` — ignora `tenantId` (irrelevante neste mock in-memory).
+      updateMany: jest.fn(({ where, data }: any) => {
+        let count = 0;
+        for (const en of entries) {
+          if (where.id != null && en.id !== where.id) continue;
+          if (where.status != null && en.status !== where.status) continue;
+          if (
+            where.deletedAt !== undefined &&
+            (en.deletedAt ?? null) !== (where.deletedAt ?? null)
+          ) {
+            continue;
+          }
+          Object.assign(en, data);
+          count += 1;
+        }
+        return Promise.resolve({ count });
+      }),
     },
     creditCardStatementImport: {
       findFirst: jest.fn(({ where }: any) => {

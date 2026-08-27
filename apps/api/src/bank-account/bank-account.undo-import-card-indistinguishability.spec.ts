@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require("../../../../scripts/test-db-env.cjs");
 
-import { HttpException, NotFoundException } from "@nestjs/common";
+import { HttpException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { BankAccountService } from "./bank-account.service";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
@@ -61,7 +61,9 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
     await setupPrisma.crossProjectSettlement.deleteMany({
       where: { tenantId: TENANT },
     });
-    await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+    await setupPrisma.importedCardInvoiceSettlementEntry.deleteMany({ where: { tenantId: TENANT } });
+  await setupPrisma.importedCardInvoiceSettlement.deleteMany({ where: { tenantId: TENANT } });
+  await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.expense.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.receipt.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.bankStatementImport.deleteMany({
@@ -295,39 +297,39 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
     };
   }
 
+  // #569: o undo NÃO consulta mais cartão por `last4` — ele reverte só o que o
+  // LEDGER registrou. Um pagamento SEM ledger (aqui, todos) é LEGADO: sai com o
+  // lote, nenhuma compra de cartão é tocada, `notRevertedInvoiceLiquidations` é
+  // reportado. Como não há lookup de cartão, o estado do cartão
+  // (ausente/ambíguo/cross-tenant/oculto) é literalmente inobservável — não há
+  // canal lateral de existência de cartão a proteger.
   it.each([
     ["same-last4 missing", "missing"],
     ["same-last4 ambíguo", "ambiguous"],
     ["same-last4 cross-tenant", "cross-tenant"],
     ["same-last4 hidden", "hidden"],
   ] as const)(
-    "%s retorna o mesmo 404 e preserva snapshot integral",
+    "%s: legado sem ledger — resultado idêntico, nenhuma compra tocada",
     async (_label, scenario) => {
       await createCardScenario(scenario);
       const importId = await createImportedPayment(scenario);
-      const before = await snapshot();
+      const paymentEntryBefore = await setupPrisma.cashFlowEntry.findUnique({
+        where: { id: `sec4-${scenario}-payment-entry` },
+      });
+      expect(paymentEntryBefore?.status).toBe("PAGO");
 
-      let error: unknown;
-      try {
-        await service.undoImport(TENANT, PESSOAL, accountId, importId, MANAGED);
-      } catch (caught) {
-        error = caught;
-      }
+      const result = await service.undoImport(TENANT, PESSOAL, accountId, importId, MANAGED);
       const after = await snapshot();
 
-      expect({ rejection: rejectionShape(error), state: after }).toEqual({
-        rejection: {
-          name: NotFoundException.name,
-          status: 404,
-          message: "Importação não encontrada",
-          body: {
-            message: "Importação não encontrada",
-            error: "Not Found",
-            statusCode: 404,
-          },
-        },
-        state: before,
+      expect(result).toMatchObject({
+        ok: true,
+        alreadyUndone: false,
+        notRevertedInvoiceLiquidations: 1,
+        revertedInvoiceParcelas: 0,
       });
+      // Lote removido; nenhum cartão foi lido nem alterado.
+      expect(after.imports).toEqual([{ id: importId, deletedAt: expect.any(Date) }]);
+      expect(after.cards.every((c) => c.deletedAt === null)).toBe(true);
     },
   );
 });

@@ -1,3 +1,4 @@
+// The database guard must run before PrismaClient is imported.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require("../../../../scripts/test-db-env.cjs");
 
@@ -10,32 +11,27 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { RateioRequester } from "../expense/rateio.types";
 
 /**
- * RED spec — issue #569.
+ * issue #569 — o undo da importação reverte SÓ o que aquele pagamento moveu.
  *
- * M1: `undoImport` deriva o mês da fatura a partir do mês do PAGAMENTO
- * (`bank-account.service.ts` linha ~1216), mas `settleInvoice` (via
- * `resolveTargetDueMonth` em `card-invoice-settlement.service.ts`, janela
- * `{payMonth, payMonth+1}`) pode ter liquidado uma fatura de mês DIFERENTE do
- * pagamento. `undoImport` então despaga a fatura errada — inclusive uma
- * fatura já quitada por OUTRO pagamento, sem que nenhum registro amarre
- * "este pagamento liquidou esta fatura X".
+ * Antes: `undoImport` reconstruía o ciclo da fatura pelos dias ATUAIS do cartão
+ * e pelo mês do PAGAMENTO (`resolveUndoDueMonth`), então podia despagar a fatura
+ * errada — inclusive uma quitada por OUTRO pagamento. E `getImportDetail` contava
+ * `invoiceLiquidations` só por "tem cartão com dias configurados", mesmo quando a
+ * liquidação real (janela de 2 meses) não achou nada.
  *
- * M2: a prévia (`card-invoice-match.ts`, janela {-1,0,+1} = 3 meses) promete
- * vínculo que a liquidação real (`card-invoice-settlement.service.ts`, janela
- * {0,+1} = 2 meses) não confirma. `getImportDetail` conta
- * `invoiceLiquidations` só por a despesa ter `tipoDespesa` +
- * `cardLast4` e o cartão ter `closingDay`/`dueDay` — não por ter checado que
- * `prepareSettleInvoice` de fato encontrou e pagou alguma compra.
+ * Agora a importação grava um ledger (`ImportedCardInvoiceSettlement` + filhos)
+ * com os ids EXATOS dos `CashFlowEntry` que cada pagamento moveu PLANEJADO → PAGO.
+ * O undo reverte só esses; o detail conta só o que o ledger registrou.
  */
-describe("BankAccountService — janela de liquidação de fatura (issue #569)", () => {
+describe("BankAccountService — undo de importação dirigido pelo ledger (#569)", () => {
   const setupPrisma = new PrismaClient();
   const prisma = new PrismaService();
   let service: BankAccountService;
-  let cardSettlement: CardInvoiceSettlementService;
 
   const TENANT = "bank-569-tenant";
   const PESSOAL = "bank-569-pessoal";
   const LAST4 = "5691";
+  const BANK_LAST4 = "9012";
   const REQUESTER: RateioRequester = {
     role: "USER",
     allowedProjects: [PESSOAL],
@@ -43,8 +39,55 @@ describe("BankAccountService — janela de liquidação de fatura (issue #569)",
     allowedModules: ["expenses", "creditCards"],
   };
 
-  /** Limpa dados TRANSIENTES de um cenário (mantém conta/cartão do beforeAll). */
+  let accountId: string;
+  let cardId: string;
+
+  function ofxDebit(date: string, amountCents: number, memo: string, fitId: string): string {
+    const amount = (amountCents / 100).toFixed(2);
+    return [
+      "<STMTTRN>",
+      "<TRNTYPE>DEBIT</TRNTYPE>",
+      `<DTPOSTED>${date}</DTPOSTED>`,
+      `<TRNAMT>-${amount}</TRNAMT>`,
+      `<FITID>${fitId}</FITID>`,
+      `<MEMO>${memo}</MEMO>`,
+      "</STMTTRN>",
+    ].join("");
+  }
+
+  function bankOfx(...transactions: string[]): Buffer {
+    return Buffer.from(
+      [
+        "OFXHEADER:100",
+        "DATA:OFXSGML",
+        "<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS>",
+        `<BANKACCTFROM><ACCTID>${BANK_LAST4}</ACCTID></BANKACCTFROM>`,
+        "<BANKTRANLIST>",
+        ...transactions,
+        "</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>",
+      ].join("\n"),
+    );
+  }
+
+  function commit(statement: Buffer, period: string) {
+    return service.commitImport(
+      TENANT,
+      PESSOAL,
+      accountId,
+      statement,
+      "extrato-569.ofx",
+      "OFX",
+      period,
+      undefined,
+      undefined,
+      null,
+      REQUESTER,
+    );
+  }
+
   async function cleanup(): Promise<void> {
+    await setupPrisma.importedCardInvoiceSettlementEntry.deleteMany({ where: { tenantId: TENANT } });
+    await setupPrisma.importedCardInvoiceSettlement.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.crossProjectSettlement.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
@@ -52,15 +95,11 @@ describe("BankAccountService — janela de liquidação de fatura (issue #569)",
     await setupPrisma.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
   }
 
-  /** Limpeza completa — só em beforeAll/afterAll. */
   async function cleanupAll(): Promise<void> {
     await cleanup();
     await setupPrisma.creditCard.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.bankAccount.deleteMany({ where: { tenantId: TENANT } });
   }
-
-  let accountId: string;
-  let cardId: string;
 
   beforeAll(async () => {
     await setupPrisma.$connect();
@@ -73,7 +112,7 @@ describe("BankAccountService — janela de liquidação de fatura (issue #569)",
       data: { id: PESSOAL, tenantId: TENANT, type: "PESSOAL", name: "Pessoal" },
     });
     const account = await setupPrisma.bankAccount.create({
-      data: { tenantId: TENANT, projectId: PESSOAL, institution: "ITAU", nickname: "Conta 569", last4: "9012" },
+      data: { tenantId: TENANT, projectId: PESSOAL, institution: "ITAU", nickname: "Conta 569", last4: BANK_LAST4 },
     });
     accountId = account.id;
     const card = await setupPrisma.creditCard.create({
@@ -89,12 +128,11 @@ describe("BankAccountService — janela de liquidação de fatura (issue #569)",
       },
     });
     cardId = card.id;
-    cardSettlement = new CardInvoiceSettlementService(prisma);
     service = new BankAccountService(
       prisma,
       new MerchantClassifierService(prisma),
       new ConciliacaoService(prisma),
-      cardSettlement,
+      new CardInvoiceSettlementService(prisma),
     );
   });
 
@@ -108,7 +146,6 @@ describe("BankAccountService — janela de liquidação de fatura (issue #569)",
     await setupPrisma.$disconnect();
   });
 
-  /** Cria uma compra de cartão (Expense OUTROS à vista) com CashFlowEntry PLANEJADO ou PAGO. */
   async function createPurchase(params: {
     id: string;
     purchaseDate: Date;
@@ -129,7 +166,7 @@ describe("BankAccountService — janela de liquidação de fatura (issue #569)",
         dataPagamento: params.purchaseDate,
         status: params.status,
         cardLast4: LAST4,
-        paidParcelas: params.status === "PAGO" ? "[0]" : null,
+        paidParcelas: null,
       },
     });
     await setupPrisma.cashFlowEntry.create({
@@ -148,184 +185,122 @@ describe("BankAccountService — janela de liquidação de fatura (issue #569)",
     });
   }
 
-  async function createInvoicePaymentExpense(params: {
-    id: string;
-    importId: string;
-    paymentDate: Date;
-    valor: number;
-  }): Promise<void> {
-    await setupPrisma.expense.create({
-      data: {
-        id: params.id,
-        tenantId: TENANT,
-        projectId: PESSOAL,
-        tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
-        titulo: "Pagamento fatura",
-        valor: params.valor,
-        quantidade: 1,
-        valorTotal: params.valor,
-        formaPagamento: "A_VISTA",
-        dataPagamento: params.paymentDate,
-        status: "PAGO",
-        cardLast4: LAST4,
-        bankLast4: "9012",
-        accountId,
-        importId: params.importId,
-        origin: "import",
-      },
-    });
-    await setupPrisma.cashFlowEntry.create({
-      data: {
-        id: `${params.id}-entry`,
-        tenantId: TENANT,
-        projectId: PESSOAL,
-        expenseId: params.id,
-        valor: params.valor,
-        tipo: "DESPESA",
-        data: params.paymentDate,
-        categoria: "Pagamento de fatura",
-        formaPagamento: "A_VISTA",
-        status: "PAGO",
-      },
-    });
-  }
-
-  it("M1 — undoImport despaga a fatura de JUNHO (já paga por outro pagamento) em vez da de JULHO (efetivamente quitada por este pagamento)", async () => {
-    // Cartão fecha dia 25, vence dia 5.
-    // Compra de maio (dia 10) -> fatura de junho (JÁ paga por "outro pagamento").
+  it("M1 — reverte só a fatura de julho que ESTE pagamento quitou; a de junho (paga por outro) fica intacta", async () => {
     await createPurchase({
       id: "purchase-may",
       purchaseDate: new Date("2026-05-10T12:00:00.000Z"),
-      valor: 500_000, // R$ 5.000,00 — fatura de junho já fechada por outro pagamento
-      status: "PAGO",
+      valor: 500_000,
+      status: "PAGO", // fatura de junho — já quitada por OUTRO pagamento
     });
-    // Compra de junho (dia 10) -> fatura de julho (aberta).
     await createPurchase({
       id: "purchase-june",
       purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
-      valor: 700_000, // R$ 7.000,00 — fatura de julho, a ser quitada pelo pagamento sob teste
-      status: "PLANEJADO",
-    });
-
-    const importId = "import-569-m1";
-    await setupPrisma.bankStatementImport.create({
-      data: {
-        id: importId,
-        tenantId: TENANT,
-        accountId,
-        periodLabel: "2026-06",
-        source: "OFX",
-        inserted: 1,
-        totalAmountCents: 700_000,
-      },
-    });
-
-    // Pagamento em 28/06, valor bate com a fatura de julho (700.000) — a
-    // liquidação real (mesma lógica usada na importação) deve escolher julho.
-    const paymentDate = new Date("2026-06-28T12:00:00.000Z");
-    await createInvoicePaymentExpense({
-      id: "payment-m1",
-      importId,
-      paymentDate,
       valor: 700_000,
+      status: "PLANEJADO", // fatura de julho — a ser quitada pelo pagamento importado
     });
 
-    const card = { id: cardId, last4: LAST4, closingDay: 25, dueDay: 5 };
-    const settleResult = await cardSettlement.settleInvoice({
-      tenantId: TENANT,
-      card,
-      amountCents: 700_000,
-      paymentDate,
-      requester: REQUESTER,
-    });
-    // Mesma persistência que o fluxo real de import faz (bank-account.service
-    // .createInvoicePaymentExpense grava `currentSettlement.settledInvoiceKey`
-    // no pagamento no momento em que a liquidação é aplicada) — aqui feita
-    // explicitamente porque o teste chama `settleInvoice` fora do fluxo de
-    // commit completo.
-    await setupPrisma.expense.update({
-      where: { id: "payment-m1" },
-      data: { settledInvoiceKey: settleResult.settledInvoiceKey },
-    });
+    const result = await commit(
+      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "M1-PAY")),
+      "2026-06",
+    );
+    expect(result.cardPayments).toBe(1);
 
-    const beforeUndo = await setupPrisma.cashFlowEntry.findMany({
-      where: { tenantId: TENANT, expenseId: { in: ["purchase-may-entry".replace("-entry", ""), "purchase-june"] } },
+    // A liquidação real (janela {jun, jul}) escolheu julho e marcou a compra de junho.
+    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-entry" } }))?.status).toBe("PAGO");
+    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-may-entry" } }))?.status).toBe("PAGO");
+
+    const ledger = await setupPrisma.importedCardInvoiceSettlement.findFirst({
+      where: { tenantId: TENANT, bankStatementImportId: result.importId },
+      include: { entries: true },
     });
-    // Sanity: a liquidação real de fato marcou a compra de JUNHO (fatura de
-    // julho) como PAGA, e não tocou a de MAIO (já paga antes).
-    const juneEntryBefore = await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-entry" } });
-    const mayEntryBefore = await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-may-entry" } });
-    expect(juneEntryBefore?.status).toBe("PAGO");
-    expect(mayEntryBefore?.status).toBe("PAGO");
+    expect(ledger?.strategy).toBe("DUE_MONTH");
+    expect(ledger?.targetDueMonth).toBe("2026-07");
+    expect(ledger?.entries.map((e) => e.cashFlowEntryId)).toEqual(["purchase-june-entry"]);
 
-    await service.undoImport(TENANT, PESSOAL, accountId, importId, REQUESTER);
+    await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
 
-    const juneEntryAfter = await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-entry" } });
-    const mayEntryAfter = await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-may-entry" } });
+    expect({
+      june: (await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-entry" } }))?.status,
+      may: (await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-may-entry" } }))?.status,
+      juneExpense: (await setupPrisma.expense.findUnique({ where: { id: "purchase-june" } }))?.status,
+    }).toEqual({ june: "PLANEJADO", may: "PAGO", juneExpense: "PLANEJADO" });
 
-    // Comportamento CORRETO esperado (hoje falha):
-    //  - a compra de junho (fatura de julho, efetivamente quitada por este
-    //    pagamento) deveria voltar a PLANEJADO;
-    //  - a compra de maio (fatura de junho, quitada por OUTRO pagamento) NÃO
-    //    deveria ser tocada.
-    expect({ june: juneEntryAfter?.status, may: mayEntryAfter?.status }).toEqual({
-      june: "PLANEJADO",
-      may: "PAGO",
+    // Ledger fechado, filhos liberados, pagamento e import removidos.
+    const closed = await setupPrisma.importedCardInvoiceSettlement.findFirst({
+      where: { id: ledger!.id },
+      include: { entries: true },
     });
+    expect(closed?.revertedAt).not.toBeNull();
+    expect(closed?.entries.every((e) => e.releasedAt !== null)).toBe(true);
   });
 
-  it("M2 — getImportDetail conta invoiceLiquidations mesmo quando a liquidação real (janela de 2 meses) não achou nada para pagar", async () => {
-    // Compra de abril (dia 10) -> fatura de maio: fica FORA da janela de
-    // liquidação real (payMonth=julho => {julho, agosto}) mas DENTRO da
-    // janela de 3 meses da prévia ({junho, julho, agosto}).
+  it("M1b — segundo undo é idempotente: não mexe de novo na fatura", async () => {
+    await createPurchase({
+      id: "purchase-june-idem",
+      purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
+      valor: 700_000,
+      status: "PLANEJADO",
+    });
+    const result = await commit(
+      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "M1B-PAY")),
+      "2026-06",
+    );
+    await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
+    // Reabrimos a compra à mão — um segundo undo NÃO pode ressuscitar/re-tocar.
+    await setupPrisma.cashFlowEntry.update({ where: { id: "purchase-june-idem-entry" }, data: { status: "PAGO" } });
+
+    const second = await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
+    expect(second.alreadyUndone).toBe(true);
+    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-idem-entry" } }))?.status).toBe("PAGO");
+  });
+
+  it("M2 — nada casou na janela real: ledger NONE, getImportDetail conta 0 liquidações e 0 não-revertíveis", async () => {
     await createPurchase({
       id: "purchase-april",
       purchaseDate: new Date("2026-04-10T12:00:00.000Z"),
       valor: 300_000,
+      status: "PLANEJADO", // fatura de maio — fora da janela {jul, ago}
+    });
+
+    const result = await commit(
+      bankOfx(ofxDebit("20260728", 300_000, `PAGTO CART CRED ${LAST4}`, "M2-PAY")),
+      "2026-07",
+    );
+    expect(result.cardPayments).toBe(1);
+
+    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-april-entry" } }))?.status).toBe("PLANEJADO");
+
+    const ledger = await setupPrisma.importedCardInvoiceSettlement.findFirst({
+      where: { tenantId: TENANT, bankStatementImportId: result.importId },
+      include: { entries: true },
+    });
+    expect(ledger?.strategy).toBe("NONE");
+    expect(ledger?.entries).toHaveLength(0);
+
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
+    expect(detail.impact.invoiceLiquidations).toBe(0);
+    expect(detail.irreversible.notRevertibleInvoiceLiquidations).toBe(0);
+  });
+
+  it("M3 — cartão soft-deletado depois do import não muda o conjunto revertido pelo undo", async () => {
+    await createPurchase({
+      id: "purchase-june-del",
+      purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
+      valor: 700_000,
       status: "PLANEJADO",
     });
+    const result = await commit(
+      bankOfx(ofxDebit("20260628", 700_000, `PAGTO CART CRED ${LAST4}`, "M3-PAY")),
+      "2026-06",
+    );
+    expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-del-entry" } }))?.status).toBe("PAGO");
 
-    const importId = "import-569-m2";
-    await setupPrisma.bankStatementImport.create({
-      data: {
-        id: importId,
-        tenantId: TENANT,
-        accountId,
-        periodLabel: "2026-07",
-        source: "OFX",
-        inserted: 1,
-        totalAmountCents: 300_000,
-      },
-    });
-
-    const paymentDate = new Date("2026-07-28T12:00:00.000Z");
-    await createInvoicePaymentExpense({
-      id: "payment-m2",
-      importId,
-      paymentDate,
-      valor: 300_000,
-    });
-
-    const card = { id: cardId, last4: LAST4, closingDay: 25, dueDay: 5 };
-    // Mesma lógica que a importação usaria — a janela real de liquidação NÃO
-    // enxerga a fatura de maio (mês -1 em relação ao pagamento de julho).
-    const settleResult = await cardSettlement.settleInvoice({
-      tenantId: TENANT,
-      card,
-      amountCents: 300_000,
-      paymentDate,
-      requester: REQUESTER,
-    });
-    // Sanity: nada foi de fato liquidado.
-    expect(settleResult.settledExpenses).toBe(0);
-    const aprilEntry = await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-april-entry" } });
-    expect(aprilEntry?.status).toBe("PLANEJADO");
-
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId);
-
-    // Comportamento CORRETO esperado (hoje falha): se nada foi liquidado,
-    // invoiceLiquidations deveria ser 0 — não 1 (a prévia promete um vínculo
-    // que o commit não fez).
-    expect(detail.impact.invoiceLiquidations).toBe(0);
+    await setupPrisma.creditCard.update({ where: { id: cardId }, data: { deletedAt: new Date() } });
+    try {
+      await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
+      expect((await setupPrisma.cashFlowEntry.findUnique({ where: { id: "purchase-june-del-entry" } }))?.status).toBe("PLANEJADO");
+    } finally {
+      await setupPrisma.creditCard.update({ where: { id: cardId }, data: { deletedAt: null } });
+    }
   });
 });

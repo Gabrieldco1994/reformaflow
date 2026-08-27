@@ -129,6 +129,7 @@ model Project {
   priceMonitorItems       PriceMonitorItem[]
   financing               Financing?
   purchaseScenarios       PurchaseScenario[]
+  importedCardInvoiceSettlements ImportedCardInvoiceSettlement[] @relation("ImportedCardInvoiceSettlementCardProject")
 
   @@map("projects")
 }
@@ -245,7 +246,6 @@ model Expense {
   origin             String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
   linkedExpenseId    String?   @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
   settlesInvoiceKey  String?   @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
-  settledInvoiceKey  String?   @map("settled_invoice_key") // #569: quando esta PAGAMENTO_FATURA_CARTAO (importação de extrato) foi liquidada automaticamente, a fatura ({cardLast4}:{dueMonth}) que a liquidação escolheu — usado por undoImport/getImportDetail para reverter/contar a fatura CORRETA, não uma reconstrução por mês do pagamento. Campo distinto de settlesInvoiceKey (fluxo manual "cartão paga cartão"/PIX, lido por monthly-overview.service.ts) — motor canônico congelado, não reaproveitado para não mudar a classificação implícita/explícita dele.
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
@@ -262,6 +262,7 @@ model Expense {
   rateioAsSource      RateioAllocation[]       @relation("RateioSource")
   rateioAsTarget      RateioAllocation[]       @relation("RateioTarget")
   financingInstallment FinancingInstallment?
+  importedCardInvoiceSettlement ImportedCardInvoiceSettlement? @relation("ImportedCardInvoiceSettlementPayment")
 
   @@unique([tenantId, projectId, externalId])
   @@index([linkedExpenseId])
@@ -429,6 +430,7 @@ model CashFlowEntry {
   receipt          Receipt?          @relation(fields: [receiptId], references: [id])
   expense          Expense?          @relation(fields: [expenseId], references: [id])
   budgetAllocation BudgetAllocation? @relation(fields: [budgetAllocationId], references: [id])
+  importedCardInvoiceSettlementEntries ImportedCardInvoiceSettlementEntry[]
 
   @@index([projectId, data])
   @@index([receiptId])
@@ -937,6 +939,7 @@ model CreditCard {
 
   project Project                     @relation(fields: [projectId], references: [id])
   imports CreditCardStatementImport[]
+  importedCardInvoiceSettlements ImportedCardInvoiceSettlement[] @relation("ImportedCardInvoiceSettlementCard")
 
   @@index([projectId])
   @@index([tenantId])
@@ -962,6 +965,7 @@ model CreditCardStatementImport {
   deletedAt        DateTime? @map("deleted_at")
 
   card CreditCard @relation(fields: [cardId], references: [id])
+  matchedByImportedCardInvoiceSettlements ImportedCardInvoiceSettlement[] @relation("ImportedCardInvoiceSettlementMatchedImport")
 
   @@index([cardId])
   @@index([tenantId])
@@ -1037,10 +1041,67 @@ model BankStatementImport {
   deletedAt        DateTime? @map("deleted_at")
 
   account BankAccount @relation(fields: [accountId], references: [id])
+  importedCardInvoiceSettlements ImportedCardInvoiceSettlement[] @relation("ImportedCardInvoiceSettlementBankImport")
 
   @@index([accountId])
   @@index([tenantId])
   @@map("bank_statement_imports")
+}
+
+// ─── Ledger nativo de liquidação automática de fatura por importação (#569) ──
+//
+// Quando um PAGAMENTO_FATURA_CARTAO criado por uma importação de extrato dispara
+// a liquidação automática (`CardInvoiceSettlementService`), gravamos AQUI, na
+// mesma transação, exatamente QUAIS `CashFlowEntry` aquele pagamento moveu de
+// PLANEJADO → PAGO. `undoImport` reverte SÓ esses ids (ainda ativos e PAGO) —
+// nunca uma reconstrução do ciclo pelos dias atuais do cartão, nunca uma fatura
+// quitada por outro pagamento. Substitui `Expense.settledInvoiceKey` (removido
+// antes do merge): a chave "{last4}:{dueMonth}" era ambígua no fallback por
+// fatura importada e continuava adivinhando o mês para registros sem chave.
+//
+// Sem `deletedAt`: os dois modelos estão em `modelsWithoutSoftDelete`
+// (`prisma.service.ts`). O ciclo de vida é `revertedAt`/`releasedAt`.
+model ImportedCardInvoiceSettlement {
+  id                    String    @id @default(cuid())
+  tenantId              String    @map("tenant_id")
+  bankStatementImportId String    @map("bank_statement_import_id")
+  paymentExpenseId      String    @unique @map("payment_expense_id") // o PAGAMENTO_FATURA_CARTAO criado pela importação
+  cardId                String    @map("card_id")
+  cardProjectId         String    @map("card_project_id") // projeto dono do cartão (autorização do undo)
+  strategy              String // DUE_MONTH | IMPORTED_STATEMENT | NONE
+  targetDueMonth        String?   @map("target_due_month") // "YYYY-MM" — SÓ auditoria; o undo nunca lê isto
+  matchedCardImportId   String?   @map("matched_card_import_id") // CreditCardStatementImport casado no fallback (strategy=IMPORTED_STATEMENT)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  revertedAt            DateTime? @map("reverted_at")
+
+  payment         Expense                   @relation("ImportedCardInvoiceSettlementPayment", fields: [paymentExpenseId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  bankImport      BankStatementImport       @relation("ImportedCardInvoiceSettlementBankImport", fields: [bankStatementImportId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  card            CreditCard                @relation("ImportedCardInvoiceSettlementCard", fields: [cardId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cardProject     Project                   @relation("ImportedCardInvoiceSettlementCardProject", fields: [cardProjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  matchedCardImport CreditCardStatementImport? @relation("ImportedCardInvoiceSettlementMatchedImport", fields: [matchedCardImportId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entries         ImportedCardInvoiceSettlementEntry[]
+
+  @@index([tenantId])
+  @@index([bankStatementImportId])
+  @@index([cardId])
+  @@map("imported_card_invoice_settlements")
+}
+
+model ImportedCardInvoiceSettlementEntry {
+  id              String    @id @default(cuid())
+  tenantId        String    @map("tenant_id")
+  settlementId    String    @map("settlement_id")
+  cashFlowEntryId String    @map("cash_flow_entry_id") // a parcela que ESTE pagamento moveu PLANEJADO → PAGO
+  createdAt       DateTime  @default(now()) @map("created_at")
+  releasedAt      DateTime? @map("released_at")
+
+  settlement    ImportedCardInvoiceSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cashFlowEntry CashFlowEntry                 @relation(fields: [cashFlowEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([settlementId])
+  @@index([tenantId])
+  @@index([cashFlowEntryId])
+  @@map("imported_card_invoice_settlement_entries")
 }
 
 // ─── Merchant categorization cache (tenant-scoped) ───────────

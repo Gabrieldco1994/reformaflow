@@ -61,6 +61,15 @@ function makePrismaMock() {
       findFirst: jest.fn().mockResolvedValue(null),
     },
     creditCard: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null) },
+    importedCardInvoiceSettlement: {
+      create: jest.fn().mockResolvedValue({ id: 'ledger1' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    importedCardInvoiceSettlementEntry: {
+      create: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
+    },
     recurringBill: { create: jest.fn(), findFirst: jest.fn() },
     crossProjectSettlement: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -550,7 +559,7 @@ describe('BankAccountService', () => {
       });
       const settleSpy = jest
         .spyOn(settlement, 'applyPreparedSettlement')
-        .mockResolvedValue({ settledExpenses: 3, settledParcelas: 3 });
+        .mockResolvedValue({ settledExpenses: 3, settledParcelas: 3, flippedEntries: [] });
 
       prisma.expense.create.mockClear();
       const preview = await service.previewImport(
