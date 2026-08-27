@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, INCLUDE_SOFT_DELETED } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
 import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
 import {
@@ -1065,11 +1065,20 @@ export class BankAccountService {
       ? await this.prisma.rateioAllocation.count({ where: { sourceExpenseId: { in: expenseIds } } })
       : 0;
 
-    // #569 (fail-closed): basta um pagamento de fatura no lote para o undo
-    // automático ficar bloqueado. Nada de lookup de cartão/fatura/projeto.
-    const cardInvoicePayments = createdExpenses.filter(
-      (e) => e.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO',
-    );
+    // #569 (fail-closed): basta um pagamento de fatura LIGADO A ESTE IMPORT para
+    // o undo em lote ficar bloqueado. A varredura ignora `createdAt` (cobre
+    // despesa ADOTADA na dedup, criada antes do import) e inclui soft-deletadas
+    // (cobre pagamento já removido por outro fluxo). Nada de lookup de
+    // cartão/fatura/projeto.
+    const cardInvoicePayments = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        importId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        deletedAt: INCLUDE_SOFT_DELETED,
+      },
+      select: { id: true },
+    });
     const hasCardInvoicePayment = cardInvoicePayments.length > 0;
 
     // Recorrências propagadas (RecurringBill) — efeito IRREVERSÍVEL (upsert sem
@@ -1191,20 +1200,25 @@ export class BankAccountService {
       const receiptIds = receipts.map((r) => r.id);
       const now = new Date();
 
-      // ── #569 (hotfix fail-closed): um lote que criou QUALQUER
-      //    `PAGAMENTO_FATURA_CARTAO` não pode ser desfeito automaticamente — o
-      //    undo exato da liquidação de fatura continua aberto no issue #569.
-      //    Barrado AQUI, ANTES da primeira escrita: nenhuma despesa, recebimento,
-      //    caixa, vínculo ou import é tocado. Cobre lote antigo e novo pela
-      //    mesma regra.
-      const cardInvoicePayments = created.filter(
-        (payment) => payment.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO',
-      );
+      // ── #569 (hotfix fail-closed): um lote com QUALQUER `PAGAMENTO_FATURA_CARTAO`
+      //    ligado ao import não pode ser desfeito automaticamente. Barrado AQUI,
+      //    ANTES da primeira escrita: nenhuma despesa, recebimento, caixa, vínculo
+      //    ou import é tocado. A varredura ignora `createdAt` (despesa adotada na
+      //    dedup) e inclui soft-deletadas (pagamento já removido por outro fluxo).
+      const cardInvoicePayments = await tx.expense.findMany({
+        where: {
+          tenantId,
+          importId,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          deletedAt: INCLUDE_SOFT_DELETED,
+        },
+        select: { id: true },
+      });
       if (cardInvoicePayments.length > 0) {
         throw new ConflictException(
-          'Esta importação contém pagamento de fatura de cartão e não pode ser ' +
-            'desfeita automaticamente sem risco de alterar outros pagamentos. ' +
-            'Reabra a fatura manualmente se necessário.',
+          'Esta importação contém pagamento de fatura de cartão. Lotes com ' +
+            'pagamento de fatura permanecem intactos por segurança e não podem ' +
+            'ser desfeitos automaticamente.',
         );
       }
       // Sempre 0 daqui pra frente (o guard acima já barrou o único caso) —
@@ -2192,9 +2206,17 @@ export class BankAccountService {
         );
         // #569: resultado HONESTO. Cartão identificado mas nenhuma parcela
         // mudou de PLANEJADO → PAGO ⇒ não houve liquidação. Não conta como
-        // `cardPayment` (vinculado); cai no aviso de "saiu do saldo, nenhuma
-        // fatura compatível foi liquidada".
+        // `cardPayment` (vinculado); cai no aviso de "nenhuma fatura compatível
+        // foi liquidada".
         const flippedSomething = applied.flippedEntries.length > 0;
+        // fix 2: só agora, e só se houve flip, o pagamento ganha `cardLast4` —
+        // aí ele casa no read-model exatamente com a fatura que de fato quitou.
+        if (flippedSomething) {
+          await client.expense.update({
+            where: { id: e.id },
+            data: { cardLast4: matchedCard.last4 },
+          });
+        }
         return {
           inserted: false,
           receiptInserted: false,
@@ -2292,7 +2314,7 @@ export class BankAccountService {
     importId: string,
     createdByUserId: string | null,
     matchedCard: MatchedSettlementCard | null,
-    detectedLast4: string | null,
+    _detectedLast4: string | null,
   ): Promise<{ id: string }> {
     return client.expense.create({
       data: {
@@ -2312,7 +2334,12 @@ export class BankAccountService {
         importId,
         externalId: transaction.externalId,
         bankLast4: account.last4,
-        cardLast4: matchedCard?.last4 ?? detectedLast4,
+        // #569 (fix 2): NUNCA persiste `cardLast4` na criação. Ele só é gravado
+        // DEPOIS da liquidação, e só se ≥1 parcela virou PAGO — o caller faz o
+        // update condicional. Pagamento sem flip fica `cardLast4: null`: sai do
+        // caixa mas não abate nenhuma fatura no read-model
+        // (`implicitPaymentsDetailed` exige `cardLast4`).
+        cardLast4: null,
         createdByUserId,
       },
       select: { id: true },

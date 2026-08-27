@@ -578,7 +578,12 @@ describe('BankAccountService', () => {
 
       const created = prisma.expense.create.mock.calls[0][0].data;
       expect(created.tipoDespesa).toBe('PAGAMENTO_FATURA_CARTAO');
-      expect(created.cardLast4).toBe('5572');
+      // #569 (fix 2): nasce SEM cartão; só ganha `cardLast4` no update pós-flip.
+      expect(created.cardLast4).toBeNull();
+      const cardStamp = prisma.expense.update.mock.calls.find(
+        ([args]: any) => args?.data?.cardLast4 === '5572',
+      );
+      expect(cardStamp).toBeDefined();
       expect(res.cardPayments).toBe(1);
       expect(res.unlinkedCardPayments).toBe(0);
       expect(settleSpy).toHaveBeenCalled();

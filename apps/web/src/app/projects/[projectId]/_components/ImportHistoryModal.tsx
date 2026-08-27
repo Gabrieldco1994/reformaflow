@@ -123,7 +123,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
   }
 
   const irrev = detail?.irreversible;
-  const hasIrreversible = !!irrev && (irrev.recurrencesPropagated > 0 || irrev.notRevertibleInvoiceLiquidations > 0);
+  const hasIrreversible = !!irrev && irrev.recurrencesPropagated > 0;
   // #569 (hotfix fail-closed): `canUndo === false` = o lote contém pagamento de
   // fatura de cartão. Diferente do legado irreversível (que só avisa) — aqui o
   // desfazer fica BLOQUEADO. `undefined` (contrato antigo) = permitido.
@@ -193,9 +193,6 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                 )}
                 <ImpactLine label="Lançamentos de caixa removidos" value={detail.impact.cashFlowEntries} />
                 <ImpactLine label="Vínculos entre projetos desfeitos" value={detail.impact.crossProjectLinks} />
-                {detail.impact.invoiceLiquidations != null && detail.impact.invoiceLiquidations > 0 && (
-                  <ImpactLine label="Faturas de cartão reabertas (voltam a planejado)" value={detail.impact.invoiceLiquidations} />
-                )}
                 {detail.impact.adoptedExpenses != null && detail.impact.adoptedExpenses > 0 && (
                   <ImpactLine label="Parcelas de série (carimbo removido, não apagadas)" value={detail.impact.adoptedExpenses} />
                 )}
@@ -211,12 +208,6 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                       <li>
                         {irrev.recurrencesPropagated} recorrência(s) propagada(s) em Casa/Carro
                         continuam com os valores atualizados (não há histórico para restaurar).
-                      </li>
-                    )}
-                    {!!irrev && irrev.notRevertibleInvoiceLiquidations > 0 && (
-                      <li>
-                        {irrev.notRevertibleInvoiceLiquidations} pagamento(s) de fatura de cartão —
-                        reabra a fatura manualmente se necessário.
                       </li>
                     )}
                   </ul>
@@ -252,7 +243,8 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
             Desfaça uma importação para remover todos os lançamentos que ela criou. Vínculos entre
-            projetos e faturas liquidadas são revertidos automaticamente.
+            projetos são revertidos automaticamente. Lotes com pagamento de fatura permanecem
+            intactos por segurança.
           </p>
 
           {loading ? (

@@ -198,6 +198,12 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     );
     expect(result.cardPayments).toBe(1);
 
+    // fix 2 (caminho positivo): houve flip ⇒ o pagamento GANHOU `cardLast4`.
+    const payment = await setupPrisma.expense.findFirst({
+      where: { tenantId: TENANT, importId: result.importId, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" },
+    });
+    expect(payment?.cardLast4).toBe(LAST4);
+
     const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
     expect(detail.canUndo).toBe(false);
     expect(detail.blocking.cardInvoicePayments).toBe(1);
@@ -287,12 +293,21 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     ).not.toBeNull();
   });
 
-  it("#5/#6 — pagamento sem flip: cardPayments:0, e ainda assim o undo do lote é 409", async () => {
+  it("#5/#6 — zero flip: cardLast4 null, cardPayments:0, nenhuma fatura adjacente abatida, undo 409", async () => {
+    // Fatura de maio (fora da janela {jul,ago}) — o pagamento não casa com ela.
     await createPurchase({
       id: "p5-april",
       purchaseDate: new Date("2026-04-10T12:00:00.000Z"),
       valor: 300_000,
-      status: "PLANEJADO", // fatura de maio — fora da janela {jul, ago}
+      status: "PLANEJADO",
+    });
+    // Fatura ADJACENTE, dentro da janela, mas de total diferente do pagamento —
+    // não pode ser abatida por um pagamento que não a fecha.
+    await createPurchase({
+      id: "p5-july",
+      purchaseDate: new Date("2026-07-10T12:00:00.000Z"),
+      valor: 999_000,
+      status: "PLANEJADO",
     });
 
     const result = await commit(
@@ -303,6 +318,16 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     expect(result.cardPayments).toBe(0);
     expect(result.unlinkedCardPayments).toBe(1);
     expect(await statusOf("p5-april-entry")).toBe("PLANEJADO");
+    expect(await statusOf("p5-july-entry")).toBe("PLANEJADO");
+
+    // fix 2/3: sem flip ⇒ o pagamento NÃO tem `cardLast4` — não abate fatura no
+    // read-model (`implicitPaymentsDetailed` exige `cardLast4`).
+    const payment = await setupPrisma.expense.findFirst({
+      where: { tenantId: TENANT, importId: result.importId, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" },
+    });
+    expect(payment?.cardLast4).toBeNull();
+    expect(payment?.bankLast4).toBe(BANK_LAST4); // continua saindo do caixa
+    expect(payment?.status).toBe("PAGO");
 
     const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
     expect(detail.canUndo).toBe(false);
@@ -311,6 +336,7 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
       service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(await statusOf("p5-april-entry")).toBe("PLANEJADO");
+    expect(await statusOf("p5-july-entry")).toBe("PLANEJADO");
   });
 
   it("#7 — alvo DUE resolvido mas sem parcela PLANEJADO: não cai no fallback", async () => {
@@ -337,5 +363,86 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     expect(result.unlinkedCardPayments).toBe(1);
     // A parcela de agosto continua PLANEJADO — o fallback não avançou para ela.
     expect(await statusOf("p7-july-entry")).toBe("PLANEJADO");
+  });
+
+  /** Import "cru" + pagamento de fatura ligado a ele, com `createdAt` e
+   *  `deletedAt` controlados — cobre despesa ADOTADA e SOFT-DELETADA. */
+  async function rawImportWithPayment(opts: {
+    fitTag: string;
+    createdAt: Date;
+    deletedAt?: Date | null;
+  }): Promise<string> {
+    const imp = await setupPrisma.bankStatementImport.create({
+      data: {
+        tenantId: TENANT,
+        accountId,
+        periodLabel: "2026-06",
+        source: "OFX",
+        inserted: 1,
+        totalAmountCents: 700_000,
+        createdAt: opts.createdAt,
+      },
+    });
+    await setupPrisma.expense.create({
+      data: {
+        tenantId: TENANT,
+        projectId: PESSOAL,
+        tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+        titulo: `Pagamento fatura ${opts.fitTag}`,
+        valor: 700_000,
+        quantidade: 1,
+        valorTotal: 700_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: opts.createdAt,
+        status: "PAGO",
+        importId: imp.id,
+        bankLast4: BANK_LAST4,
+        cardLast4: LAST4,
+        // adotada = criada ANTES do import; aqui forçamos createdAt no passado
+        createdAt: new Date(opts.createdAt.getTime() - 5 * 24 * 3600 * 1000),
+        deletedAt: opts.deletedAt ?? null,
+      },
+    });
+    return imp.id;
+  }
+
+  it("#8 — pagamento de fatura ADOTADO (createdAt anterior ao import): detalhe bloqueado e DELETE 409/zero writes", async () => {
+    const importId = await rawImportWithPayment({
+      fitTag: "T8",
+      createdAt: new Date("2026-06-20T12:00:00.000Z"),
+    });
+
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId);
+    expect(detail.canUndo).toBe(false);
+    expect(detail.blocking.cardInvoicePayments).toBe(1);
+
+    const before = await setupPrisma.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
+    await expect(
+      service.undoImport(TENANT, PESSOAL, accountId, importId, REQUESTER),
+    ).rejects.toBeInstanceOf(ConflictException);
+    const after = await setupPrisma.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
+    expect(after).toEqual(before);
+    expect(
+      (await setupPrisma.bankStatementImport.findUnique({ where: { id: importId } }))?.deletedAt,
+    ).toBeNull();
+  });
+
+  it("#9 — pagamento de fatura SOFT-DELETADO ligado ao import: mesmo bloqueio (409, zero writes)", async () => {
+    const importId = await rawImportWithPayment({
+      fitTag: "T9",
+      createdAt: new Date("2026-06-25T12:00:00.000Z"),
+      deletedAt: new Date("2026-06-26T12:00:00.000Z"),
+    });
+
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId);
+    expect(detail.canUndo).toBe(false);
+    expect(detail.blocking.cardInvoicePayments).toBe(1);
+
+    await expect(
+      service.undoImport(TENANT, PESSOAL, accountId, importId, REQUESTER),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(
+      (await setupPrisma.bankStatementImport.findUnique({ where: { id: importId } }))?.deletedAt,
+    ).toBeNull();
   });
 });

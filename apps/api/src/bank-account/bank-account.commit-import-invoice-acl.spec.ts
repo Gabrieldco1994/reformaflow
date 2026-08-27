@@ -340,7 +340,9 @@ async function expectSingleAuthorizedPayment(
       status: "PAGO",
       importId: result.importId,
       externalId: expectedExternalId,
-      cardLast4: VISIBLE_LAST4,
+      // #569 (fix 2): cartão autorizado mas SEM compra participante ⇒ zero flip
+      // ⇒ o pagamento NUNCA ganha `cardLast4` (sai do caixa, não abate fatura).
+      cardLast4: null,
       bankLast4: BANK_LAST4,
       createdByUserId: CREATED_BY,
       dataPagamento: PAYMENT_DATE,

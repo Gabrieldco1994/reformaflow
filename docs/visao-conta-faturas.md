@@ -681,9 +681,11 @@ exato não existir. A reversão exata continua rastreada no
 
 ### §16.1 `getImportDetail`
 
-- `cardInvoicePayments` = despesas do lote com `tipoDespesa =
-  'PAGAMENTO_FATURA_CARTAO'` (sem lookup de cartão, fatura ou projeto externo,
-  sem reconstrução de `dueMonth`).
+- `cardInvoicePayments` = **toda** `Expense` tenant-scoped ligada ao `importId`
+  com `tipoDespesa = 'PAGAMENTO_FATURA_CARTAO'` — **sem filtro de `createdAt`**
+  (cobre despesa adotada na dedup) e **incluindo soft-deletadas**
+  (`INCLUDE_SOFT_DELETED`, cobre pagamento já removido por outro fluxo). Sem
+  lookup de cartão, fatura ou projeto externo, sem reconstrução de `dueMonth`.
 - `canUndo = false` quando há ≥1 (e o lote não foi desfeito ainda); o campo
   `blocking.cardInvoicePayments` reporta a quantidade, e
   `impact.invoiceLiquidations` / `irreversible.notRevertibleInvoiceLiquidations`
@@ -693,12 +695,13 @@ exato não existir. A reversão exata continua rastreada no
 ### §16.2 `undoImport`
 
 Dentro da transação, releitura de conta, projeto, import e despesas do lote.
-**Antes da primeira escrita**, se existir qualquer `PAGAMENTO_FATURA_CARTAO`:
+**Antes da primeira escrita**, a mesma varredura (`importId` +
+`PAGAMENTO_FATURA_CARTAO` + `INCLUDE_SOFT_DELETED`, sem `createdAt`): se há ≥1 ⇒
 `ConflictException` (**409**) com mensagem clara, sem ids nem valores — nenhuma
-despesa, recebimento, caixa, vínculo ou import é alterado. Cobre lote antigo e
-novo pela mesma regra (não existe mais "legado" vs "ledger"). Importações sem
-pagamento de fatura seguem pelo undo normal (vínculos cross-project + soft-delete
-do lote).
+despesa, recebimento, caixa, vínculo ou import é alterado. **Nada é revertido
+automaticamente; o lote permanece intacto.** Cobre lote antigo e novo pela mesma
+regra (não existe mais "legado" vs "ledger"). Importações sem pagamento de fatura
+seguem pelo undo normal (vínculos cross-project + soft-delete do lote).
 
 ### §16.3 A liquidação nunca "avança"
 
@@ -715,11 +718,14 @@ do lote).
   **fora** do target, do ranking e dos dois fallbacks da liquidação
   (`prepareSettleInvoice`/`prepareUnsettleInvoice` filtram `bankLast4: null`) —
   e fora dos candidatos físicos de cartão em `card-invoice-match`.
-- **Commit honesto:** `cardPayments` só incrementa quando o pagamento de fato
-  moveu ≥1 parcela `PLANEJADO → PAGO` (`applyPreparedSettlement` faz update
-  condicional e devolve `flippedEntries`). Cartão identificado mas nada
-  liquidado ⇒ cai no aviso "nenhuma fatura compatível foi liquidada"
-  (`unlinkedCardPayments`), não em "vinculado".
+- **Commit honesto:** o pagamento de fatura **nasce com `cardLast4: null`**. O
+  `cardLast4` só é gravado (update condicional) **depois** da liquidação e
+  **apenas se `flippedEntries.length > 0`**. Pagamento sem cartão casado ou sem
+  flip fica `cardLast4: null`: sai do caixa mas **não abate nenhuma fatura no
+  read-model** (`implicitPaymentsDetailed` exige `cardLast4`), e não pode ser
+  usado para quitar uma fatura adjacente. `cardPayments` só incrementa com flip
+  real; senão o aviso é "nenhuma fatura compatível foi liquidada"
+  (`unlinkedCardPayments`).
 
 ### §16.5 Desfazer manual não alcança pagamento importado
 

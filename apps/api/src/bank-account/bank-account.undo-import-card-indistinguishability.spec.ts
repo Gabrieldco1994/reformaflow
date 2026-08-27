@@ -320,18 +320,16 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
       }
       const after = await snapshot();
 
+      const expectedMessage =
+        "Esta importação contém pagamento de fatura de cartão. Lotes com " +
+        "pagamento de fatura permanecem intactos por segurança e não podem " +
+        "ser desfeitos automaticamente.";
       expect(rejectionShape(error)).toEqual({
         name: ConflictException.name,
         status: 409,
-        message:
-          "Esta importação contém pagamento de fatura de cartão e não pode ser " +
-          "desfeita automaticamente sem risco de alterar outros pagamentos. " +
-          "Reabra a fatura manualmente se necessário.",
+        message: expectedMessage,
         body: {
-          message:
-            "Esta importação contém pagamento de fatura de cartão e não pode ser " +
-            "desfeita automaticamente sem risco de alterar outros pagamentos. " +
-            "Reabra a fatura manualmente se necessário.",
+          message: expectedMessage,
           error: "Conflict",
           statusCode: 409,
         },
