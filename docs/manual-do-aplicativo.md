@@ -896,6 +896,14 @@ visões de Mês/Ano.
   nela, com o impacto de cada um e a opção de **desfazer** — o mesmo histórico
   antes disponível apenas na tela `/bank-accounts`. Desfazer uma importação
   atualiza na hora os saldos da Visão Conta e do Cockpit.
+  - Ao desfazer, as faturas de cartão que aquela importação quitou voltam a
+    **planejado** — só as parcelas que **aquele** pagamento moveu; faturas
+    quitadas por outro pagamento não são tocadas.
+  - O preview marca como **não reversível** apenas o **pagamento de fatura
+    legado**, importado antes deste histórico existir: ele é removido, mas
+    nenhuma compra do cartão é alterada — reabra a fatura manualmente se
+    precisar. Recorrências já propagadas (Casa/Carro) continuam sendo o outro
+    efeito não revertido.
 - Quando há mais de uma conta, o deep-link sem uma conta específica pede uma
   escolha explícita. Um `accountId` inválido mostra erro em vez de editar outra.
 - **Deep-link do cockpit:** o banner de estado degradado leva a

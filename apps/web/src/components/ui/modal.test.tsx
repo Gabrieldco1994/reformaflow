@@ -1,4 +1,4 @@
-import { fireEvent, render, cleanup } from '@testing-library/react';
+import { fireEvent, render, cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Modal } from './modal';
 
@@ -19,6 +19,23 @@ describe('Modal — Escape', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
 
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('o X de fechar é alvo de toque ≥44px e chama onClose (#569)', () => {
+    const onClose = vi.fn();
+    render(
+      <Modal open onClose={onClose} title="Teste">
+        <p>conteúdo</p>
+      </Modal>,
+    );
+
+    const closeBtn = screen.getByRole('button', { name: 'Fechar' });
+    // jsdom não faz layout — o piso de 44px é garantido pelas classes utilitárias.
+    expect(closeBtn.className).toMatch(/\bmin-h-11\b/);
+    expect(closeBtn.className).toMatch(/\bmin-w-11\b/);
+
+    fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

@@ -122,7 +122,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
         <div className="space-y-4">
           <button
             onClick={() => setDetail(null)}
-            className="text-sm text-gray-500 hover:text-gray-800"
+            className="inline-flex min-h-11 items-center text-sm text-gray-500 hover:text-gray-800"
           >
             ← Voltar ao histórico
           </button>
@@ -178,8 +178,8 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                     )}
                     {!!irrev && irrev.notRevertibleInvoiceLiquidations > 0 && (
                       <li>
-                        {irrev.notRevertibleInvoiceLiquidations} liquidação(ões) de fatura em cartão
-                        sem dia de fechamento/vencimento — reabra manualmente se necessário.
+                        {irrev.notRevertibleInvoiceLiquidations} pagamento(s) de fatura legado(s),
+                        sem histórico exato de liquidação — reabra a fatura manualmente se necessário.
                       </li>
                     )}
                   </ul>
@@ -193,7 +193,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   onClick={() => setDetail(null)}
-                  className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+                  className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
                   disabled={undoing}
                 >
                   Cancelar
@@ -201,7 +201,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                 <button
                   onClick={confirmUndo}
                   disabled={undoing}
-                  className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                  className="flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
                 >
                   <Undo2 className="h-4 w-4" />
                   {undoing ? 'Desfazendo…' : 'Desfazer importação'}
@@ -245,7 +245,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                     <button
                       onClick={() => void openDetail(row)}
                       disabled={detailLoading}
-                      className="flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
+                      className="flex min-h-11 items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
                     >
                       <RotateCcw className="h-4 w-4" /> Desfazer
                     </button>

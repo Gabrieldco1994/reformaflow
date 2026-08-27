@@ -405,7 +405,7 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
         {!!result.skipped && <p><strong>{result.skipped}</strong> ignoradas pelo usuário</p>}
         <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>
       </div>
-      <Button onClick={onClose} className="mt-6">Concluir</Button>
+      <Button onClick={onClose} className="mt-6 min-h-11">Concluir</Button>
     </div>
   );
 }

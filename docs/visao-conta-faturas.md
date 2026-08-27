@@ -666,3 +666,62 @@ B1a cobriu três unidades de mudança, mergeadas em `main` em 2026-08-19:
 | Encadeamento de `requester` em `BankAccountController.linkToExpense` | Fecha o gap identificado na unidade anterior |
 
 **Compatibilidade retrospectiva:** todos os 1318 testes existentes passam sem edição.
+
+---
+
+## §16 Ledger de liquidação de fatura por importação de extrato (#569, ago/2026)
+
+Quando a importação de um **extrato bancário** cria um `PAGAMENTO_FATURA_CARTAO` e a
+liquidação automática (`CardInvoiceSettlementService`) marca compras do cartão como
+pagas, a identidade exata dessa liquidação passa a viver em duas tabelas:
+
+- **`ImportedCardInvoiceSettlement`** — 1:1 com o pagamento
+  (`payment_expense_id` UNIQUE). Guarda `bank_statement_import_id`, `card_id`,
+  `card_project_id` (denormalizado para autorizar o undo), a `strategy`
+  (`DUE_MONTH` | `IMPORTED_STATEMENT` | `NONE`), `target_due_month` (**só
+  auditoria** — o undo nunca lê isto) e `matched_card_import_id` (a fatura
+  importada casada, quando `IMPORTED_STATEMENT`).
+- **`ImportedCardInvoiceSettlementEntry`** — uma linha por `CashFlowEntry` que
+  **aquele pagamento** moveu `PLANEJADO → PAGO`. Índice único parcial
+  `cash_flow_entry_id WHERE released_at IS NULL`: uma parcela nunca fica
+  reivindicada por duas liquidações ativas (a 2ª tentativa estoura constraint e
+  a transação do import inteira faz rollback).
+
+Ambas ficam em `modelsWithoutSoftDelete`; o ciclo de vida é `reverted_at` no pai e
+`released_at` nos filhos. Substituíram `Expense.settledInvoiceKey` (a chave
+`"{last4}:{dueMonth}"`, que nunca chegou ao `main`): ela era ambígua no fallback por
+fatura importada e forçava o undo a adivinhar o mês.
+
+**`getImportDetail`** conta `invoiceLiquidations` **só** pelo ledger (strategy ≠
+`NONE` e ≥1 entrada ativa). Nada de inferência por `last4`, dias atuais do cartão ou
+mera presença do pagamento — a prévia de 3 meses do `card-invoice-match` promete
+vínculos que a liquidação real (janela de 2 meses) não confirma.
+
+**`undoImport`** é dirigido pelo ledger:
+
+1. carrega os settlements por `tenant_id + bank_statement_import_id` com
+   `reverted_at IS NULL`;
+2. autoriza `card_project_id` **e** todo projeto dono de uma parcela registrada,
+   **antes** da primeira escrita (`assertCanAccessProject`, módulo `creditCards`);
+   sem acesso → 404 e zero write;
+3. reverte **só** os `cash_flow_entry_id` registrados que ainda estão ativos e
+   `PAGO` (update condicional); recomputa `Expense.status/paidParcelas`
+   (`recomputeExpensePaidState`); marca filhos `released_at` e pai `reverted_at`.
+   Compras de outro lote / faturas quitadas por outro pagamento **nunca** são
+   tocadas — não têm entrada no ledger deste import.
+
+**Fallback reversível:** `IMPORTED_STATEMENT` (fallback por fatura importada) é
+revertível normalmente **quando tem entradas registradas** — o ledger guarda os ids
+exatos, não um `dueMonth`.
+
+**Legado conservador (decisão do PO):** um `PAGAMENTO_FATURA_CARTAO` de importação
+**sem** linha no ledger (gravado antes do #569) não é recalculado nem adivinhado no
+undo. Ele sai com o lote como qualquer despesa, **nenhuma compra/parcela do cartão é
+tocada**, o undo devolve `notRevertibleInvoiceLiquidations` e loga um `warn` com
+`paymentExpenseId` + `importId` (sem valores nem dados sensíveis). O texto no preview
+de impacto do "Desfazer importação" reflete isso: "pagamento de fatura legado, sem
+histórico exato de liquidação — reabra a fatura manualmente se necessário".
+
+> Não confundir com **§14 "Desfazer pagamento de fatura"**, que é o inverso do
+> pagamento **manual** do cockpit (`payInvoice`) e continua usando o motor por
+> `dueMonth`. São ações de faturas diferentes.
