@@ -77,7 +77,7 @@ Antes de publicar uma migration sobre schema persistido:
 #### Runbook de recuperação de migration falha
 
 O CLI-fonte é `node scripts/normalize-external-id-duplicates.mjs`; como a imagem runtime não contém
-`scripts/`, na machine ele será executado como `node /app/scripts/normalize-external-id-duplicates.mjs`,
+`scripts/`, na machine ele será executado como `node /app/normalize-external-id-duplicates.mjs`,
 sempre com `DATABASE_URL` explícita. O manifest gerado é **CONFIDENCIAL**, modo `0600`: contém IDs de
 linhas e chaves de tenant/projeto/external ID. Nunca o anexe a issue/PR, publique, copie para logs ou
 inclua em evidência. O script emite o SHA-256 completo para a operação privada; o resumo público pode
@@ -99,7 +99,7 @@ completo.
    PR_HEAD_TESTADO="<sha-completo-testado>"
    MACHINE_ID="<id-da-unica-machine>"
    LOCAL_SCRIPT="/tmp/normalize-external-id-duplicates.mjs"
-   REMOTE_SCRIPT="/app/scripts/normalize-external-id-duplicates.mjs"
+   REMOTE_SCRIPT="/app/normalize-external-id-duplicates.mjs"
    REMOTE_MANIFEST="/data/recovery-manifest-private.json"
    LOCAL_MANIFEST="<diretorio-privado>/recovery-manifest-private.json"
 
@@ -107,18 +107,16 @@ completo.
    chmod 0500 "$LOCAL_SCRIPT"
    LOCAL_SHA="$(shasum -a 256 "$LOCAL_SCRIPT" | awk '{print $1}')"
 
-   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "install -d -m 0700 /app/scripts"
    flyctl ssh sftp put "$LOCAL_SCRIPT" "$REMOTE_SCRIPT" \
-     --app reformaflow-api --machine "$MACHINE_ID" --mode 0500
+     -a reformaflow-api --machine "$MACHINE_ID" --mode 0500
    REMOTE_SHA="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "sha256sum /app/scripts/normalize-external-id-duplicates.mjs" | awk '{print $1}')"
+     --command "sha256sum /app/normalize-external-id-duplicates.mjs" | awk '{print $1}')"
    test "$LOCAL_SHA" = "$REMOTE_SHA"
    ```
 
    Registre os checksums completos apenas na operação privada. Não copie o repositório inteiro nem
-   instale dependências: `/app/node_modules` já contém `@prisma/client`, que o script em
-   `/app/scripts` resolve pelo diretório pai.
+   instale dependências: `createRequire` resolve o `@prisma/client` já existente em
+   `/app/node_modules`.
 5. **Dry-run final:** mantenha o manifest em `/data` ou `/tmp` privado; o script o cria como `0600`.
 
    ```bash
@@ -153,6 +151,9 @@ completo.
 10. **Entrypoint:** somente depois disso, SRE deve limpar o override emergencial da machine:
    `flyctl machine update <machine-id> --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.
    O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
+11. **Encerrar:** preserve primeiro todas as evidências exigidas. Só então remova da machine o arquivo
+    efêmero `/app/normalize-external-id-duplicates.mjs`; ele não pertence ao volume de dados e não deve
+    permanecer depois da recuperação.
 
 Não adicione `[processes] app="/entrypoint.sh"` ao `fly.toml`: isso não remove o override por machine.
 O `http_service.processes = ["app"]` existente basta depois que SRE limpa `init.entrypoint` e
