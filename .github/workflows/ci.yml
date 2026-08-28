@@ -204,9 +204,10 @@ jobs:
           release_status="$(jq -r '.[0].Status // empty' <<<"$releases")"
           release_image="$(jq -r '.[0].ImageRef // empty' <<<"$releases")"
           machine_image="$(jq -r '.[0].config.image // empty' <<<"$machines")"
+          machine_image_without_digest="${machine_image%%@*}"
           [[ "$release_status" == "complete" ]]
           [[ -n "$machine_image" ]]
-          [[ "$release_image" == "$machine_image" ]]
+          [[ "$release_image" == "$machine_image_without_digest" ]]
 
           docs_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 2 --retry-delay 2 --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
           auth_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 2 --retry-delay 2 --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"

@@ -25,6 +25,10 @@ const CHECKS_FIXTURE = JSON.stringify({
     },
   ],
 });
+const MACHINE_IMAGE_FIXTURE =
+  "registry.fly.io/reformaflow-api:deployment-01K39@sha256:abc123";
+const RELEASE_IMAGE_FIXTURE =
+  "registry.fly.io/reformaflow-api:deployment-01K39";
 
 function deployJob() {
   const start = workflow.indexOf("\n  deploy-api:");
@@ -88,6 +92,36 @@ test("postdeploy verifies the single machine identity, checks, release image, an
     postdeploy,
     /(?:ImageRef[\s\S]{0,800}config\.image|config\.image[\s\S]{0,800}ImageRef)/,
   );
+  const imageNormalization =
+    'machine_image_without_digest="${machine_image%%@*}"';
+  assert.ok(
+    postdeploy.includes(imageNormalization),
+    "machine image digest must be removed before comparing the release tag",
+  );
+  assert.match(
+    postdeploy,
+    /\[\[\s*"\$release_image"\s*==\s*"\$machine_image_without_digest"\s*\]\]/,
+  );
+  assert.doesNotMatch(
+    postdeploy,
+    /\[\[\s*"\$release_image"\s*==\s*"\$machine_image"\s*\]\]/,
+  );
+  const imageFixtureResult = spawnSync(
+    "bash",
+    [
+      "-c",
+      `${imageNormalization}; [[ "$release_image" == "$machine_image_without_digest" ]]`,
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        machine_image: MACHINE_IMAGE_FIXTURE,
+        release_image: RELEASE_IMAGE_FIXTURE,
+      },
+    },
+  );
+  assert.equal(imageFixtureResult.status, 0, imageFixtureResult.stderr);
 
   assert.match(postdeploy, /\/api\/docs-json/);
   assert.match(postdeploy, /200/);
