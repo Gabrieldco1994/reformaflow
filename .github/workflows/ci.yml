@@ -60,6 +60,8 @@ jobs:
         run: npm --workspace @reformaflow/domain run build
       - name: Generate Prisma Client
         run: npx prisma@5 generate --schema=prisma/schema.prisma
+      - name: Migration recovery operational tests
+        run: npm run test:migration-recovery
       - name: Prepare disposable test database (63 committed migrations)
         run: npm run test:db:prepare
       - name: Synthetic finance-center fixture contract (UTC)
@@ -156,7 +158,60 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Reject stale main deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          current_main="$(git rev-parse refs/remotes/origin/main)"
+          if [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$GITHUB_SHA" != "$current_main" ]]; then
+            echo "Refusing stale main deploy."
+            exit 1
+          fi
       - name: Deploy to Fly
         run: flyctl deploy -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Validate deployed Fly machine
+        shell: bash
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          app="reformaflow-api"
+          machines="$(flyctl machines list --app "$app" --json)"
+          [[ "$(jq 'length' <<<"$machines")" -eq 1 ]]
+          machine_id="$(jq -r '.[0].id' <<<"$machines")"
+          machine_state="$(jq -r '.[0].state' <<<"$machines")"
+          deployed_sha="$(jq -r '.[0].image_ref.labels.GH_SHA // empty' <<<"$machines")"
+          machine_image="$(jq -r '.[0].config.image // empty' <<<"$machines")"
+          [[ "$machine_state" == "started" ]]
+          [[ "$deployed_sha" == "$GITHUB_SHA" ]]
+          [[ -n "$machine_image" ]]
+
+          checks_healthy=false
+          for attempt in {1..30}; do
+            checks="$(flyctl checks list --app "$app" --json)"
+            machine_checks="$(jq --arg id "$machine_id" \
+              '[.[] | select((.machine_id // .Machine // .MachineID // "") == $id)]' \
+              <<<"$checks")"
+            checks_total="$(jq 'length' <<<"$machine_checks")"
+            checks_passing="$(jq '[.[] | select((.status // .Status) == "passing")] | length' <<<"$machine_checks")"
+            if [[ "$checks_total" -eq 1 && "$checks_passing" -eq 1 ]]; then
+              checks_healthy=true
+              break
+            fi
+            sleep 10
+          done
+          [[ "$checks_healthy" == "true" ]]
+
+          releases="$(flyctl releases --app "$app" --json)"
+          release_status="$(jq -r '.[0].Status // empty' <<<"$releases")"
+          release_image="$(jq -r '.[0].ImageRef // empty' <<<"$releases")"
+          [[ "$release_status" == "complete" ]]
+          [[ "$release_image" == "$machine_image" ]]
+
+          docs_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
+          auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
+          [[ "$docs_status" == "200" ]]
+          [[ "$auth_status" == "401" ]]
