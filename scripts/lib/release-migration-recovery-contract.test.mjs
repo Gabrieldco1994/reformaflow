@@ -40,18 +40,33 @@ test("deploy remains serialized without cancelling an in-flight release", () => 
   assert.match(deployJob(), /concurrency:[\s\S]*?cancel-in-progress:\s*false/);
 });
 
-test("a full-SHA stale-run gate precedes flyctl deploy", () => {
+test("full-SHA stale-run gates run before deploy and after checks and smokes", () => {
   const job = deployJob();
-  const gate = job.search(/git ls-remote[\s\S]*?refs\/heads\/main/);
+  const gates = [
+    ...job.matchAll(/git ls-remote[^\n]*origin refs\/heads\/main/g),
+  ].map((match) => match.index);
   const deploy = job.indexOf("flyctl deploy");
+  const completedSmokes = job.indexOf('[[ "$auth_status" == "401" ]]');
 
-  assert.ok(gate >= 0, "missing remote main SHA gate");
-  assert.ok(deploy > gate, "stale-run gate must execute before flyctl deploy");
+  assert.equal(
+    gates.length,
+    2,
+    "expected one stale gate on each side of deploy",
+  );
+  assert.ok(deploy > gates[0], "first stale gate must precede flyctl deploy");
+  assert.ok(
+    gates[1] > completedSmokes,
+    "second stale gate must follow checks and HTTP smokes",
+  );
   assert.match(
-    job.slice(gate, deploy),
+    job.slice(gates[0], deploy),
     /GITHUB_SHA|\$\{\{\s*github\.sha\s*\}\}/,
   );
-  assert.doesNotMatch(job.slice(gate, deploy), /::7|short|cut\s+-c/);
+  assert.match(job.slice(gates[1]), /GITHUB_SHA/);
+  assert.doesNotMatch(
+    `${job.slice(gates[0], deploy)}\n${job.slice(gates[1])}`,
+    /::7|short|cut\s+-c/,
+  );
 });
 
 test("postdeploy verifies the single machine identity, checks, release image, and HTTP contracts", () => {

@@ -213,3 +213,9 @@ jobs:
           auth_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 2 --retry-delay 2 --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
           [[ "$docs_status" == "200" ]]
           [[ "$auth_status" == "401" ]]
+
+          postdeploy_main="$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')"
+          if [[ "$GITHUB_SHA" != "$postdeploy_main" ]]; then
+            echo "Main advanced during deploy; refusing a stale green release."
+            exit 1
+          fi
