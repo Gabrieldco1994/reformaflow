@@ -190,12 +190,9 @@ jobs:
           checks_healthy=false
           for attempt in {1..30}; do
             checks="$(flyctl checks list --app "$app" --json)"
-            machine_checks="$(jq --arg id "$machine_id" \
-              '[.[] | select((.machine_id // .Machine // .MachineID // "") == $id)]' \
-              <<<"$checks")"
-            checks_total="$(jq 'length' <<<"$machine_checks")"
-            checks_passing="$(jq '[.[] | select((.status // .Status) == "passing")] | length' <<<"$machine_checks")"
-            if [[ "$checks_total" -eq 1 && "$checks_passing" -eq 1 ]]; then
+            if jq -e --arg id "$machine_id" \
+              'has($id) and (.[$id] | length == 1) and (.[$id][0].status == "passing")' \
+              <<<"$checks" >/dev/null; then
               checks_healthy=true
               break
             fi
@@ -211,7 +208,7 @@ jobs:
           [[ -n "$machine_image" ]]
           [[ "$release_image" == "$machine_image" ]]
 
-          docs_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
-          auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
+          docs_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 2 --retry-delay 2 --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
+          auth_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 2 --retry-delay 2 --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
           [[ "$docs_status" == "200" ]]
           [[ "$auth_status" == "401" ]]

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +15,16 @@ const dockerfile = readFileSync(
   join(ROOT, "apps", "api", "Dockerfile"),
   "utf8",
 );
+const CHECKS_FIXTURE = JSON.stringify({
+  "48e123": [
+    {
+      name: "http_service",
+      status: "passing",
+      output: "HTTP GET /api/docs-json: 200 OK",
+      updated_at: "2026-08-28T12:00:00Z",
+    },
+  ],
+});
 
 function deployJob() {
   const start = workflow.indexOf("\n  deploy-api:");
@@ -54,10 +65,20 @@ test("postdeploy verifies the single machine identity, checks, release image, an
   );
   assert.match(postdeploy, /started/);
 
-  assert.match(
-    postdeploy,
-    /flyctl\s+checks\s+list[\s\S]{0,1200}(?:machine[_ .-]*id|MachineID|MACHINE_ID)[\s\S]{0,1200}passing[\s\S]{0,500}length[\s\S]{0,200}(?:==\s*1|-eq\s+1)/i,
+  const checksContract =
+    'has($id) and (.[$id] | length == 1) and (.[$id][0].status == "passing")';
+  assert.match(postdeploy, /flyctl\s+checks\s+list/);
+  assert.ok(
+    postdeploy.includes(checksContract),
+    "checks must use Fly's object keyed by machine ID",
   );
+  assert.doesNotMatch(postdeploy, /\.machine_id|\.MachineID|\.Machine\b/);
+  const fixtureResult = spawnSync(
+    "jq",
+    ["-e", "--arg", "id", "48e123", checksContract],
+    { input: CHECKS_FIXTURE, encoding: "utf8" },
+  );
+  assert.equal(fixtureResult.status, 0, fixtureResult.stderr);
 
   assert.match(
     postdeploy,
@@ -72,6 +93,9 @@ test("postdeploy verifies the single machine identity, checks, release image, an
   assert.match(postdeploy, /200/);
   assert.match(postdeploy, /\/auth\/me/);
   assert.match(postdeploy, /401/);
+  assert.match(postdeploy, /--connect-timeout/);
+  assert.match(postdeploy, /--max-time/);
+  assert.match(postdeploy, /--retry/);
   assert.doesNotMatch(postdeploy, /::7|short|cut\s+-c/);
 });
 
