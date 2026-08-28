@@ -35,16 +35,21 @@ file for unknown processes, no token, no `pkill`/`pgrep`, no `/proc` scan.
    when its direct child exits early. It confirms the group is gone before it
    releases the lock.
 4. **Nothing else is ever signalled.** The only thing the watchdog kills is a
-   process group it created itself. `op-wrap abort` sends **no signal at all**
-   (a PID/PGID may have been reused) — it only sets the `DISARM` flag and lets
-   the watchdog's known-group teardown do the rest.
+   process group it created itself (or its own throwaway startup probe process,
+   pid captured directly). There is **no "cancel a running chain" verb** —
+   `timeout` inside the supervisor is the only automatic cancellation. `op-wrap
+   disarm` only requests the Node-direct restore once the lock is free.
 5. **Control is published atomically and never clobbered.** `op-wrap` serializes
    on a publish lock, writes a temp file, `mv`s it into place, and **refuses**
-   if `RUN` or `RUN.active` already exists. Two concurrent publications: exactly
-   one wins.
+   if `RUN` or `RUN.active` already exists. `RUN.active` is held for the whole
+   supervisor lifetime (chain running *and* its post-exit teardown), so a second
+   op cannot be queued for the entire window. Every `mktemp`/write/`mv` failure
+   propagates a non-zero exit with no success line. Two concurrent publications:
+   exactly one wins.
 6. **Fresh window = fresh dir + fresh manifest.** Every recovery attempt uses a
-   new `QUIESCE_DIR` and every `op-wrap dryrun` hands out a new manifest path so
-   the normalizer's `O_EXCL` creation never collides.
+   new `QUIESCE_DIR` and every `op-wrap dryrun` hands out a new manifest path
+   (recorded in `$QUIESCE_DIR/manifest.current`, which `apply` and the runbook
+   reuse) so the normalizer's `O_EXCL` creation never collides.
 
 ## Arm
 
@@ -59,10 +64,9 @@ flyctl machine update <machine-id> --app reformaflow-api \
 
 ```sh
 op-wrap status
-op-wrap dryrun                         # queues the normalizer dry-run, prints the manifest path
+op-wrap dryrun                         # queues the normalizer dry-run; prints + records the manifest path
 op-wrap apply <sha256> <groups> <updates>   # queues normalize --apply && migrate resolve && migrate deploy
 op-wrap disarm                         # after deploy: go Node-direct as soon as the lock is free
-op-wrap abort                          # sets DISARM only; teardown is the watchdog's known-group kill
 ```
 
 `apply` validates the hash as `^[0-9a-f]{64}$` and the two counts as

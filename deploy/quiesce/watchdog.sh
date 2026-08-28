@@ -44,20 +44,22 @@ log(){ echo "$(date -u +%FT%TZ) [wd $$] $*" >> "$Q/watchdog.log"; }
 # against a throwaway setsid group at startup, or refuse to arm.
 GKFORM=""
 _probe_group_kill(){
-  mkdir -p "$Q"
-  ( setsid sh -c 'echo $$ > "'"$Q"'/.gkprobe"; exec sleep 4' >/dev/null 2>&1 & )
-  _n=0; while [ ! -s "$Q/.gkprobe" ] && [ "$_n" -lt 20 ]; do sleep 0.2; _n=$((_n+1)); done
-  _pp="$(cat "$Q/.gkprobe" 2>/dev/null || echo)"
-  [ -n "$_pp" ] || return 1
+  # Spawn a throwaway process THIS startup owns; capture its pid directly (no
+  # file, no stale-PID risk). With no job control `setsid` does not fork, so the
+  # backgrounded process is the leader of a brand-new group whose pgid == its pid.
+  setsid sleep 6 >/dev/null 2>&1 &
+  _pp=$!
+  sleep 0.3
   for _f in 'kill -%s -%d' 'kill -%s -- -%d' '/bin/kill -%s -%d' '/bin/kill -%s -- -%d'; do
-    $(printf "$_f" 0 "$_pp") 2>/dev/null || continue
+    $(printf "$_f" 0 "$_pp") 2>/dev/null || continue   # this form cannot address the group
     $(printf "$_f" KILL "$_pp") 2>/dev/null
     sleep 0.3
-    if ! $(printf "$_f" 0 "$_pp") 2>/dev/null; then GKFORM="$_f"; break; fi
-    $(printf "$_f" KILL "$_pp") 2>/dev/null
+    $(printf "$_f" 0 "$_pp") 2>/dev/null || { GKFORM="$_f"; break; }
   done
+  # tidy the throwaway: only ever the pid we just spawned (+ its group via the
+  # chosen form). If no form worked it simply expires on its own in a few seconds.
   kill -KILL "$_pp" 2>/dev/null || true
-  rm -f "$Q/.gkprobe"
+  [ -n "$GKFORM" ] && $(printf "$GKFORM" KILL "$_pp") 2>/dev/null
   [ -n "$GKFORM" ]
 }
 gsig(){   $(printf "$GKFORM" "$(echo "$1" | tr -d -)" "$2") 2>/dev/null || true; }  # gsig <-SIG> <pgid>
@@ -177,11 +179,17 @@ while :; do
   if [ -f "$Q/DISARM" ]; then log "DISARM flag present"; restore; fi
   if [ "$now" -ge "$D" ]; then log "absolute deadline reached"; restore; fi
 
-  # a supervisor already running? just wait it out.
+  # a supervisor already running? just wait it out. RUN.active stays in place for
+  # the WHOLE supervisor lifetime (chain running AND its post-exit teardown) so a
+  # second op cannot be queued for the entire window.
   if [ -n "$SUP_PID" ] && kill -0 "$SUP_PID" 2>/dev/null; then
     sleep "$POLL"; continue
   fi
-  SUP_PID=""
+  if [ -n "$SUP_PID" ]; then
+    log "supervisor $SUP_PID exited -> clearing RUN.active"
+    rm -f "$Q/RUN.active"
+    SUP_PID=""
+  fi
 
   # --- atomically claim a published chain and launch its supervisor ---
   if [ -s "$Q/RUN" ] && [ ! -e "$Q/RUN.active" ]; then
@@ -194,10 +202,9 @@ while :; do
         log "chain deferred: op lock busy"
         mv "$Q/RUN.active" "$Q/RUN" 2>/dev/null || true
       else
-        log "claimed chain -> starting supervisor"
+        log "claimed chain -> starting supervisor (RUN.active held until supervisor exits)"
         supervise "$chain" &
         SUP_PID=$!
-        rm -f "$Q/RUN.active"
       fi
     fi
   fi

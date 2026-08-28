@@ -7,7 +7,11 @@
 #
 #   op-wrap dryrun
 #   op-wrap apply <manifest-sha256> <expected-groups> <expected-updates>
-#   op-wrap disarm | abort | status
+#   op-wrap disarm | status
+#
+# There is deliberately NO "cancel a running chain" verb: `timeout` (inside the
+# supervisor) is the only automatic cancellation. `disarm` only requests the
+# Node-direct restore once the op lock is free.
 set -u
 umask 077
 
@@ -22,18 +26,27 @@ SCHEMA="${QUIESCE_SCHEMA:-prisma/schema.prisma}"
 
 # --- atomic single-writer publish; refuses to clobber a queued/active command ---
 publish_run(){
-  exec 8>"$Q/.publish.lock"
+  { : > "$Q/.publish.lock"; } 2>/dev/null || { echo "op-wrap: $Q not writable" >&2; exit 1; }
+  exec 8>"$Q/.publish.lock" || { echo "op-wrap: cannot open publish lock" >&2; exit 1; }
   flock -x 8 || { echo "op-wrap: publish lock busy" >&2; exit 3; }
   if [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; then
     echo "op-wrap: a command is already queued or active - refusing to overwrite" >&2
     exit 3
   fi
-  t="$(mktemp "$Q/.run.XXXXXX")" || { echo "op-wrap: mktemp failed" >&2; exit 1; }
-  printf '%s\n' "$1" > "$t" || { rm -f "$t"; exit 1; }
+  t="$(mktemp "$Q/.run.XXXXXX")" || { echo "op-wrap: mktemp failed in $Q" >&2; exit 1; }
+  printf '%s\n' "$1" > "$t" || { rm -f "$t"; echo "op-wrap: write to $t failed" >&2; exit 1; }
   mv "$t" "$Q/RUN" || { rm -f "$t"; echo "op-wrap: publish rename failed" >&2; exit 1; }
 }
 
-set_disarm(){ t="$(mktemp "$Q/.disarm.XXXXXX")"; : > "$t"; mv "$t" "$Q/DISARM"; }
+# atomic flag/pointer write; every step checked, non-zero propagated, no success
+# line printed by the caller unless this returns 0.
+atomic_put(){                            # atomic_put <dest> <content>
+  _d="$1"; _c="$2"
+  _t="$(mktemp "$Q/.put.XXXXXX")" || { echo "op-wrap: mktemp failed in $Q" >&2; return 1; }
+  printf '%s\n' "$_c" > "$_t" || { rm -f "$_t"; echo "op-wrap: write to $_t failed" >&2; return 1; }
+  mv "$_t" "$_d" || { rm -f "$_t"; echo "op-wrap: rename -> $_d failed" >&2; return 1; }
+}
+set_disarm(){ atomic_put "$Q/DISARM" ""; }
 
 cmd="${1:-status}"; [ $# -gt 0 ] && shift
 
@@ -43,7 +56,7 @@ case "$cmd" in
     # collides with a previous run.
     M="$Q/manifest.$(date -u +%Y%m%dT%H%M%SZ).$$.json"
     publish_run "cd /app && DATABASE_URL=file:$DB $NORMALIZER --dry-run --manifest $M"
-    mp="$(mktemp "$Q/.mcur.XXXXXX")"; printf '%s\n' "$M" > "$mp"; mv "$mp" "$Q/manifest.current"
+    atomic_put "$Q/manifest.current" "$M" || { echo "op-wrap: could not record manifest.current" >&2; exit 1; }
     echo "queued: dry-run  manifest=$M" ;;
 
   apply)
@@ -61,14 +74,8 @@ DATABASE_URL=file:$DB $PRISMA migrate deploy --schema=$SCHEMA"
     echo "queued: apply+resolve+deploy  manifest=$M" ;;
 
   disarm)
-    set_disarm
+    set_disarm || { echo "op-wrap: DISARM not set" >&2; exit 1; }
     echo "DISARM set (watchdog goes Node-direct once the op lock is free)" ;;
-
-  abort)
-    # NEVER signals a PID/PGID (it may have been reused). Only sets the DISARM
-    # flag; the watchdog's own known-group termination handles teardown.
-    set_disarm
-    echo "abort -> DISARM set. Teardown is the watchdog's known-group termination; op-wrap sends no signal." ;;
 
   status)
     now="$(date +%s)"; D="$(cat "$Q/deadline")"
@@ -82,6 +89,6 @@ DATABASE_URL=file:$DB $PRISMA migrate deploy --schema=$SCHEMA"
     tail -n 15 "$Q/op.log" 2>/dev/null || true ;;
 
   *)
-    echo "usage: op-wrap {dryrun|apply <sha256> <eg> <eu>|disarm|abort|status}" >&2
+    echo "usage: op-wrap {dryrun|apply <sha256> <eg> <eu>|disarm|status}" >&2
     exit 2 ;;
 esac

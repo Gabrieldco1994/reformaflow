@@ -112,8 +112,9 @@ completo.
    - `op-wrap apply <sha256> <expected-groups> <expected-updates>` — valida `^[0-9a-f]{64}$` e
      `^[0-9]+$` antes de publicar `normalize --apply && migrate resolve && migrate deploy`
    - `op-wrap disarm` — pós-deploy: Node-direto assim que o lock ficar livre
-   - `op-wrap abort` — **só** seta `DISARM` (nunca sinaliza PID/PGID, que pode ter sido reusado); o
-     teardown é a terminação do grupo conhecido pelo watchdog
+
+   Não existe verbo para "cancelar uma cadeia em andamento": o `timeout` dentro do supervisor é a
+   única cancelação automática.
 
    Se houver qualquer write fora do `op-wrap` ou perda de quiescência, descarte a aprovação e reinicie
    pelo dry-run. Detalhes e invariantes: `deploy/quiesce/README.md`.
@@ -128,7 +129,7 @@ completo.
    PRIVATE_DIR="<diretorio-privado>"
    LOCAL_SCRIPT="/tmp/normalize-external-id-duplicates.mjs"
    REMOTE_SCRIPT="/app/normalize-external-id-duplicates.mjs"
-   REMOTE_MANIFEST="/tmp/recovery-manifest-private-$RECOVERY_RUN.json"
+   QUIESCE_DIR="/data/quiesce"
    LOCAL_MANIFEST="$PRIVATE_DIR/recovery-manifest-private-$RECOVERY_RUN.json"
 
    git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > "$LOCAL_SCRIPT"
@@ -146,16 +147,19 @@ completo.
    Registre os checksums completos apenas na operação privada. Não copie o repositório inteiro nem
    instale dependências: `createRequire` resolve o `@prisma/client` já existente em
    `/app/node_modules`.
-5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run por `op-wrap dryrun` (ele já gera o
-   caminho de manifest novo desta tentativa e o imprime). A cada tentativa, gere um novo
-   `RECOVERY_RUN` e, portanto, novos caminhos remoto e local; não reutilize um nome, pois a criação
-   segura do manifest usa `O_EXCL`. O script cria o manifest remoto como `0600`. Os comandos
-   `flyctl ssh console` diretos abaixo são a referência do que o `op-wrap` executa por baixo — não os
-   rode à mão durante uma janela armada.
+5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run **por `op-wrap dryrun`**. Ele gera o
+   caminho de manifest novo desta tentativa (dentro de `$QUIESCE_DIR`), o imprime na saída
+   (`manifest=<caminho>`) e o registra em `$QUIESCE_DIR/manifest.current`. Não rode `node
+   normalize-external-id-duplicates.mjs` à mão durante uma janela armada — o único toque no banco é via
+   `op-wrap`. Baixe **exatamente** esse manifest (o que o `op-wrap` emitiu / `manifest.current`), nunca
+   um caminho inventado em `/tmp`.
 
    ```bash
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "cd /app && DATABASE_URL=file:/data/dev.db node $REMOTE_SCRIPT --dry-run --manifest $REMOTE_MANIFEST"
+     --command "sh /app/op-wrap.sh dryrun"
+   # aguarde o supervisor concluir (op-wrap status -> last rc), então:
+   REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "cat $QUIESCE_DIR/manifest.current")"
    flyctl ssh sftp get "$REMOTE_MANIFEST" "$LOCAL_MANIFEST" \
      --app reformaflow-api --machine "$MACHINE_ID"
    chmod 0600 "$LOCAL_MANIFEST"
@@ -166,22 +170,25 @@ completo.
    manifest.
 6. **Revisar:** compare inventário, escopo e invariantes do manifest. Pare se houver mutação de linha
    ativa, mudança fora do escopo ou diferença entre os inventários do dry-run e do backup.
-7. **Normalize/apply:** ainda sem writers, use exatamente o manifest, hash completo e contagens
-   aprovados no dry-run:
+7. **Normalize/apply:** ainda sem writers, use exatamente o hash completo e contagens aprovados no
+   dry-run. O `op-wrap apply` reusa o mesmo manifest do dry-run (`$QUIESCE_DIR/manifest.current`) e
+   enfileira `normalize --apply && migrate resolve && migrate deploy` numa única cadeia supervisionada:
 
    ```bash
    MANIFEST_SHA="<sha256-completo-privado>"
    EXPECTED_GROUPS="<contagem-aprovada>"
    EXPECTED_UPDATES="<contagem-aprovada>"
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "cd /app && DATABASE_URL=file:/data/dev.db node $REMOTE_SCRIPT --apply --manifest $REMOTE_MANIFEST --hash $MANIFEST_SHA --expected-groups $EXPECTED_GROUPS --expected-updates $EXPECTED_UPDATES"
+     --command "sh /app/op-wrap.sh apply $MANIFEST_SHA $EXPECTED_GROUPS $EXPECTED_UPDATES"
+   # acompanhe: op-wrap status  (op ... RUNNING -> last rc)
    ```
 
    Preserve o manifest `0600` apenas no armazenamento operacional privado.
-8. **Resolve:** confira o estado real da migration e então use `prisma migrate resolve` para registrar
-   a tentativa falha como revertida; nunca a marque como aplicada antes de o SQL concluir.
-9. **Migrate:** execute `prisma migrate deploy`, confirme que a migration consta como aplicada e só
-   então encerre a janela sem writers.
+8. **Resolve:** faz parte da cadeia do `op-wrap apply` (`prisma migrate resolve --rolled-back`), que só
+   roda **após** o `normalize --apply` retornar 0 — a tentativa falha nunca é marcada como aplicada
+   antes de o SQL concluir. Confira o estado real da migration no `op-wrap status` / log.
+9. **Migrate:** também na mesma cadeia (`prisma migrate deploy`, só após o resolve). Confirme que a
+   migration consta como aplicada (`last rc` = 0) e só então encerre a janela sem writers.
 10. **Disarm + entrypoint:** rode `op-wrap disarm`; o `watchdog.sh` sobe o Node-direto assim que o
    lock ficar livre (ou já teria subido pelo deadline absoluto / por um restart com lock livre).
    Confirmada a API saudável, SRE limpa o override emergencial da machine:
@@ -191,6 +198,8 @@ completo.
     então remova da machine os dois caminhos efêmeros exatos, sem wildcard:
 
     ```bash
+    REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+      --command "cat $QUIESCE_DIR/manifest.current")"
     flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
       --command "rm -- '$REMOTE_SCRIPT' '$REMOTE_MANIFEST'"
     ```

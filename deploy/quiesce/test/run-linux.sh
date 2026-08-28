@@ -16,16 +16,17 @@ CI_MODE="${CI:-}${QUIESCE_CI:-}"
 # pick a working process-group signal form (same logic as watchdog.sh)
 GKFORM=""
 _pp_probe(){
-  d=$(mktemp -d "${TMPDIR:-/tmp}/gk.XXXXXX")
-  ( setsid sh -c 'echo $$ > "'"$d"'/p"; exec sleep 4' >/dev/null 2>&1 & )
-  n=0; while [ ! -s "$d/p" ] && [ "$n" -lt 20 ]; do sleep 0.2; n=$((n+1)); done
-  pp="$(cat "$d/p" 2>/dev/null || echo)"; [ -n "$pp" ] || { rm -rf "$d"; return 1; }
+  # throwaway process this run owns; pid captured directly (no file, no stale PID)
+  setsid sleep 6 >/dev/null 2>&1 &
+  pp=$!
+  sleep 0.3
   for f in 'kill -%s -%d' 'kill -%s -- -%d' '/bin/kill -%s -%d' '/bin/kill -%s -- -%d'; do
     $(printf "$f" 0 "$pp") 2>/dev/null || continue
     $(printf "$f" KILL "$pp") 2>/dev/null; sleep 0.3
     $(printf "$f" 0 "$pp") 2>/dev/null || { GKFORM="$f"; break; }
   done
-  kill -KILL "$pp" 2>/dev/null || true; rm -rf "$d"
+  kill -KILL "$pp" 2>/dev/null || true
+  [ -n "$GKFORM" ] && $(printf "$GKFORM" KILL "$pp") 2>/dev/null
   [ -n "$GKFORM" ]
 }
 gkill(){    $(printf "$GKFORM" "$(echo "$1" | tr -d -)" "$2") 2>/dev/null || true; }
@@ -273,6 +274,80 @@ for L in "$ROOT"/q.*/watchdog.log; do
   grep -Eiq 'pkill|pgrep|/proc/[0-9]' "$L" && { no "a watchdog.log mentions pkill/pgrep/proc-scan"; bad=1; }
 done
 [ "$bad" -eq 0 ] && ok "no pkill/pgrep/proc-scan in executable source or logs; only known-group signaling"
+
+# ---------------------------------------------------------------------------
+echo "--- T10: startup probe owns its pid directly - a stale probe file is never signalled ---"
+newenv; export QUIESCE_TTL=8
+# plant a stale probe file pointing at a live process WE own
+sleep 300 & STALE=$!; WPIDS="$WPIDS $STALE"
+echo "$STALE" > "$Q/.gkprobe"
+wd_start; sleep 3
+kill -0 "$STALE" 2>/dev/null && ok "stale .gkprobe PID still alive - watchdog never read/signalled it" || no "the stale-file PID was killed on startup (BUG)"
+grep -Eq '\.gkprobe|cat .*probe|kill .*\$\(cat' "$WD" && no "watchdog.sh still reads a PID from a probe file" || ok "watchdog.sh has no probe-file PID read"
+i=0; while ! node_up && [ $i -lt 15 ]; do sleep 1; i=$((i+1)); done
+node_up && ok "watchdog still restored Node at the deadline" || no "no restore"
+kill -KILL "$STALE" 2>/dev/null
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
+
+# ---------------------------------------------------------------------------
+echo "--- T11: publish into a non-writable dir fails (non-zero, no success line) ---"
+newenv
+: > "$Q/deadline"; echo "$(( $(date +%s) + 600 ))" > "$Q/deadline"
+chmod 0555 "$Q"
+out=$(QUIESCE_DIR="$Q" QUIESCE_NORMALIZER="/bin/echo X" sh "$OW" dryrun 2>&1); rc=$?
+chmod 0755 "$Q"
+{ [ "$rc" -ne 0 ] && ! printf '%s\n' "$out" | grep -q 'queued'; } \
+  && ok "read-only publish returns rc=$rc with no success line" || no "rc=$rc out='$out'"
+[ -e "$Q/RUN" ] && no "a RUN file appeared despite the failure" || ok "no RUN produced on failure"
+
+# ---------------------------------------------------------------------------
+echo "--- T12: a second publish during an active operation is rejected for the whole window ---"
+newenv; export QUIESCE_TTL=60 QUIESCE_OP_TIMEOUT=20 QUIESCE_KILL_AFTER=2 QUIESCE_MARGIN=5
+wd_start; sleep 1
+printf 'sh -c "exec 8>>%s; exec sleep 6"\n' "$DB" > "$Q/RUN.tmp"; mv "$Q/RUN.tmp" "$Q/RUN"
+i=0; while [ ! -e "$Q/RUN.active" ] && [ $i -lt 12 ]; do sleep 1; i=$((i+1)); done
+pg=$(op_pgid); PGS="$PGS $pg"
+[ -e "$Q/RUN.active" ] && ok "RUN.active present while the chain runs" || no "RUN.active missing during the chain"
+out=$(QUIESCE_DIR="$Q" QUIESCE_NORMALIZER="/bin/echo X" sh "$OW" dryrun 2>&1); rc=$?
+{ [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -q 'already queued or active'; } \
+  && ok "second publish rejected while the op is active" || no "second publish not rejected (rc=$rc out='$out')"
+# RUN.active must persist through the supervisor's post-exit teardown too
+i=0; while [ -e "$Q/RUN.active" ] && [ $i -lt 25 ]; do sleep 1; i=$((i+1)); done
+[ ! -e "$Q/RUN.active" ] && ok "RUN.active cleared only after the supervisor exited (~${i}s)" || no "RUN.active never cleared"
+out=$(QUIESCE_DIR="$Q" QUIESCE_NORMALIZER="/bin/echo X" sh "$OW" dryrun 2>&1); rc=$?
+{ [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'queued: dry-run'; } \
+  && ok "a fresh publish is accepted once the window slot is free" || no "post-window publish rejected (rc=$rc out='$out')"
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
+
+# ---------------------------------------------------------------------------
+echo "--- T13: the runbook's manifest path == what op-wrap emits/records ---"
+newenv
+: > "$Q/deadline"; echo "$(( $(date +%s) + 600 ))" > "$Q/deadline"
+QUIESCE_DIR="$Q" QUIESCE_NORMALIZER="/bin/echo X" sh "$OW" dryrun >"$Q/dr" 2>&1
+emitted=$(sed -n 's/.*manifest=//p' "$Q/dr")
+recorded=$(cat "$Q/manifest.current" 2>/dev/null)
+{ [ -n "$emitted" ] && [ "$emitted" = "$recorded" ]; } \
+  && ok "op-wrap dryrun records manifest.current == the emitted path" || no "emitted='$emitted' recorded='$recorded'"
+DEP="$HERE/../../../DEPLOY.md"
+if [ -f "$DEP" ]; then
+  { grep -Fq 'REMOTE_MANIFEST="$(' "$DEP" \
+      && grep -Fq 'cat $QUIESCE_DIR/manifest.current' "$DEP" \
+      && ! grep -Eq 'REMOTE_MANIFEST="/tmp/' "$DEP"; } \
+    && ok "DEPLOY.md derives REMOTE_MANIFEST from \$QUIESCE_DIR/manifest.current (no invented /tmp path)" \
+    || no "DEPLOY.md does not derive the remote manifest path from manifest.current"
+else no "DEPLOY.md not found at $DEP"; fi
+
+# ---------------------------------------------------------------------------
+echo "--- T14: 'abort' is gone from the CLI and the docs ---"
+sh "$OW" bogusverb >/dev/null 2>"$ROOT/usage" || true
+grep -q 'abort' "$ROOT/usage" && no "op-wrap usage still lists abort" || ok "op-wrap usage has no abort"
+grep -Eq '(^|[^a-z])abort([^a-z]|$)' "$OW" && no "op-wrap.sh source still mentions abort" || ok "op-wrap.sh source has no abort"
+docbad=0
+for D in "$HERE/../README.md" "$HERE/../../../DEPLOY.md" "$HERE/../../../AGENTS.md"; do
+  [ -f "$D" ] || continue
+  grep -Eiq '(op-wrap |quiesce.*)abort|abort.*DISARM' "$D" && { no "$(basename "$D") still documents an abort verb"; docbad=1; }
+done
+[ "$docbad" -eq 0 ] && ok "no abort verb in README/DEPLOY/AGENTS"
 
 echo
 echo "=== native watchdog Linux suite: PASS=$P FAIL=$F ==="
