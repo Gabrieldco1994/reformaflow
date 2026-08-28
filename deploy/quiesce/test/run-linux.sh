@@ -13,8 +13,23 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 WD="${WD:-$HERE/../watchdog.sh}"
 OW="${OW:-$HERE/../op-wrap.sh}"
 CI_MODE="${CI:-}${QUIESCE_CI:-}"
-KILL="/bin/kill"; [ -x "$KILL" ] || KILL="$(command -v kill 2>/dev/null || echo kill)"
-gkill(){ "$KILL" "$1" -- -"$2" 2>/dev/null || true; }   # gkill <-SIG> <pgid>
+# pick a working process-group signal form (same logic as watchdog.sh)
+GKFORM=""
+_pp_probe(){
+  d=$(mktemp -d "${TMPDIR:-/tmp}/gk.XXXXXX")
+  ( setsid sh -c 'echo $$ > "'"$d"'/p"; exec sleep 4' >/dev/null 2>&1 & )
+  n=0; while [ ! -s "$d/p" ] && [ "$n" -lt 20 ]; do sleep 0.2; n=$((n+1)); done
+  pp="$(cat "$d/p" 2>/dev/null || echo)"; [ -n "$pp" ] || { rm -rf "$d"; return 1; }
+  for f in 'kill -%s -%d' 'kill -%s -- -%d' '/bin/kill -%s -%d' '/bin/kill -%s -- -%d'; do
+    $(printf "$f" 0 "$pp") 2>/dev/null || continue
+    $(printf "$f" KILL "$pp") 2>/dev/null; sleep 0.3
+    $(printf "$f" 0 "$pp") 2>/dev/null || { GKFORM="$f"; break; }
+  done
+  kill -KILL "$pp" 2>/dev/null || true; rm -rf "$d"
+  [ -n "$GKFORM" ]
+}
+gkill(){    $(printf "$GKFORM" "$(echo "$1" | tr -d -)" "$2") 2>/dev/null || true; }
+grp_alive(){ $(printf "$GKFORM" 0 "$1") 2>/dev/null; }
 
 require(){
   miss=""
@@ -43,11 +58,25 @@ no(){ echo "  FAIL: $1"; F=$((F+1)); }
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/qwd.XXXXXX")
 PGS=""; WPIDS=""
 cleanup(){
+  if [ "$F" -ne 0 ] || [ -n "${KEEP_ARTIFACTS:-}" ]; then
+    for L in "$ROOT"/q.*/watchdog.log "$ROOT"/q.*/op.log; do
+      [ -f "$L" ] || continue
+      echo "--- $L ---"; sed 's/^/    /' "$L"
+    done
+  fi
   for g in $PGS; do [ -n "$g" ] && gkill -KILL "$g"; done
   for p in $WPIDS; do gkill -KILL "$p"; kill -KILL "$p" 2>/dev/null || true; done
   [ -n "${KEEP_ARTIFACTS:-}" ] && echo "kept: $ROOT" || rm -rf "$ROOT"
 }
 trap cleanup EXIT INT TERM
+
+if _pp_probe; then
+  echo "    group-signal form: [$GKFORM]"
+else
+  echo "FAIL: no working process-group signal form on this host (CI must have one)"
+  [ -n "$CI_MODE" ] && exit 1
+  echo "SKIP: cannot signal process groups here"; exit 0
+fi
 
 N=0
 newenv(){
@@ -70,7 +99,6 @@ newenv(){
 wd_start(){ setsid sh "$WD" >>"$Q/wd.stdout" 2>&1 & W=$!; WPIDS="$WPIDS $W"; }
 node_up(){ [ -s "$Q/node.log" ]; }
 lock_free(){ ( exec 9>"$Q/lock"; flock -n -x 9 ) 2>/dev/null; }
-grp_alive(){ "$KILL" -0 -- -"$1" 2>/dev/null; }
 holders(){ lsof -t -w -- "$DB" "$DB-wal" 2>/dev/null | sort -un; }
 op_pgid(){ cat "$Q/op.pgid" 2>/dev/null || echo; }
 
@@ -225,7 +253,7 @@ echo "--- T8: missing-primitive check FAILS HARD in CI mode (not a SKIP) ---"
 out=$(QUIESCE_TEST_FORCE_MISSING=1 CI=1 sh "$HERE/run-linux.sh" 2>&1); rc=$?
 { [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'FAIL: required primitive'; } \
   && ok "CI mode with a primitive absent exits 1 (hard fail, no green SKIP)" || no "CI-mode missing-primitive check did not hard-fail (rc=$rc): $out"
-out=$(QUIESCE_TEST_FORCE_MISSING=1 sh "$HERE/run-linux.sh" 2>&1); rc=$?
+out=$(env -u CI -u QUIESCE_CI -u GITHUB_ACTIONS QUIESCE_TEST_FORCE_MISSING=1 sh "$HERE/run-linux.sh" 2>&1); rc=$?
 { [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '^SKIP'; } \
   && ok "non-CI dev box with a primitive absent SKIPs cleanly (exit 0)" || no "non-CI missing-primitive path did not SKIP (rc=$rc): $out"
 

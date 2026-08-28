@@ -39,11 +39,29 @@ LOCK_WAIT="${QUIESCE_LOCK_WAIT:-1800}"
 mkdir -p "$Q"
 log(){ echo "$(date -u +%FT%TZ) [wd $$] $*" >> "$Q/watchdog.log"; }
 
-# util-linux kill (can signal a process group via `-- -<pgid>`); the POSIX sh
-# builtin cannot. Never used on anything but a group this script created.
-KILL="/bin/kill"; [ -x "$KILL" ] || KILL="$(command -v kill)"
-gsig(){ "$KILL" "$1" -- -"$2" 2>/dev/null || true; }   # gsig <-SIG|-0> <pgid>
-galive(){ "$KILL" -0 -- -"$1" 2>/dev/null; }           # galive <pgid>
+# Signal a whole process group by negative pid. The exact accepted form varies
+# (sh builtin vs /bin/kill, with/without `--`); pick one that actually works
+# against a throwaway setsid group at startup, or refuse to arm.
+GKFORM=""
+_probe_group_kill(){
+  mkdir -p "$Q"
+  ( setsid sh -c 'echo $$ > "'"$Q"'/.gkprobe"; exec sleep 4' >/dev/null 2>&1 & )
+  _n=0; while [ ! -s "$Q/.gkprobe" ] && [ "$_n" -lt 20 ]; do sleep 0.2; _n=$((_n+1)); done
+  _pp="$(cat "$Q/.gkprobe" 2>/dev/null || echo)"
+  [ -n "$_pp" ] || return 1
+  for _f in 'kill -%s -%d' 'kill -%s -- -%d' '/bin/kill -%s -%d' '/bin/kill -%s -- -%d'; do
+    $(printf "$_f" 0 "$_pp") 2>/dev/null || continue
+    $(printf "$_f" KILL "$_pp") 2>/dev/null
+    sleep 0.3
+    if ! $(printf "$_f" 0 "$_pp") 2>/dev/null; then GKFORM="$_f"; break; fi
+    $(printf "$_f" KILL "$_pp") 2>/dev/null
+  done
+  kill -KILL "$_pp" 2>/dev/null || true
+  rm -f "$Q/.gkprobe"
+  [ -n "$GKFORM" ]
+}
+gsig(){   $(printf "$GKFORM" "$(echo "$1" | tr -d -)" "$2") 2>/dev/null || true; }  # gsig <-SIG> <pgid>
+galive(){ $(printf "$GKFORM" 0 "$1") 2>/dev/null; }                                 # galive <pgid>
 
 # --- absolute deadline: written exactly once, atomically (hardlink), on the volume ---
 FRESH=1; [ -f "$DL" ] && FRESH=0
@@ -55,6 +73,14 @@ if [ "$FRESH" = 1 ]; then
 fi
 D="$(cat "$DL")"
 log "watchdog up fresh=$FRESH deadline=$D ($(( D - $(date +%s) ))s left) op_timeout=$OP_TIMEOUT kill_after=$KILL_AFTER margin=$MARGIN"
+
+if _probe_group_kill; then
+  log "group-signal form: [$GKFORM]"
+else
+  log "FATAL: no working process-group signal form on this host - refusing to arm the quiesce watchdog"
+  echo "watchdog: FATAL - cannot signal a process group on this host" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # restore(): Node-direct fallback. Starts Node ONLY after acquiring the same
