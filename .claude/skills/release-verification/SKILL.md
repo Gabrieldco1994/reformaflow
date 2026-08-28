@@ -35,8 +35,10 @@ Exija:
 `skipping` é aceitável para deploy em PR, não para o push publicado em `main`.
 
 O lock de concorrência evita sobreposição, mas não garante ordem. Confirme no log que, já dentro do
-lock e imediatamente antes do deploy, o job comparou o SHA completo do run com o SHA completo atual
-de `main`. Run stale deve terminar sem publicar; job verde que publicou SHA stale é `BLOCKED`.
+lock, o job comparou o SHA completo do run com o SHA completo atual de `main` imediatamente antes do
+deploy e novamente depois dos checks/smokes. Run stale deve terminar sem publicar no primeiro gate;
+se `main` avançou durante o deploy, o gate pós-smokes deve falhar. Ausência de qualquer gate é
+`BLOCKED`.
 
 ## 3. Verificar API e web
 
@@ -56,7 +58,8 @@ Com `flyctl` 0.4.76, exija conjuntamente:
 - `machine list` com comprimento exatamente 1 e `state=started`;
 - `.[0].image_ref.labels.GH_SHA == GITHUB_SHA`;
 - `checks list` com exatamente um check `passing`, ligado ao ID dessa machine;
-- release mais recente `complete`, com `ImageRef == machine.config.image`.
+- release mais recente `complete`, com `ImageRef` igual a `machine.config.image` depois de remover o
+  sufixo `@digest` da imagem da machine.
 
 Machine `stopped` ou qualquer divergência é `BLOCKED`, mesmo com workflow/deploy verde. O SHA já está
 nos labels de `image_ref`: não crie `/health` nem build arg para expô-lo.
@@ -67,12 +70,20 @@ Confirme no job/log do Fly que o entrypoint executou `prisma migrate deploy`. Pa
 confirme o nome explicitamente. Banco fresco não cobre upgrade: exija fixture legada estruturalmente
 equivalente ou backup sanitizado, restore testado e inventário antes/depois.
 
-Em recuperação de migration falha, verifique a sequência: backup restaurável; script em `--dry-run`;
-manifest sanitizado revisado; `--apply`; novo dry-run sem pendências; `prisma migrate resolve` coerente
-com o estado real; `prisma migrate deploy`; e só então restauração do entrypoint migrate-first. O
-manifest não deve expor IDs, PII, caminho completo de backup nem hash completo. Enquanto a migration
-falha não estiver resolvida e aplicada, restaurar o entrypoint normal é `BLOCKED`. Fora de uma
-recuperação explicitamente autorizada, a verificação continua read-only e não escreve em produção.
+Em recuperação de migration falha, verifique a sequência: backup restaurável; API quiescida sem
+writers; `DATABASE_URL` explícita; dry-run com
+`node scripts/normalize-external-id-duplicates.mjs --dry-run --manifest <manifest-privado>`; revisão
+privada; e `--apply` com o mesmo `--manifest`, o `--hash` completo emitido e os mesmos
+`--expected-groups`/`--expected-updates`. A quiescência começa antes do dry-run final e permanece por
+normalize → `prisma migrate resolve` → `prisma migrate deploy`; qualquer write invalida o manifest e
+exige reinício no dry-run.
+
+O manifest é **CONFIDENCIAL**, arquivo regular `0600`, e contém IDs e chaves de escopo. Nunca o anexe
+ou publique. O hash completo emitido pelo script também fica na operação privada; evidência pública
+leva apenas contagens e hash truncado, nunca PII, caminho completo do backup, IDs/chaves ou hash
+completo. Enquanto a migration falha não estiver resolvida e aplicada, restaurar o entrypoint normal
+é `BLOCKED`. Fora de uma recuperação explicitamente autorizada, a verificação continua read-only e
+não escreve em produção.
 
 Depois da migration, restaurar o entrypoint é operação SRE por machine:
 `flyctl machine update <machine-id> --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.

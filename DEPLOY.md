@@ -76,24 +76,45 @@ Antes de publicar uma migration sobre schema persistido:
 
 #### Runbook de recuperação de migration falha
 
-Use o script de reparo entregue no mesmo SHA da recuperação e confira sua ajuda antes de executar.
-Não cole em logs IDs de linhas/tenants, PII, caminho completo do backup nem hash completo. O manifest
-deve registrar apenas contagens, referência opaca do backup, checksum truncado e resultado por etapa.
+Use `node scripts/normalize-external-id-duplicates.mjs` com `DATABASE_URL` explícita. O manifest gerado
+é **CONFIDENCIAL**, modo `0600`: contém IDs de linhas e chaves de tenant/projeto/external ID. Nunca o
+anexe a issue/PR, publique, copie para logs ou inclua em evidência. O script emite o SHA-256 completo
+para a operação privada; o resumo público pode conter somente contagens e hash truncado, sem PII,
+caminho completo de backup, IDs/chaves ou hash completo.
 
 1. **Conter:** mantenha o entrypoint temporário sem migration; não restaure ainda o
    `prisma migrate deploy` automático.
 2. **Backup:** gere backup timestampado, valide que pode ser restaurado e registre sua referência
    sanitizada no manifest.
-3. **Dry-run:** rode o modo `--dry-run`; ele deve produzir o manifest sem escrever e delimitar apenas
-   os dados legados que bloqueiam a migration.
-4. **Revisar:** compare inventário, escopo e invariantes do manifest. Pare se houver mutação de linha
+3. **Quiescer:** antes do dry-run final, SRE deve impedir e confirmar ausência de writers da API.
+   Mantenha a API quiescida, sem writes, até concluir normalize → resolve → migrate; se houver qualquer
+   write ou perda de quiescência, descarte a aprovação e reinicie pelo dry-run.
+4. **Dry-run final:** gere um caminho novo para o manifest privado e rode:
+
+   ```bash
+   DATABASE_URL=file:/data/dev.db node scripts/normalize-external-id-duplicates.mjs \
+     --dry-run --manifest <manifest-privado>
+   ```
+
+   Registre privadamente o SHA-256 completo e as contagens `expectedGroups`/`expectedUpdates` emitidas.
+   O dry-run não escreve no banco.
+5. **Revisar:** compare inventário, escopo e invariantes do manifest. Pare se houver mutação de linha
    ativa, mudança fora do escopo ou diferença entre os inventários do dry-run e do backup.
-5. **Apply:** só com backup e manifest aprovados, rode `--apply`; preserve o manifest final e repita o
-   dry-run até não haver reparo pendente.
-6. **Resolve:** confira o estado real da migration e então use `prisma migrate resolve` para registrar
+6. **Normalize/apply:** ainda sem writers, use exatamente o manifest, hash completo e contagens
+   aprovados no dry-run:
+
+   ```bash
+   DATABASE_URL=file:/data/dev.db node scripts/normalize-external-id-duplicates.mjs \
+     --apply --manifest <manifest-privado> --hash <sha256-completo-privado> \
+     --expected-groups <contagem> --expected-updates <contagem>
+   ```
+
+   Preserve o manifest `0600` apenas no armazenamento operacional privado.
+7. **Resolve:** confira o estado real da migration e então use `prisma migrate resolve` para registrar
    a tentativa falha como revertida; nunca a marque como aplicada antes de o SQL concluir.
-7. **Migrate:** execute `prisma migrate deploy` e confirme que a migration consta como aplicada.
-8. **Entrypoint:** somente depois disso, SRE deve limpar o override emergencial da machine:
+8. **Migrate:** execute `prisma migrate deploy`, confirme que a migration consta como aplicada e só
+   então encerre a janela sem writers.
+9. **Entrypoint:** somente depois disso, SRE deve limpar o override emergencial da machine:
    `flyctl machine update <machine-id> --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.
    O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
 
@@ -206,11 +227,14 @@ flyctl deploy --app reformaflow-api -c apps/api/fly.toml --dockerfile apps/api/D
    - `flyctl machine list` retorna exatamente uma machine, com `state=started` e
      `.[0].image_ref.labels.GH_SHA == GITHUB_SHA`;
    - `flyctl checks list` retorna exatamente um check `passing` para o ID dessa machine;
-   - a release mais recente está `complete` e seu `ImageRef` é igual a `machine.config.image`;
+   - a release mais recente está `complete`; remova o sufixo `@digest` de `machine.config.image` e
+     compare o valor normalizado com o `ImageRef` da release;
    - `curl` em `/api/docs-json` retorna 200 e em `/auth/me` retorna 401.
    Machine `stopped` ou qualquer divergência bloqueia a release, mesmo que o job esteja verde. O SHA
    já vem de `image_ref.labels.GH_SHA`: não crie `/health` nem build arg para expô-lo.
-7. Se algo falhar, ver logs do GitHub Actions (build) e Fly/Vercel logs (flyctl logs / Vercel UI).
+7. Depois dos checks e smokes, compare novamente o SHA completo do run com o SHA completo atual de
+   `main`. Se `main` avançou durante o deploy, falhe o gate pós-smokes: a release não pode ficar verde.
+8. Se algo falhar, ver logs do GitHub Actions (build) e Fly/Vercel logs (flyctl logs / Vercel UI).
 
 > **Cicatriz de 2026-08-28 (#629):** um deploy antigo terminou depois do novo e sobrescreveu `main`;
 > outro deploy verde aceitou uma machine `stopped`; e a migration de #570 falhou sobre dados legados,
