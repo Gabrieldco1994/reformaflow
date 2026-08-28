@@ -163,7 +163,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin main
-          current_main="$(git rev-parse refs/remotes/origin/main)"
+          current_main="$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')"
           if [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$GITHUB_SHA" != "$current_main" ]]; then
             echo "Refusing stale main deploy."
             exit 1
@@ -184,10 +184,8 @@ jobs:
           machine_id="$(jq -r '.[0].id' <<<"$machines")"
           machine_state="$(jq -r '.[0].state' <<<"$machines")"
           deployed_sha="$(jq -r '.[0].image_ref.labels.GH_SHA // empty' <<<"$machines")"
-          machine_image="$(jq -r '.[0].config.image // empty' <<<"$machines")"
           [[ "$machine_state" == "started" ]]
           [[ "$deployed_sha" == "$GITHUB_SHA" ]]
-          [[ -n "$machine_image" ]]
 
           checks_healthy=false
           for attempt in {1..30}; do
@@ -208,7 +206,9 @@ jobs:
           releases="$(flyctl releases --app "$app" --json)"
           release_status="$(jq -r '.[0].Status // empty' <<<"$releases")"
           release_image="$(jq -r '.[0].ImageRef // empty' <<<"$releases")"
+          machine_image="$(jq -r '.[0].config.image // empty' <<<"$machines")"
           [[ "$release_status" == "complete" ]]
+          [[ -n "$machine_image" ]]
           [[ "$release_image" == "$machine_image" ]]
 
           docs_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
