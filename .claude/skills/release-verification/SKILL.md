@@ -81,11 +81,12 @@ idêntico; e `DATABASE_URL` explícita ao rodar
 
 O dry-run usa `--dry-run --manifest <manifest-privado>`; `--apply` reutiliza o mesmo `--manifest`, o
 `--hash` completo emitido e os mesmos `--expected-groups`/`--expected-updates`. O manifest fica em
-`/data` ou `/tmp` privado, modo `0600`, e deve ser baixado e guardado privadamente. A quiescência
-começa antes do dry-run final e permanece por normalize → `prisma migrate resolve` →
-`prisma migrate deploy`; qualquer write invalida o manifest e exige reinício no dry-run.
-O script transferido é efêmero e não pertence ao volume de dados: confirme que ele só foi removido no
-encerramento da recuperação, depois de preservar a evidência exigida.
+`/tmp/recovery-manifest-private-$RECOVERY_RUN.json`, com um `RECOVERY_RUN` UTC novo para cada tentativa,
+compatível com criação `O_EXCL`; ele nasce `0600` e deve ser baixado e guardado privadamente. A
+quiescência começa antes do dry-run final e permanece por normalize → `prisma migrate resolve` →
+`prisma migrate deploy`; qualquer write invalida o manifest e exige reinício no dry-run. Depois de
+preservar a evidência e a cópia local `0600`, confirme que o encerramento removeu da machine, sem
+wildcard, os caminhos exatos do script e do manifest; nenhum deles deve permanecer no rootfs ou volume.
 
 O manifest é **CONFIDENCIAL**, arquivo regular `0600`, e contém IDs e chaves de escopo. Nunca o anexe
 ou publique. O hash completo emitido pelo script também fica na operação privada; evidência pública

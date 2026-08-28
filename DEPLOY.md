@@ -98,14 +98,17 @@ completo.
    ```bash
    PR_HEAD_TESTADO="<sha-completo-testado>"
    MACHINE_ID="<id-da-unica-machine>"
+   RECOVERY_RUN="$(date -u +%Y%m%dT%H%M%SZ)"
+   PRIVATE_DIR="<diretorio-privado>"
    LOCAL_SCRIPT="/tmp/normalize-external-id-duplicates.mjs"
    REMOTE_SCRIPT="/app/normalize-external-id-duplicates.mjs"
-   REMOTE_MANIFEST="/data/recovery-manifest-private.json"
-   LOCAL_MANIFEST="<diretorio-privado>/recovery-manifest-private.json"
+   REMOTE_MANIFEST="/tmp/recovery-manifest-private-$RECOVERY_RUN.json"
+   LOCAL_MANIFEST="$PRIVATE_DIR/recovery-manifest-private-$RECOVERY_RUN.json"
 
    git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > "$LOCAL_SCRIPT"
    chmod 0500 "$LOCAL_SCRIPT"
    LOCAL_SHA="$(shasum -a 256 "$LOCAL_SCRIPT" | awk '{print $1}')"
+   install -d -m 0700 "$PRIVATE_DIR"
 
    flyctl ssh sftp put "$LOCAL_SCRIPT" "$REMOTE_SCRIPT" \
      -a reformaflow-api --machine "$MACHINE_ID" --mode 0500
@@ -117,7 +120,9 @@ completo.
    Registre os checksums completos apenas na operação privada. Não copie o repositório inteiro nem
    instale dependências: `createRequire` resolve o `@prisma/client` já existente em
    `/app/node_modules`.
-5. **Dry-run final:** mantenha o manifest em `/data` ou `/tmp` privado; o script o cria como `0600`.
+5. **Dry-run final:** a cada tentativa, gere um novo `RECOVERY_RUN` e, portanto, novos caminhos remoto
+   e local; não reutilize um nome, pois a criação segura do manifest usa `O_EXCL`. O script cria o
+   manifest remoto em `/tmp` como `0600`.
 
    ```bash
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
@@ -151,9 +156,16 @@ completo.
 10. **Entrypoint:** somente depois disso, SRE deve limpar o override emergencial da machine:
    `flyctl machine update <machine-id> --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.
    O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
-11. **Encerrar:** preserve primeiro todas as evidências exigidas. Só então remova da machine o arquivo
-    efêmero `/app/normalize-external-id-duplicates.mjs`; ele não pertence ao volume de dados e não deve
-    permanecer depois da recuperação.
+11. **Encerrar:** preserve primeiro todas as evidências exigidas e confirme a cópia local `0600`. Só
+    então remova da machine os dois caminhos efêmeros exatos, sem wildcard:
+
+    ```bash
+    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+      --command "rm -- '$REMOTE_SCRIPT' '$REMOTE_MANIFEST'"
+    ```
+
+    Não deixe o script nem o manifest confidencial no rootfs ou no volume de dados depois da
+    recuperação.
 
 Não adicione `[processes] app="/entrypoint.sh"` ao `fly.toml`: isso não remove o override por machine.
 O `http_service.processes = ["app"]` existente basta depois que SRE limpa `init.entrypoint` e
