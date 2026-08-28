@@ -109,6 +109,22 @@ jobs:
       - name: Run E2E responsive tests
         run: npm --workspace @reformaflow/web run test:e2e
 
+  quiesce-failsafe:
+    name: Quiesce Fail-Safe (native)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Assert Linux quiesce primitives are present
+        run: |
+          missing=""
+          for b in timeout setsid flock; do command -v "$b" >/dev/null 2>&1 || missing="$missing $b"; done
+          test -d /proc || missing="$missing /proc"
+          if [ -n "$missing" ]; then echo "missing required primitive(s):$missing"; exit 1; fi
+      - name: Syntax-check quiesce scripts
+        run: for f in deploy/quiesce/*.sh deploy/quiesce/test/*.sh; do sh -n "$f"; done
+      - name: Adversarial watchdog suite (hard-fail on missing primitives)
+        run: CI=1 npm run test:quiesce-failsafe
+
   build-web:
     name: Build Web
     runs-on: ubuntu-latest
@@ -131,7 +147,7 @@ jobs:
   build-api:
     name: Build API
     runs-on: ubuntu-latest
-    needs: [lint-and-typecheck, test-domain, test-api, test-web, e2e-web]
+    needs: [lint-and-typecheck, test-domain, test-api, test-web, e2e-web, quiesce-failsafe]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

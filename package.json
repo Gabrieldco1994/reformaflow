@@ -13,6 +13,7 @@
     "test:agent-contracts": "node --test scripts/lib/validate-agent-contracts.test.mjs && node scripts/validate-agent-contracts.mjs",
     "test:migration-recovery": "node --test scripts/lib/normalize-external-id-duplicates.test.mjs scripts/lib/external-id-migration-recovery.test.mjs scripts/lib/release-migration-recovery-contract.test.mjs",
     "test:db:prepare": "node scripts/prepare-test-db.mjs",
+    "test:quiesce-failsafe": "sh deploy/quiesce/test/run-linux.sh",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "pre-commit": "cd packages/domain && npx tsc --noEmit && cd ../../apps/api && npx tsc --noEmit && cd ../../apps/web && npx tsc --noEmit"
   },

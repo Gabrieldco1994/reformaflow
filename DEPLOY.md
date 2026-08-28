@@ -88,9 +88,35 @@ completo.
    `prisma migrate deploy` automático.
 2. **Backup:** gere backup timestampado, valide que pode ser restaurado e registre sua referência
    sanitizada em controle operacional separado; não altere o formato canônico do manifest.
-3. **Quiescer:** antes do dry-run final, SRE deve impedir e confirmar ausência de writers da API.
-   Mantenha a API quiescida, sem writes, até concluir normalize → resolve → migrate; se houver qualquer
-   write ou perda de quiescência, descarte a aprovação e reinicie pelo dry-run.
+3. **Quiescer (fail-safe nativo, `deploy/quiesce/`):** a janela **não** depende de o processo do
+   operador continuar vivo. Substitua o comando da machine por `watchdog.sh` (mesmo caminho vetado de
+   envio do script de recovery — ver passo 4). O `watchdog.sh` usa só `timeout` + `setsid` + `flock`:
+   grava um **deadline absoluto uma única vez** em `/data/quiesce/deadline` (restart relê, nunca
+   renova; restart com lock livre **colapsa** a janela e devolve o Node na hora), roda a cadeia do
+   operador sob um **supervisor fora do process group da cadeia** que segura o `flock` (fd 9) durante
+   toda a vida da cadeia e de qualquer descendente, e ao fim faz **TERM grupo → grace → KILL grupo**
+   apenas do pgid conhecido (recolhe órfãos reparentados que o `timeout` deixa). O Node-direto só sobe
+   **depois de adquirir esse mesmo lock** — Node e uma cadeia viva nunca tocam `/data/dev.db` juntos.
+   Nada mais é sinalizado; o watchdog só mata um process group que ele mesmo criou.
+
+   **NUNCA abra `sqlite3`, `prisma studio`, `node` ou qualquer cliente de banco na machine fora do
+   `op-wrap` enquanto a janela estiver armada.** O lock só protege a cadeia supervisionada e o
+   Node-direto; um writer manual fura o lock e pode corromper a recuperação. Todo toque no banco passa
+   por `op-wrap dryrun` / `op-wrap apply`.
+
+   Toda operação vai pelo `op-wrap` (`flyctl ssh console --command "sh /app/op-wrap.sh <cmd>"`), que
+   publica o controle atomicamente (lock de publish + tmp+rename) e **recusa** sobrescrever um `RUN`
+   já enfileirado:
+   - `op-wrap status`
+   - `op-wrap dryrun` — enfileira o dry-run e imprime o **caminho de manifest novo** desta tentativa
+   - `op-wrap apply <sha256> <expected-groups> <expected-updates>` — valida `^[0-9a-f]{64}$` e
+     `^[0-9]+$` antes de publicar `normalize --apply && migrate resolve && migrate deploy`
+   - `op-wrap disarm` — pós-deploy: Node-direto assim que o lock ficar livre
+   - `op-wrap abort` — **só** seta `DISARM` (nunca sinaliza PID/PGID, que pode ter sido reusado); o
+     teardown é a terminação do grupo conhecido pelo watchdog
+
+   Se houver qualquer write fora do `op-wrap` ou perda de quiescência, descarte a aprovação e reinicie
+   pelo dry-run. Detalhes e invariantes: `deploy/quiesce/README.md`.
 4. **Transferir somente o script testado:** a imagem runtime não contém `scripts/`. Defina localmente
    os placeholders abaixo, usando o HEAD exato do PR que passou nos testes e o ID da única machine já
    quiescida:
@@ -120,9 +146,12 @@ completo.
    Registre os checksums completos apenas na operação privada. Não copie o repositório inteiro nem
    instale dependências: `createRequire` resolve o `@prisma/client` já existente em
    `/app/node_modules`.
-5. **Dry-run final:** a cada tentativa, gere um novo `RECOVERY_RUN` e, portanto, novos caminhos remoto
-   e local; não reutilize um nome, pois a criação segura do manifest usa `O_EXCL`. O script cria o
-   manifest remoto em `/tmp` como `0600`.
+5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run por `op-wrap dryrun` (ele já gera o
+   caminho de manifest novo desta tentativa e o imprime). A cada tentativa, gere um novo
+   `RECOVERY_RUN` e, portanto, novos caminhos remoto e local; não reutilize um nome, pois a criação
+   segura do manifest usa `O_EXCL`. O script cria o manifest remoto como `0600`. Os comandos
+   `flyctl ssh console` diretos abaixo são a referência do que o `op-wrap` executa por baixo — não os
+   rode à mão durante uma janela armada.
 
    ```bash
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
@@ -153,7 +182,9 @@ completo.
    a tentativa falha como revertida; nunca a marque como aplicada antes de o SQL concluir.
 9. **Migrate:** execute `prisma migrate deploy`, confirme que a migration consta como aplicada e só
    então encerre a janela sem writers.
-10. **Entrypoint:** somente depois disso, SRE deve limpar o override emergencial da machine:
+10. **Disarm + entrypoint:** rode `op-wrap disarm`; o `watchdog.sh` sobe o Node-direto assim que o
+   lock ficar livre (ou já teria subido pelo deadline absoluto / por um restart com lock livre).
+   Confirmada a API saudável, SRE limpa o override emergencial da machine:
    `flyctl machine update <machine-id> --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.
    O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
 11. **Encerrar:** preserve primeiro todas as evidências exigidas e confirme a cópia local `0600`. Só
@@ -164,8 +195,9 @@ completo.
       --command "rm -- '$REMOTE_SCRIPT' '$REMOTE_MANIFEST'"
     ```
 
-    Não deixe o script nem o manifest confidencial no rootfs ou no volume de dados depois da
-    recuperação.
+    Remova também o `watchdog.sh`/`op-wrap.sh` enviados e o diretório `/data/quiesce` desta janela
+    (caminhos exatos, sem wildcard). Não deixe o script, o manifest confidencial nem os artefatos da
+    janela no rootfs ou no volume de dados depois da recuperação.
 
 Não adicione `[processes] app="/entrypoint.sh"` ao `fly.toml`: isso não remove o override por machine.
 O `http_service.processes = ["app"]` existente basta depois que SRE limpa `init.entrypoint` e
