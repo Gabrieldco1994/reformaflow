@@ -62,7 +62,15 @@ test("full-SHA stale-run gates run before deploy and after checks and smokes", (
     job.slice(gates[0], deploy),
     /GITHUB_SHA|\$\{\{\s*github\.sha\s*\}\}/,
   );
+  assert.match(
+    job.slice(gates[0], deploy),
+    /\[\[\s*"\$GITHUB_SHA"\s*!=\s*"\$current_main"\s*\]\]/,
+  );
   assert.match(job.slice(gates[1]), /GITHUB_SHA/);
+  assert.match(
+    job.slice(gates[1]),
+    /\[\[\s*"\$GITHUB_SHA"\s*!=\s*"\$postdeploy_main"\s*\]\]/,
+  );
   assert.doesNotMatch(
     `${job.slice(gates[0], deploy)}\n${job.slice(gates[1])}`,
     /::7|short|cut\s+-c/,
@@ -82,7 +90,11 @@ test("postdeploy verifies the single machine identity, checks, release image, an
     postdeploy,
     /image_ref\.labels\.GH_SHA[\s\S]{0,500}(?:GITHUB_SHA|\$\{\{\s*github\.sha\s*\}\})/,
   );
-  assert.match(postdeploy, /started/);
+  assert.match(postdeploy, /\[\[\s*"\$machine_state"\s*==\s*"started"\s*\]\]/);
+  assert.match(
+    postdeploy,
+    /\[\[\s*"\$deployed_sha"\s*==\s*"\$GITHUB_SHA"\s*\]\]/,
+  );
 
   const checksContract =
     'has($id) and (.[$id] | length == 1) and (.[$id][0].status == "passing")';
@@ -138,13 +150,20 @@ test("postdeploy verifies the single machine identity, checks, release image, an
   );
   assert.equal(imageFixtureResult.status, 0, imageFixtureResult.stderr);
 
-  assert.match(postdeploy, /\/api\/docs-json/);
-  assert.match(postdeploy, /200/);
-  assert.match(postdeploy, /\/auth\/me/);
-  assert.match(postdeploy, /401/);
-  assert.match(postdeploy, /--connect-timeout/);
-  assert.match(postdeploy, /--max-time/);
-  assert.match(postdeploy, /--retry/);
+  const probeLines = postdeploy
+    .split("\n")
+    .filter((line) => line.includes('status="$(curl'));
+  assert.equal(probeLines.length, 2);
+  assert.match(probeLines[0], /--connect-timeout 5/);
+  assert.match(probeLines[0], /--max-time 15/);
+  assert.match(probeLines[0], /--retry 2/);
+  assert.match(probeLines[0], /\/api\/docs-json/);
+  assert.match(probeLines[1], /--connect-timeout 5/);
+  assert.match(probeLines[1], /--max-time 15/);
+  assert.match(probeLines[1], /--retry 2/);
+  assert.match(probeLines[1], /\/auth\/me/);
+  assert.match(postdeploy, /\[\[\s*"\$docs_status"\s*==\s*"200"\s*\]\]/);
+  assert.match(postdeploy, /\[\[\s*"\$auth_status"\s*==\s*"401"\s*\]\]/);
   assert.doesNotMatch(postdeploy, /::7|short|cut\s+-c/);
 });
 

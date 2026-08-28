@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -188,6 +188,8 @@ test("dry-run selects keepers deterministically, isolates scopes, and never writ
   );
   assert.equal(hashA, hashB);
   assert.match(hashA, /^[a-f0-9]{64}$/);
+  assert.equal(statSync(manifestA).mode & 0o777, 0o600);
+  assert.equal(statSync(manifestB).mode & 0o777, 0o600);
   assert.deepEqual(JSON.parse(readFileSync(manifestA, "utf8")), {
     version: 1,
     expectedGroups: 3,
@@ -218,6 +220,36 @@ test("dry-run selects keepers deterministically, isolates scopes, and never writ
         nonkeeperIds: ["receipt-old-secret"],
       },
     ],
+  });
+});
+
+test("without an active row, the earliest created row wins before the ID tie-break", () => {
+  const database = createCanonicalDatabase();
+  const manifest = temporaryPath("manifest.json");
+  sql(
+    database,
+    `
+      UPDATE expenses
+      SET created_at = CASE id
+        WHEN 'expense-a' THEN '2026-01-04T12:00:00.000Z'
+        WHEN 'expense-b' THEN '2026-01-03T12:00:00.000Z'
+      END
+      WHERE id IN ('expense-a', 'expense-b');
+    `,
+  );
+
+  dryRun(database, manifest);
+
+  const group = JSON.parse(readFileSync(manifest, "utf8")).groups.find(
+    ({ externalId }) => externalId === "external-no-active",
+  );
+  assert.deepEqual(group, {
+    table: "expenses",
+    tenantId: "tenant-secret",
+    projectId: "project-secret",
+    externalId: "external-no-active",
+    keeperId: "expense-b",
+    nonkeeperIds: ["expense-a"],
   });
 });
 
@@ -259,6 +291,7 @@ test("apply requires hash and both expected counts", () => {
 test("hash or expected-count mismatch aborts without writes", () => {
   for (const buildArgs of [
     (manifest) => applyArgs(manifest, "0".repeat(64)),
+    (manifest, hash) => applyArgs(manifest, hash, 999, 3),
     (manifest, hash) => applyArgs(manifest, hash, 3, 999),
   ]) {
     const database = createCanonicalDatabase();
