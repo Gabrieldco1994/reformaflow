@@ -1,6 +1,6 @@
 # Deploy gratuito — ReformaFlow
 
-> **Deploy canônico é automático:** push no `main` roda o CI (`.github/workflows/ci.yml`) que testa, builda e faz `flyctl deploy` da API (job **Deploy API to Fly**); o web acompanha via Vercel. Os passos manuais abaixo servem para o **setup inicial** (criar app/volume/secrets) ou para deploy de emergência — no dia a dia, mergear no main já publica.
+> **Deploy canônico é automático:** push no `main` roda o CI (`.github/workflows/ci.yml`) que testa, builda e faz `flyctl deploy` da API (job **Deploy API to Fly**); o web acompanha via Vercel. Antes de publicar, o job deve rejeitar SHA stale dentro do lock de deploy; depois, deve comprovar machine iniciada, health e SHA publicado. Os passos manuais abaixo servem para o **setup inicial** (criar app/volume/secrets) ou para deploy de emergência — no dia a dia, mergear no main já publica.
 
 Stack escolhido (zero migração de DB, custo R$ 0/mês para uso pessoal/demo):
 
@@ -64,7 +64,42 @@ curl -sI https://reformaflow-api.fly.dev/api/docs
 > Se mudar o nome do app no `fly.toml`, ajuste em todos os comandos acima.
 
 ### Migrations
-O `entrypoint.sh` roda `prisma migrate deploy` antes de iniciar o NestJS, então as migrations vão automaticamente.
+O `entrypoint.sh` normal roda `prisma migrate deploy` antes de iniciar o NestJS. Portanto, migration
+falha impede a API de subir; job de deploy verde, sozinho, não prova que a aplicação ficou disponível.
+
+Antes de publicar uma migration sobre schema persistido:
+
+1. valide o caminho de upgrade sobre fixture legada estruturalmente equivalente ou cópia sanitizada
+   de backup, além do teste em banco fresco;
+2. crie backup restaurável e teste o restore;
+3. confirme inventário antes/depois e que o entrypoint normal termina com a API saudável.
+
+#### Runbook de recuperação de migration falha
+
+Use o script de reparo entregue no mesmo SHA da recuperação e confira sua ajuda antes de executar.
+Não cole em logs IDs de linhas/tenants, PII, caminho completo do backup nem hash completo. O manifest
+deve registrar apenas contagens, referência opaca do backup, checksum truncado e resultado por etapa.
+
+1. **Conter:** mantenha o entrypoint temporário sem migration; não restaure ainda o
+   `prisma migrate deploy` automático.
+2. **Backup:** gere backup timestampado, valide que pode ser restaurado e registre sua referência
+   sanitizada no manifest.
+3. **Dry-run:** rode o modo `--dry-run`; ele deve produzir o manifest sem escrever e delimitar apenas
+   os dados legados que bloqueiam a migration.
+4. **Revisar:** compare inventário, escopo e invariantes do manifest. Pare se houver mutação de linha
+   ativa, mudança fora do escopo ou diferença entre os inventários do dry-run e do backup.
+5. **Apply:** só com backup e manifest aprovados, rode `--apply`; preserve o manifest final e repita o
+   dry-run até não haver reparo pendente.
+6. **Resolve:** confira o estado real da migration e então use `prisma migrate resolve` para registrar
+   a tentativa falha como revertida; nunca a marque como aplicada antes de o SQL concluir.
+7. **Migrate:** execute `prisma migrate deploy` e confirme que a migration consta como aplicada.
+8. **Entrypoint:** somente depois disso, SRE deve limpar o override emergencial da machine:
+   `flyctl machine update <machine-id> --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.
+   O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
+
+Não adicione `[processes] app="/entrypoint.sh"` ao `fly.toml`: isso não remove o override por machine.
+O `http_service.processes = ["app"]` existente basta depois que SRE limpa `init.entrypoint` e
+`init.cmd`.
 
 ### Bootstrap admin
 O `main.ts` cria o admin a partir das envs `ADMIN_USERNAME`/`ADMIN_PASSWORD` em cada start (idempotente — se já existir, só sincroniza senha).
@@ -163,11 +198,24 @@ flyctl deploy --app reformaflow-api -c apps/api/fly.toml --dockerfile apps/api/D
 1. Commit e push para branch `main` (ex.: `git push origin main`). Pre-commit hooks rodam TypeScript checks em `packages/domain`, `apps/api`, `apps/web` (bloqueiam commit se falhar). Veja `package.json` scripts e hooks.
 2. Se o push falhar por permissão (403), rodar: `unset GH_TOKEN && gh auth switch -u <your-github-username>` e então `git push origin main`.
 3. O GitHub Actions `CI` é disparado automaticamente. Verificar status: `gh run list --repo <owner>/<repo> --branch main` e `gh run view <run-id>` para log.
-4. Vercel detecta push e inicia deploy automático (se projeto conectado). Verificar no painel Vercel ou `vercel --prod`/`vercel ls` com CLI autenticada.
-5. Após deploy, validar:
-   - API em `NEXT_PUBLIC_API_URL` responde `/api/docs`.
-   - Fazer smoke tests: `curl -sI $NEXT_PUBLIC_API_URL/api/docs` e validar 200.
-6. Se algo falhar, ver logs do GitHub Actions (build) e Fly/Vercel logs (flyctl logs / Vercel UI).
+4. No job de deploy, o lock de concorrência apenas serializa execuções: já dentro dele e imediatamente
+   antes de publicar, compare o SHA completo do run com o SHA completo atual de `main`. Se divergir,
+   encerre como stale sem chamar o deploy. Mantenha `cancel-in-progress: false`.
+5. Vercel detecta push e inicia deploy automático (se projeto conectado). Verificar no painel Vercel ou `vercel --prod`/`vercel ls` com CLI autenticada.
+6. Após deploy, validar:
+   - `flyctl machine list` retorna exatamente uma machine, com `state=started` e
+     `.[0].image_ref.labels.GH_SHA == GITHUB_SHA`;
+   - `flyctl checks list` retorna exatamente um check `passing` para o ID dessa machine;
+   - a release mais recente está `complete` e seu `ImageRef` é igual a `machine.config.image`;
+   - `curl` em `/api/docs-json` retorna 200 e em `/auth/me` retorna 401.
+   Machine `stopped` ou qualquer divergência bloqueia a release, mesmo que o job esteja verde. O SHA
+   já vem de `image_ref.labels.GH_SHA`: não crie `/health` nem build arg para expô-lo.
+7. Se algo falhar, ver logs do GitHub Actions (build) e Fly/Vercel logs (flyctl logs / Vercel UI).
+
+> **Cicatriz de 2026-08-28 (#629):** um deploy antigo terminou depois do novo e sobrescreveu `main`;
+> outro deploy verde aceitou uma machine `stopped`; e a migration de #570 falhou sobre dados legados,
+> impedindo o entrypoint de subir a API por cerca de 35 horas. Lock não garante ordem, banco fresco
+> não representa upgrade real e sucesso do comando de deploy não substitui health + SHA.
 
 > Observação de segurança: nunca comitar tokens ou secrets. Use `flyctl secrets set` e `vercel env add`.
 
