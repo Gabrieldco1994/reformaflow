@@ -66,6 +66,14 @@ test("full-SHA stale-run gates run before deploy and after checks and smokes", (
     job.slice(gates[0], deploy),
     /\[\[\s*"\$GITHUB_SHA"\s*!=\s*"\$current_main"\s*\]\]/,
   );
+  assert.ok(
+    job
+      .slice(gates[0], deploy)
+      .includes(
+        'if [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$GITHUB_SHA" != "$current_main" ]]; then',
+      ),
+    "initial stale gate must reject an invalid SHA or a stale SHA",
+  );
   assert.match(job.slice(gates[1]), /GITHUB_SHA/);
   assert.match(
     job.slice(gates[1]),
@@ -114,6 +122,10 @@ test("postdeploy verifies the single machine identity, checks, release image, an
   assert.match(
     postdeploy,
     /flyctl\s+releases[\s\S]{0,1200}--json[\s\S]{0,1200}\[0\][\s\S]{0,1200}complete/,
+  );
+  assert.match(
+    postdeploy,
+    /\[\[\s*"\$release_status"\s*==\s*"complete"\s*\]\]/,
   );
   assert.match(
     postdeploy,
@@ -174,6 +186,16 @@ test("Fly relies on Docker CMD for app and adds no process override, health rout
   assert.doesNotMatch(flyConfig, /entrypoint\s*=|cmd\s*=/i);
   assert.doesNotMatch(workflow, /--build-arg[^\n]*(?:SHA|COMMIT)/i);
   assert.match(dockerfile, /CMD\s*\["\/entrypoint\.sh"\]/);
+  const entrypoint = dockerfile.slice(
+    dockerfile.indexOf("# Entrypoint:"),
+    dockerfile.indexOf("\nEXPOSE"),
+  );
+  const migrate = entrypoint.indexOf(
+    "npx prisma migrate deploy --schema=prisma/schema.prisma",
+  );
+  const exec = entrypoint.indexOf("exec node apps/api/dist/main.js");
+  assert.ok(migrate >= 0, "entrypoint must run prisma migrate deploy");
+  assert.ok(exec > migrate, "entrypoint must migrate before exec node");
   assert.match(
     dockerfile,
     /exec node apps\/api\/dist\/main\.js/,

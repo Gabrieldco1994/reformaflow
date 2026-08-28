@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SCRIPT = join(ROOT, "scripts", "normalize-external-id-duplicates.mjs");
+const scriptSource = readFileSync(SCRIPT, "utf8");
 const temporaryDirectories = [];
 
 const PII = [
@@ -364,6 +365,25 @@ test("apply is transactional when a later write fails", () => {
 
   requireFailure(runNormalizer(database, applyArgs(manifest, hash)));
   assert.equal(snapshot(database), before);
+});
+
+test("apply keeps the immediate transaction with explicit commit and rollback", () => {
+  const applyStart = scriptSource.indexOf("async function applyManifest");
+  const applyEnd = scriptSource.indexOf(
+    "\nfunction parseArguments",
+    applyStart,
+  );
+  const applySource = scriptSource.slice(applyStart, applyEnd);
+
+  assert.equal(
+    applySource.match(/\$executeRawUnsafe\("BEGIN IMMEDIATE"\)/g)?.length,
+    1,
+  );
+  assert.equal(applySource.match(/\$executeRawUnsafe\("COMMIT"\)/g)?.length, 2);
+  assert.equal(
+    applySource.match(/\$executeRawUnsafe\("ROLLBACK"\)/g)?.length,
+    1,
+  );
 });
 
 test("partial postimage and drift both abort atomically", () => {
