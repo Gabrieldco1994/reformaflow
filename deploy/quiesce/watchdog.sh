@@ -39,6 +39,12 @@ LOCK_WAIT="${QUIESCE_LOCK_WAIT:-1800}"
 mkdir -p "$Q"
 log(){ echo "$(date -u +%FT%TZ) [wd $$] $*" >> "$Q/watchdog.log"; }
 
+# util-linux kill (can signal a process group via `-- -<pgid>`); the POSIX sh
+# builtin cannot. Never used on anything but a group this script created.
+KILL="/bin/kill"; [ -x "$KILL" ] || KILL="$(command -v kill)"
+gsig(){ "$KILL" "$1" -- -"$2" 2>/dev/null || true; }   # gsig <-SIG|-0> <pgid>
+galive(){ "$KILL" -0 -- -"$1" 2>/dev/null; }           # galive <pgid>
+
 # --- absolute deadline: written exactly once, atomically (hardlink), on the volume ---
 FRESH=1; [ -f "$DL" ] && FRESH=0
 if [ "$FRESH" = 1 ]; then
@@ -79,45 +85,48 @@ supervise(){
     return 4
   fi
   log "supervisor: lock held; launching known group via setsid+timeout(-k $KILL_AFTER -s TERM $OP_TIMEOUT)"
-  setsid timeout -k "$KILL_AFTER" -s TERM "$OP_TIMEOUT" sh -c "$chain" >> "$Q/op.log" 2>&1 &
-  cpid=$!
-  pgid=$cpid                       # setsid child is the leader of a new group == its pid
+  raw="$Q/op.pgid.raw"; rm -f "$raw"
+  # setsid makes the exec'd sh a session (=> process-group) leader, so its $$ IS
+  # the pgid. Capture it from inside, independent of whether setsid forked.
+  rm -f "$Q/op.rc"
+  setsid sh -c 'echo $$ > "$0"; timeout -k "$1" -s TERM "$2" sh -c "$3"; r=$?; echo "$r" > "$4"; exit "$r"' \
+    "$raw" "$KILL_AFTER" "$OP_TIMEOUT" "$chain" "$Q/op.rc" >> "$Q/op.log" 2>&1 &
+  bgpid=$!
+  i=0; while [ ! -s "$raw" ] && [ "$i" -lt 50 ]; do sleep 0.2; i=$((i+1)); done
+  pgid="$(cat "$raw" 2>/dev/null || echo)"
+  [ -n "$pgid" ] || pgid=$bgpid
   echo "$pgid" > "$Q/op.pgid"
-  log "supervisor: chain pid/pgid=$pgid"
+  log "supervisor: chain pgid=$pgid"
 
-  # our own wall-clock backstop in case `wait` never returns
-  hardstop=$(( $(date +%s) + OP_TIMEOUT + KILL_AFTER + 60 ))
-  while kill -0 "$cpid" 2>/dev/null; do
-    [ "$(date +%s)" -ge "$hardstop" ] && { log "supervisor: wall-clock backstop hit"; break; }
-    sleep 2
-  done
-  rc=0; wait "$cpid" 2>/dev/null || rc=$?
-  log "supervisor: direct child exited rc=$rc; tearing down known pgid $pgid"
+  # `timeout` bounds the operation itself; wait it out. (setsid does not fork
+  # here - the backgrounded subshell is not a group leader - so bgpid IS the
+  # session leader and this wait is real.)
+  wait "$bgpid" 2>/dev/null; rc=$?
+  log "supervisor: operation finished rc=$rc; enforcing teardown of known pgid $pgid (reaps any orphan)"
 
   # authoritative teardown of the KNOWN group (reaps reparented orphans that
-  # `timeout` left behind). TERM group -> grace -> KILL group.
-  kill -TERM -- -"$pgid" 2>/dev/null || true
+  # `timeout` leaves behind). TERM group -> grace -> KILL group.
+  gsig -TERM "$pgid"
   grace=$(( $(date +%s) + KILL_AFTER ))
-  while kill -0 -- -"$pgid" 2>/dev/null; do
+  while galive "$pgid"; do
     [ "$(date +%s)" -ge "$grace" ] && break
     sleep 1
   done
-  kill -KILL -- -"$pgid" 2>/dev/null || true
+  gsig -KILL "$pgid"
 
   # confirm the group is gone: nobody can still be holding an inherited fd 9
   i=0
-  while kill -0 -- -"$pgid" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 1; i=$((i+1)); done
-  if kill -0 -- -"$pgid" 2>/dev/null; then
+  while galive "$pgid" && [ "$i" -lt 60 ]; do sleep 1; i=$((i+1)); done
+  if galive "$pgid"; then
     log "CRITICAL supervisor: pgid $pgid still alive after KILL - NOT releasing the lock (paging via logs)"
     exec sleep 2147483647
   fi
 
-  echo "$rc" > "$Q/op.rc"
-  rm -f "$Q/op.pgid"
-  log "supervisor: pgid $pgid reaped; releasing lock"
+  rm -f "$Q/op.pgid" "$raw"
+  log "supervisor: pgid $pgid reaped (chain rc=$rc); releasing lock"
   # returning closes fd 9 (this function runs in a subshell because it is
   # backgrounded), freeing the lock for restore() or the next chain.
-  return "$rc"
+  return 0
 }
 
 SUP_PID=""

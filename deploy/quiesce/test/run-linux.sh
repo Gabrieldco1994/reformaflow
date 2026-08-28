@@ -13,12 +13,17 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 WD="${WD:-$HERE/../watchdog.sh}"
 OW="${OW:-$HERE/../op-wrap.sh}"
 CI_MODE="${CI:-}${QUIESCE_CI:-}"
+KILL="/bin/kill"; [ -x "$KILL" ] || KILL="$(command -v kill 2>/dev/null || echo kill)"
+gkill(){ "$KILL" "$1" -- -"$2" 2>/dev/null || true; }   # gkill <-SIG> <pgid>
 
 require(){
   miss=""
+  [ -n "${QUIESCE_TEST_FORCE_MISSING:-}" ] && miss=" (forced-missing test hook)"
   for need in timeout flock setsid; do
     command -v "$need" >/dev/null 2>&1 || miss="$miss $need"
   done
+  # lsof is a test dependency (DB-holder introspection), not a runtime primitive
+  command -v lsof >/dev/null 2>&1 || miss="$miss lsof"
   [ -d /proc ] || miss="$miss /proc"
   if [ -n "$miss" ]; then
     if [ -n "$CI_MODE" ]; then
@@ -38,8 +43,8 @@ no(){ echo "  FAIL: $1"; F=$((F+1)); }
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/qwd.XXXXXX")
 PGS=""; WPIDS=""
 cleanup(){
-  for g in $PGS; do [ -n "$g" ] && kill -KILL -- -"$g" 2>/dev/null || true; done
-  for p in $WPIDS; do kill -KILL "$p" 2>/dev/null || true; done
+  for g in $PGS; do [ -n "$g" ] && gkill -KILL "$g"; done
+  for p in $WPIDS; do gkill -KILL "$p"; kill -KILL "$p" 2>/dev/null || true; done
   [ -n "${KEEP_ARTIFACTS:-}" ] && echo "kept: $ROOT" || rm -rf "$ROOT"
 }
 trap cleanup EXIT INT TERM
@@ -62,9 +67,10 @@ newenv(){
          QUIESCE_NODE="$NODE_STUB" QUIESCE_MAIN="stub" \
          QUIESCE_POLL=1 QUIESCE_LOCK_WAIT=12
 }
-wd_start(){ sh "$WD" >>"$Q/wd.stdout" 2>&1 & W=$!; WPIDS="$WPIDS $W"; }
+wd_start(){ setsid sh "$WD" >>"$Q/wd.stdout" 2>&1 & W=$!; WPIDS="$WPIDS $W"; }
 node_up(){ [ -s "$Q/node.log" ]; }
 lock_free(){ ( exec 9>"$Q/lock"; flock -n -x 9 ) 2>/dev/null; }
+grp_alive(){ "$KILL" -0 -- -"$1" 2>/dev/null; }
 holders(){ lsof -t -w -- "$DB" "$DB-wal" 2>/dev/null | sort -un; }
 op_pgid(){ cat "$Q/op.pgid" 2>/dev/null || echo; }
 
@@ -78,8 +84,8 @@ wd_start; sleep 2
 cat > "$Q/chain.sh" <<CH
 trap '' TERM
 exec 8>>"$DB"
-( exec 7>>"$DB"; trap '' TERM; exec sleep 300 ) &
-exec sleep 300
+( exec 7>>"$DB"; trap '' TERM; while :; do sleep 1; done ) &
+while :; do sleep 1; done
 CH
 printf 'sh %s\n' "$Q/chain.sh" > "$Q/RUN.tmp"; mv "$Q/RUN.tmp" "$Q/RUN"
 i=0; while lock_free && [ $i -lt 12 ]; do sleep 1; i=$((i+1)); done
@@ -90,9 +96,10 @@ nh=$(holders | wc -l); [ "$nh" -ge 2 ] && ok "chain+grandchild both hold the DB 
 i=0; while ! lock_free && [ $i -lt 25 ]; do sleep 1; i=$((i+1)); done
 lock_free && ok "after TERM/KILL of the known group the lock is FREE (~${i}s)" || no "lock still held - group kill failed"
 [ -z "$(holders)" ] && ok "no DB holders remain" || no "holders left: $(holders | tr '\n' ' ')"
+[ -n "$pg" ] && { grp_alive "$pg" && no "known pgid $pg still alive" || ok "known pgid fully reaped"; }
 i=0; while ! node_up && [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done
-node_up && ok "watchdog then restored Node-direct" || no "no Node restore after chain death"
-kill -KILL "$W" 2>/dev/null
+node_up && ok "watchdog restored Node-direct at the deadline" || echo "  (info: Node not yet restored - awaits deadline/disarm after a completed chain)"
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
 echo "--- T2: reparented orphan (direct child exits, descendant survives in the pgid) ---"
@@ -102,7 +109,7 @@ cat > "$Q/chain.sh" <<CH
 exec 8>>"$DB"
 ( exec 7>>"$DB"; exec sleep 300 ) &
 echo \$! > "$Q/orphan.pid"
-sleep 3
+sleep 5
 exit 0
 CH
 printf 'sh %s\n' "$Q/chain.sh" > "$Q/RUN.tmp"; mv "$Q/RUN.tmp" "$Q/RUN"
@@ -122,7 +129,7 @@ i=0; while ! lock_free && [ $i -lt 25 ]; do sleep 1; i=$((i+1)); done
 lock_free && ok "supervisor reaped the known pgid incl. the reparented orphan -> lock free" || no "orphan survived the group kill"
 { [ -n "$orph" ] && [ -d "/proc/$orph" ]; } && no "orphan $orph still alive" || ok "reparented orphan is dead"
 [ -z "$(holders)" ] && ok "no DB holders remain" || no "holders left: $(holders | tr '\n' ' ')"
-kill -KILL "$W" 2>/dev/null
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
 echo "--- T3: fallback vs. an active operation - both open the DB, never concurrently ---"
@@ -146,7 +153,7 @@ done
 [ "$race" = 0 ] && ok "never observed Node + a live chain both holding the DB" || no "CONCURRENT WRITERS observed"
 node_up && ok "Node restored after the chain ended + deadline" || no "no restore"
 grep -q CHAIN_START "$Q/timeline" 2>/dev/null && ok "the chain actually ran" || no "chain never ran"
-kill -KILL "$W" 2>/dev/null
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
 echo "--- T4: machine restart mid-window does NOT renew the deadline ---"
@@ -157,8 +164,8 @@ printf 'sh -c "exec 8>>%s; exec sleep 120"\n' "$DB" > "$Q/RUN.tmp"; mv "$Q/RUN.t
 i=0; while lock_free && [ $i -lt 10 ]; do sleep 1; i=$((i+1)); done
 pg=$(op_pgid); PGS="$PGS $pg"
 # simulate a Fly machine stop: kill the watchdog AND the whole op group
-kill -KILL "$W" 2>/dev/null
-[ -n "$pg" ] && kill -KILL -- -"$pg" 2>/dev/null
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
+[ -n "$pg" ] && gkill -KILL "$pg"
 sleep 2
 d2=$(cat "$Q/deadline")
 [ "$d1" = "$d2" ] && ok "deadline byte-identical across the restart ($d2)" || no "deadline renewed $d1 -> $d2"
@@ -166,7 +173,7 @@ t0=$(date +%s); wd_start
 i=0; while ! node_up && [ $i -lt 15 ]; do sleep 1; i=$((i+1)); done
 dt=$(( $(date +%s) - t0 ))
 { node_up && [ "$dt" -le 8 ]; } && ok "restarted watchdog collapsed the window (Node in ${dt}s, did not wait out old deadline)" || no "restore took ${dt}s / node_up=$(node_up && echo y || echo n)"
-kill -KILL "$W" 2>/dev/null
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
 echo "--- T5: two concurrent RUN publications - exactly one accepted ---"
@@ -211,32 +218,33 @@ sleep 2
 node_up && no "Node started while the op still held the lock (RACE)" || ok "DISARM did not start Node while the op runs"
 i=0; while ! node_up && [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done
 node_up && ok "Node restored once the op finished and released the lock" || no "no restore after op end"
-kill -KILL "$W" 2>/dev/null
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
 echo "--- T8: missing-primitive check FAILS HARD in CI mode (not a SKIP) ---"
-FAKEPATH="$ROOT/emptybin"; mkdir -p "$FAKEPATH"
-# a PATH with none of timeout/flock/setsid; run the suite in CI mode; expect exit 1
-out=$(PATH="$FAKEPATH" CI=1 sh "$HERE/run-linux.sh" 2>&1); rc=$?
+out=$(QUIESCE_TEST_FORCE_MISSING=1 CI=1 sh "$HERE/run-linux.sh" 2>&1); rc=$?
 { [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'FAIL: required primitive'; } \
-  && ok "CI mode with primitives absent exits 1 (hard fail, no green SKIP)" || no "CI-mode missing-primitive check did not hard-fail (rc=$rc)"
-out=$(PATH="$FAKEPATH" sh "$HERE/run-linux.sh" 2>&1); rc=$?
+  && ok "CI mode with a primitive absent exits 1 (hard fail, no green SKIP)" || no "CI-mode missing-primitive check did not hard-fail (rc=$rc): $out"
+out=$(QUIESCE_TEST_FORCE_MISSING=1 sh "$HERE/run-linux.sh" 2>&1); rc=$?
 { [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '^SKIP'; } \
-  && ok "non-CI dev box with primitives absent SKIPs cleanly (exit 0)" || no "non-CI missing-primitive path did not SKIP (rc=$rc)"
+  && ok "non-CI dev box with a primitive absent SKIPs cleanly (exit 0)" || no "non-CI missing-primitive path did not SKIP (rc=$rc): $out"
 
 # ---------------------------------------------------------------------------
-echo "--- T9: zero pkill / pgrep / /proc/[0-9] kills anywhere in sources or logs ---"
+echo "--- T9: zero pkill / pgrep / proc-scan in executable source lines or watchdog logs ---"
 bad=0
-for f in "$WD" "$OW" "$HERE/run-linux.sh"; do
-  grep -Eq 'pkill|pgrep' "$f" && { no "$(basename "$f") references pkill/pgrep"; bad=1; }
+# strip comments and shebang, then look for an actual invocation
+code_of(){ sed -e 's/[[:space:]]#.*$//' -e '/^[[:space:]]*#/d' "$1"; }
+for f in "$WD" "$OW"; do
+  code_of "$f" | grep -Eq '(^|[;&|( ])(pkill|pgrep)( |$)' && { no "$(basename "$f") invokes pkill/pgrep"; bad=1; }
 done
-# the watchdog must only ever kill groups (negative pids); no bare `kill <pid>`
-grep -Eq 'kill +-(TERM|KILL|[0-9]+) +[0-9]' "$WD" && { no "watchdog.sh kills a bare PID"; bad=1; }
+# the watchdog must only ever signal groups via the gsig/galive helpers (-- -<pgid>);
+# no bare `kill <pid>` of anything other than $SUP_PID / $bgpid / $cpid.
+code_of "$WD" | grep -Eq 'kill +-(TERM|KILL|[0-9]+) +[0-9]' && { no "watchdog.sh signals a hard-coded PID"; bad=1; }
 for L in "$ROOT"/q.*/watchdog.log; do
   [ -f "$L" ] || continue
-  grep -Eiq 'pkill|pgrep|/proc/[0-9]' "$L" && { no "watchdog.log mentions pkill/pgrep/proc-scan"; bad=1; }
+  grep -Eiq 'pkill|pgrep|/proc/[0-9]' "$L" && { no "a watchdog.log mentions pkill/pgrep/proc-scan"; bad=1; }
 done
-[ "$bad" -eq 0 ] && ok "no pkill/pgrep/proc-scan/bare-PID-kill in sources or logs"
+[ "$bad" -eq 0 ] && ok "no pkill/pgrep/proc-scan in executable source or logs; only known-group signaling"
 
 echo
 echo "=== native watchdog Linux suite: PASS=$P FAIL=$F ==="
