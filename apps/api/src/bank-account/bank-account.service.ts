@@ -95,8 +95,29 @@ export interface BankImportDecision {
      * `cardLast4` preenchido e a fatura é liquidada no mesmo commit.
      */
     cardLast4?: string;
+    /**
+     * (#574) Conta de destino da transferência, exigida quando o usuário
+     * reclassifica explicitamente a linha para `category: 'MOVIMENTACAO_INTERNA'`.
+     * Semântica por PRESENÇA da chave, não pelo valor:
+     * - chave AUSENTE (nenhuma decisão explícita de destino) → rejeitado com
+     *   BadRequestException; o usuário TEM que escolher.
+     * - string (id de `BankAccount` cadastrada, mesmo tenant) → transferência
+     *   interna de fato: a perna gerada por esta linha NÃO cria CashFlowEntry
+     *   (soma-zero real com a perna espelho).
+     * - `null` explícito → confirmação de que é resgate/entrada de fora do
+     *   perímetro rastreado (não é conta cadastrada) → mantém o comportamento
+     *   ATUAL (não zera).
+     * Classificação AUTOMÁTICA (sem `category` no override, via `fastClassify`)
+     * NUNCA passa por essa exigência — é comportamento pré-existente, fora do
+     * escopo prospectivo desta issue.
+     */
+    transferToAccountId?: string | null;
   };
 }
+
+/** (#574) Mensagem de erro para decisão de reclassificação MOVIMENTACAO_INTERNA sem conta de destino explícita. */
+export const INTERNAL_TRANSFER_ACCOUNT_REQUIRED_MESSAGE =
+  'Reclassificar como Movimentação Interna exige escolher a conta de destino cadastrada, ou confirmar explicitamente que não é transferência entre suas contas.';
 
 type SettlementClient = PrismaService | Prisma.TransactionClient;
 
@@ -123,6 +144,8 @@ interface BankImportPreparedRow {
   transaction: NormalizedTx;
   categoryOverride: string | undefined;
   cardOverride: string | null;
+  /** (#574) presente somente quando `categoryOverride === 'MOVIMENTACAO_INTERNA'`. */
+  internalTransferAccountId: string | null | undefined;
 }
 
 interface BankCardPaymentPreflightState {
@@ -760,8 +783,49 @@ export class BankAccountService {
         },
         categoryOverride: decision?.overrides?.category,
         cardOverride: decision?.overrides?.cardLast4 ?? null,
+        internalTransferAccountId:
+          decision?.overrides?.category === 'MOVIMENTACAO_INTERNA'
+            ? decision.overrides.transferToAccountId
+            : undefined,
       };
     });
+
+    // (#574) Preflight: reclassificação EXPLÍCITA para MOVIMENTACAO_INTERNA
+    // exige que o usuário tenha decidido a conta de destino (cadastrada ou
+    // "não é minha conta") ANTES de qualquer escrita. Classificação automática
+    // (sem `overrides.category`) não passa por aqui — comportamento pré-existente.
+    for (const row of preparedRows) {
+      if (row.categoryOverride !== 'MOVIMENTACAO_INTERNA') continue;
+      const decision = decisionByExt.get(row.transaction.externalId);
+      const overrides = decision?.overrides ?? {};
+      if (!('transferToAccountId' in overrides)) {
+        throw new BadRequestException({
+          message: INTERNAL_TRANSFER_ACCOUNT_REQUIRED_MESSAGE,
+          externalId: row.transaction.externalId,
+        });
+      }
+    }
+    const registeredTransferAccountIds = [
+      ...new Set(
+        preparedRows
+          .map((row) => row.internalTransferAccountId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    ];
+    if (registeredTransferAccountIds.length > 0) {
+      const found = await this.prisma.bankAccount.findMany({
+        where: { id: { in: registeredTransferAccountIds }, tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      const foundIds = new Set(found.map((a) => a.id));
+      const missing = registeredTransferAccountIds.filter((id) => !foundIds.has(id));
+      if (missing.length > 0) {
+        throw new BadRequestException({
+          message: 'Conta de destino da transferência não encontrada.',
+          accountIds: missing,
+        });
+      }
+    }
     const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
     // Lista auditável do que foi ignorado como duplicata (mesma contagem de
     // `duplicated`, mas com as linhas). Sem isso, uma linha descartada some sem
@@ -869,6 +933,7 @@ export class BankAccountService {
             createdByUserId,
             preparedCardPayment,
             requester,
+            row.internalTransferAccountId,
           );
           if (result.inserted) inserted++;
           if (result.receiptInserted) receiptsInserted++;
@@ -2112,15 +2177,32 @@ export class BankAccountService {
     createdByUserId: string | null,
     preparedCardPayment: PreparedBankCardPayment,
     requester: RateioRequester,
+    /**
+     * (#574) Presente (string ou null) SOMENTE quando o usuário reclassificou
+     * explicitamente esta linha para MOVIMENTACAO_INTERNA na decisão de
+     * importação. `undefined` = classificação automática, comportamento
+     * inalterado (default histórico). String = conta cadastrada validada no
+     * preflight de `commitImport` → perna neutra (soma-zero). `null` = usuário
+     * confirmou que NÃO é conta cadastrada → mantém o comportamento atual.
+     */
+    internalTransferAccountId?: string | null,
   ): Promise<BankImportCreationResult> {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
       // Movimentação interna (resgate de aplicação/cofrinho etc.) entra como
-      // crédito mas NÃO é receita real — vira Expense neutra (sem cashflow).
+      // crédito. Por padrão vira Receipt RESGATE e GERA CashFlowEntry
+      // RECEBIMENTO normalmente (dinheiro de fora do perímetro rastreado).
+      // (#574) EXCEÇÃO prospectiva: quando o usuário reclassifica esta linha
+      // explicitamente e escolhe uma `BankAccount` CADASTRADA como destino da
+      // transferência (`internalTransferAccountId` string), esta perna passa a
+      // ser NEUTRA (sem CashFlowEntry) — espelha a perna de DÉBITO abaixo, que
+      // já é neutra por padrão, produzindo soma-zero real na transferência.
       // categoryOverride do usuário tem prioridade sobre o auto-detect.
       const isInternalMov = categoryOverride === 'MOVIMENTACAO_INTERNA'
         || (!categoryOverride && fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA');
       if (isInternalMov) {
+        const isRegisteredTransfer =
+          typeof internalTransferAccountId === 'string' && internalTransferAccountId.length > 0;
         // Resgate/movimentação interna entra como CRÉDITO → é ENTRADA (dinheiro
         // voltando da aplicação). Vira Receipt RESGATE (preserva a direção, em
         // linha com o consolidado financeiro). Antes virava Expense, o que
@@ -2139,20 +2221,22 @@ export class BankAccountService {
             bankLast4: account.last4,
           },
         });
-        await client.cashFlowEntry.create({
-          data: {
-            tenantId,
-            projectId,
-            receiptId: receipt.id,
-            valor: receiptAmount,
-            tipo: 'RECEBIMENTO',
-            categoria: 'RESGATE',
-            subcategoria: account.nickname,
-            formaPagamento: 'CONTA_CORRENTE',
-            data: tx.date,
-            status: 'EM_CAIXA',
-          },
-        });
+        if (!isRegisteredTransfer) {
+          await client.cashFlowEntry.create({
+            data: {
+              tenantId,
+              projectId,
+              receiptId: receipt.id,
+              valor: receiptAmount,
+              tipo: 'RECEBIMENTO',
+              categoria: 'RESGATE',
+              subcategoria: account.nickname,
+              formaPagamento: 'CONTA_CORRENTE',
+              data: tx.date,
+              status: 'EM_CAIXA',
+            },
+          });
+        }
         return { inserted: false, receiptInserted: true, cardPayment: false, unlinkedCardPayment: false, receiptId: receipt.id };
       }
       const tipoReceipt = classifyCreditType(tx.merchant);
@@ -2278,8 +2362,12 @@ export class BankAccountService {
       },
     });
 
-    // Tipos neutros (movimentação interna entre contas próprias) NÃO geram
-    // cashflow — não afetam o saldo consolidado nem o total de despesas.
+    // Perna de DÉBITO de movimentação interna (aplicação): NÃO gera CashFlowEntry.
+    // ATENÇÃO (#574): isso é ASSIMÉTRICO em relação à perna de CRÉDITO (resgate,
+    // ver isInternalMov acima) — aquela GERA CashFlowEntry RECEBIMENTO normalmente.
+    // Resultado hoje: uma transferência interna simétrica (aplica R$X + resgata R$X,
+    // líquido zero) aparece como +R$X de entrada real no saldo consolidado, em vez
+    // de neutra. Correção pendente de decisão de produto — ver issue #574.
     if (expenseType === 'MOVIMENTACAO_INTERNA') {
       return { inserted: false, receiptInserted: false, cardPayment: false, unlinkedCardPayment: false, expenseId: expense.id };
     }
