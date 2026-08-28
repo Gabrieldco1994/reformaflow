@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('../../../../scripts/test-db-env.cjs');
 
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { BankAccountService } from './bank-account.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
@@ -10,6 +10,14 @@ import { MerchantClassifierService } from '../merchant-classifier/merchant-class
 import { PrismaService } from '../prisma/prisma.service';
 import type { RateioRequester } from '../expense/rateio.types';
 
+/**
+ * issue #569 (hotfix fail-closed) — o undo de importação NÃO reconstrói mais o
+ * ciclo da fatura pelo `cardLast4`. Qualquer lote que contenha um
+ * `PAGAMENTO_FATURA_CARTAO` é barrado com 409 ANTES da primeira escrita, para
+ * USER e OWNER igualmente — o estado do cartão / da compra (oculto, removido,
+ * cross-tenant) é literalmente inobservável, e o snapshot fica integralmente
+ * idêntico. Lote SEM pagamento de fatura segue reversível pelo caminho normal.
+ */
 const setupPrisma = new PrismaClient();
 const prisma = new PrismaService();
 
@@ -47,7 +55,7 @@ function expenseData(projectId: string, title: string, value: number) {
   };
 }
 
-describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
+describe('BankAccountService.undoImport — lote com pagamento de fatura é fail-closed (#569)', () => {
   let service: BankAccountService;
   let accountId: string;
   let cardId: string;
@@ -194,59 +202,24 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
     );
   }
 
-  it('bloqueia compra hidden com o mesmo last4 e preserva lote, fonte e compra', async () => {
-    const { importId, paymentId } = await createImportWithPayment();
-    const hiddenPurchaseId = await createPurchase(HIDDEN, 'Compra oculta');
+  it.each([
+    ['USER autorizado', MANAGED],
+    ['OWNER', OWNER],
+  ])(
+    'lote com pagamento de fatura → 409 fail-closed para %s, compra oculta intacta',
+    async (_label, requester) => {
+      const { importId, paymentId } = await createImportWithPayment();
+      const hiddenPurchaseId = await createPurchase(HIDDEN, 'Compra oculta');
 
-    await expect(
-      service.undoImport(TENANT, PESSOAL, accountId, importId, MANAGED),
-    ).rejects.toBeInstanceOf(NotFoundException);
-
-    await expectEverythingPreserved(importId, paymentId, [hiddenPurchaseId]);
-  });
-
-  it('torna cartão ausente e oculto indistinguíveis, sem alterar os lotes', async () => {
-    const missing = await createImportWithPayment();
-    await setupPrisma.expense.update({
-      where: { id: missing.paymentId },
-      data: { cardLast4: '9999' },
-    });
-
-    const missingResult = service.undoImport(
-      TENANT,
-      PESSOAL,
-      accountId,
-      missing.importId,
-      MANAGED,
-    );
-    await expect(missingResult).rejects.toMatchObject({
-      status: 404,
-      response: expect.objectContaining({ message: 'Importação não encontrada' }),
-    });
-    await expectEverythingPreserved(missing.importId, missing.paymentId, []);
-
-    const hidden = await createImportWithPayment();
-    await setupPrisma.creditCard.update({
-      where: { id: cardId },
-      data: { projectId: HIDDEN },
-    });
-    try {
       await expect(
-        service.undoImport(TENANT, PESSOAL, accountId, hidden.importId, MANAGED),
-      ).rejects.toMatchObject({
-        status: 404,
-        response: expect.objectContaining({ message: 'Importação não encontrada' }),
-      });
-    } finally {
-      await setupPrisma.creditCard.update({
-        where: { id: cardId },
-        data: { projectId: PESSOAL },
-      });
-    }
-    await expectEverythingPreserved(hidden.importId, hidden.paymentId, []);
-  });
+        service.undoImport(TENANT, PESSOAL, accountId, importId, requester),
+      ).rejects.toBeInstanceOf(ConflictException);
 
-  it('bloqueia lote misto allowed+hidden antes de qualquer alteração', async () => {
+      await expectEverythingPreserved(importId, paymentId, [hiddenPurchaseId]);
+    },
+  );
+
+  it('lote misto (compra permitida + oculta) → 409, nada tocado', async () => {
     const { importId, paymentId } = await createImportWithPayment();
     const [allowedPurchaseId, hiddenPurchaseId] = await Promise.all([
       createPurchase(ALLOWED, 'Compra permitida'),
@@ -255,15 +228,31 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
 
     await expect(
       service.undoImport(TENANT, PESSOAL, accountId, importId, MANAGED),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toBeInstanceOf(ConflictException);
 
-    await expectEverythingPreserved(importId, paymentId, [
-      allowedPurchaseId,
-      hiddenPurchaseId,
-    ]);
+    await expectEverythingPreserved(importId, paymentId, [allowedPurchaseId, hiddenPurchaseId]);
   });
 
-  it('requester ausente rejeita lote sem filhos antes de qualquer write', async () => {
+  it('cartão movido para projeto removido é irrelevante — ainda 409, nada tocado', async () => {
+    const { importId, paymentId } = await createImportWithPayment();
+    await setupPrisma.creditCard.update({
+      where: { id: cardId },
+      data: { projectId: REMOVED_PROJECT },
+    });
+    try {
+      await expect(
+        service.undoImport(TENANT, PESSOAL, accountId, importId, MANAGED),
+      ).rejects.toBeInstanceOf(ConflictException);
+    } finally {
+      await setupPrisma.creditCard.update({
+        where: { id: cardId },
+        data: { projectId: PESSOAL },
+      });
+    }
+    await expectEverythingPreserved(importId, paymentId, []);
+  });
+
+  it('requester ausente rejeita antes de qualquer write', async () => {
     const imported = await setupPrisma.bankStatementImport.create({
       data: {
         tenantId: TENANT,
@@ -277,7 +266,7 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
 
     await expect(
       (service as any).undoImport(TENANT, PESSOAL, accountId, imported.id, undefined),
-    ).rejects.toBeDefined();
+    ).rejects.toBeInstanceOf(NotFoundException);
 
     const stored = await setupPrisma.bankStatementImport.findUnique({
       where: { id: imported.id },
@@ -285,77 +274,50 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
     expect(stored?.deletedAt).toBeNull();
   });
 
-  it('OWNER same-tenant desfaz a liquidação e o lote', async () => {
-    const { importId, paymentId } = await createImportWithPayment();
-    const hiddenPurchaseId = await createPurchase(HIDDEN, 'Compra do owner');
-
-    await expect(
-      service.undoImport(TENANT, PESSOAL, accountId, importId, OWNER),
-    ).resolves.toMatchObject({
-      ok: true,
-      alreadyUndone: false,
-      revertedInvoiceParcelas: 1,
+  it('lote SEM pagamento de fatura continua reversível', async () => {
+    const imported = await setupPrisma.bankStatementImport.create({
+      data: {
+        tenantId: TENANT,
+        accountId,
+        periodLabel: '2026-08',
+        source: 'OFX',
+        inserted: 1,
+        totalAmountCents: 5_000,
+      },
+    });
+    const expense = await setupPrisma.expense.create({
+      data: {
+        ...expenseData(PESSOAL, 'Mercado', 5_000),
+        cardLast4: null,
+        bankLast4: '1881',
+        accountId,
+        importId: imported.id,
+        origin: 'import',
+      },
+    });
+    await setupPrisma.cashFlowEntry.create({
+      data: {
+        tenantId: TENANT,
+        projectId: PESSOAL,
+        expenseId: expense.id,
+        valor: 5_000,
+        tipo: 'DESPESA',
+        data: PURCHASE_DATE,
+        categoria: 'MATERIAL_CONSTRUCAO',
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+      },
     });
 
-    const [storedImport, payment, purchase, entry] = await Promise.all([
-      setupPrisma.bankStatementImport.findUnique({ where: { id: importId } }),
-      setupPrisma.expense.findUnique({ where: { id: paymentId } }),
-      setupPrisma.expense.findUnique({ where: { id: hiddenPurchaseId } }),
-      setupPrisma.cashFlowEntry.findFirst({ where: { expenseId: hiddenPurchaseId } }),
+    await expect(
+      service.undoImport(TENANT, PESSOAL, accountId, imported.id, MANAGED),
+    ).resolves.toMatchObject({ ok: true, alreadyUndone: false, removedExpenses: 1 });
+
+    const [storedImport, storedExpense] = await Promise.all([
+      setupPrisma.bankStatementImport.findUnique({ where: { id: imported.id } }),
+      setupPrisma.expense.findUnique({ where: { id: expense.id } }),
     ]);
     expect(storedImport?.deletedAt).not.toBeNull();
-    expect(payment?.deletedAt).not.toBeNull();
-    expect(purchase?.status).toBe('PLANEJADO');
-    expect(entry?.status).toBe('PLANEJADO');
+    expect(storedExpense?.deletedAt).not.toBeNull();
   });
-
-  it.each([
-    ['USER autorizado', MANAGED],
-    ['OWNER', OWNER],
-  ])(
-    'rejeita compra ativa sob projeto removido para %s e preserva o lote inteiro',
-    async (_label, requester) => {
-      const { importId, paymentId } = await createImportWithPayment();
-      const purchaseId = await createPurchase(REMOVED_PROJECT, 'Compra em projeto removido');
-
-      await expect(
-        service.undoImport(TENANT, PESSOAL, accountId, importId, requester),
-      ).rejects.toMatchObject({
-        status: 404,
-        response: expect.objectContaining({ message: 'Importação não encontrada' }),
-      });
-
-      await expectEverythingPreserved(importId, paymentId, [purchaseId]);
-    },
-  );
-
-  it.each([
-    ['USER autorizado', MANAGED],
-    ['OWNER', OWNER],
-  ])(
-    'rejeita cartão ativo sob projeto removido para %s e preserva o lote inteiro',
-    async (_label, requester) => {
-      const { importId, paymentId } = await createImportWithPayment();
-      await setupPrisma.creditCard.update({
-        where: { id: cardId },
-        data: { projectId: REMOVED_PROJECT },
-      });
-
-      try {
-        await expect(
-          service.undoImport(TENANT, PESSOAL, accountId, importId, requester),
-        ).rejects.toMatchObject({
-          status: 404,
-          response: expect.objectContaining({ message: 'Importação não encontrada' }),
-        });
-      } finally {
-        await setupPrisma.creditCard.update({
-          where: { id: cardId },
-          data: { projectId: PESSOAL },
-        });
-      }
-
-      await expectEverythingPreserved(importId, paymentId, []);
-    },
-  );
 });

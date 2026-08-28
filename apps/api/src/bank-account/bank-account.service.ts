@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, INCLUDE_SOFT_DELETED } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
 import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
 import {
@@ -61,7 +61,6 @@ import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import {
   CardInvoiceSettlementService,
   type PreparedInvoiceSettlement,
-  type PreparedInvoiceUnsettlement,
   type SettleCard,
 } from '../credit-card/card-invoice-settlement.service';
 import {
@@ -1082,15 +1081,16 @@ export class BankAccountService {
 
   // ─── Desfazer importação ─────────────────────────────────
 
-  /** Ano-mês (YYYY-MM) em UTC — espelha `CardInvoiceSettlementService.yearMonth`. */
-  private yearMonthUtc(date: Date): string {
-    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-  }
-
   /**
    * Detalhe de um lote de importação de extrato: o que ele criou e o que será
    * revertido (ou não) se for desfeito. Alimenta o preview de impacto do
    * "Desfazer importação".
+   *
+   * #569 (hotfix fail-closed): qualquer lote que contenha um
+   * `PAGAMENTO_FATURA_CARTAO` fica NÃO revertível como lote (`canUndo: false`).
+   * O undo exato dessas liquidações continua aberto no issue #569 — aqui apenas
+   * não arriscamos alterar outros pagamentos. Nenhum lookup de cartão, fatura ou
+   * projeto externo, nenhuma reconstrução de `dueMonth`.
    */
   async getImportDetail(tenantId: string, projectId: string, accountId: string, importId: string) {
     await this.findAccount(tenantId, projectId, accountId);
@@ -1130,18 +1130,21 @@ export class BankAccountService {
       ? await this.prisma.rateioAllocation.count({ where: { sourceExpenseId: { in: expenseIds } } })
       : 0;
 
-    // Pagamentos de fatura que dispararam liquidação automática (settleInvoice).
-    const cardPayments = createdExpenses.filter((e) => e.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' && e.cardLast4);
-    let invoiceLiquidations = 0;
-    let notRevertibleInvoiceLiquidations = 0;
-    for (const p of cardPayments) {
-      const c = await this.prisma.creditCard.findFirst({
-        where: { tenantId, last4: p.cardLast4 as string, deletedAt: null },
-        select: { closingDay: true, dueDay: true },
-      });
-      if (c && c.closingDay != null && c.dueDay != null) invoiceLiquidations++;
-      else notRevertibleInvoiceLiquidations++;
-    }
+    // #569 (fail-closed): basta um pagamento de fatura LIGADO A ESTE IMPORT para
+    // o undo em lote ficar bloqueado. A varredura ignora `createdAt` (cobre
+    // despesa ADOTADA na dedup, criada antes do import) e inclui soft-deletadas
+    // (cobre pagamento já removido por outro fluxo). Nada de lookup de
+    // cartão/fatura/projeto.
+    const cardInvoicePayments = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        importId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        deletedAt: INCLUDE_SOFT_DELETED,
+      },
+      select: { id: true },
+    });
+    const hasCardInvoicePayment = cardInvoicePayments.length > 0;
 
     // Recorrências propagadas (RecurringBill) — efeito IRREVERSÍVEL (upsert sem
     // snapshot). Contadas por best-effort re-rodando detectRecurrence.
@@ -1154,6 +1157,11 @@ export class BankAccountService {
       createdAt: importRecord.createdAt,
       alreadyUndone: importRecord.deletedAt != null,
       totalAmountCents: createdExpenses.reduce((s, e) => s + e.valorTotal, 0),
+      // #569: lote com pagamento de fatura não pode ser desfeito como lote.
+      canUndo: importRecord.deletedAt != null ? true : !hasCardInvoicePayment,
+      blocking: {
+        cardInvoicePayments: cardInvoicePayments.length,
+      },
       impact: {
         expenses: createdExpenses.length,
         receipts: createdReceipts.length,
@@ -1161,11 +1169,11 @@ export class BankAccountService {
         crossProjectSettlements: settlements,
         rateioAllocations: rateios,
         crossProjectLinks: settlements + rateios + createdReceipts.filter((r) => r.linkedReceiptId != null).length,
-        invoiceLiquidations,
+        invoiceLiquidations: cardInvoicePayments.length,
       },
       irreversible: {
         recurrencesPropagated,
-        notRevertibleInvoiceLiquidations,
+        notRevertibleInvoiceLiquidations: cardInvoicePayments.length,
       },
       expenses: createdExpenses.map((e) => ({
         id: e.id, titulo: e.titulo, valorTotal: e.valorTotal, status: e.status,
@@ -1204,9 +1212,17 @@ export class BankAccountService {
       new NotFoundException(IMPORT_NOT_FOUND_MESSAGE),
     );
     await this.findAccount(tenantId, projectId, accountId);
-    const importRecord = await this.prisma.bankStatementImport.findFirst({
+    let importRecord = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, tenantId, accountId },
     });
+    // Idempotência: um segundo `undoImport` do MESMO lote não pode estourar
+    // 404 — o registro só está soft-deletado (o `$use` filtra `deletedAt: null`
+    // por padrão, por isso a 2ª busca é explícita).
+    if (!importRecord) {
+      importRecord = await this.prisma.bankStatementImport.findFirst({
+        where: { id: importId, tenantId, accountId, deletedAt: { not: null } },
+      });
+    }
     if (!importRecord) throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
     if (importRecord.deletedAt) {
       return {
@@ -1216,14 +1232,25 @@ export class BankAccountService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // TOCTOU (blocker 7): releitura de conta + import DENTRO da transação —
+      // o preflight externo não basta.
+      const accountTx = await tx.bankAccount.findFirst({
+        where: { id: accountId, tenantId, projectId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!accountTx) throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
+      const importTx = await tx.bankStatementImport.findFirst({
+        where: { id: importId, tenantId, accountId },
+      });
+      if (!importTx || importTx.deletedAt) {
+        throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
+      }
+
       const created = await tx.expense.findMany({
         where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
         select: {
           id: true,
           tipoDespesa: true,
-          cardLast4: true,
-          dataPagamento: true,
-          createdAt: true,
         },
       });
       const receipts = await tx.receipt.findMany({
@@ -1237,63 +1264,32 @@ export class BankAccountService {
       const createdIds = created.map((e) => e.id);
       const receiptIds = receipts.map((r) => r.id);
       const now = new Date();
-      const preparedInvoiceReversals: PreparedInvoiceUnsettlement[] = [];
-      let notRevertedInvoiceLiquidations = 0;
-      const seen = new Set<string>();
 
-      for (const payment of created) {
-        if (
-          payment.tipoDespesa !== 'PAGAMENTO_FATURA_CARTAO' ||
-          !payment.cardLast4
-        ) {
-          continue;
-        }
-        const cards = await tx.creditCard.findMany({
-          where: {
-            tenantId,
-            last4: payment.cardLast4,
-            deletedAt: null,
-          },
-          select: {
-            id: true,
-            last4: true,
-            closingDay: true,
-            dueDay: true,
-          },
-          take: 2,
-        });
-        if (cards.length !== 1) {
-          throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
-        }
-        const card = cards[0];
-        if (card.closingDay == null || card.dueDay == null) {
-          await this.cardSettlement.assertCanAccessCard({
-            tenantId,
-            card,
-            tx,
-            requester,
-            notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
-            requiredModule: CREDIT_CARD_MODULE,
-          });
-          notRevertedInvoiceLiquidations++;
-          continue;
-        }
-        const dueMonth = this.yearMonthUtc(payment.dataPagamento ?? payment.createdAt);
-        const key = `${card.id}__${dueMonth}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        preparedInvoiceReversals.push(
-          await this.cardSettlement.prepareUnsettleInvoice({
-            tenantId,
-            card,
-            dueMonth,
-            tx,
-            requester,
-            notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
-            requiredModule: CREDIT_CARD_MODULE,
-          }),
+      // ── #569 (hotfix fail-closed): um lote com QUALQUER `PAGAMENTO_FATURA_CARTAO`
+      //    ligado ao import não pode ser desfeito automaticamente. Barrado AQUI,
+      //    ANTES da primeira escrita: nenhuma despesa, recebimento, caixa, vínculo
+      //    ou import é tocado. A varredura ignora `createdAt` (despesa adotada na
+      //    dedup) e inclui soft-deletadas (pagamento já removido por outro fluxo).
+      const cardInvoicePayments = await tx.expense.findMany({
+        where: {
+          tenantId,
+          importId,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          deletedAt: INCLUDE_SOFT_DELETED,
+        },
+        select: { id: true },
+      });
+      if (cardInvoicePayments.length > 0) {
+        throw new ConflictException(
+          'Esta importação contém pagamento de fatura de cartão. Lotes com ' +
+            'pagamento de fatura permanecem intactos por segurança e não podem ' +
+            'ser desfeitos automaticamente.',
         );
       }
+      // Sempre 0 daqui pra frente (o guard acima já barrou o único caso) —
+      // mantido no retorno só para estabilidade do contrato da resposta.
+      const notRevertedInvoiceLiquidations = 0;
+      const revertedInvoiceParcelas = 0;
 
       await this.conciliacao.assertCanReverseSources(
         tx,
@@ -1342,18 +1338,9 @@ export class BankAccountService {
         if (res.mode !== 'none') revertedSettlements += res.targets.length;
       }
 
-      // 3) Reverte a liquidação automática de faturas (compras do cartão de OUTRO
-      //    lote voltam a PLANEJADO). Cartões sem fechamento/vencimento ficam de
-      //    fora (fallback não revertível por vencimento) — já contados acima.
-      let revertedInvoiceParcelas = 0;
-      for (const prepared of preparedInvoiceReversals) {
-        const r = await this.cardSettlement.applyPreparedUnsettlement(
-          tx,
-          prepared,
-          requester,
-        );
-        revertedInvoiceParcelas += r.revertedParcelas;
-      }
+      // 3) Liquidação automática de fatura: nunca há o que reverter aqui — o
+      //    guard fail-closed (#569) já barrou qualquer lote com pagamento de
+      //    fatura antes da primeira escrita.
 
       // 4) Despesas apenas ADOTADAS na dedup (se houver): remove o carimbo.
       for (const a of adopted) {

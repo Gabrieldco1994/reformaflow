@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hasFeature, type ProjectType } from "@reformaflow/domain";
-import { Landmark, Plus } from "lucide-react";
+import { Landmark, Plus, History } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { api } from "@/lib/api";
+import ImportHistoryModal from "../../_components/ImportHistoryModal";
 import BankAccountFormModal from "../../bank-accounts/_components/BankAccountFormModal";
 import type { BankAccountRow } from "../../bank-accounts/_types";
 
@@ -51,6 +52,7 @@ export default function BankAccountsSection({
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccountRow | null>(null);
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [historyFor, setHistoryFor] = useState<BankAccountRow | null>(null);
   const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
   const handledFocus = useRef<string | null>(null);
 
@@ -247,15 +249,27 @@ export default function BankAccountsSection({
                       {accountIdentity(account)}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => openEdit(account)}
-                    aria-label={`Editar ${accountName(account)}, final ${account.last4}`}
-                    className="min-h-11 rounded-lg border border-lifeone-hairline px-3 text-xs font-semibold text-lifeone-blue transition-colors hover:bg-lifeone-surface"
-                    data-bank-account-action
-                  >
-                    Editar conta e saldo inicial
-                  </button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryFor(account)}
+                      aria-label={`Importações de ${accountName(account)}, final ${account.last4}`}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-lifeone-hairline px-3 text-xs font-semibold text-lifeone-ink-2 transition-colors hover:bg-lifeone-surface"
+                      data-bank-account-action
+                    >
+                      <History className="h-4 w-4" />
+                      Histórico
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openEdit(account)}
+                      aria-label={`Editar ${accountName(account)}, final ${account.last4}`}
+                      className="inline-flex min-h-11 items-center rounded-lg border border-lifeone-hairline px-3 text-xs font-semibold text-lifeone-blue transition-colors hover:bg-lifeone-surface"
+                      data-bank-account-action
+                    >
+                      Editar
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -270,6 +284,20 @@ export default function BankAccountsSection({
           onClose={closeForm}
           onSaved={() => {
             closeForm();
+            void queryClient.invalidateQueries({
+              queryKey: ["bank-accounts", projectId],
+            });
+            onChanged();
+          }}
+        />
+      )}
+
+      {historyFor && (
+        <ImportHistoryModal
+          basePath={`/projects/${projectId}/bank-accounts/${historyFor.id}`}
+          title={`Importações · ${accountName(historyFor)}`}
+          onClose={() => setHistoryFor(null)}
+          onUndone={() => {
             void queryClient.invalidateQueries({
               queryKey: ["bank-accounts", projectId],
             });

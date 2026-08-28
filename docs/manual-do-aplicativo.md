@@ -892,6 +892,20 @@ visões de Mês/Ano.
   agência e número), sem criar um segundo saldo calculado.
 - **Editar conta e saldo inicial** abre o formulário existente de identidade e
   reconciliação; **Nova conta** usa o mesmo formulário.
+- **Importações** abre, para cada conta, o histórico de extratos já importados
+  nela, com o impacto de cada um e a opção de **desfazer** — o mesmo histórico
+  antes disponível apenas na tela `/bank-accounts`. Desfazer uma importação
+  atualiza na hora os saldos da Visão Conta e do Cockpit.
+  - Importações **sem pagamento de fatura de cartão** são revertidas
+    normalmente: despesas, recebimentos e entradas de caixa do lote são
+    removidos e os vínculos cross-project são desfeitos.
+  - Importações que **contêm um pagamento de fatura de cartão** não podem ser
+    desfeitas automaticamente: o preview mostra "**Não é possível desfazer
+    automaticamente**", a ação "Desfazer importação" fica visível mas
+    desabilitada, e o lote inteiro permanece intacto — nada é removido nem
+    alterado. Não há desfazer manual para esse pagamento.
+  - Recorrências já propagadas (Casa/Carro) continuam sendo um efeito não
+    revertido pelo desfazer.
 - Quando há mais de uma conta, o deep-link sem uma conta específica pede uma
   escolha explícita. Um `accountId` inválido mostra erro em vez de editar outra.
 - **Deep-link do cockpit:** o banner de estado degradado leva a

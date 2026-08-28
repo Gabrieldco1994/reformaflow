@@ -1003,6 +1003,7 @@ export class MonthlyOverviewService {
         payMonth: monthKeyOf(accountExpenseDate(expense)),
         cardLast4: expense.cardLast4 as string,
         amount: expense.valorTotal,
+        importId: expense.importId ?? null,
       }));
     const implicitPayments = implicitPaymentsDetailed.map((payment) => ({
       payMonth: payment.payMonth,
@@ -1026,10 +1027,29 @@ export class MonthlyOverviewService {
       residualByInvoice,
     );
     const paidInvoiceKeys = settlementTotals.paidInvoiceKeys;
-    const implicitPaymentByInvoice = matchPaidInvoiceExpenseIds(
+    // #569: o verbo `undo` do cockpit ESPELHA `undoInvoicePayment` — um único
+    // `assignImplicitPayments` sobre TODOS os pagamentos (manuais + importados),
+    // agrupado por fatura. Só expõe `id`/ação quando o grupo tem exatamente 1
+    // assignment E esse pagamento é manual (`importId == null`). Qualquer
+    // pagamento importado casado, ou 2+ assignments na mesma fatura ⇒ sem CTA.
+    const assignmentsByInvoice = new Map<
+      string,
+      Array<{ expenseId: string; importId: string | null }>
+    >();
+    for (const { payment, invoiceKey } of assignImplicitPayments(
       settlementInvoices,
       implicitPaymentsDetailed,
-    );
+    )) {
+      const list = assignmentsByInvoice.get(invoiceKey) ?? [];
+      list.push({ expenseId: payment.expenseId, importId: payment.importId });
+      assignmentsByInvoice.set(invoiceKey, list);
+    }
+    const implicitPaymentByInvoice = new Map<string, string>();
+    for (const [invoiceKey, group] of assignmentsByInvoice) {
+      if (group.length === 1 && group[0].importId == null) {
+        implicitPaymentByInvoice.set(invoiceKey, group[0].expenseId);
+      }
+    }
 
     for (const [invoiceKey, invoice] of invoiceByMonthCard) {
       const paidAmount = settlementTotals.paidAmountByInvoice.get(invoiceKey) ?? 0;
@@ -3474,6 +3494,7 @@ export class MonthlyOverviewService {
         valorTotal: true,
         dataPagamento: true,
         createdAt: true,
+        importId: true,
       },
     });
 
@@ -3491,6 +3512,17 @@ export class MonthlyOverviewService {
     );
 
     if (assignments.length === 0) {
+      throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
+    }
+    // #569: o desfazer do cockpit só alcança pagamento MANUAL. Se QUALQUER
+    // pagamento casado com a fatura veio de importação (`importId != null`), a
+    // ação não existe aqui — só `BankAccountService.undoImport` o remove — e a
+    // chamada direta falha sem escrita.
+    const importedMatched = assignments.some((assignment) => {
+      const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
+      return candidate?.importId != null;
+    });
+    if (importedMatched) {
       throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
     }
     if (assignments.length > 1) {
@@ -3539,6 +3571,7 @@ export class MonthlyOverviewService {
           tenantId,
           projectId,
           tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          importId: null,
           deletedAt: null,
         },
         data: { deletedAt: new Date() },
@@ -3682,9 +3715,6 @@ export interface PaymentForMatch {
   cardLast4: string;
   amount: number;
 }
-interface PaymentForMatchWithExpenseId extends PaymentForMatch {
-  expenseId: string;
-}
 
 type InvoiceAdjustmentReasonValue =
   | 'JUROS_ROTATIVO'
@@ -3787,29 +3817,6 @@ export function matchPaidInvoices(
   return computeInvoiceSettlementTotals(invoices, payments, []).paidInvoiceKeys;
 }
 
-function matchPaidInvoiceExpenseIds(
-  invoices: InvoiceForMatch[],
-  payments: PaymentForMatchWithExpenseId[],
-): Map<string, string> {
-  const matched = new Map<string, string>();
-  const paidAmountByInvoice = computeInvoiceSettlementTotals(invoices, payments, []).paidAmountByInvoice;
-  const singleByInvoice = new Map<string, string>();
-  const countByInvoice = new Map<string, number>();
-  const assignments = assignImplicitPayments(invoices, payments);
-  for (const { payment, invoiceKey } of assignments) {
-    const key = invoiceKey;
-    const amount = paidAmountByInvoice.get(key) ?? 0;
-    if (amount <= 0) continue;
-    countByInvoice.set(key, (countByInvoice.get(key) ?? 0) + 1);
-    if (!singleByInvoice.has(key)) {
-      singleByInvoice.set(key, payment.expenseId);
-    }
-  }
-  for (const [key, expenseId] of singleByInvoice) {
-    if ((countByInvoice.get(key) ?? 0) === 1) matched.set(key, expenseId);
-  }
-  return matched;
-}
 
 interface InvoiceSettlementTotals {
   paidInvoiceKeys: Set<string>;

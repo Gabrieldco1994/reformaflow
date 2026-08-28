@@ -176,7 +176,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={commitResult ? onCommitted : onClose}
       title={`Importar extrato — ${account.nickname ?? `${account.institution} ****${account.last4}`}`}
       size="xl"
       variant="center"
@@ -405,7 +405,7 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
         {!!result.skipped && <p><strong>{result.skipped}</strong> ignoradas pelo usuário</p>}
         <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>
       </div>
-      <Button onClick={onClose} className="mt-6">Fechar</Button>
+      <Button onClick={onClose} className="mt-6 min-h-11">Concluir</Button>
     </div>
   );
 }

@@ -666,3 +666,56 @@ B1a cobriu três unidades de mudança, mergeadas em `main` em 2026-08-19:
 | Encadeamento de `requester` em `BankAccountController.linkToExpense` | Fecha o gap identificado na unidade anterior |
 
 **Compatibilidade retrospectiva:** todos os 1318 testes existentes passam sem edição.
+
+---
+
+## §16 Undo de importação de extrato com pagamento de fatura — fail-closed (#569, ago/2026)
+
+Quando a importação de um **extrato bancário** cria um `PAGAMENTO_FATURA_CARTAO`,
+a liquidação automática (`CardInvoiceSettlementService`) pode marcar compras do
+cartão como pagas. Reverter esse lote com exatidão (sem tocar faturas quitadas
+por outros pagamentos) exigiria um ledger dedicado; a decisão do PO para este
+hotfix é **fail-closed**: o lote inteiro fica **não reversível** enquanto o undo
+exato não existir. A reversão exata continua rastreada no
+[issue #569](https://github.com/Gabrieldco1994/reformaflow/issues/569).
+
+### §16.1 `getImportDetail`
+
+- `cardInvoicePayments` = **toda** `Expense` tenant-scoped ligada ao `importId`
+  com `tipoDespesa = 'PAGAMENTO_FATURA_CARTAO'` — **sem filtro de `createdAt`**
+  (cobre despesa adotada na dedup) e **incluindo soft-deletadas**
+  (`INCLUDE_SOFT_DELETED`, cobre pagamento já removido por outro fluxo). Sem
+  lookup de cartão, fatura ou projeto externo, sem reconstrução de `dueMonth`.
+- `canUndo = false` quando há ≥1 (e o lote não foi desfeito ainda); o campo
+  `blocking.cardInvoicePayments` reporta a quantidade, e
+  `impact.invoiceLiquidations` / `irreversible.notRevertibleInvoiceLiquidations`
+  espelham o mesmo número.
+- Importação **sem** pagamento de fatura → `canUndo = true`, contrato inalterado.
+
+### §16.2 `undoImport`
+
+Dentro da transação, releitura de conta, projeto, import e despesas do lote.
+**Antes da primeira escrita**, a mesma varredura (`importId` +
+`PAGAMENTO_FATURA_CARTAO` + `INCLUDE_SOFT_DELETED`, sem `createdAt`): se há ≥1 ⇒
+`ConflictException` (**409**) com mensagem clara, sem ids nem valores — nenhuma
+despesa, recebimento, caixa, vínculo ou import é alterado. **Nada é revertido
+automaticamente; o lote permanece intacto.** Cobre lote antigo e novo pela mesma
+regra (não existe mais "legado" vs "ledger"). Importações sem pagamento de fatura
+seguem pelo undo normal (vínculos cross-project + soft-delete do lote).
+
+### §16.3 UI do detalhe bloqueado
+
+Em `ImportHistoryModal`, `canUndo === false` renderiza o aviso "Não é possível
+desfazer automaticamente" e mantém a ação **"Desfazer importação" visível, mas
+`disabled` + `aria-disabled` e ≥44px** — o usuário vê que a ação existe e por que
+não pode usá-la. Nenhuma promessa de "fatura reaberta". O histórico por conta na
+Visão Conta e o refresh após X/Concluir seguem inalterados.
+
+### §16.4 Desfazer manual não alcança pagamento importado
+
+`monthly-overview.undoInvoicePayment` (cockpit) só aceita pagamento **manual**.
+Se **qualquer** pagamento casado com a fatura tem `importId != null`, a ação
+`undo` não aparece em `cartoes[]`/`saidas[]` e a chamada direta responde **404**
+sem escrita — inclui o caso de um pagamento manual **e** um importado casados na
+mesma fatura. O pagamento importado **continua contando** no status da fatura;
+só `BankAccountService.undoImport` o removeria — e agora ele também é fail-closed.

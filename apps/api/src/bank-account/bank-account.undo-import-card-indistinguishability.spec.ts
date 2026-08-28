@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require("../../../../scripts/test-db-env.cjs");
 
-import { HttpException, NotFoundException } from "@nestjs/common";
+import { ConflictException, HttpException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { BankAccountService } from "./bank-account.service";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
@@ -301,7 +301,12 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
     ["same-last4 cross-tenant", "cross-tenant"],
     ["same-last4 hidden", "hidden"],
   ] as const)(
-    "%s retorna o mesmo 404 e preserva snapshot integral",
+    // #569 (hotfix fail-closed): o undo não consulta mais cartão por `last4`.
+    // Basta o lote conter um `PAGAMENTO_FATURA_CARTAO` para o undo em lote ser
+    // barrado com 409, ANTES de qualquer escrita — o estado do cartão
+    // (ausente/ambíguo/cross-tenant/oculto) é literalmente inobservável, e o
+    // snapshot fica integralmente idêntico nos quatro cenários.
+    "%s retorna o mesmo 409 fail-closed e preserva snapshot integral",
     async (_label, scenario) => {
       await createCardScenario(scenario);
       const importId = await createImportedPayment(scenario);
@@ -315,19 +320,21 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
       }
       const after = await snapshot();
 
-      expect({ rejection: rejectionShape(error), state: after }).toEqual({
-        rejection: {
-          name: NotFoundException.name,
-          status: 404,
-          message: "Importação não encontrada",
-          body: {
-            message: "Importação não encontrada",
-            error: "Not Found",
-            statusCode: 404,
-          },
+      const expectedMessage =
+        "Esta importação contém pagamento de fatura de cartão. Lotes com " +
+        "pagamento de fatura permanecem intactos por segurança e não podem " +
+        "ser desfeitos automaticamente.";
+      expect(rejectionShape(error)).toEqual({
+        name: ConflictException.name,
+        status: 409,
+        message: expectedMessage,
+        body: {
+          message: expectedMessage,
+          error: "Conflict",
+          statusCode: 409,
         },
-        state: before,
       });
+      expect(after).toEqual(before);
     },
   );
 });

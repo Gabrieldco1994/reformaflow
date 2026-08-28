@@ -37,6 +37,16 @@ interface ImportDetail {
     recurrencesPropagated: number;
     notRevertibleInvoiceLiquidations: number;
   };
+  /**
+   * #569 (hotfix fail-closed): `false` quando o lote contém um pagamento de
+   * fatura de cartão — não pode ser desfeito automaticamente sem risco de
+   * alterar outros pagamentos. Ausente no contrato antigo → tratado como
+   * permitido.
+   */
+  canUndo?: boolean;
+  blocking?: {
+    cardInvoicePayments: number;
+  };
 }
 
 interface Props {
@@ -113,7 +123,11 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
   }
 
   const irrev = detail?.irreversible;
-  const hasIrreversible = !!irrev && (irrev.recurrencesPropagated > 0 || irrev.notRevertibleInvoiceLiquidations > 0);
+  const hasIrreversible = !!irrev && irrev.recurrencesPropagated > 0;
+  // #569 (hotfix fail-closed): `canUndo === false` = o lote contém pagamento de
+  // fatura de cartão. Diferente do legado irreversível (que só avisa) — aqui o
+  // desfazer fica BLOQUEADO. `undefined` (contrato antigo) = permitido.
+  const undoBlocked = detail?.canUndo === false && !detail?.alreadyUndone;
 
   return (
     <Modal open onClose={onClose} title={title} size="lg">
@@ -122,7 +136,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
         <div className="space-y-4">
           <button
             onClick={() => setDetail(null)}
-            className="text-sm text-gray-500 hover:text-gray-800"
+            className="inline-flex min-h-11 items-center text-sm text-gray-500 hover:text-gray-800"
           >
             ← Voltar ao histórico
           </button>
@@ -146,6 +160,40 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
             <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
               Esta importação já foi desfeita.
             </div>
+          ) : undoBlocked ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle className="h-4 w-4" /> Não é possível desfazer automaticamente
+                </div>
+                <p className="mt-1">
+                  Esta importação contém pagamento de fatura e não pode ser desfeita
+                  automaticamente sem risco de alterar outros pagamentos.
+                </p>
+              </div>
+              {error && (
+                <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  onClick={() => setDetail(null)}
+                  className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+                >
+                  Voltar ao histórico
+                </button>
+                {/* Ação visível mas inerte — o usuário vê que existe e por que não pode usá-la. */}
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  title="Esta importação contém pagamento de fatura e não pode ser desfeita."
+                  className="flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white opacity-50 cursor-not-allowed"
+                >
+                  <Undo2 className="h-4 w-4" />
+                  Desfazer importação
+                </button>
+              </div>
+            </div>
           ) : (
             <>
               <p className="text-sm text-gray-600">Ao desfazer, serão revertidos:</p>
@@ -156,9 +204,6 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                 )}
                 <ImpactLine label="Lançamentos de caixa removidos" value={detail.impact.cashFlowEntries} />
                 <ImpactLine label="Vínculos entre projetos desfeitos" value={detail.impact.crossProjectLinks} />
-                {detail.impact.invoiceLiquidations != null && detail.impact.invoiceLiquidations > 0 && (
-                  <ImpactLine label="Faturas de cartão reabertas (voltam a planejado)" value={detail.impact.invoiceLiquidations} />
-                )}
                 {detail.impact.adoptedExpenses != null && detail.impact.adoptedExpenses > 0 && (
                   <ImpactLine label="Parcelas de série (carimbo removido, não apagadas)" value={detail.impact.adoptedExpenses} />
                 )}
@@ -176,12 +221,6 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                         continuam com os valores atualizados (não há histórico para restaurar).
                       </li>
                     )}
-                    {!!irrev && irrev.notRevertibleInvoiceLiquidations > 0 && (
-                      <li>
-                        {irrev.notRevertibleInvoiceLiquidations} liquidação(ões) de fatura em cartão
-                        sem dia de fechamento/vencimento — reabra manualmente se necessário.
-                      </li>
-                    )}
                   </ul>
                 </div>
               )}
@@ -193,7 +232,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   onClick={() => setDetail(null)}
-                  className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+                  className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
                   disabled={undoing}
                 >
                   Cancelar
@@ -201,7 +240,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                 <button
                   onClick={confirmUndo}
                   disabled={undoing}
-                  className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                  className="flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
                 >
                   <Undo2 className="h-4 w-4" />
                   {undoing ? 'Desfazendo…' : 'Desfazer importação'}
@@ -215,7 +254,8 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
             Desfaça uma importação para remover todos os lançamentos que ela criou. Vínculos entre
-            projetos e faturas liquidadas são revertidos automaticamente.
+            projetos são revertidos automaticamente. Lotes com pagamento de fatura permanecem
+            intactos por segurança.
           </p>
 
           {loading ? (
@@ -245,7 +285,10 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                     <button
                       onClick={() => void openDetail(row)}
                       disabled={detailLoading}
-                      className="flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
+                      aria-label={`Desfazer importação ${row.periodLabel}${
+                        row.fileName ? ` · ${row.fileName}` : ''
+                      } · ${fmtDate(row.createdAt)}`}
+                      className="flex min-h-11 items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
                     >
                       <RotateCcw className="h-4 w-4" /> Desfazer
                     </button>

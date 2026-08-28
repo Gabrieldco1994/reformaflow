@@ -75,6 +75,30 @@ describe('ImportHistoryModal', () => {
     await waitFor(() => expect(apiDelete).toHaveBeenCalledWith(`${BASE}/imports/imp1`));
   });
 
+  it('#569: canUndo=false bloqueia o desfazer, explica o motivo e não promete reabrir fatura', async () => {
+    apiGet.mockResolvedValueOnce(IMPORTS);
+    apiGet.mockResolvedValueOnce({
+      ...DETAIL,
+      canUndo: false,
+      blocking: { cardInvoicePayments: 1 },
+    });
+
+    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
+
+    expect(
+      await screen.findByText(/contém pagamento de fatura e não pode ser desfeita/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/fatura reaberta/i)).not.toBeInTheDocument();
+
+    // A ação continua VISÍVEL, mas inerte: disabled + aria-disabled.
+    const undoBtn = screen.getByRole('button', { name: 'Desfazer importação' });
+    expect(undoBtn).toBeDisabled();
+    expect(undoBtn).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(undoBtn);
+    expect(apiDelete).not.toHaveBeenCalled();
+  });
+
   it('mostra aviso de efeitos irreversíveis quando houver', async () => {
     apiGet.mockResolvedValueOnce(IMPORTS);
     apiGet.mockResolvedValueOnce({
