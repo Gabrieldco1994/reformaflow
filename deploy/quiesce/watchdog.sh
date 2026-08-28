@@ -110,12 +110,17 @@ supervise(){
     log "supervisor: could not acquire lock in ${LOCK_WAIT}s - not launching chain"
     return 4
   fi
-  log "supervisor: lock held; launching known group via setsid+timeout(-k $KILL_AFTER -s TERM $OP_TIMEOUT)"
+  log "supervisor: lock held; launching known group via setsid+timeout(--foreground -k $KILL_AFTER -s TERM $OP_TIMEOUT)"
   raw="$Q/op.pgid.raw"; rm -f "$raw"
   # setsid makes the exec'd sh a session (=> process-group) leader, so its $$ IS
   # the pgid. Capture it from inside, independent of whether setsid forked.
   rm -f "$Q/op.rc"
-  setsid sh -c 'echo $$ > "$0"; timeout -k "$1" -s TERM "$2" sh -c "$3"; r=$?; echo "$r" > "$4"; exit "$r"' \
+  # `timeout --foreground` does NOT put the command in its own process group, so
+  # the whole chain (timeout, the shell, every descendant AND any reparented
+  # orphan) stays in the ONE setsid group we created and recorded. Our own
+  # known-group teardown below is then authoritative; we do not rely on
+  # `timeout` to reap descendants.
+  setsid sh -c 'echo $$ > "$0"; timeout --foreground -k "$1" -s TERM "$2" sh -c "$3"; r=$?; echo "$r" > "$4"; exit "$r"' \
     "$raw" "$KILL_AFTER" "$OP_TIMEOUT" "$chain" "$Q/op.rc" >> "$Q/op.log" 2>&1 &
   bgpid=$!
   i=0; while [ ! -s "$raw" ] && [ "$i" -lt 50 ]; do sleep 0.2; i=$((i+1)); done
