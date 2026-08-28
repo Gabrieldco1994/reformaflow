@@ -71,22 +71,24 @@ confirme o nome explicitamente. Banco fresco não cobre upgrade: exija fixture l
 equivalente ou backup sanitizado, restore testado e inventário antes/depois.
 
 Em recuperação de migration falha, verifique a sequência: backup restaurável; API quiescida sem
-writers; extração de `scripts/normalize-external-id-duplicates.mjs` do HEAD exato do PR testado;
-checksum local; envio apenas desse arquivo para `/app/normalize-external-id-duplicates.mjs` na única
-machine em manutenção com a sintaxe confirmada
-`flyctl ssh sftp put <local> <remote> -a reformaflow-api --machine <id> --mode 0500`; checksum remoto
-idêntico; e `DATABASE_URL` explícita ao rodar
-`node /app/normalize-external-id-duplicates.mjs`. Não copie o repositório nem instale dependências:
-`createRequire` resolve o `@prisma/client` existente em `/app/node_modules`.
+writers pelo fail-safe nativo (`deploy/quiesce/`); extração de **três** arquivos do HEAD exato do PR
+testado — `deploy/quiesce/watchdog.sh`, `deploy/quiesce/op-wrap.sh` e
+`scripts/normalize-external-id-duplicates.mjs` —, checksum SHA-256 local↔remoto de cada um
+(`flyctl ssh sftp put <local> /app/<nome> -a reformaflow-api --machine <id> --mode 0500`), e só com os
+três idênticos armar a machine com `init.cmd = ["sh","/app/watchdog.sh"]`. Não copie o repositório nem
+instale dependências: `createRequire` resolve o `@prisma/client` existente em `/app/node_modules`.
 
-O dry-run usa `--dry-run --manifest <manifest-privado>`; `--apply` reutiliza o mesmo `--manifest`, o
-`--hash` completo emitido e os mesmos `--expected-groups`/`--expected-updates`. O manifest fica em
-`/tmp/recovery-manifest-private-$RECOVERY_RUN.json`, com um `RECOVERY_RUN` UTC novo para cada tentativa,
-compatível com criação `O_EXCL`; ele nasce `0600` e deve ser baixado e guardado privadamente. A
-quiescência começa antes do dry-run final e permanece por normalize → `prisma migrate resolve` →
-`prisma migrate deploy`; qualquer write invalida o manifest e exige reinício no dry-run. Depois de
-preservar a evidência e a cópia local `0600`, confirme que o encerramento removeu da machine, sem
-wildcard, os caminhos exatos do script e do manifest; nenhum deles deve permanecer no rootfs ou volume.
+**Todo acesso à machine passa pelo `op-wrap`** (`sh /app/op-wrap.sh {dryrun|apply|disarm|status}`) —
+nunca `node /app/normalize-external-id-duplicates.mjs` direto, nunca `sqlite3`/`prisma studio` manual.
+`op-wrap dryrun` escolhe o caminho do manifest sob `$QUIESCE_DIR` (default `/data/quiesce`) e a cadeia
+supervisionada publica `$QUIESCE_DIR/manifest.current` **apenas se o normalizer sair com 0**
+(fail-closed). `op-wrap apply <hash> <expected-groups> <expected-updates>` reutiliza esse mesmo
+manifest e roda `--apply && prisma migrate resolve --rolled-back && prisma migrate deploy` numa cadeia
+única. Todo download/limpeza lê o caminho de `$QUIESCE_DIR/manifest.current` — não há protocolo de
+manifest em `/tmp`. A quiescência começa antes do dry-run final e permanece até `migrate deploy`;
+qualquer write invalida o manifest e exige reinício no dry-run. Depois de preservar a evidência e a
+cópia local `0600`, confirme que o encerramento removeu da machine, sem wildcard, os três scripts, o
+manifest e `$QUIESCE_DIR`.
 
 O manifest é **CONFIDENCIAL**, arquivo regular `0600`, e contém IDs e chaves de escopo. Nunca o anexe
 ou publique. O hash completo emitido pelo script também fica na operação privada; evidência pública

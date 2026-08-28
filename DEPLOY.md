@@ -118,46 +118,58 @@ completo.
 
    Se houver qualquer write fora do `op-wrap` ou perda de quiescência, descarte a aprovação e reinicie
    pelo dry-run. Detalhes e invariantes: `deploy/quiesce/README.md`.
-4. **Transferir somente o script testado:** a imagem runtime não contém `scripts/`. Defina localmente
-   os placeholders abaixo, usando o HEAD exato do PR que passou nos testes e o ID da única machine já
-   quiescida:
+4. **Transferir e conferir os TRÊS scripts testados ANTES de mexer no init da machine:** a imagem
+   runtime não contém `scripts/` nem `deploy/`. Envie e valide o checksum SHA-256 de `watchdog.sh`,
+   `op-wrap.sh` **e** do normalizer — todos extraídos do HEAD exato do PR que passou nos testes —, e só
+   com os três checksums idênticos arme a machine.
 
    ```bash
    PR_HEAD_TESTADO="<sha-completo-testado>"
    MACHINE_ID="<id-da-unica-machine>"
-   RECOVERY_RUN="$(date -u +%Y%m%dT%H%M%SZ)"
    PRIVATE_DIR="<diretorio-privado>"
-   LOCAL_SCRIPT="/tmp/normalize-external-id-duplicates.mjs"
-   REMOTE_SCRIPT="/app/normalize-external-id-duplicates.mjs"
    QUIESCE_DIR="/data/quiesce"
-   LOCAL_MANIFEST="$PRIVATE_DIR/recovery-manifest-private-$RECOVERY_RUN.json"
-
-   git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > "$LOCAL_SCRIPT"
-   chmod 0500 "$LOCAL_SCRIPT"
-   LOCAL_SHA="$(shasum -a 256 "$LOCAL_SCRIPT" | awk '{print $1}')"
    install -d -m 0700 "$PRIVATE_DIR"
 
-   flyctl ssh sftp put "$LOCAL_SCRIPT" "$REMOTE_SCRIPT" \
-     -a reformaflow-api --machine "$MACHINE_ID" --mode 0500
-   REMOTE_SHA="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "sha256sum /app/normalize-external-id-duplicates.mjs" | awk '{print $1}')"
-   test "$LOCAL_SHA" = "$REMOTE_SHA"
+   git show "${PR_HEAD_TESTADO}:deploy/quiesce/watchdog.sh"                   > /tmp/watchdog.sh
+   git show "${PR_HEAD_TESTADO}:deploy/quiesce/op-wrap.sh"                    > /tmp/op-wrap.sh
+   git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > /tmp/normalize-external-id-duplicates.mjs
+   chmod 0500 /tmp/watchdog.sh /tmp/op-wrap.sh /tmp/normalize-external-id-duplicates.mjs
+
+   for f in watchdog.sh op-wrap.sh normalize-external-id-duplicates.mjs; do
+     LOCAL_SHA="$(shasum -a 256 "/tmp/$f" | awk '{print $1}')"
+     flyctl ssh sftp put "/tmp/$f" "/app/$f" \
+       -a reformaflow-api --machine "$MACHINE_ID" --mode 0500
+     REMOTE_SHA="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+       --command "sha256sum /app/$f" | awk '{print $1}')"
+     [ "$LOCAL_SHA" = "$REMOTE_SHA" ] || { echo "ABORT: checksum mismatch em $f ($LOCAL_SHA != $REMOTE_SHA)"; exit 1; }
+     echo "$f  $LOCAL_SHA  OK"
+   done
    ```
 
-   Registre os checksums completos apenas na operação privada. Não copie o repositório inteiro nem
-   instale dependências: `createRequire` resolve o `@prisma/client` já existente em
-   `/app/node_modules`.
-5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run **por `op-wrap dryrun`**. Ele gera o
-   caminho de manifest novo desta tentativa (dentro de `$QUIESCE_DIR`), o imprime na saída
-   (`manifest=<caminho>`) e o registra em `$QUIESCE_DIR/manifest.current`. Não rode `node
-   normalize-external-id-duplicates.mjs` à mão durante uma janela armada — o único toque no banco é via
-   `op-wrap`. Baixe **exatamente** esse manifest (o que o `op-wrap` emitiu / `manifest.current`), nunca
-   um caminho inventado em `/tmp`.
+   Só depois de `watchdog.sh`, `op-wrap.sh` e o normalizer conferirem, arme a machine trocando o
+   `init` para o watchdog:
 
    ```bash
+   flyctl machine update "$MACHINE_ID" --app reformaflow-api \
+     --machine-config '{"init":{"entrypoint":null,"cmd":["sh","/app/watchdog.sh"]}}' --yes
+   ```
+
+   `QUIESCE_DIR` default `/data/quiesce` no volume. Registre os checksums completos apenas na operação
+   privada. Não copie o repositório inteiro nem instale dependências: `createRequire` resolve o
+   `@prisma/client` já existente em `/app/node_modules`.
+5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run **por `op-wrap dryrun`**, o único
+   toque autorizado no banco. O `op-wrap` gera um caminho de manifest novo desta tentativa (dentro de
+   `$QUIESCE_DIR`), o imprime (`manifest=<caminho>`) e a **cadeia supervisionada** publica
+   `$QUIESCE_DIR/manifest.current` apontando para ele **somente se o normalizer sair com 0** (fail-
+   closed: normalizer que falha ou é morto não deixa `manifest.current` novo nem ponteiro parcial).
+   Nunca rode o normalizer à mão numa janela armada. Baixe **exatamente** o manifest apontado por
+   `$QUIESCE_DIR/manifest.current`, nunca um caminho inventado em `/tmp`.
+
+   ```bash
+   LOCAL_MANIFEST="$PRIVATE_DIR/manifest-local-$(date -u +%Y%m%dT%H%M%SZ).json"
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "sh /app/op-wrap.sh dryrun"
-   # aguarde o supervisor concluir (op-wrap status -> last rc), então:
+   # aguarde a cadeia concluir (sh /app/op-wrap.sh status -> last rc = 0), então:
    REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "cat $QUIESCE_DIR/manifest.current")"
    flyctl ssh sftp get "$REMOTE_MANIFEST" "$LOCAL_MANIFEST" \
@@ -195,18 +207,18 @@ completo.
    `flyctl machine update <machine-id> --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.
    O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
 11. **Encerrar:** preserve primeiro todas as evidências exigidas e confirme a cópia local `0600`. Só
-    então remova da machine os dois caminhos efêmeros exatos, sem wildcard:
+    então remova da machine os caminhos efêmeros exatos, sem wildcard — os três scripts, o manifest e
+    o diretório da janela:
 
     ```bash
     REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
       --command "cat $QUIESCE_DIR/manifest.current")"
     flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-      --command "rm -- '$REMOTE_SCRIPT' '$REMOTE_MANIFEST'"
+      --command "rm -- '/app/watchdog.sh' '/app/op-wrap.sh' '/app/normalize-external-id-duplicates.mjs' '$REMOTE_MANIFEST' && rm -rf -- '$QUIESCE_DIR'"
     ```
 
-    Remova também o `watchdog.sh`/`op-wrap.sh` enviados e o diretório `/data/quiesce` desta janela
-    (caminhos exatos, sem wildcard). Não deixe o script, o manifest confidencial nem os artefatos da
-    janela no rootfs ou no volume de dados depois da recuperação.
+    Nada disso — os três scripts, o manifest confidencial ou os artefatos da janela — pode permanecer
+    no rootfs ou no volume de dados depois da recuperação.
 
 Não adicione `[processes] app="/entrypoint.sh"` ao `fly.toml`: isso não remove o override por machine.
 O `http_service.processes = ["app"]` existente basta depois que SRE limpa `init.entrypoint` e

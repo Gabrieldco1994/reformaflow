@@ -46,25 +46,33 @@ file for unknown processes, no token, no `pkill`/`pgrep`, no `/proc` scan.
    op cannot be queued for the entire window. Every `mktemp`/write/`mv` failure
    propagates a non-zero exit with no success line. Two concurrent publications:
    exactly one wins.
-6. **Fresh window = fresh dir + fresh manifest.** Every recovery attempt uses a
-   new `QUIESCE_DIR` and every `op-wrap dryrun` hands out a new manifest path
-   (recorded in `$QUIESCE_DIR/manifest.current`, which `apply` and the runbook
-   reuse) so the normalizer's `O_EXCL` creation never collides.
+6. **Fresh window = fresh dir + fresh manifest, fail-closed.** Every recovery
+   attempt uses a new `QUIESCE_DIR` and every `op-wrap dryrun` picks a new
+   manifest path; the supervised chain publishes `$QUIESCE_DIR/manifest.current`
+   (atomically) **only after the normalizer exits 0** — a failed/killed
+   normalizer leaves the prior pointer untouched, never a partial/forward one.
+   `apply` and every download/cleanup read the path from `manifest.current`.
 
-## Arm
+## Arm (transfer + checksum all THREE scripts first)
 
 ```sh
+# extract from the tested PR HEAD, then local<->remote SHA-256 each:
+#   deploy/quiesce/watchdog.sh   -> /app/watchdog.sh
+#   deploy/quiesce/op-wrap.sh    -> /app/op-wrap.sh
+#   scripts/normalize-external-id-duplicates.mjs -> /app/normalize-external-id-duplicates.mjs
+# (flyctl ssh sftp put ... --mode 0500 ; compare sha256sum). See DEPLOY.md step 4.
+
+# only with all three checksums matching:
 flyctl machine update <machine-id> --app reformaflow-api \
-  --command "sh /app/deploy-quiesce-watchdog.sh" --yes
-# (ship watchdog.sh onto the machine the same vetted way as the recovery script;
-#  see DEPLOY.md. QUIESCE_DIR defaults to /data/quiesce on the volume.)
+  --machine-config '{"init":{"entrypoint":null,"cmd":["sh","/app/watchdog.sh"]}}' --yes
+# QUIESCE_DIR defaults to /data/quiesce on the volume.
 ```
 
 ## Operate (all through `op-wrap`, never a raw shell)
 
 ```sh
 op-wrap status
-op-wrap dryrun                         # queues the normalizer dry-run; prints + records the manifest path
+op-wrap dryrun                         # queues the normalizer dry-run; manifest.current set only on exit 0
 op-wrap apply <sha256> <groups> <updates>   # queues normalize --apply && migrate resolve && migrate deploy
 op-wrap disarm                         # after deploy: go Node-direct as soon as the lock is free
 ```

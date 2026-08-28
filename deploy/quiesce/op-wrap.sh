@@ -16,6 +16,7 @@ set -u
 umask 077
 
 Q="${QUIESCE_DIR:-/data/quiesce}"
+APP="${QUIESCE_APP_DIR:-/app}"
 DB="${QUIESCE_DB:-/data/dev.db}"
 MIG="${QUIESCE_MIGRATION:-20260826150000_external_id_unique_scope_tenant_project}"
 NORMALIZER="${QUIESCE_NORMALIZER:-/usr/local/bin/node /app/normalize-external-id-duplicates.mjs}"
@@ -53,11 +54,13 @@ cmd="${1:-status}"; [ $# -gt 0 ] && shift
 case "$cmd" in
   dryrun)
     # fresh manifest path per attempt -> O_EXCL creation in the normalizer never
-    # collides with a previous run.
+    # collides with a previous run. FAIL-CLOSED: the chain publishes
+    # manifest.current (atomically) ONLY AFTER the normalizer exits 0. A
+    # failed/killed normalizer leaves the previous manifest.current untouched and
+    # no forward/partial pointer.
     M="$Q/manifest.$(date -u +%Y%m%dT%H%M%SZ).$$.json"
-    publish_run "cd /app && DATABASE_URL=file:$DB $NORMALIZER --dry-run --manifest $M"
-    atomic_put "$Q/manifest.current" "$M" || { echo "op-wrap: could not record manifest.current" >&2; exit 1; }
-    echo "queued: dry-run  manifest=$M" ;;
+    publish_run "cd $APP && DATABASE_URL=file:$DB $NORMALIZER --dry-run --manifest '$M' && mt=\$(mktemp '$Q/.mcur.XXXXXX') && printf '%s\\n' '$M' > \"\$mt\" && mv \"\$mt\" '$Q/manifest.current'"
+    echo "queued: dry-run  manifest=$M (manifest.current set only if the normalizer exits 0)" ;;
 
   apply)
     H="${1:?manifest sha256}"; EG="${2:?expected-groups}"; EU="${3:?expected-updates}"
@@ -67,7 +70,7 @@ case "$cmd" in
     case "$EU" in *[!0-9]*|"")   echo "op-wrap: expected-updates must be a non-negative integer" >&2; exit 2 ;; esac
     [ -f "$Q/manifest.current" ] || { echo "op-wrap: no manifest.current - run dryrun first" >&2; exit 2; }
     M="$(cat "$Q/manifest.current")"
-    publish_run "cd /app && set -e && \
+    publish_run "cd $APP && set -e && \
 DATABASE_URL=file:$DB $NORMALIZER --apply --manifest $M --hash $H --expected-groups $EG --expected-updates $EU && \
 DATABASE_URL=file:$DB $PRISMA migrate resolve --rolled-back $MIG --schema=$SCHEMA && \
 DATABASE_URL=file:$DB $PRISMA migrate deploy --schema=$SCHEMA"

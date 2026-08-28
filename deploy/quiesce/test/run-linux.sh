@@ -320,22 +320,52 @@ out=$(QUIESCE_DIR="$Q" QUIESCE_NORMALIZER="/bin/echo X" sh "$OW" dryrun 2>&1); r
 gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
-echo "--- T13: the runbook's manifest path == what op-wrap emits/records ---"
-newenv
-: > "$Q/deadline"; echo "$(( $(date +%s) + 600 ))" > "$Q/deadline"
-QUIESCE_DIR="$Q" QUIESCE_NORMALIZER="/bin/echo X" sh "$OW" dryrun >"$Q/dr" 2>&1
-emitted=$(sed -n 's/.*manifest=//p' "$Q/dr")
-recorded=$(cat "$Q/manifest.current" 2>/dev/null)
-{ [ -n "$emitted" ] && [ "$emitted" = "$recorded" ]; } \
-  && ok "op-wrap dryrun records manifest.current == the emitted path" || no "emitted='$emitted' recorded='$recorded'"
-DEP="$HERE/../../../DEPLOY.md"
-if [ -f "$DEP" ]; then
-  { grep -Fq 'REMOTE_MANIFEST="$(' "$DEP" \
-      && grep -Fq 'cat $QUIESCE_DIR/manifest.current' "$DEP" \
-      && ! grep -Eq 'REMOTE_MANIFEST="/tmp/' "$DEP"; } \
-    && ok "DEPLOY.md derives REMOTE_MANIFEST from \$QUIESCE_DIR/manifest.current (no invented /tmp path)" \
-    || no "DEPLOY.md does not derive the remote manifest path from manifest.current"
-else no "DEPLOY.md not found at $DEP"; fi
+echo "--- T13: dry-run is FAIL-CLOSED - manifest.current published only after the normalizer exits 0 ---"
+newenv; export QUIESCE_TTL=60 QUIESCE_OP_TIMEOUT=15 QUIESCE_KILL_AFTER=2 QUIESCE_MARGIN=5
+wd_start; sleep 1   # newenv already exports QUIESCE_APP_DIR="$Q"
+# a normalizer that WRITES the manifest then FAILS (proves the pointer is gated
+# on exit code, not on the manifest file merely existing)
+# stubs receive: $1=--dry-run $2=--manifest $3=<manifest path>. They write the
+# manifest file, then exit 1 (fail) or 0 (ok) - proving the pointer is gated on
+# exit code, not on the manifest file merely existing.
+NRM_FAIL="$Q/nrm_fail"; printf '#!/bin/sh\n: > "$3"\nexit 1\n' > "$NRM_FAIL"; chmod +x "$NRM_FAIL"
+NRM_OK="$Q/nrm_ok";     printf '#!/bin/sh\n: > "$3"\nexit 0\n' > "$NRM_OK";   chmod +x "$NRM_OK"
+mpath(){ grep -o 'manifest=[^ ]*' "$1" | head -1 | cut -d= -f2; }
+QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" QUIESCE_NORMALIZER="$NRM_FAIL" sh "$OW" dryrun >"$Q/dr1" 2>&1
+i=0; while { [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; } && [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done
+[ ! -e "$Q/manifest.current" ] && ok "failed normalizer left NO manifest.current" || no "manifest.current appeared after a failed normalizer ($(cat "$Q/manifest.current"))"
+ls "$Q"/.mcur.* >/dev/null 2>&1 && no "a partial .mcur.* pointer leaked" || ok "no partial pointer file"
+# now a succeeding normalizer -> pointer appears and equals the emitted path
+QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" QUIESCE_NORMALIZER="$NRM_OK" sh "$OW" dryrun >"$Q/dr2" 2>&1
+m2=$(mpath "$Q/dr2")
+i=0; while { [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; } && [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done
+rec=$(cat "$Q/manifest.current" 2>/dev/null)
+{ [ -n "$m2" ] && [ "$rec" = "$m2" ]; } && ok "successful dry-run publishes manifest.current == emitted path" || no "m2='$m2' recorded='$rec'"
+# a subsequent FAILED dry-run must leave the good pointer untouched
+QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" QUIESCE_NORMALIZER="$NRM_FAIL" sh "$OW" dryrun >"$Q/dr3" 2>&1
+i=0; while { [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; } && [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done
+[ "$(cat "$Q/manifest.current" 2>/dev/null)" = "$m2" ] && ok "a later failed dry-run leaves the prior manifest.current untouched" || no "manifest.current changed to '$(cat "$Q/manifest.current" 2>/dev/null)'"
+gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
+
+# ---------------------------------------------------------------------------
+echo "--- T15: no canonical source re-introduces the old /tmp-manifest / direct-normalizer protocol ---"
+REPO="$HERE/../../.."
+oldproto=0
+flag(){ no "$1"; oldproto=1; }
+for S in "$REPO/DEPLOY.md" "$REPO/AGENTS.md" "$REPO/.claude/skills/release-verification/SKILL.md" \
+         "$HERE/../README.md" "$HERE/../watchdog.sh" "$OW"; do
+  b=$(basename "$S"); [ -f "$S" ] || { no "$S missing"; oldproto=1; continue; }
+  grep -Eq '/tmp/[^ ]*manifest' "$S"                 && flag "$b has a /tmp manifest literal"
+  grep -Eq 'REMOTE_MANIFEST=.?/tmp'                  "$S" && flag "$b sets REMOTE_MANIFEST to a /tmp path"
+  grep -Eq 'recovery-manifest-private-\$RECOVERY_RUN' "$S" && flag "$b uses the old recovery-manifest-private-\$RECOVERY_RUN path"
+  grep -Eq 'normalize-external-id-duplicates\.mjs --(dry-run|apply)' "$S" \
+    && flag "$b invokes the normalizer directly (must go through the op-wrap chain)"
+  if grep -q 'REMOTE_MANIFEST=' "$S"; then
+    { grep -Eq 'REMOTE_MANIFEST="\$\(' "$S" && grep -Fq 'manifest.current' "$S"; } \
+      || flag "$b sets REMOTE_MANIFEST without deriving it from \$QUIESCE_DIR/manifest.current"
+  fi
+done
+[ "$oldproto" -eq 0 ] && ok "no /tmp-manifest / direct-normalizer / stale-REMOTE_MANIFEST protocol in any canonical source"
 
 # ---------------------------------------------------------------------------
 echo "--- T14: 'abort' is gone from the CLI and the docs ---"
