@@ -76,45 +76,81 @@ Antes de publicar uma migration sobre schema persistido:
 
 #### Runbook de recuperação de migration falha
 
-Use `node scripts/normalize-external-id-duplicates.mjs` com `DATABASE_URL` explícita. O manifest gerado
-é **CONFIDENCIAL**, modo `0600`: contém IDs de linhas e chaves de tenant/projeto/external ID. Nunca o
-anexe a issue/PR, publique, copie para logs ou inclua em evidência. O script emite o SHA-256 completo
-para a operação privada; o resumo público pode conter somente contagens e hash truncado, sem PII,
-caminho completo de backup, IDs/chaves ou hash completo.
+O CLI-fonte é `node scripts/normalize-external-id-duplicates.mjs`; como a imagem runtime não contém
+`scripts/`, na machine ele será executado como `node /app/scripts/normalize-external-id-duplicates.mjs`,
+sempre com `DATABASE_URL` explícita. O manifest gerado é **CONFIDENCIAL**, modo `0600`: contém IDs de
+linhas e chaves de tenant/projeto/external ID. Nunca o anexe a issue/PR, publique, copie para logs ou
+inclua em evidência. O script emite o SHA-256 completo para a operação privada; o resumo público pode
+conter somente contagens e hash truncado, sem PII, caminho completo de backup, IDs/chaves ou hash
+completo.
 
 1. **Conter:** mantenha o entrypoint temporário sem migration; não restaure ainda o
    `prisma migrate deploy` automático.
 2. **Backup:** gere backup timestampado, valide que pode ser restaurado e registre sua referência
-   sanitizada no manifest.
+   sanitizada em controle operacional separado; não altere o formato canônico do manifest.
 3. **Quiescer:** antes do dry-run final, SRE deve impedir e confirmar ausência de writers da API.
    Mantenha a API quiescida, sem writes, até concluir normalize → resolve → migrate; se houver qualquer
    write ou perda de quiescência, descarte a aprovação e reinicie pelo dry-run.
-4. **Dry-run final:** gere um caminho novo para o manifest privado e rode:
+4. **Transferir somente o script testado:** a imagem runtime não contém `scripts/`. Defina localmente
+   os placeholders abaixo, usando o HEAD exato do PR que passou nos testes e o ID da única machine já
+   quiescida:
 
    ```bash
-   DATABASE_URL=file:/data/dev.db node scripts/normalize-external-id-duplicates.mjs \
-     --dry-run --manifest <manifest-privado>
+   PR_HEAD_TESTADO="<sha-completo-testado>"
+   MACHINE_ID="<id-da-unica-machine>"
+   LOCAL_SCRIPT="/tmp/normalize-external-id-duplicates.mjs"
+   REMOTE_SCRIPT="/app/scripts/normalize-external-id-duplicates.mjs"
+   REMOTE_MANIFEST="/data/recovery-manifest-private.json"
+   LOCAL_MANIFEST="<diretorio-privado>/recovery-manifest-private.json"
+
+   git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > "$LOCAL_SCRIPT"
+   chmod 0500 "$LOCAL_SCRIPT"
+   LOCAL_SHA="$(shasum -a 256 "$LOCAL_SCRIPT" | awk '{print $1}')"
+
+   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "install -d -m 0700 /app/scripts"
+   flyctl ssh sftp put "$LOCAL_SCRIPT" "$REMOTE_SCRIPT" \
+     --app reformaflow-api --machine "$MACHINE_ID" --mode 0500
+   REMOTE_SHA="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "sha256sum /app/scripts/normalize-external-id-duplicates.mjs" | awk '{print $1}')"
+   test "$LOCAL_SHA" = "$REMOTE_SHA"
+   ```
+
+   Registre os checksums completos apenas na operação privada. Não copie o repositório inteiro nem
+   instale dependências: `/app/node_modules` já contém `@prisma/client`, que o script em
+   `/app/scripts` resolve pelo diretório pai.
+5. **Dry-run final:** mantenha o manifest em `/data` ou `/tmp` privado; o script o cria como `0600`.
+
+   ```bash
+   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "cd /app && DATABASE_URL=file:/data/dev.db node $REMOTE_SCRIPT --dry-run --manifest $REMOTE_MANIFEST"
+   flyctl ssh sftp get "$REMOTE_MANIFEST" "$LOCAL_MANIFEST" \
+     --app reformaflow-api --machine "$MACHINE_ID"
+   chmod 0600 "$LOCAL_MANIFEST"
    ```
 
    Registre privadamente o SHA-256 completo e as contagens `expectedGroups`/`expectedUpdates` emitidas.
-   O dry-run não escreve no banco.
-5. **Revisar:** compare inventário, escopo e invariantes do manifest. Pare se houver mutação de linha
+   O dry-run não escreve no banco. Guarde a cópia baixada em armazenamento privado; nunca anexe o
+   manifest.
+6. **Revisar:** compare inventário, escopo e invariantes do manifest. Pare se houver mutação de linha
    ativa, mudança fora do escopo ou diferença entre os inventários do dry-run e do backup.
-6. **Normalize/apply:** ainda sem writers, use exatamente o manifest, hash completo e contagens
+7. **Normalize/apply:** ainda sem writers, use exatamente o manifest, hash completo e contagens
    aprovados no dry-run:
 
    ```bash
-   DATABASE_URL=file:/data/dev.db node scripts/normalize-external-id-duplicates.mjs \
-     --apply --manifest <manifest-privado> --hash <sha256-completo-privado> \
-     --expected-groups <contagem> --expected-updates <contagem>
+   MANIFEST_SHA="<sha256-completo-privado>"
+   EXPECTED_GROUPS="<contagem-aprovada>"
+   EXPECTED_UPDATES="<contagem-aprovada>"
+   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "cd /app && DATABASE_URL=file:/data/dev.db node $REMOTE_SCRIPT --apply --manifest $REMOTE_MANIFEST --hash $MANIFEST_SHA --expected-groups $EXPECTED_GROUPS --expected-updates $EXPECTED_UPDATES"
    ```
 
    Preserve o manifest `0600` apenas no armazenamento operacional privado.
-7. **Resolve:** confira o estado real da migration e então use `prisma migrate resolve` para registrar
+8. **Resolve:** confira o estado real da migration e então use `prisma migrate resolve` para registrar
    a tentativa falha como revertida; nunca a marque como aplicada antes de o SQL concluir.
-8. **Migrate:** execute `prisma migrate deploy`, confirme que a migration consta como aplicada e só
+9. **Migrate:** execute `prisma migrate deploy`, confirme que a migration consta como aplicada e só
    então encerre a janela sem writers.
-9. **Entrypoint:** somente depois disso, SRE deve limpar o override emergencial da machine:
+10. **Entrypoint:** somente depois disso, SRE deve limpar o override emergencial da machine:
    `flyctl machine update <machine-id> --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.
    O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
 

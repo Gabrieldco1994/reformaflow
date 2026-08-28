@@ -71,12 +71,17 @@ confirme o nome explicitamente. Banco fresco não cobre upgrade: exija fixture l
 equivalente ou backup sanitizado, restore testado e inventário antes/depois.
 
 Em recuperação de migration falha, verifique a sequência: backup restaurável; API quiescida sem
-writers; `DATABASE_URL` explícita; dry-run com
-`node scripts/normalize-external-id-duplicates.mjs --dry-run --manifest <manifest-privado>`; revisão
-privada; e `--apply` com o mesmo `--manifest`, o `--hash` completo emitido e os mesmos
-`--expected-groups`/`--expected-updates`. A quiescência começa antes do dry-run final e permanece por
-normalize → `prisma migrate resolve` → `prisma migrate deploy`; qualquer write invalida o manifest e
-exige reinício no dry-run.
+writers; extração de `scripts/normalize-external-id-duplicates.mjs` do HEAD exato do PR testado;
+checksum local; criação de `/app/scripts` na única machine em manutenção; envio apenas desse arquivo
+com `flyctl ssh sftp put` e modo `0500`; checksum remoto idêntico; e `DATABASE_URL` explícita ao rodar
+`node /app/scripts/normalize-external-id-duplicates.mjs`. Não copie o repositório nem instale
+dependências: o script resolve o `@prisma/client` existente pelo parent `/app/node_modules`.
+
+O dry-run usa `--dry-run --manifest <manifest-privado>`; `--apply` reutiliza o mesmo `--manifest`, o
+`--hash` completo emitido e os mesmos `--expected-groups`/`--expected-updates`. O manifest fica em
+`/data` ou `/tmp` privado, modo `0600`, e deve ser baixado e guardado privadamente. A quiescência
+começa antes do dry-run final e permanece por normalize → `prisma migrate resolve` →
+`prisma migrate deploy`; qualquer write invalida o manifest e exige reinício no dry-run.
 
 O manifest é **CONFIDENCIAL**, arquivo regular `0600`, e contém IDs e chaves de escopo. Nunca o anexe
 ou publique. O hash completo emitido pelo script também fica na operação privada; evidência pública
