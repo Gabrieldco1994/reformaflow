@@ -15,7 +15,7 @@ const baseURL = `http://localhost:${PORT}`;
 
 /**
  * E2E de responsividade (breakpoint real no DOM, impossível de asseverar em jsdom).
- * Roda o app com `next dev` e valida os layouts desktop vs mobile.
+ * Roda o app em build/start para validar os layouts desktop vs mobile.
  */
 export default defineConfig({
   testDir: './e2e',
@@ -33,9 +33,9 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } } },
   ],
   webServer: {
-    command: `npx next dev -p ${PORT}`,
+    command: `npm run build && npm run start -- -p ${PORT}`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 300_000,
   },
 });
