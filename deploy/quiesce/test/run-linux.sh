@@ -367,10 +367,23 @@ check_protocol_file(){
   printf '%s\n' "$arm_block" | grep -Fq 'MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'jq -e --arg id "$MACHINE_ID" --arg q "$QUIESCE_DIR"' || return 1
   printf '%s\n' "$arm_block" | grep -Fq '.[0].config.init.cmd == ["sh", ($q + "/watchdog.sh")]' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '.[0].config.env.Q == $q' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '.[0].config.env.QUIESCE_DIR == $q' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '[ -s \"\$Q/deadline\" ]' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '[ -e \"\$Q/lock\" ]' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '[ -f \"\$Q/watchdog.log\" ]' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'argv0=\${1:-}' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'argv1=\${2:-}' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'tr "\\0" "\\n"' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'watchdog_found=1' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'node_direct_found=1' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'node_direct_found=0' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'pgrep' && return 1
   printf '%s\n' "$arm_block" | grep -Fq '/app/watchdog.sh' && return 1
   printf '%s\n' "$arm_block" | grep -Fq 'curl' && return 1
+  printf '%s\n' "$arm_block" | grep -Fq '{"init":{"entrypoint":["/usr/local/bin/node"],"cmd":["apps/api/dist/main.js"]}}' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '["/usr/local/bin/node"]' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '["apps/api/dist/main.js"]' || return 1
   printf '%s\n' "$phase2_block" | grep -Fq 'scripts/normalize-external-id-duplicates.mjs' || return 1
   printf '%s\n' "$phase2_block" | grep -Fq '/app/normalize-external-id-duplicates.mjs' || return 1
   return 0
@@ -411,7 +424,7 @@ QUIESCE_DIR="$QB" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 
   QUIESCE_APP_DIR="$QB" timeout 2 sh "$HERE/../watchdog.sh" >"$QB/log" 2>&1
 RC=$?
 if [ "$RC" -eq 124 ] && [ -f "$QB/deadline" ] && [ -f "$QB/lock" ] && [ -f "$QB/watchdog.log" ] && \
-   grep -q 'admission window valid' "$QB/log"; then
+   grep -q 'admission window valid' "$QB/watchdog.log"; then
   ok "T16a: watchdog admission=600s timed out under timeout 2 with files/logs present"
 else
   no "T16a: watchdog admission=600s did not time out cleanly (rc=$RC)"
@@ -457,7 +470,22 @@ case "/tmp/manifest.wrong.json" in
 esac
 
 UNKNOWN_DIR="$PROTO_DIR/unknown-$$"
-rmdir "$UNKNOWN_DIR" 2>/dev/null && no "T17: rmdir unexpectedly succeeded on an unknown path" || ok "T17: rmdir fails on an unknown path"
+mkdir -p "$UNKNOWN_DIR"
+UNKNOWN_FILE="$UNKNOWN_DIR/unexpected.txt"
+: > "$UNKNOWN_FILE"
+if rmdir "$UNKNOWN_DIR" 2>/dev/null; then
+  no "T17: rmdir unexpectedly succeeded on a non-empty unknown path"
+  cleanup_ok=1
+else
+  ok "T17: rmdir fails on a non-empty unknown path"
+fi
+rm -f -- "$UNKNOWN_FILE"
+if rmdir "$UNKNOWN_DIR" 2>/dev/null; then
+  ok "T17: cleanup rmdir succeeds after removing the unexpected file"
+else
+  no "T17: cleanup rmdir still failed after removing the unexpected file"
+  cleanup_ok=1
+fi
 
 [ "$cleanup_ok" -eq 0 ] && ok "T17: POSIX path assertions and rmdir failure behave honestly" || no "T17 check failed: see flags above"
 rm -rf "$PROTO_DIR"

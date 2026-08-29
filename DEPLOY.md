@@ -158,6 +158,7 @@ completo.
    ```bash
    flyctl machine update "$MACHINE_ID" --app reformaflow-api \
      --skip-health-checks \
+     --env "Q=${QUIESCE_DIR}" \
      --env "QUIESCE_DIR=${QUIESCE_DIR}" \
      --machine-config '{"init":{"entrypoint":null,"cmd":["sh","'"${QUIESCE_DIR}"'/watchdog.sh"]}}' --yes
    ```
@@ -176,10 +177,14 @@ completo.
       .[0].id == $id and
       .[0].state == "started" and
       .[0].config.init.cmd == ["sh", ($q + "/watchdog.sh")] and
+      .[0].config.env.Q == $q and
       .[0].config.env.QUIESCE_DIR == $q
     ' >/dev/null || {
       flyctl machine update "$MACHINE_ID" --app reformaflow-api \
-        --machine-config '{"init":{"entrypoint":null,"cmd":["/usr/local/bin/node","apps/api/dist/main.js"]}}' --yes
+        --machine-config '{"init":{"entrypoint":["/usr/local/bin/node"],"cmd":["apps/api/dist/main.js"]}}' --yes
+      flyctl checks list --json --app reformaflow-api | jq -e --arg id "$MACHINE_ID" '
+        has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")
+      ' >/dev/null || { echo "ABORT: emergency restore did not return health"; exit 1; }
       echo "ABORT: machine does not match expected watchdog config" >&2
       exit 1
     }
@@ -209,7 +214,10 @@ completo.
       [ \"\$node_direct_found\" -eq 0 ] || exit 1
     '" || {
       flyctl machine update "$MACHINE_ID" --app reformaflow-api \
-        --machine-config '{"init":{"entrypoint":null,"cmd":["/usr/local/bin/node","apps/api/dist/main.js"]}}' --yes
+        --machine-config '{"init":{"entrypoint":["/usr/local/bin/node"],"cmd":["apps/api/dist/main.js"]}}' --yes
+      flyctl checks list --json --app reformaflow-api | jq -e --arg id "$MACHINE_ID" '
+        has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")
+      ' >/dev/null || { echo "ABORT: emergency restore did not return health"; exit 1; }
       echo "ABORT: watchdog not confirmed operational or API not quiesced" >&2
       exit 1
     }
@@ -219,7 +227,7 @@ completo.
     **Notas:**
     - Sem verificação de health HTTP enquanto armado
     - A machine está no estado de quiesce esperado: a cadeia pode rodar, Node-direto aguarda
-    - Verificação de processo via `/proc/*/cmdline` usando `tr '\0' '\n'` (read-only, sem pgrep)
+    - Verificação de processo via `/proc/*/cmdline` usando `tr '\0' '\n'` (read-only, sem varredura por PID)
     - Só então proceda à Fase 2
 
 4.2. **Transferir e conferir o normalizer (APÓS a validação pós-arm):**
@@ -314,12 +322,12 @@ completo.
      has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")
    ' >/dev/null || { echo "ABORT: machine checks are not exactly one passing check"; exit 1; }
 
-   docs_code="$(curl -s -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
-   auth_code="$(curl -s -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
+   docs_code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
+   auth_code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
    [ "$docs_code" = 200 ] || { echo "ABORT: /api/docs-json returned $docs_code"; exit 1; }
    [ "$auth_code" = 401 ] || { echo "ABORT: /auth/me returned $auth_code"; exit 1; }
 
-   flyctl logs --app reformaflow-api --machine "$MACHINE_ID" --no-tail
+   flyctl logs --no-tail --machine "$MACHINE_ID" --app reformaflow-api
    ```
 
    O Dockerfile `CMD` volta então a governar e o boot migrate-first fica comprovado pelo override
