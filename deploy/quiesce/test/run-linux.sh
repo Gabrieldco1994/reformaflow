@@ -407,6 +407,12 @@ check_finish_protocol_file(){
       print
     }
   ' "$file")
+  cleanup_code_blocks=$(printf '%s\n' "$cleanup_block" | awk '
+    BEGIN { in_code = 0 }
+    /^[[:space:]]*```(bash|sh)$/ { in_code = 1; next }
+    in_code && /^[[:space:]]*```$/ { in_code = 0; next }
+    in_code { print }
+  ')
 
   printf '%s\n' "$restore_block" | grep -Fq 'flyctl machine update "$MACHINE_ID" --app reformaflow-api' || return 1
   printf '%s\n' "$restore_block" | grep -Fq -- '--machine-config' || return 1
@@ -429,8 +435,8 @@ check_finish_protocol_file(){
   printf '%s\n' "$cleanup_block" | grep -Fq 'rm -f -- /app/normalize-external-id-duplicates.mjs' || return 1
   printf '%s\n' "$cleanup_block" | grep -Fq 'rm -f --' || return 1
   printf '%s\n' "$cleanup_block" | grep -Fq "rmdir -- '\$QUIESCE_DIR'" || return 1
-  printf '%s\n' "$cleanup_block" | grep -Fq 'rm -rf' && return 1
-  printf '%s\n' "$cleanup_block" | grep -Fq '|| true' && return 1
+  printf '%s\n' "$cleanup_code_blocks" | grep -Fq 'rm -rf' && return 1
+  printf '%s\n' "$cleanup_code_blocks" | grep -Fq '|| true' && return 1
   return 0
 }
 
