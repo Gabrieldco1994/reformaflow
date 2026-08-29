@@ -104,13 +104,14 @@ completo.
    Node-direto; um writer manual fura o lock e pode corromper a recuperação. Todo toque no banco passa
    por `op-wrap dryrun` / `op-wrap apply`.
 
-   Toda operação vai pelo `op-wrap` (`flyctl ssh console --command "sh /app/op-wrap.sh <cmd>"`), que
-   publica o controle atomicamente (lock de publish + tmp+rename) e **recusa** sobrescrever um `RUN`
-   já enfileirado:
-   - `op-wrap status`
-   - `op-wrap dryrun` — enfileira o dry-run e imprime o **caminho de manifest novo** desta tentativa
-   - `op-wrap apply <sha256> <expected-groups> <expected-updates>` — valida `^[0-9a-f]{64}$` e
-     `^[0-9]+$` antes de publicar `normalize --apply && migrate resolve && migrate deploy`
+   Toda operação vai pelo `op-wrap` no diretório persistente `$QUIESCE_DIR`. `flyctl ssh console --command`
+   não abre shell: comandos simples continuam diretos (`sha256sum`, `cat`, `rm -f`, `rmdir`) e qualquer
+   `QUIESCE_DIR=...`, `&&`, `;`, loop, redirecionamento ou substituição de comando começa explicitamente
+   com `sh -lc`/`sh -ceu`:
+   - `op-wrap status` — `flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" status'"`
+   - `op-wrap dryrun` — `flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" dryrun'"`
+   - `op-wrap apply <sha256> <expected-groups> <expected-updates>` — `flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" apply \"$MANIFEST_SHA\" \"$EXPECTED_GROUPS\" \"$EXPECTED_UPDATES\"'"`; os três argumentos entram
+     já expandidos localmente e citados
    - `op-wrap disarm` — pós-deploy: Node-direto assim que o lock ficar livre
 
    Não existe verbo para "cancelar uma cadeia em andamento": o `timeout` dentro do supervisor é a
@@ -139,7 +140,9 @@ completo.
 
    # Transferir para o diretório persistente no volume
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "mkdir -p '$QUIESCE_DIR' && chmod 0700 '$QUIESCE_DIR'"
+     --command "mkdir -p -- $QUIESCE_DIR" &&
+   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "chmod 0700 -- $QUIESCE_DIR"
 
    for f in watchdog.sh op-wrap.sh; do
      LOCAL_SHA="$(shasum -a 256 "/tmp/$f" | awk '{print $1}')"
@@ -188,30 +191,8 @@ completo.
       exit 1
     }
 
-    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -ceu '
-      Q=\"${QUIESCE_DIR}\"
-      [ -s \"\$Q/deadline\" ] || exit 1
-      [ -e \"\$Q/lock\" ] || exit 1
-      [ -f \"\$Q/watchdog.log\" ] || exit 1
-      watchdog_found=0
-      node_direct_found=0
-      for cmdline in /proc/[0-9]*/cmdline; do
-        [ -r \"\$cmdline\" ] || continue
-        set -- \$(tr "\\0" "\\n" < \"\$cmdline\")
-        argv0=\${1:-}
-        argv1=\${2:-}
-        case \"\$argv0\" in
-          sh|/bin/sh)
-            [ \"\$argv1\" = \"\$Q/watchdog.sh\" ] && watchdog_found=1
-            ;;
-        esac
-        if [ \"\$argv0\" = \"/usr/local/bin/node\" ] && [ \"\$argv1\" = \"apps/api/dist/main.js\" ]; then
-          node_direct_found=1
-        fi
-      done
-      [ \"\$watchdog_found\" -eq 1 ] || exit 1
-      [ \"\$node_direct_found\" -eq 0 ] || exit 1
-    '" || {
+    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+      --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" status'" || {
       flyctl machine update "$MACHINE_ID" --app reformaflow-api \
         --machine-config '{"init":{"entrypoint":["/usr/local/bin/node"],"cmd":["apps/api/dist/main.js"]}}' --yes
       flyctl checks list --json --app reformaflow-api | jq -e --arg id "$MACHINE_ID" '
@@ -259,8 +240,8 @@ completo.
    ```bash
    LOCAL_MANIFEST="$PRIVATE_DIR/manifest-local-$(date -u +%Y%m%dT%H%M%SZ).json"
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "QUIESCE_DIR='$QUIESCE_DIR' sh '$QUIESCE_DIR/op-wrap.sh' dryrun"
-   # aguarde a cadeia concluir (QUIESCE_DIR='$QUIESCE_DIR' sh '$QUIESCE_DIR/op-wrap.sh' status -> last rc = 0), então:
+     --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" dryrun'"
+   # aguarde a cadeia concluir (op-wrap status via sh -lc -> last rc = 0), então:
    REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "cat '$QUIESCE_DIR/manifest.current'")"
    flyctl ssh sftp get "$REMOTE_MANIFEST" "$LOCAL_MANIFEST" \
@@ -284,8 +265,8 @@ completo.
    EXPECTED_GROUPS="<contagem-aprovada>"
    EXPECTED_UPDATES="<contagem-aprovada>"
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "QUIESCE_DIR='$QUIESCE_DIR' sh '$QUIESCE_DIR/op-wrap.sh' apply $MANIFEST_SHA $EXPECTED_GROUPS $EXPECTED_UPDATES"
-   # acompanhe: QUIESCE_DIR='$QUIESCE_DIR' sh '$QUIESCE_DIR/op-wrap.sh' status  (op ... RUNNING -> last rc)
+     --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" apply \"$MANIFEST_SHA\" \"$EXPECTED_GROUPS\" \"$EXPECTED_UPDATES\"'"
+   # acompanhe: op-wrap status via sh -lc  (op ... RUNNING -> last rc)
    ```
 
    Preserve o manifest `0600` apenas no armazenamento operacional privado.
@@ -365,24 +346,9 @@ completo.
 
    ```bash
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "set -e && \
-rm -f -- \
-  '$QUIESCE_DIR/watchdog.sh' \
-  '$QUIESCE_DIR/op-wrap.sh' \
-  '$REMOTE_MANIFEST' \
-  '$QUIESCE_DIR/manifest.current' \
-  '$QUIESCE_DIR/deadline' \
-  '$QUIESCE_DIR/lock' \
-  '$QUIESCE_DIR/RUN' \
-  '$QUIESCE_DIR/RUN.active' \
-  '$QUIESCE_DIR/DISARM' \
-  '$QUIESCE_DIR/op.pgid' \
-  '$QUIESCE_DIR/op.pgid.raw' \
-  '$QUIESCE_DIR/op.rc' \
-  '$QUIESCE_DIR/.publish.lock' \
-  '$QUIESCE_DIR/watchdog.log' \
-  '$QUIESCE_DIR/op.log' && \
-rmdir -- '$QUIESCE_DIR'"
+     --command "rm -f -- $QUIESCE_DIR/watchdog.sh $QUIESCE_DIR/op-wrap.sh $REMOTE_MANIFEST $QUIESCE_DIR/manifest.current $QUIESCE_DIR/deadline $QUIESCE_DIR/lock $QUIESCE_DIR/RUN $QUIESCE_DIR/RUN.active $QUIESCE_DIR/DISARM $QUIESCE_DIR/op.pgid $QUIESCE_DIR/op.pgid.raw $QUIESCE_DIR/op.rc $QUIESCE_DIR/.publish.lock $QUIESCE_DIR/watchdog.log $QUIESCE_DIR/op.log" &&
+   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "rmdir -- $QUIESCE_DIR"
    ```
 
    O comando é fail-closed: qualquer arquivo inesperado que reste no volume faz `rmdir` falhar e

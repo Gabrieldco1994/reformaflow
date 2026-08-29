@@ -363,8 +363,13 @@ check_protocol_file(){
 
   arm_block=$(sed -n '/^4\.1\./,/^4\.2\./p' "$file")
   phase2_block=$(sed -n '/^4\.2\./,/^5\./p' "$file")
+  dryrun_block=$(sed -n '/^5\. \*\*Dry-run final:/,/^6\./p' "$file")
+  apply_block=$(sed -n '/^7\. \*\*Normalize\/apply:/,/^8\./p' "$file")
 
   printf '%s\n' "$phase1_block" | grep -Fq -- "--skip-health-checks" || return 1
+  printf '%s\n' "$phase1_block" | grep -Fq -- '--command "mkdir -p -- $QUIESCE_DIR"' || return 1
+  printf '%s\n' "$phase1_block" | grep -Fq -- '--command "chmod 0700 -- $QUIESCE_DIR"' || return 1
+  printf '%s\n' "$phase1_block" | grep -Eq -- '--command "[^"]*&&[^"]*"' && return 1
   printf '%s\n' "$arm_block" | grep -Fq 'MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'jq -e --arg id "$MACHINE_ID" --arg q "$QUIESCE_DIR"' || return 1
   printf '%s\n' "$arm_block" | grep -Fq '.[0].config.init.cmd == ["sh", ($q + "/watchdog.sh")]' || return 1
@@ -386,6 +391,11 @@ check_protocol_file(){
   printf '%s\n' "$arm_block" | grep -Fq '["apps/api/dist/main.js"]' || return 1
   printf '%s\n' "$phase2_block" | grep -Fq 'scripts/normalize-external-id-duplicates.mjs' || return 1
   printf '%s\n' "$phase2_block" | grep -Fq '/app/normalize-external-id-duplicates.mjs' || return 1
+  printf '%s\n' "$dryrun_block" | grep -Fq -- '--command "sh -lc ' || return 1
+  printf '%s\n' "$apply_block" | grep -Fq -- '--command "sh -lc ' || return 1
+  printf '%s\n' "$apply_block" | tr -d '\\' | grep -Fq 'apply "$MANIFEST_SHA" "$EXPECTED_GROUPS" "$EXPECTED_UPDATES"' || return 1
+  protocol_shell_count=$(grep -Foc -- '--command "sh -lc ' "$file")
+  [ "$protocol_shell_count" -eq 6 ] || return 1
   return 0
 }
 
@@ -434,7 +444,8 @@ check_finish_protocol_file(){
   printf '%s\n' "$cleanup_block" | grep -Fq '"$QUIESCE_DIR"/manifest.*.json' || return 1
   printf '%s\n' "$cleanup_block" | grep -Fq 'rm -f -- /app/normalize-external-id-duplicates.mjs' || return 1
   printf '%s\n' "$cleanup_block" | grep -Fq 'rm -f --' || return 1
-  printf '%s\n' "$cleanup_block" | grep -Fq "rmdir -- '\$QUIESCE_DIR'" || return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq 'rmdir -- $QUIESCE_DIR' || return 1
+  printf '%s\n' "$cleanup_code_blocks" | grep -Fq '--command "set -e &&' && return 1
   printf '%s\n' "$cleanup_code_blocks" | grep -Fq 'rm -rf' && return 1
   printf '%s\n' "$cleanup_code_blocks" | grep -Fq '|| true' && return 1
   return 0
@@ -447,16 +458,25 @@ M1="$PROTO_DIR/missing-skip.md"
 M2="$PROTO_DIR/docs-url.md"
 M3="$PROTO_DIR/missing-path-validation.md"
 M4="$PROTO_DIR/missing-rmdir.md"
+M5="$PROTO_DIR/missing-sh-lc.md"
+M6="$PROTO_DIR/missing-mkdir-shell-op.md"
+M7="$PROTO_DIR/missing-set-e-cleanup.md"
 cp "$DEPLOY" "$M1"
 cp "$DEPLOY" "$M2"
 cp "$DEPLOY" "$M3"
 cp "$DEPLOY" "$M4"
+cp "$DEPLOY" "$M5"
+cp "$DEPLOY" "$M6"
+cp "$DEPLOY" "$M7"
 perl -0pi -e 's/\{"init":\{"entrypoint":null,"cmd":null\}\}/{"init":{"entrypoint":null,"cmd":"removed"}}/' "$M1"
 perl -0pi -e 's#https://reformaflow-api.fly.dev/api/docs-json#https://reformaflow-api.fly.dev/api/docs#' "$M2"
 perl -0pi -e 's#case "\$QUIESCE_DIR" in#case removed#g; s#case "\$REMOTE_MANIFEST" in#case removed#g' "$M3"
-perl -0pi -e 's/rmdir -- '\''\$QUIESCE_DIR'\''"/rmdir removed/' "$M4"
+perl -0pi -e 's/rmdir -- \$QUIESCE_DIR/rmdir removed/' "$M4"
+perl -0pi -e 's/--command "sh -lc /--command /g' "$M5"
+perl -0pi -e 's/--command "mkdir -p -- \$QUIESCE_DIR"/--command "mkdir -p -- \$QUIESCE_DIR && chmod 0700 -- \$QUIESCE_DIR"/' "$M6"
+perl -0pi -e 's/--command "rm -f -- \$QUIESCE_DIR\/watchdog\.sh/--command "set -e && rm -f -- \$QUIESCE_DIR\/watchdog\.sh/' "$M7"
 
-for mutant in "$M1" "$M2" "$M3" "$M4"; do
+for mutant in "$M1" "$M2" "$M3" "$M4" "$M5" "$M6" "$M7"; do
   if check_finish_protocol_file "$mutant"; then
     no "finish protocol checker accepted mutated $(basename "$mutant")"
     proto_ok=1
