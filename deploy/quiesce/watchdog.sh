@@ -37,6 +37,7 @@ POLL="${QUIESCE_POLL:-5}"
 LOCK_WAIT="${QUIESCE_LOCK_WAIT:-1800}"
 
 mkdir -p "$Q"
+: > "$LOCK"
 log(){ echo "$(date -u +%FT%TZ) [wd $$] $*" >> "$Q/watchdog.log"; }
 
 # Signal a whole process group by negative pid. The exact accepted form varies

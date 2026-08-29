@@ -71,12 +71,13 @@ confirme o nome explicitamente. Banco fresco não cobre upgrade: exija fixture l
 equivalente ou backup sanitizado, restore testado e inventário antes/depois.
 
 Em recuperação de migration falha, verifique a sequência: backup restaurável; API quiescida sem
-writers pelo fail-safe nativo (`deploy/quiesce/`); extração de **três** arquivos do HEAD exato do PR
-testado — `deploy/quiesce/watchdog.sh`, `deploy/quiesce/op-wrap.sh` e
-`scripts/normalize-external-id-duplicates.mjs` —, checksum SHA-256 local↔remoto de cada um, transferência
-para um diretório persistente único no volume (e.g. `/data/quiesce-<RECOVERY_RUN>` com timestamp), e só
-com os três idênticos armar a machine com `init.cmd = ["sh","${QUIESCE_DIR}/watchdog.sh"]` e
-`--skip-health-checks` (o watchdog não serve HTTP). Não copie o repositório nem instale dependências:
+writers pelo fail-safe nativo (`deploy/quiesce/`); extração de dois arquivos do HEAD exato do PR
+testado — `deploy/quiesce/watchdog.sh` e `deploy/quiesce/op-wrap.sh` —, checksum SHA-256 local↔remoto
+de cada um, transferência para um diretório persistente único no volume (e.g. `/data/quiesce-<RECOVERY_RUN>`
+com timestamp), e só com os dois idênticos armar a machine com `init.cmd = ["sh","${QUIESCE_DIR}/watchdog.sh"]`
+e `--skip-health-checks` (o watchdog não serve HTTP). Após a machine atualizar, transferir
+`scripts/normalize-external-id-duplicates.mjs` para `/app/normalize-external-id-duplicates.mjs`,
+checksum remoto, e só então rodar `op-wrap dryrun`. Não copie o repositório nem instale dependências:
 `createRequire` resolve o `@prisma/client` existente em `/app/node_modules`.
 
 **Todo acesso à machine passa pelo `op-wrap`** (em `${QUIESCE_DIR}/op-wrap.sh`, passado como
@@ -88,8 +89,8 @@ mesmo manifest e roda `--apply && prisma migrate resolve --rolled-back && prisma
 cadeia única. Todo download/limpeza lê o caminho de `$QUIESCE_DIR/manifest.current` — não há protocolo de
 manifest em `/tmp`. A quiescência começa antes do dry-run final e permanece até `migrate deploy`;
 qualquer write invalida o manifest e exige reinício no dry-run. Depois de preservar a evidência e a
-cópia local `0600`, confirme que o encerramento removeu da machine, sem wildcard, os três scripts, o
-manifest e `$QUIESCE_DIR`.
+cópia local `0600`, confirme que o encerramento removeu da machine, sem wildcard, os scripts do volume,
+o normalizer de `/app`, o manifest e `$QUIESCE_DIR`.
 
 O manifest é **CONFIDENCIAL**, arquivo regular `0600`, e contém IDs e chaves de escopo. Nunca o anexe
 ou publique. O hash completo emitido pelo script também fica na operação privada; evidência pública

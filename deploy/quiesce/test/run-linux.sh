@@ -350,10 +350,11 @@ gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 # ---------------------------------------------------------------------------
 echo "--- T16: persistent volume protocol enforced - QUIESCE_DIR unique per recovery, never /app ---"
 REPO="$HERE/../../.."
-proto_ok=1
+proto_ok=0
 flag_proto(){ no "$1"; proto_ok=1; }
 for S in "$REPO/DEPLOY.md" "$REPO/deploy/quiesce/README.md"; do
   b=$(basename "$S"); [ -f "$S" ] || { no "$S missing"; proto_ok=1; continue; }
+  [ ! -f "$S" ] && continue
   # Machine init must NEVER point to /app for watchdog or op-wrap (ephemeral rootfs)
   grep -Eq "cmd=\[\"sh\",\"/app/(watchdog|op-wrap)" "$S" && flag_proto "$b still has /app hardcoded in machine init cmd"
   # QUIESCE_DIR must be unique per recovery, typically /data/quiesce-<RECOVERY_RUN>
@@ -367,26 +368,27 @@ for S in "$REPO/DEPLOY.md" "$REPO/deploy/quiesce/README.md"; do
     || grep -Eq 'sh ['\''\"]\$\(QUIESCE_DIR\)['\''\"]/op-wrap' "$S" \
     || flag_proto "$b op-wrap invocation does not use persistent QUIESCE_DIR path"
 done
-[ "$proto_ok" -eq 0 ] && ok "persistent volume protocol: QUIESCE_DIR unique, never /app, watchdog in volume, --skip-health-checks enforced" || true
+[ "$proto_ok" -eq 0 ] && ok "persistent volume protocol: QUIESCE_DIR unique, never /app, watchdog in volume, --skip-health-checks enforced" || no "protocol check failed: see flags above"
 
 # ---------------------------------------------------------------------------
 echo "--- T17: cleanup is tolerant and exhaustive (rm -f, no leftover dirs) ---"
 REPO="$HERE/../../.."
-cleanup_ok=1
+cleanup_ok=0
 flag_clean(){ no "$1"; cleanup_ok=1; }
 for S in "$REPO/DEPLOY.md"; do
   b=$(basename "$S"); [ -f "$S" ] || { no "$S missing"; cleanup_ok=1; continue; }
-  # cleanup must use -f (tolerate missing) and remove the unique QUIESCE_DIR
-  grep -A 10 '### Encerrar' "$S" | grep -Eq 'rm -f -- .*QUIESCE_DIR' \
-    || flag_clean "$b cleanup does not use rm -f on QUIESCE_DIR"
-  # cleanup must not blindly rm -rf /data/quiesce (only the unique subdir)
-  grep -A 10 '### Encerrar' "$S" | grep -Eq 'rmdir|rm.*rf.*QUIESCE_DIR' \
-    || flag_clean "$b cleanup does not remove the unique directory"
-  # must not hardcode /data/quiesce as the target (that is the default, not the unique one)
-  grep -A 10 '### Encerrar' "$S" | grep -Eq "rm.*'/data/quiesce'" \
-    && flag_clean "$b cleanup references generic /data/quiesce instead of unique QUIESCE_DIR"
+  [ ! -f "$S" ] && continue
+  # cleanup section must contain rm -f (not rm -rf, which would be too broad)
+  grep -A 70 "11\. \*\*Encerrar" "$S" | grep -q "rm -f --" \
+    || flag_clean "$b cleanup does not use rm -f for file removal"
+  # cleanup must contain rmdir for QUIESCE_DIR
+  grep -A 70 "11\. \*\*Encerrar" "$S" | grep -q "rmdir.*QUIESCE_DIR" \
+    || flag_clean "$b cleanup does not remove the unique directory with rmdir"
+  # cleanup code must NOT use wildcard patterns for removal
+  sed -n '/11\. \*\*Encerrar/,/^$/p' "$S" | sed -n '/```bash/,/```/p' | grep -q "\.mcur\.\*\|\.run\.\*\|\.put\.\*\|\.dl\.\*" \
+    && flag_clean "$b cleanup code uses wildcard patterns (.mcur.*, .run.*, .put.*, .dl.*)"
 done
-[ "$cleanup_ok" -eq 0 ] && ok "cleanup is tolerant (rm -f), exhaustive (unique dir), and never touches generic /data/quiesce"
+[ "$cleanup_ok" -eq 0 ] && ok "cleanup is tolerant (rm -f), exhaustive (unique dir), and never touches generic /data/quiesce" || no "cleanup check failed: see flags above"
 
 # ---------------------------------------------------------------------------
 echo "--- T15: no canonical source re-introduces the old /tmp-manifest / direct-normalizer protocol ---"

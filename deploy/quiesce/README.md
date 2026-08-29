@@ -53,17 +53,16 @@ file for unknown processes, no token, no `pkill`/`pgrep`, no `/proc` scan.
    normalizer leaves the prior pointer untouched, never a partial/forward one.
    `apply` and every download/cleanup read the path from `manifest.current`.
 
-## Arm (transfer + checksum all THREE scripts first to persistent volume dir)
+## Arm — Phase 1 (transfer + checksum watchdog and op-wrap BEFORE machine update)
 
 ```sh
 # extract from the tested PR HEAD, then local<->remote SHA-256 each:
-#   deploy/quiesce/watchdog.sh                   -> ${QUIESCE_DIR}/watchdog.sh
-#   deploy/quiesce/op-wrap.sh                    -> ${QUIESCE_DIR}/op-wrap.sh
-#   scripts/normalize-external-id-duplicates.mjs -> ${QUIESCE_DIR}/normalize-external-id-duplicates.mjs
+#   deploy/quiesce/watchdog.sh  -> ${QUIESCE_DIR}/watchdog.sh
+#   deploy/quiesce/op-wrap.sh   -> ${QUIESCE_DIR}/op-wrap.sh
 # where QUIESCE_DIR is a fresh timestamp-based persistent directory: /data/quiesce-<RECOVERY_RUN>
 # (flyctl ssh sftp put ... --mode 0500 ; compare sha256sum). See DEPLOY.md step 4.
 
-# only with all three checksums matching, arm the machine with --skip-health-checks:
+# only with both checksums matching, arm the machine with --skip-health-checks:
 # (watchdog is not an HTTP server, so health checks would fail; their absence is intentional)
 RECOVERY_RUN="$(date -u +%Y%m%dT%H%M%SZ)"
 QUIESCE_DIR="/data/quiesce-${RECOVERY_RUN}"
@@ -72,6 +71,15 @@ flyctl machine update <machine-id> --app reformaflow-api \
   --env "QUIESCE_DIR=${QUIESCE_DIR}" \
   --machine-config '{"init":{"entrypoint":null,"cmd":["sh","'"${QUIESCE_DIR}"'/watchdog.sh"]}}' --yes
 # QUIESCE_DIR is now unique per recovery attempt, persisted on the volume.
+```
+
+## Arm — Phase 2 (transfer + checksum normalizer AFTER machine update)
+
+```sh
+# extract from the tested PR HEAD:
+#   scripts/normalize-external-id-duplicates.mjs -> /app/normalize-external-id-duplicates.mjs
+# (flyctl ssh sftp put ... --mode 0500 ; compare sha256sum). See DEPLOY.md step 5.
+# Only then run dry-run via op-wrap dryrun.
 ```
 
 ## Operate (all through `op-wrap`, never a raw shell)
@@ -101,11 +109,49 @@ machine override so the Dockerfile `CMD` (migrate-first entrypoint) governs agai
 flyctl machine update <machine-id> --skip-health-checks --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes
 ```
 
-Remove the shipped scripts and any manifest from the machine (exact paths,
-no wildcard, tolerating missing files) as part of evidence-preservation cleanup.
-Use `rm -f` to tolerate a rootfs that was already reset by `machine update`.
-Remove the unique `QUIESCE_DIR` only after all files are gone, validating that
-its path is exactly `/data/quiesce-[0-9]{8}T[0-9]{6}Z` (the expected format).
+After the normal entrypoint is restored, remove the normalizer from `/app`:
+
+```sh
+flyctl ssh console --app reformaflow-api --machine <machine-id> \
+  --command "rm -f -- /app/normalize-external-id-duplicates.mjs"
+```
+
+Then remove the shipped scripts and manifest from the machine (exact paths,
+no wildcard, exact list only) as part of evidence-preservation cleanup.
+Validate that `QUIESCE_DIR` matches the expected format and `REMOTE_MANIFEST`
+is a child of it. Use fail-closed cleanup (set -e):
+
+```sh
+QUIESCE_DIR="/data/quiesce-<RECOVERY_RUN>"
+REMOTE_MANIFEST="<path-from-manifest.current>"
+
+flyctl ssh console --app reformaflow-api --machine <machine-id> \
+  --command "set -e && \
+[[ '$QUIESCE_DIR' =~ ^/data/quiesce-[0-9]{8}T[0-9]{6}Z$ ]] && \
+[[ '$REMOTE_MANIFEST' == '$QUIESCE_DIR'/manifest.*.json ]] && \
+rm -f -- \
+  '$QUIESCE_DIR/watchdog.sh' \
+  '$QUIESCE_DIR/op-wrap.sh' \
+  '$REMOTE_MANIFEST' \
+  '$QUIESCE_DIR/manifest.current' \
+  '$QUIESCE_DIR/deadline' \
+  '$QUIESCE_DIR/lock' \
+  '$QUIESCE_DIR/RUN' \
+  '$QUIESCE_DIR/RUN.active' \
+  '$QUIESCE_DIR/DISARM' \
+  '$QUIESCE_DIR/op.pgid' \
+  '$QUIESCE_DIR/op.pgid.raw' \
+  '$QUIESCE_DIR/op.rc' \
+  '$QUIESCE_DIR/.publish.lock' \
+  '$QUIESCE_DIR/watchdog.log' \
+  '$QUIESCE_DIR/op.log' && \
+rmdir -- '$QUIESCE_DIR'"
+```
+
+Exact cleanup: only watchdog.sh, op-wrap.sh, manifest files (from manifest.current),
+manifest.current, deadline, lock, RUN, RUN.active, DISARM, op.pgid, op.pgid.raw,
+op.rc, .publish.lock, watchdog.log, op.log. No wildcard patterns, no rm -rf.
+Any unexpected file causes the cleanup to fail (set -e enforces it).
 
 ## Caveat — no manual SQLite during a window
 

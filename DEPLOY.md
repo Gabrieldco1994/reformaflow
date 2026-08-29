@@ -118,12 +118,12 @@ completo.
 
    Se houver qualquer write fora do `op-wrap` ou perda de quiescência, descarte a aprovação e reinicie
    pelo dry-run. Detalhes e invariantes: `deploy/quiesce/README.md`.
-4. **Transferir e conferir os TRÊS scripts testados para um diretório persistente, ANTES de machine update:**
+4. **Fase 1 — Transferir e conferir watchdog.sh e op-wrap.sh (ANTES de machine update):**
    a imagem runtime não contém `scripts/` nem `deploy/`, e `machine update` pode resetar o rootfs. Use um
    diretório único persistente no volume (nunca `/app`, que é efêmero): por exemplo `/data/quiesce-<RECOVERY_RUN>`
    onde `RECOVERY_RUN` é um timestamp como `20260828T210456Z`. Extraia, valide o checksum SHA-256 de
-   `watchdog.sh`, `op-wrap.sh` **e** do normalizer — todos do HEAD exato do PR que passou nos testes —
-   e só com os três checksums idênticos local **e** remoto proceda ao `machine update` com `--skip-health-checks`.
+   `watchdog.sh` e `op-wrap.sh` — ambos do HEAD exato do PR que passou nos testes —
+   e só com os dois checksums idênticos local **e** remoto proceda ao `machine update` com `--skip-health-checks`.
 
    ```bash
    PR_HEAD_TESTADO="<sha-completo-testado>"
@@ -133,16 +133,15 @@ completo.
    QUIESCE_DIR="/data/quiesce-${RECOVERY_RUN}"
    install -d -m 0700 "$PRIVATE_DIR"
 
-   git show "${PR_HEAD_TESTADO}:deploy/quiesce/watchdog.sh"                   > /tmp/watchdog.sh
-   git show "${PR_HEAD_TESTADO}:deploy/quiesce/op-wrap.sh"                    > /tmp/op-wrap.sh
-   git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > /tmp/normalize-external-id-duplicates.mjs
-   chmod 0500 /tmp/watchdog.sh /tmp/op-wrap.sh /tmp/normalize-external-id-duplicates.mjs
+   git show "${PR_HEAD_TESTADO}:deploy/quiesce/watchdog.sh"   > /tmp/watchdog.sh
+   git show "${PR_HEAD_TESTADO}:deploy/quiesce/op-wrap.sh"    > /tmp/op-wrap.sh
+   chmod 0500 /tmp/watchdog.sh /tmp/op-wrap.sh
 
    # Transferir para o diretório persistente no volume
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "mkdir -p '$QUIESCE_DIR' && chmod 0700 '$QUIESCE_DIR'"
 
-   for f in watchdog.sh op-wrap.sh normalize-external-id-duplicates.mjs; do
+   for f in watchdog.sh op-wrap.sh; do
      LOCAL_SHA="$(shasum -a 256 "/tmp/$f" | awk '{print $1}')"
      flyctl ssh sftp put "/tmp/$f" "$QUIESCE_DIR/$f" \
        -a reformaflow-api --machine "$MACHINE_ID" --mode 0500
@@ -153,15 +152,6 @@ completo.
    done
    ```
 
-   Só depois de todos os três conferirem, arme a machine **com `--skip-health-checks`** (o watchdog
-   não serve HTTP; uma verificação de health falharia):
-
-   ```bash
-   flyctl machine update "$MACHINE_ID" --app reformaflow-api \
-     --skip-health-checks \
-     --machine-config '{"init":{"entrypoint":null,"cmd":["sh","'"${QUIESCE_DIR}"'/watchdog.sh"]}}' --yes
-   ```
-
    O watchdog lê `QUIESCE_DIR` da env (default `/data/quiesce`). Defina a env da machine ou o comando
    implícito usa o default — neste runbook, exporte a env antes:
 
@@ -170,6 +160,25 @@ completo.
      --skip-health-checks \
      --env "QUIESCE_DIR=${QUIESCE_DIR}" \
      --machine-config '{"init":{"entrypoint":null,"cmd":["sh","'"${QUIESCE_DIR}"'/watchdog.sh"]}}' --yes
+   ```
+
+   Só depois de todos os dois conferirem, arme a machine **com `--skip-health-checks`** (o watchdog
+   não serve HTTP; uma verificação de health falharia).
+
+5. **Fase 2 — Transferir e conferir o normalizer (APÓS machine update):**
+   Após o `machine update` acima completar e a machine estar saudável, transferir o normalizer:
+
+   ```bash
+   git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > /tmp/normalize-external-id-duplicates.mjs
+   chmod 0500 /tmp/normalize-external-id-duplicates.mjs
+
+   LOCAL_SHA="$(shasum -a 256 /tmp/normalize-external-id-duplicates.mjs | awk '{print $1}')"
+   flyctl ssh sftp put /tmp/normalize-external-id-duplicates.mjs /app/normalize-external-id-duplicates.mjs \
+     -a reformaflow-api --machine "$MACHINE_ID" --mode 0500
+   REMOTE_SHA="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "sha256sum /app/normalize-external-id-duplicates.mjs" | awk '{print $1}')"
+   [ "$LOCAL_SHA" = "$REMOTE_SHA" ] || { echo "ABORT: checksum mismatch em normalizer ($LOCAL_SHA != $REMOTE_SHA)"; exit 1; }
+   echo "normalizer  $LOCAL_SHA  OK"
    ```
 
    Registre `RECOVERY_RUN` e `QUIESCE_DIR` apenas na operação privada. Não copie o repositório inteiro
@@ -232,17 +241,55 @@ completo.
    # Preserve REMOTE_MANIFEST in your operational evidence store (mode 0600, separate from this runbook)
    ```
 
-   Só então remova da machine os caminhos efêmeros exatos, sem wildcard — os três scripts (agora no
-   volume, não em `/app`), o manifest confidencial e o diretório único da janela:
+   Valide que `QUIESCE_DIR` segue o formato esperado e `REMOTE_MANIFEST` é um arquivo no Q:
 
-    ```bash
-    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-      --command "rm -f -- '$QUIESCE_DIR/watchdog.sh' '$QUIESCE_DIR/op-wrap.sh' '$QUIESCE_DIR/normalize-external-id-duplicates.mjs' '$REMOTE_MANIFEST' && rm -f -- '$QUIESCE_DIR/deadline' '$QUIESCE_DIR/lock' '$QUIESCE_DIR/RUN' '$QUIESCE_DIR/RUN.active' '$QUIESCE_DIR/DISARM' '$QUIESCE_DIR/op.pgid' '$QUIESCE_DIR/op.rc' '$QUIESCE_DIR/.publish.lock' '$QUIESCE_DIR/.mcur.'* '$QUIESCE_DIR/.run.'* '$QUIESCE_DIR/.put.'* '$QUIESCE_DIR/.dl.'* && rm -f -- '$QUIESCE_DIR'/*.log && rmdir -- '$QUIESCE_DIR' 2>/dev/null || true"
-    ```
+   ```bash
+   # Fail-closed validation: QUIESCE_DIR must be exactly /data/quiesce-<timestamp>
+   [[ "$QUIESCE_DIR" =~ ^/data/quiesce-[0-9]{8}T[0-9]{6}Z$ ]] \
+     || { echo "ABORT: QUIESCE_DIR format invalid: $QUIESCE_DIR"; exit 1; }
+   # REMOTE_MANIFEST must be a manifest.*.json file in QUIESCE_DIR
+   [[ "$REMOTE_MANIFEST" == "$QUIESCE_DIR"/manifest.*.json ]] \
+     || { echo "ABORT: REMOTE_MANIFEST not in $QUIESCE_DIR or wrong format: $REMOTE_MANIFEST"; exit 1; }
+   ```
 
-   O comando acima é tolerante a arquivos ausentes (`rm -f`), validando que `QUIESCE_DIR` é exatamente
-   o padrão esperado. Nada — os scripts, o manifest confidencial, o deadline, lock, logs ou artefatos
-   da janela — pode permanecer no rootfs ou no volume de dados depois da recuperação.
+   Restaure o entrypoint normal da machine ANTES de limpar (já executado no passo 10). Depois do
+   entrypoint normal estar ativo, remova o normalizer de `/app`:
+
+   ```bash
+   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "rm -f -- /app/normalize-external-id-duplicates.mjs"
+   ```
+
+   Então remova da machine os caminhos efêmeros exatos do `QUIESCE_DIR`, sem wildcard, sem rm -rf.
+   Lista exata: watchdog.sh, op-wrap.sh, manifest capturado, manifest.current, deadline, lock,
+   RUN, RUN.active, DISARM, op.pgid, op.pgid.raw, op.rc, .publish.lock, watchdog.log, op.log.
+   Arquivo inesperado deve falhar (não ser ocultado por `|| true`):
+
+   ```bash
+   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+     --command "set -e && \
+rm -f -- \\
+  '$QUIESCE_DIR/watchdog.sh' \\
+  '$QUIESCE_DIR/op-wrap.sh' \\
+  '$REMOTE_MANIFEST' \\
+  '$QUIESCE_DIR/manifest.current' \\
+  '$QUIESCE_DIR/deadline' \\
+  '$QUIESCE_DIR/lock' \\
+  '$QUIESCE_DIR/RUN' \\
+  '$QUIESCE_DIR/RUN.active' \\
+  '$QUIESCE_DIR/DISARM' \\
+  '$QUIESCE_DIR/op.pgid' \\
+  '$QUIESCE_DIR/op.pgid.raw' \\
+  '$QUIESCE_DIR/op.rc' \\
+  '$QUIESCE_DIR/.publish.lock' \\
+  '$QUIESCE_DIR/watchdog.log' \\
+  '$QUIESCE_DIR/op.log' && \\
+rmdir -- '$QUIESCE_DIR'"
+   ```
+
+   O comando acima é fail-closed (set -e): qualquer erro (arquivo inesperado não removido, diretório
+   não vazio) causa a falha. Nada — os scripts, o manifest confidencial, o deadline, lock, logs ou
+   artefatos da janela — pode permanecer no rootfs ou no volume de dados depois da recuperação.
 
 Não adicione `[processes] app="/entrypoint.sh"` ao `fly.toml`: isso não remove o override por machine.
 O `http_service.processes = ["app"]` existente basta depois que SRE limpa `init.entrypoint` e
