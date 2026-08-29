@@ -60,6 +60,8 @@ jobs:
         run: npm --workspace @reformaflow/domain run build
       - name: Generate Prisma Client
         run: npx prisma@5 generate --schema=prisma/schema.prisma
+      - name: Migration recovery operational tests
+        run: npm run test:migration-recovery
       - name: Prepare disposable test database (63 committed migrations)
         run: npm run test:db:prepare
       - name: Synthetic finance-center fixture contract (UTC)
@@ -107,6 +109,22 @@ jobs:
       - name: Run E2E responsive tests
         run: npm --workspace @reformaflow/web run test:e2e
 
+  quiesce-failsafe:
+    name: Quiesce Fail-Safe (native)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Assert Linux quiesce primitives are present
+        run: |
+          missing=""
+          for b in timeout setsid flock; do command -v "$b" >/dev/null 2>&1 || missing="$missing $b"; done
+          test -d /proc || missing="$missing /proc"
+          if [ -n "$missing" ]; then echo "missing required primitive(s):$missing"; exit 1; fi
+      - name: Syntax-check quiesce scripts
+        run: for f in deploy/quiesce/*.sh deploy/quiesce/test/*.sh; do sh -n "$f"; done
+      - name: Adversarial watchdog suite (hard-fail on missing primitives)
+        run: CI=1 npm run test:quiesce-failsafe
+
   build-web:
     name: Build Web
     runs-on: ubuntu-latest
@@ -129,7 +147,7 @@ jobs:
   build-api:
     name: Build API
     runs-on: ubuntu-latest
-    needs: [lint-and-typecheck, test-domain, test-api, test-web, e2e-web]
+    needs: [lint-and-typecheck, test-domain, test-api, test-web, e2e-web, quiesce-failsafe]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -156,7 +174,64 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Reject stale main deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          current_main="$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')"
+          if [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$GITHUB_SHA" != "$current_main" ]]; then
+            echo "Refusing stale main deploy."
+            exit 1
+          fi
       - name: Deploy to Fly
         run: flyctl deploy -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Validate deployed Fly machine
+        shell: bash
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          app="reformaflow-api"
+          machines="$(flyctl machines list --app "$app" --json)"
+          [[ "$(jq 'length' <<<"$machines")" -eq 1 ]]
+          machine_id="$(jq -r '.[0].id' <<<"$machines")"
+          machine_state="$(jq -r '.[0].state' <<<"$machines")"
+          deployed_sha="$(jq -r '.[0].image_ref.labels.GH_SHA // empty' <<<"$machines")"
+          [[ "$machine_state" == "started" ]]
+          [[ "$deployed_sha" == "$GITHUB_SHA" ]]
+
+          checks_healthy=false
+          for attempt in {1..30}; do
+            checks="$(flyctl checks list --app "$app" --json)"
+            if jq -e --arg id "$machine_id" \
+              'has($id) and (.[$id] | length == 1) and (.[$id][0].status == "passing")' \
+              <<<"$checks" >/dev/null; then
+              checks_healthy=true
+              break
+            fi
+            sleep 10
+          done
+          [[ "$checks_healthy" == "true" ]]
+
+          releases="$(flyctl releases --app "$app" --json)"
+          release_status="$(jq -r '.[0].Status // empty' <<<"$releases")"
+          release_image="$(jq -r '.[0].ImageRef // empty' <<<"$releases")"
+          machine_image="$(jq -r '.[0].config.image // empty' <<<"$machines")"
+          machine_image_without_digest="${machine_image%%@*}"
+          [[ "$release_status" == "complete" ]]
+          [[ -n "$machine_image" ]]
+          [[ "$release_image" == "$machine_image_without_digest" ]]
+
+          docs_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 2 --retry-delay 2 --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
+          auth_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --retry 2 --retry-delay 2 --output /dev/null --write-out '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
+          [[ "$docs_status" == "200" ]]
+          [[ "$auth_status" == "401" ]]
+
+          postdeploy_main="$(git ls-remote --exit-code origin refs/heads/main | awk '{print $1}')"
+          if [[ "$GITHUB_SHA" != "$postdeploy_main" ]]; then
+            echo "Main advanced during deploy; refusing a stale green release."
+            exit 1
+          fi
