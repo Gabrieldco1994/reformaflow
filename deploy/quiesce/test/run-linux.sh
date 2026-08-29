@@ -453,7 +453,7 @@ cp "$DEPLOY" "$M3"
 cp "$DEPLOY" "$M4"
 perl -0pi -e 's/\{"init":\{"entrypoint":null,"cmd":null\}\}/{"init":{"entrypoint":null,"cmd":"removed"}}/' "$M1"
 perl -0pi -e 's#https://reformaflow-api.fly.dev/api/docs-json#https://reformaflow-api.fly.dev/api/docs#' "$M2"
-perl -0pi -e 's#    case "\$QUIESCE_DIR" in#    case removed#; s#    case "\$REMOTE_MANIFEST" in#    case removed#' "$M3"
+perl -0pi -e 's#case "\$QUIESCE_DIR" in#case removed#g; s#case "\$REMOTE_MANIFEST" in#case removed#g' "$M3"
 perl -0pi -e 's/rmdir -- '\''\$QUIESCE_DIR'\''"/rmdir removed/' "$M4"
 
 for mutant in "$M1" "$M2" "$M3" "$M4"; do
