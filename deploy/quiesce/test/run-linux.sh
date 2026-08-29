@@ -348,6 +348,47 @@ i=0; while { [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; } && [ $i -lt 20 ]; do s
 gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
+echo "--- T16: persistent volume protocol enforced - QUIESCE_DIR unique per recovery, never /app ---"
+REPO="$HERE/../../.."
+proto_ok=1
+flag_proto(){ no "$1"; proto_ok=1; }
+for S in "$REPO/DEPLOY.md" "$REPO/deploy/quiesce/README.md"; do
+  b=$(basename "$S"); [ -f "$S" ] || { no "$S missing"; proto_ok=1; continue; }
+  # Machine init must NEVER point to /app for watchdog or op-wrap (ephemeral rootfs)
+  grep -Eq "cmd=\[\"sh\",\"/app/(watchdog|op-wrap)" "$S" && flag_proto "$b still has /app hardcoded in machine init cmd"
+  # QUIESCE_DIR must be unique per recovery, typically /data/quiesce-<RECOVERY_RUN>
+  grep -Eq 'QUIESCE_DIR=.*\$\(.*date.*RECOVERY_RUN|QUIESCE_DIR=\"/data/quiesce-' "$S" \
+    || grep -Eq 'RECOVERY_RUN=.*date.*%Y%m%dT%H%M%SZ' "$S" \
+    || flag_proto "$b lacks unique QUIESCE_DIR per recovery (should have RECOVERY_RUN timestamp)"
+  # --skip-health-checks must be present on machine update
+  grep -Fq -- "--skip-health-checks" "$S" || flag_proto "$b missing --skip-health-checks on machine update"
+  # op-wrap invocation must pass QUIESCE_DIR and use \$QUIESCE_DIR/op-wrap.sh, not /app/op-wrap.sh
+  grep -Eq "QUIESCE_DIR=.*sh '\\\$QUIESCE_DIR/op-wrap" "$S" \
+    || grep -Eq 'sh ['\''\"]\$\(QUIESCE_DIR\)['\''\"]/op-wrap' "$S" \
+    || flag_proto "$b op-wrap invocation does not use persistent QUIESCE_DIR path"
+done
+[ "$proto_ok" -eq 0 ] && ok "persistent volume protocol: QUIESCE_DIR unique, never /app, watchdog in volume, --skip-health-checks enforced" || true
+
+# ---------------------------------------------------------------------------
+echo "--- T17: cleanup is tolerant and exhaustive (rm -f, no leftover dirs) ---"
+REPO="$HERE/../../.."
+cleanup_ok=1
+flag_clean(){ no "$1"; cleanup_ok=1; }
+for S in "$REPO/DEPLOY.md"; do
+  b=$(basename "$S"); [ -f "$S" ] || { no "$S missing"; cleanup_ok=1; continue; }
+  # cleanup must use -f (tolerate missing) and remove the unique QUIESCE_DIR
+  grep -A 10 '### Encerrar' "$S" | grep -Eq 'rm -f -- .*QUIESCE_DIR' \
+    || flag_clean "$b cleanup does not use rm -f on QUIESCE_DIR"
+  # cleanup must not blindly rm -rf /data/quiesce (only the unique subdir)
+  grep -A 10 '### Encerrar' "$S" | grep -Eq 'rmdir|rm.*rf.*QUIESCE_DIR' \
+    || flag_clean "$b cleanup does not remove the unique directory"
+  # must not hardcode /data/quiesce as the target (that is the default, not the unique one)
+  grep -A 10 '### Encerrar' "$S" | grep -Eq "rm.*'/data/quiesce'" \
+    && flag_clean "$b cleanup references generic /data/quiesce instead of unique QUIESCE_DIR"
+done
+[ "$cleanup_ok" -eq 0 ] && ok "cleanup is tolerant (rm -f), exhaustive (unique dir), and never touches generic /data/quiesce"
+
+# ---------------------------------------------------------------------------
 echo "--- T15: no canonical source re-introduces the old /tmp-manifest / direct-normalizer protocol ---"
 REPO="$HERE/../../.."
 oldproto=0
