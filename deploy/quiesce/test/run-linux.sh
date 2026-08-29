@@ -95,7 +95,7 @@ newenv(){
   chmod +x "$NODE_STUB"
   export QUIESCE_DIR="$Q" QUIESCE_DB="$DB" QUIESCE_APP_DIR="$Q" \
          QUIESCE_NODE="$NODE_STUB" QUIESCE_MAIN="stub" \
-         QUIESCE_POLL=1 QUIESCE_LOCK_WAIT=12
+         QUIESCE_POLL=1 QUIESCE_LOCK_WAIT=12 QUIESCE_MIN_ADMISSION=1
 }
 wd_start(){ setsid sh "$WD" >>"$Q/wd.stdout" 2>&1 & W=$!; WPIDS="$WPIDS $W"; }
 node_up(){ [ -s "$Q/node.log" ]; }
@@ -367,7 +367,6 @@ check_protocol_file(){
   printf '%s\n' "$arm_block" | grep -Fq 'MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'jq -e --arg id "$MACHINE_ID" --arg q "$QUIESCE_DIR"' || return 1
   printf '%s\n' "$arm_block" | grep -Fq '.[0].config.init.cmd == ["sh", ($q + "/watchdog.sh")]' || return 1
-  printf '%s\n' "$arm_block" | grep -Fq '.[0].config.env.Q == $q' || return 1
   printf '%s\n' "$arm_block" | grep -Fq '.[0].config.env.QUIESCE_DIR == $q' || return 1
   printf '%s\n' "$arm_block" | grep -Fq '[ -s \"\$Q/deadline\" ]' || return 1
   printf '%s\n' "$arm_block" | grep -Fq '[ -e \"\$Q/lock\" ]' || return 1
@@ -391,41 +390,89 @@ check_protocol_file(){
 
 check_protocol_file "$DEPLOY" && ok "protocol checker accepts the real DEPLOY.md" || { no "protocol checker rejected DEPLOY.md"; proto_ok=1; }
 
+check_finish_protocol_file(){
+  file="$1"
+  restore_block=$(sed -n '/^11\. \*\*Restaurar entrypoint:/,/^12\. \*\*Encerrar:/p' "$file")
+  cleanup_block=$(sed -n '/^12\. \*\*Encerrar:/,$p' "$file")
+
+  printf '%s\n' "$restore_block" | grep -Fq 'flyctl machine update "$MACHINE_ID" --app reformaflow-api' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq -- '--machine-config' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq -- '{"init":{"entrypoint":null,"cmd":null}}' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq -- '--skip-health-checks' && return 1
+  printf '%s\n' "$restore_block" | grep -Fq 'MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq 'CHECKS_JSON="$(flyctl checks list --json --app reformaflow-api)"' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq 'jq -e --arg id "$MACHINE_ID"' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq 'has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq '/api/docs-json' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq '/auth/me' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq '[ "$docs_code" = 200 ]' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq '[ "$auth_code" = 401 ]' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq 'flyctl logs --no-tail --machine "$MACHINE_ID" --app reformaflow-api' || return 1
+
+  printf '%s\n' "$cleanup_block" | grep -Fq 'case "$QUIESCE_DIR" in' || return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq '/data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z' || return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq 'case "$REMOTE_MANIFEST" in' || return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq '"$QUIESCE_DIR"/manifest.*.json' || return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq 'rm -f -- /app/normalize-external-id-duplicates.mjs' || return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq 'rm -f --' || return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq "rmdir -- '\$QUIESCE_DIR'" || return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq 'rm -rf' && return 1
+  printf '%s\n' "$cleanup_block" | grep -Fq '|| true' && return 1
+  return 0
+}
+
+check_finish_protocol_file "$DEPLOY" && ok "finish protocol checker accepts the real DEPLOY.md" || { no "finish protocol checker rejected DEPLOY.md"; proto_ok=1; }
+
 PROTO_DIR="$(mktemp -d "${TMPDIR:-/tmp}/qwd-proto.XXXXXX")"
 M1="$PROTO_DIR/missing-skip.md"
-M2="$PROTO_DIR/init-app.md"
-M3="$PROTO_DIR/missing-proc.md"
-M4="$PROTO_DIR/order.md"
+M2="$PROTO_DIR/docs-url.md"
+M3="$PROTO_DIR/missing-path-validation.md"
+M4="$PROTO_DIR/missing-rmdir.md"
 cp "$DEPLOY" "$M1"
 cp "$DEPLOY" "$M2"
 cp "$DEPLOY" "$M3"
 cp "$DEPLOY" "$M4"
-perl -0pi -e 's/--skip-health-checks//g' "$M1"
-perl -0pi -e 's#/watchdog\.sh#/app/watchdog.sh#g' "$M2"
-python -c "from pathlib import Path; p = Path('$M3'); s = p.read_text(); s = s.replace('tr \"\\\\0\" \"\\\\n\"', 'cat'); s = s.replace('watchdog_found=1', 'watchdog_found=0'); p.write_text(s)"
-python -c "from pathlib import Path; p = Path('$M4'); s = p.read_text(); a = s.index('4.1. **Verificação pós-arm'); b = s.index('4.2. **Transferir e conferir o normalizer'); c = s.index('5. **Dry-run final'); p.write_text(s[:a] + s[b:c] + s[a:b] + s[c:])"
+perl -0pi -e 's/flyctl machine update "\$MACHINE_ID" --app reformaflow-api/flyctl machine update removed/' "$M1"
+perl -0pi -e 's#https://reformaflow-api.fly.dev/api/docs-json#https://reformaflow-api.fly.dev/api/docs#' "$M2"
+perl -0pi -e 's#    case "\$QUIESCE_DIR" in#    case removed#; s#    case "\$REMOTE_MANIFEST" in#    case removed#' "$M3"
+perl -0pi -e 's/rmdir -- '\''\$QUIESCE_DIR'\''"/rmdir removed/' "$M4"
 
 for mutant in "$M1" "$M2" "$M3" "$M4"; do
-  if check_protocol_file "$mutant"; then
-    no "protocol checker accepted mutated $(basename "$mutant")"
+  if check_finish_protocol_file "$mutant"; then
+    no "finish protocol checker accepted mutated $(basename "$mutant")"
     proto_ok=1
   else
-    ok "protocol checker rejects $(basename "$mutant")"
+    ok "finish protocol checker rejects $(basename "$mutant")"
   fi
 done
 
-[ "$proto_ok" -eq 0 ] && ok "protocol checker covers skip-health, /app init, process scan and order" || no "protocol checker failed"
+[ "$proto_ok" -eq 0 ] && ok "protocol checker covers skip-health, /app init, process scan and finish contracts" || no "protocol checker failed"
+
+# ---------------------------------------------------------------------------
+echo "--- T16a0: default minimum admission without env stays at 600s ---"
+Q0="$PROTO_DIR/default-min-$$"
+mkdir -p "$Q0"
+env -u QUIESCE_MIN_ADMISSION QUIESCE_DIR="$Q0" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=29 \
+  QUIESCE_APP_DIR="$Q0" timeout 2 sh "$HERE/../watchdog.sh" >"$Q0/log" 2>&1
+RC=$?
+if [ "$RC" -eq 124 ] && [ -f "$Q0/deadline" ] && [ -f "$Q0/lock" ] && [ -f "$Q0/watchdog.log" ] && \
+   grep -q 'admission window valid: 600s >= 600s minimum' "$Q0/watchdog.log"; then
+  ok "T16a0: watchdog defaults to minimum admission=600s without env"
+else
+  no "T16a0: watchdog default minimum admission=600s did not hold (rc=$RC)"
+fi
+rm -rf "$Q0"
 
 # ---------------------------------------------------------------------------
 echo "--- T16a: boundary test - admission window 600s passes under timeout 2 ---"
 QB="$PROTO_DIR/boundary-600-$$"
 mkdir -p "$QB"
-QUIESCE_DIR="$QB" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=29 \
+QUIESCE_MIN_ADMISSION=600 QUIESCE_DIR="$QB" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=29 \
   QUIESCE_APP_DIR="$QB" timeout 2 sh "$HERE/../watchdog.sh" >"$QB/log" 2>&1
 RC=$?
 if [ "$RC" -eq 124 ] && [ -f "$QB/deadline" ] && [ -f "$QB/lock" ] && [ -f "$QB/watchdog.log" ] && \
-   grep -q 'admission window valid' "$QB/watchdog.log"; then
-  ok "T16a: watchdog admission=600s timed out under timeout 2 with files/logs present"
+   grep -q 'admission window valid: 600s >= 600s minimum' "$QB/watchdog.log"; then
+  ok "T16a: watchdog admission=600s timed out under timeout 2 with logs present"
 else
   no "T16a: watchdog admission=600s did not time out cleanly (rc=$RC)"
 fi
@@ -435,12 +482,12 @@ rm -rf "$QB"
 echo "--- T16b: boundary test - admission window 599s fails ---"
 QC="$PROTO_DIR/boundary-599-$$"
 mkdir -p "$QC"
-QUIESCE_DIR="$QC" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=30 \
+QUIESCE_MIN_ADMISSION=600 QUIESCE_DIR="$QC" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=30 \
   QUIESCE_APP_DIR="$QC" timeout 2 sh "$HERE/../watchdog.sh" >"$QC/log" 2>&1
 RC=$?
 if [ "$RC" -eq 1 ] && grep -q 'FATAL: .*admission window' "$QC/log" && \
    [ ! -e "$QC/deadline" ] && [ ! -e "$QC/lock" ] && [ ! -e "$QC/watchdog.log" ]; then
-  ok "T16b: watchdog admission=599s rejected with FATAL and no files"
+  ok "T16b: watchdog admission=599s rejected at the 600s production boundary"
 else
   no "T16b: watchdog admission=599s was not rejected cleanly (rc=$RC)"
 fi

@@ -152,13 +152,13 @@ completo.
    done
    ```
 
-   O watchdog lê `QUIESCE_DIR` da env (default `/data/quiesce`). Defina a env da machine ou o comando
-   implícito usa o default — neste runbook, exporte a env antes:
+   O watchdog lê `QUIESCE_DIR` da env (default `/data/quiesce`) e `QUIESCE_MIN_ADMISSION`
+   (default `600`). Produção não define nem reduz esse knob; mantenha o default 600. Defina a env da
+   machine ou o comando implícito usa o default — neste runbook, exporte a env antes:
 
    ```bash
    flyctl machine update "$MACHINE_ID" --app reformaflow-api \
      --skip-health-checks \
-     --env "Q=${QUIESCE_DIR}" \
      --env "QUIESCE_DIR=${QUIESCE_DIR}" \
      --machine-config '{"init":{"entrypoint":null,"cmd":["sh","'"${QUIESCE_DIR}"'/watchdog.sh"]}}' --yes
    ```
@@ -177,7 +177,6 @@ completo.
       .[0].id == $id and
       .[0].state == "started" and
       .[0].config.init.cmd == ["sh", ($q + "/watchdog.sh")] and
-      .[0].config.env.Q == $q and
       .[0].config.env.QUIESCE_DIR == $q
     ' >/dev/null || {
       flyctl machine update "$MACHINE_ID" --app reformaflow-api \

@@ -33,26 +33,27 @@ TTL="${QUIESCE_TTL:-1500}"                 # 25m Node-direct backstop
 OP_TIMEOUT="${QUIESCE_OP_TIMEOUT:-480}"    # 8m hard cap on the chain (SIGTERM)
 KILL_AFTER="${QUIESCE_KILL_AFTER:-30}"     # +30s then SIGKILL the whole group
 MARGIN="${QUIESCE_MARGIN:-180}"            # >=3m gap between op hard-kill and deadline
+MIN_ADMISSION="${QUIESCE_MIN_ADMISSION:-600}"
 POLL="${QUIESCE_POLL:-5}"
 LOCK_WAIT="${QUIESCE_LOCK_WAIT:-1800}"
 
 # Validate timing parameters BEFORE creating any files (fail-closed)
-for _t in TTL OP_TIMEOUT KILL_AFTER MARGIN; do
+for _t in TTL OP_TIMEOUT KILL_AFTER MARGIN MIN_ADMISSION; do
   eval "_v=\$$_t"
   case "$_v" in
     ''|*[!0-9]*|0) echo "FATAL: $_t is not a positive integer: $_v" >&2; exit 1 ;;
   esac
 done
 ADMISSION=$(( TTL - OP_TIMEOUT - KILL_AFTER - MARGIN ))
-if [ "$ADMISSION" -lt 600 ]; then
-  echo "FATAL: admission window ${ADMISSION}s is < 600s minimum (TTL=$TTL - OP_TIMEOUT=$OP_TIMEOUT - KILL_AFTER=$KILL_AFTER - MARGIN=$MARGIN)" >&2
+if [ "$ADMISSION" -lt "$MIN_ADMISSION" ]; then
+  echo "FATAL: admission window ${ADMISSION}s is < ${MIN_ADMISSION}s minimum (TTL=$TTL - OP_TIMEOUT=$OP_TIMEOUT - KILL_AFTER=$KILL_AFTER - MARGIN=$MARGIN)" >&2
   exit 1
 fi
 
 mkdir -p "$Q"
 : > "$LOCK"
 log(){ echo "$(date -u +%FT%TZ) [wd $$] $*" >> "$Q/watchdog.log"; }
-log "admission window valid: ${ADMISSION}s >= 600s"
+log "admission window valid: ${ADMISSION}s >= ${MIN_ADMISSION}s minimum"
 
 # Signal a whole process group by negative pid. The exact accepted form varies
 # (sh builtin vs /bin/kill, with/without `--`); pick one that actually works
@@ -89,7 +90,7 @@ if [ "$FRESH" = 1 ]; then
   [ -f "$DL" ] || { log "FATAL: could not create deadline"; exit 1; }
 fi
 D="$(cat "$DL")"
-log "watchdog up fresh=$FRESH deadline=$D ($(( D - $(date +%s) ))s left) op_timeout=$OP_TIMEOUT kill_after=$KILL_AFTER margin=$MARGIN"
+log "watchdog up fresh=$FRESH deadline=$D ($(( D - $(date +%s) ))s left) op_timeout=$OP_TIMEOUT kill_after=$KILL_AFTER margin=$MARGIN min_admission=$MIN_ADMISSION admission=$ADMISSION"
 
 if _probe_group_kill; then
   log "group-signal form: [$GKFORM]"
