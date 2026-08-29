@@ -10,15 +10,16 @@ allowed-tools: Read, Glob, Grep, Bash
 
 ```bash
 git fetch origin
-git rev-parse origin/main
-git log --oneline -1 origin/main
+EXPECTED_SHA="$(git rev-parse origin/main)"
+git log --oneline -1 "$EXPECTED_SHA"
 ```
 
 Sempre compare o SHA completo, nunca abreviado.
 
 ## 2. Verificar o workflow do main
 
-Exija `deploy-api`, gates de stale-run antes e depois do deploy, e `cancel-in-progress: false`.
+Exija `deploy-api`, gates de stale-run antes e depois do deploy, `cancel-in-progress: false` e
+`headSha == EXPECTED_SHA` no run hospedado.
 
 ## 3. Verificar API, machine e checks
 
@@ -31,12 +32,13 @@ Exija `200` em `/api/docs-json` e `401` em `/auth/me`; não use `curl -f` para a
 
 ```bash
 MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"
-printf '%s\n' "$MACHINE_JSON" | jq -e --arg id "$MACHINE_ID" '
+printf '%s\n' "$MACHINE_JSON" | jq -e --arg id "$MACHINE_ID" --arg sha "$EXPECTED_SHA" '
   length == 1 and
   .[0].id == $id and
   .[0].state == "started" and
   (.[0].config.init.entrypoint // null) == null and
-  (.[0].config.init.cmd // null) == null
+  (.[0].config.init.cmd // null) == null and
+  .[0].image_ref.labels.GH_SHA == $sha
 '
 
 CHECKS_JSON="$(flyctl checks list --json --app reformaflow-api)"
