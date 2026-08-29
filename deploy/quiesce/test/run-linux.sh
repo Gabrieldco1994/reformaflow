@@ -379,7 +379,7 @@ check_protocol_file(){
   printf '%s\n' "$arm_block" | grep -Fq '[ -f \"\$Q/watchdog.log\" ]' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'argv0=\${1:-}' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'argv1=\${2:-}' || return 1
-  printf '%s\n' "$arm_block" | grep -Fq 'tr "\\0" "\\n"' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'tr \"\\0\" \"\\n\"' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'watchdog_found=1' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'node_direct_found=1' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'node_direct_found=0' || return 1
@@ -447,7 +447,7 @@ check_finish_protocol_file(){
   printf '%s\n' "$cleanup_block" | grep -Fq 'rm -f -- /app/normalize-external-id-duplicates.mjs' || return 1
   printf '%s\n' "$cleanup_block" | grep -Fq 'rm -f --' || return 1
   printf '%s\n' "$cleanup_block" | grep -Fq 'rmdir -- $QUIESCE_DIR' || return 1
-  printf '%s\n' "$cleanup_code_blocks" | grep -Fq '--command "set -e &&' && return 1
+  printf '%s\n' "$cleanup_code_blocks" | grep -Fq -- '--command "set -e &&' && return 1
   printf '%s\n' "$cleanup_code_blocks" | grep -Fq 'rm -rf' && return 1
   printf '%s\n' "$cleanup_code_blocks" | grep -Fq '|| true' && return 1
   return 0
