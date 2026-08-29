@@ -95,7 +95,8 @@ newenv(){
   chmod +x "$NODE_STUB"
   export QUIESCE_DIR="$Q" QUIESCE_DB="$DB" QUIESCE_APP_DIR="$Q" \
          QUIESCE_NODE="$NODE_STUB" QUIESCE_MAIN="stub" \
-         QUIESCE_POLL=1 QUIESCE_LOCK_WAIT=12 QUIESCE_MIN_ADMISSION=1
+         QUIESCE_POLL=1 QUIESCE_LOCK_WAIT=12 QUIESCE_MIN_ADMISSION=1 \
+         QUIESCE_OP_TIMEOUT=1 QUIESCE_KILL_AFTER=1 QUIESCE_MARGIN=1 QUIESCE_TTL=60
 }
 wd_start(){ setsid sh "$WD" >>"$Q/wd.stdout" 2>&1 & W=$!; WPIDS="$WPIDS $W"; }
 node_up(){ [ -s "$Q/node.log" ]; }
@@ -393,12 +394,24 @@ check_protocol_file "$DEPLOY" && ok "protocol checker accepts the real DEPLOY.md
 check_finish_protocol_file(){
   file="$1"
   restore_block=$(sed -n '/^11\. \*\*Restaurar entrypoint:/,/^12\. \*\*Encerrar:/p' "$file")
-  cleanup_block=$(sed -n '/^12\. \*\*Encerrar:/,$p' "$file")
+  restore_code_block=$(printf '%s\n' "$restore_block" | awk '
+    BEGIN { in_code = 0 }
+    /^    ```bash$/ { in_code = 1; next }
+    in_code && /^    ```$/ { exit }
+    in_code { print }
+  ')
+  cleanup_block=$(awk '
+    /^12\. \*\*Encerrar:/ { in_section = 1 }
+    in_section {
+      if ($0 ~ /^Não adicione\[processes\] app="\/entrypoint\.sh"/ || $0 ~ /^### /) exit
+      print
+    }
+  ' "$file")
 
   printf '%s\n' "$restore_block" | grep -Fq 'flyctl machine update "$MACHINE_ID" --app reformaflow-api' || return 1
   printf '%s\n' "$restore_block" | grep -Fq -- '--machine-config' || return 1
   printf '%s\n' "$restore_block" | grep -Fq -- '{"init":{"entrypoint":null,"cmd":null}}' || return 1
-  printf '%s\n' "$restore_block" | grep -Fq -- '--skip-health-checks' && return 1
+  printf '%s\n' "$restore_code_block" | grep -Fq -- '--skip-health-checks' && return 1
   printf '%s\n' "$restore_block" | grep -Fq 'MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"' || return 1
   printf '%s\n' "$restore_block" | grep -Fq 'CHECKS_JSON="$(flyctl checks list --json --app reformaflow-api)"' || return 1
   printf '%s\n' "$restore_block" | grep -Fq 'jq -e --arg id "$MACHINE_ID"' || return 1
