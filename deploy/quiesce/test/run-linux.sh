@@ -403,8 +403,8 @@ check_finish_protocol_file(){
   printf '%s\n' "$restore_block" | grep -Fq 'CHECKS_JSON="$(flyctl checks list --json --app reformaflow-api)"' || return 1
   printf '%s\n' "$restore_block" | grep -Fq 'jq -e --arg id "$MACHINE_ID"' || return 1
   printf '%s\n' "$restore_block" | grep -Fq 'has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")' || return 1
-  printf '%s\n' "$restore_block" | grep -Fq '/api/docs-json' || return 1
-  printf '%s\n' "$restore_block" | grep -Fq '/auth/me' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq 'https://reformaflow-api.fly.dev/api/docs-json' || return 1
+  printf '%s\n' "$restore_block" | grep -Fq 'https://reformaflow-api.fly.dev/auth/me' || return 1
   printf '%s\n' "$restore_block" | grep -Fq '[ "$docs_code" = 200 ]' || return 1
   printf '%s\n' "$restore_block" | grep -Fq '[ "$auth_code" = 401 ]' || return 1
   printf '%s\n' "$restore_block" | grep -Fq 'flyctl logs --no-tail --machine "$MACHINE_ID" --app reformaflow-api' || return 1
@@ -432,7 +432,7 @@ cp "$DEPLOY" "$M1"
 cp "$DEPLOY" "$M2"
 cp "$DEPLOY" "$M3"
 cp "$DEPLOY" "$M4"
-perl -0pi -e 's/flyctl machine update "\$MACHINE_ID" --app reformaflow-api/flyctl machine update removed/' "$M1"
+perl -0pi -e 's/\{"init":\{"entrypoint":null,"cmd":null\}\}/{"init":{"entrypoint":null,"cmd":"removed"}}/' "$M1"
 perl -0pi -e 's#https://reformaflow-api.fly.dev/api/docs-json#https://reformaflow-api.fly.dev/api/docs#' "$M2"
 perl -0pi -e 's#    case "\$QUIESCE_DIR" in#    case removed#; s#    case "\$REMOTE_MANIFEST" in#    case removed#' "$M3"
 perl -0pi -e 's/rmdir -- '\''\$QUIESCE_DIR'\''"/rmdir removed/' "$M4"
