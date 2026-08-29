@@ -371,6 +371,51 @@ done
 [ "$proto_ok" -eq 0 ] && ok "persistent volume protocol: QUIESCE_DIR unique, never /app, watchdog in volume, --skip-health-checks enforced" || no "protocol check failed: see flags above"
 
 # ---------------------------------------------------------------------------
+echo "--- T16a: boundary test - admission window 630s (>= 600s) passes ---"
+# TTL=1199, OP_TIMEOUT=480, KILL_AFTER=30, MARGIN=59 => admission = 1199 - 480 - 30 - 59 = 630s
+boundary_ok=0
+QB="$TMPDIR/q-t16a-$$"
+mkdir -p "$QB"
+: > "$QB/deadline"; echo $(( $(date +%s) + 1199 )) >> "$QB/deadline"
+QUIESCE_DIR="$QB" QUIESCE_TTL=1199 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=59 \
+  QUIESCE_APP_DIR="$QB" timeout 5 sh "$HERE/../watchdog.sh" >/dev/null 2>&1 &
+W=$!
+sleep 0.5
+if kill -0 "$W" 2>/dev/null; then
+  ok "watchdog started successfully with admission=630s (>= 600s minimum)"
+  kill -TERM "$W" 2>/dev/null
+  wait "$W" 2>/dev/null
+else
+  no "watchdog exited prematurely with admission=630s (should be valid)"
+  boundary_ok=1
+fi
+rm -rf "$QB"
+
+# ---------------------------------------------------------------------------
+echo "--- T16b: boundary test - admission window 599s (< 600s) fails ---"
+# TTL=1139, OP_TIMEOUT=480, KILL_AFTER=30, MARGIN=59 => admission = 1139 - 480 - 30 - 59 = 570s (< 600)
+QC="$TMPDIR/q-t16b-$$"
+mkdir -p "$QC"
+: > "$QC/deadline"; echo $(( $(date +%s) + 1139 )) >> "$QC/deadline"
+QUIESCE_DIR="$QC" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=29 \
+  QUIESCE_APP_DIR="$QC" timeout 5 sh "$HERE/../watchdog.sh" >"$QC/log" 2>&1 &
+W=$!
+sleep 0.5
+if ! kill -0 "$W" 2>/dev/null; then
+  if grep -q "admission window.*< 600" "$QC/log"; then
+    ok "watchdog rejected admission window 570s (< 600s minimum) with FATAL"
+  else
+    no "watchdog exited but no FATAL message for invalid admission window"
+    boundary_ok=1
+  fi
+else
+  no "watchdog still running with admission=570s (should have exited FATAL)"
+  boundary_ok=1
+  kill -TERM "$W" 2>/dev/null
+  wait "$W" 2>/dev/null
+fi
+rm -rf "$QC"
+
 echo "--- T17: cleanup is tolerant and exhaustive (rm -f, no leftover dirs) ---"
 REPO="$HERE/../../.."
 cleanup_ok=0

@@ -165,8 +165,36 @@ completo.
    Só depois de todos os dois conferirem, arme a machine **com `--skip-health-checks`** (o watchdog
    não serve HTTP; uma verificação de health falharia).
 
-5. **Fase 2 — Transferir e conferir o normalizer (APÓS machine update):**
-   Após o `machine update` acima completar e a machine estar saudável, transferir o normalizer:
+4.1. **Verificação pós-arm — Confirmar watchdog ativo e API quiescida:**
+
+    Antes de enviar o normalizer, valide que a machine iniciou corretamente com o watchdog:
+
+    ```bash
+    # Confirm exactly one machine, state=started, init.cmd points to watchdog
+    MACHINE_CHECK=$(flyctl machines list --json --app reformaflow-api | jq '.[] | select(.state=="started") | {id: .id, state: .state, cmd: .config.init.cmd, quiesce_dir: .config.env.QUIESCE_DIR}')
+    echo "Machine state: $MACHINE_CHECK"
+    echo "$MACHINE_CHECK" | jq 'select(.cmd | contains([.*, "watchdog.sh"]))' | jq -e '.quiesce_dir != null' \
+      || { echo "ABORT: machine init.cmd does not match QUIESCE_DIR/watchdog.sh"; exit 1; }
+
+    # Check on the guest: watchdog is running, deadline/lock created, Node-direct NOT running
+    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -c '
+      Q=\"${QUIESCE_DIR}\"
+      [ -f \"\$Q/watchdog.log\" ] || exit 1
+      [ -f \"\$Q/deadline\" ] && [ -s \"\$Q/deadline\" ] || exit 1
+      [ -f \"\$Q/lock\" ] || exit 1
+      pgrep -f \"/usr/local/bin/node.*apps/api/dist/main.js\" && exit 1 || true
+      exit 0
+    '" || { echo "ABORT: watchdog not confirmed operational"; exit 1; }
+    echo "✓ Watchdog confirmed active, API quiesced"
+    ```
+
+    **Notas:**
+    - Sem verificação de health HTTP (o watchdog não serve HTTP; é intencional)
+    - A machine está no estado de quiesce esperado: chain pode rodar, Node-direto aguarda
+    - Só então proceda à Fase 2
+
+5. **Fase 2 — Transferir e conferir o normalizer (APÓS machine update verificado):**
+   Após a verificação pós-arm acima confirmar que o watchdog está ativo e API quiescida, transferir o normalizer:
 
    ```bash
    git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > /tmp/normalize-external-id-duplicates.mjs
@@ -245,11 +273,15 @@ completo.
 
    ```bash
    # Fail-closed validation: QUIESCE_DIR must be exactly /data/quiesce-<timestamp>
-   [[ "$QUIESCE_DIR" =~ ^/data/quiesce-[0-9]{8}T[0-9]{6}Z$ ]] \
-     || { echo "ABORT: QUIESCE_DIR format invalid: $QUIESCE_DIR"; exit 1; }
+   case "$QUIESCE_DIR" in
+     /data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+     *) echo "ABORT: QUIESCE_DIR format invalid: $QUIESCE_DIR"; exit 1 ;;
+   esac
    # REMOTE_MANIFEST must be a manifest.*.json file in QUIESCE_DIR
-   [[ "$REMOTE_MANIFEST" == "$QUIESCE_DIR"/manifest.*.json ]] \
-     || { echo "ABORT: REMOTE_MANIFEST not in $QUIESCE_DIR or wrong format: $REMOTE_MANIFEST"; exit 1; }
+   case "$REMOTE_MANIFEST" in
+     "$QUIESCE_DIR"/manifest.*.json) ;;
+     *) echo "ABORT: REMOTE_MANIFEST not in $QUIESCE_DIR or wrong format: $REMOTE_MANIFEST"; exit 1 ;;
+   esac
    ```
 
    Restaure o entrypoint normal da machine ANTES de limpar (já executado no passo 10). Depois do
