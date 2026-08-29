@@ -123,7 +123,7 @@ completo.
    diretório único persistente no volume (nunca `/app`, que é efêmero): por exemplo `/data/quiesce-<RECOVERY_RUN>`
    onde `RECOVERY_RUN` é um timestamp como `20260828T210456Z`. Extraia, valide o checksum SHA-256 de
    `watchdog.sh` e `op-wrap.sh` — ambos do HEAD exato do PR que passou nos testes —
-   e só com os dois checksums idênticos local **e** remoto proceda ao `machine update` com `--skip-health-checks`.
+   e só com ambos os checksums idênticos local **e** remoto proceda ao `machine update` com `--skip-health-checks`.
 
    ```bash
    PR_HEAD_TESTADO="<sha-completo-testado>"
@@ -162,52 +162,69 @@ completo.
      --machine-config '{"init":{"entrypoint":null,"cmd":["sh","'"${QUIESCE_DIR}"'/watchdog.sh"]}}' --yes
    ```
 
-   Só depois de todos os dois conferirem, arme a machine **com `--skip-health-checks`** (o watchdog
+   Só depois de ambos conferirem, arme a machine **com `--skip-health-checks`** (o watchdog
    não serve HTTP; uma verificação de health falharia).
 
 4.1. **Verificação pós-arm — Confirmar watchdog ativo e API quiescida:**
 
-    Antes de enviar o normalizer, valide que a machine iniciou corretamente com o watchdog:
+    Antes de enviar o normalizer, capture o JSON uma única vez e valide a machine:
 
     ```bash
-    # Confirm exactly one machine, state=started, init.cmd and env match
-    MCOUNT=$(flyctl machines list --json --app reformaflow-api | jq 'length')
-    [ "$MCOUNT" -eq 1 ] || { echo "ABORT: expected exactly 1 machine, got $MCOUNT"; exit 1; }
+    MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"
+    printf '%s\n' "$MACHINE_JSON" | jq -e --arg id "$MACHINE_ID" --arg q "$QUIESCE_DIR" '
+      length == 1 and
+      .[0].id == $id and
+      .[0].state == "started" and
+      .[0].config.init.cmd == ["sh", ($q + "/watchdog.sh")] and
+      .[0].config.env.QUIESCE_DIR == $q
+    ' >/dev/null || {
+      flyctl machine update "$MACHINE_ID" --app reformaflow-api \
+        --machine-config '{"init":{"entrypoint":null,"cmd":["/usr/local/bin/node","apps/api/dist/main.js"]}}' --yes
+      echo "ABORT: machine does not match expected watchdog config" >&2
+      exit 1
+    }
 
-    flyctl machines list --json --app reformaflow-api | jq -e \
-      ".[] | select(.id == \"$MACHINE_ID\" and .state == \"started\" and .config.init.cmd == [\"sh\", \"${QUIESCE_DIR}/watchdog.sh\"] and .config.env.QUIESCE_DIR == \"${QUIESCE_DIR}\")" \
-      >/dev/null || { echo "ABORT: machine does not match expected config (init.cmd, env.QUIESCE_DIR)"; exit 1; }
-
-    # Check on the guest: watchdog is running, deadline/lock created, Node-direct NOT running
-    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -c '
+    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -ceu '
       Q=\"${QUIESCE_DIR}\"
+      [ -s \"\$Q/deadline\" ] || exit 1
+      [ -e \"\$Q/lock\" ] || exit 1
       [ -f \"\$Q/watchdog.log\" ] || exit 1
-      [ -f \"\$Q/deadline\" ] && [ -s \"\$Q/deadline\" ] || exit 1
-      [ -f \"\$Q/lock\" ] || exit 1
-      # Check that Node-direct (apps/api/dist/main.js) is NOT running
+      watchdog_found=0
+      node_direct_found=0
       for cmdline in /proc/[0-9]*/cmdline; do
         [ -r \"\$cmdline\" ] || continue
-        # Read cmdline, split on null bytes, check argv[0] and argv[1]
-        argv0=$(sed \"s/\\0.*/\\n/g\" \"\$cmdline\" | head -1)
-        argv1=$(sed \"s/[^\\0]*\\0//; s/\\0.*/\\n/g\" \"\$cmdline\" | head -1)
+        set -- \$(tr "\\0" "\\n" < \"\$cmdline\")
+        argv0=\${1:-}
+        argv1=\${2:-}
+        case \"\$argv0\" in
+          sh|/bin/sh)
+            [ \"\$argv1\" = \"\$Q/watchdog.sh\" ] && watchdog_found=1
+            ;;
+        esac
         if [ \"\$argv0\" = \"/usr/local/bin/node\" ] && [ \"\$argv1\" = \"apps/api/dist/main.js\" ]; then
-          echo \"FATAL: Node-direct is running (API not quiesced)\" >&2
-          exit 1
+          node_direct_found=1
         fi
       done
-      exit 0
-    '" || { echo "ABORT: watchdog not confirmed operational or API not quiesced"; exit 1; }
+      [ \"\$watchdog_found\" -eq 1 ] || exit 1
+      [ \"\$node_direct_found\" -eq 0 ] || exit 1
+    '" || {
+      flyctl machine update "$MACHINE_ID" --app reformaflow-api \
+        --machine-config '{"init":{"entrypoint":null,"cmd":["/usr/local/bin/node","apps/api/dist/main.js"]}}' --yes
+      echo "ABORT: watchdog not confirmed operational or API not quiesced" >&2
+      exit 1
+    }
     echo "✓ Watchdog confirmed active, API quiesced"
     ```
 
     **Notas:**
-    - Sem verificação de health HTTP (o watchdog não serve HTTP; é intencional)
-    - A machine está no estado de quiesce esperado: chain pode rodar, Node-direto aguarda
-    - Verificação de processo via /proc/*/cmdline (read-only, sem pgrep)
+    - Sem verificação de health HTTP enquanto armado
+    - A machine está no estado de quiesce esperado: a cadeia pode rodar, Node-direto aguarda
+    - Verificação de processo via `/proc/*/cmdline` usando `tr '\0' '\n'` (read-only, sem pgrep)
     - Só então proceda à Fase 2
 
-5. **Fase 2 — Transferir e conferir o normalizer (APÓS machine update verificado):**
-   Após a verificação pós-arm acima confirmar que o watchdog está ativo e API quiescida, transferir o normalizer:
+4.2. **Transferir e conferir o normalizer (APÓS a validação pós-arm):**
+   Após a verificação pós-arm acima confirmar que o watchdog está ativo e a API continua quiescida,
+   transferir o normalizer:
 
    ```bash
    git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > /tmp/normalize-external-id-duplicates.mjs
@@ -276,97 +293,94 @@ completo.
 10. **Disarm:** rode `op-wrap disarm`; o `watchdog.sh` sobe o Node-direto assim que o lock ficar livre
    (ou já teria subido pelo deadline absoluto / por um restart com lock livre).
 
-11. **Restaurar entrypoint:** Confirmada a API saudável após migrate deploy, remova o override emergencial
-   da machine (desta vez **SEM** `--skip-health-checks`, deixando o `machine update` validar health):
+11. **Restaurar entrypoint:** depois que o `op-wrap apply` retornar `rc 0` e a migration/índices
+   tiverem sido validados, limpe o override **sem** `--skip-health-checks` e espere a saúde:
 
    ```bash
    flyctl machine update "$MACHINE_ID" --app reformaflow-api \
      --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes
-   # aguarde machine estar healthy antes de continuar
-   flyctl machines list --json --app reformaflow-api | jq -e \
-     ".[] | select(.id == \"$MACHINE_ID\" and .state == \"started\")" >/dev/null \
-     || { echo "ABORT: machine did not recover after restore"; exit 1; }
 
-   # Confirme que a API está saudável: docs + auth/me + logs
-   RETRY_COUNT=0
-   while [ $RETRY_COUNT -lt 30 ]; do
-     curl -f -s https://reformaflow.fly.dev/api/docs > /dev/null 2>&1 && break
-     RETRY_COUNT=$((RETRY_COUNT + 1))
-     sleep 2
-   done
-   [ $RETRY_COUNT -lt 30 ] || { echo "ABORT: API docs endpoint not responding"; exit 1; }
+   MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"
+   printf '%s\n' "$MACHINE_JSON" | jq -e --arg id "$MACHINE_ID" '
+     length == 1 and
+     .[0].id == $id and
+     .[0].state == "started" and
+     (.[0].config.init.entrypoint // null) == null and
+     (.[0].config.init.cmd // null) == null
+   ' >/dev/null || { echo "ABORT: machine did not recover after restore"; exit 1; }
 
-   curl -f -s https://reformaflow.fly.dev/api/auth/me | jq -e '.statusCode == 401' >/dev/null \
-     || { echo "ABORT: API auth endpoint misbehaving"; exit 1; }
+   CHECKS_JSON="$(flyctl checks list --json --app reformaflow-api)"
+   printf '%s\n' "$CHECKS_JSON" | jq -e --arg id "$MACHINE_ID" '
+     has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")
+   ' >/dev/null || { echo "ABORT: machine checks are not exactly one passing check"; exit 1; }
 
-   # Confirme que migrate deploy completou (logs via flyctl)
-   flyctl logs --app reformaflow-api --machine "$MACHINE_ID" | grep -i "migrate deploy" | head -1 \
-     || { echo "ABORT: no migrate deploy evidence in logs"; exit 1; }
+   docs_code="$(curl -s -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
+   auth_code="$(curl -s -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
+   [ "$docs_code" = 200 ] || { echo "ABORT: /api/docs-json returned $docs_code"; exit 1; }
+   [ "$auth_code" = 401 ] || { echo "ABORT: /auth/me returned $auth_code"; exit 1; }
+
+   flyctl logs --app reformaflow-api --machine "$MACHINE_ID" --no-tail
    ```
 
-   O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
+   O Dockerfile `CMD` volta então a governar e o boot migrate-first fica comprovado pelo override
+   limpo, pelas migrations/índices validados e pela API saudável.
 
-12. **Encerrar:** preserve primeiro todas as evidências exigidas e confirme a cópia local `0600` do
-   manifest. Capture o path do manifest remoto antes de qualquer limpeza:
+12. **Encerrar:** preserve primeiro as evidências. Capture o path do manifest remoto antes de qualquer
+   limpeza:
    ```bash
    REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "cat '$QUIESCE_DIR/manifest.current'" 2>/dev/null || echo)"
    # Preserve REMOTE_MANIFEST in your operational evidence store (mode 0600, separate from this runbook)
    ```
 
-   Valide que `QUIESCE_DIR` segue o formato esperado e `REMOTE_MANIFEST` é um arquivo no Q:
+   Valide que `QUIESCE_DIR` segue o formato esperado e `REMOTE_MANIFEST` é um filho de `QUIESCE_DIR`:
 
    ```bash
-   # Fail-closed validation: QUIESCE_DIR must be exactly /data/quiesce-<timestamp>
    case "$QUIESCE_DIR" in
      /data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
      *) echo "ABORT: QUIESCE_DIR format invalid: $QUIESCE_DIR"; exit 1 ;;
    esac
-   # REMOTE_MANIFEST must be a manifest.*.json file in QUIESCE_DIR
    case "$REMOTE_MANIFEST" in
      "$QUIESCE_DIR"/manifest.*.json) ;;
      *) echo "ABORT: REMOTE_MANIFEST not in $QUIESCE_DIR or wrong format: $REMOTE_MANIFEST"; exit 1 ;;
    esac
    ```
 
-   Restaure o entrypoint normal da machine ANTES de limpar (já executado no passo 10). Depois do
-   entrypoint normal estar ativo, remova o normalizer de `/app`:
+   Depois do entrypoint normal estar ativo, remova o normalizer de `/app` (tolerante após reset do
+   rootfs):
 
    ```bash
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "rm -f -- /app/normalize-external-id-duplicates.mjs"
    ```
 
-   Então remova da machine os caminhos efêmeros exatos do `QUIESCE_DIR`, sem wildcard, sem rm -rf.
-   Lista exata: watchdog.sh, op-wrap.sh, manifest capturado, manifest.current, deadline, lock,
-   RUN, RUN.active, DISARM, op.pgid, op.pgid.raw, op.rc, .publish.lock, watchdog.log, op.log.
-   Arquivo inesperado deve falhar (não ser ocultado por `|| true`):
+   Então remova da machine os caminhos efêmeros exatos do `QUIESCE_DIR`, sem wildcard e sem `rm -rf`:
 
    ```bash
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "set -e && \
-rm -f -- \\
-  '$QUIESCE_DIR/watchdog.sh' \\
-  '$QUIESCE_DIR/op-wrap.sh' \\
-  '$REMOTE_MANIFEST' \\
-  '$QUIESCE_DIR/manifest.current' \\
-  '$QUIESCE_DIR/deadline' \\
-  '$QUIESCE_DIR/lock' \\
-  '$QUIESCE_DIR/RUN' \\
-  '$QUIESCE_DIR/RUN.active' \\
-  '$QUIESCE_DIR/DISARM' \\
-  '$QUIESCE_DIR/op.pgid' \\
-  '$QUIESCE_DIR/op.pgid.raw' \\
-  '$QUIESCE_DIR/op.rc' \\
-  '$QUIESCE_DIR/.publish.lock' \\
-  '$QUIESCE_DIR/watchdog.log' \\
-  '$QUIESCE_DIR/op.log' && \\
+rm -f -- \
+  '$QUIESCE_DIR/watchdog.sh' \
+  '$QUIESCE_DIR/op-wrap.sh' \
+  '$REMOTE_MANIFEST' \
+  '$QUIESCE_DIR/manifest.current' \
+  '$QUIESCE_DIR/deadline' \
+  '$QUIESCE_DIR/lock' \
+  '$QUIESCE_DIR/RUN' \
+  '$QUIESCE_DIR/RUN.active' \
+  '$QUIESCE_DIR/DISARM' \
+  '$QUIESCE_DIR/op.pgid' \
+  '$QUIESCE_DIR/op.pgid.raw' \
+  '$QUIESCE_DIR/op.rc' \
+  '$QUIESCE_DIR/.publish.lock' \
+  '$QUIESCE_DIR/watchdog.log' \
+  '$QUIESCE_DIR/op.log' && \
 rmdir -- '$QUIESCE_DIR'"
    ```
 
-   O comando acima é fail-closed (set -e): qualquer erro (arquivo inesperado não removido, diretório
-   não vazio) causa a falha. Nada — os scripts, o manifest confidencial, o deadline, lock, logs ou
-   artefatos da janela — pode permanecer no rootfs ou no volume de dados depois da recuperação.
+   O comando é fail-closed: qualquer arquivo inesperado que reste no volume faz `rmdir` falhar e
+   aborta a limpeza. Nada — scripts, manifest confidencial, deadline, lock, logs ou artefatos da
+   janela — pode permanecer no rootfs ou no volume depois da recuperação.
 
 Não adicione `[processes] app="/entrypoint.sh"` ao `fly.toml`: isso não remove o override por machine.
 O `http_service.processes = ["app"]` existente basta depois que SRE limpa `init.entrypoint` e

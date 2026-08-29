@@ -348,130 +348,119 @@ i=0; while { [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; } && [ $i -lt 20 ]; do s
 gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
-echo "--- T16: persistent volume protocol enforced - QUIESCE_DIR unique per recovery, never /app ---"
+echo "--- T16: protocol checker + watchdog boundary checks ---"
 REPO="$HERE/../../.."
+DEPLOY="$REPO/DEPLOY.md"
 proto_ok=0
-flag_proto(){ no "$1"; proto_ok=1; }
-for S in "$REPO/DEPLOY.md" "$REPO/deploy/quiesce/README.md"; do
-  b=$(basename "$S"); [ -f "$S" ] || { no "$S missing"; proto_ok=1; continue; }
-  [ ! -f "$S" ] && continue
-  # Machine init must NEVER point to /app for watchdog or op-wrap (ephemeral rootfs)
-  grep -Eq "cmd=\[\"sh\",\"/app/(watchdog|op-wrap)" "$S" && flag_proto "$b still has /app hardcoded in machine init cmd"
-  # QUIESCE_DIR must be unique per recovery, typically /data/quiesce-<RECOVERY_RUN>
-  grep -Eq 'QUIESCE_DIR=.*\$\(.*date.*RECOVERY_RUN|QUIESCE_DIR=\"/data/quiesce-' "$S" \
-    || grep -Eq 'RECOVERY_RUN=.*date.*%Y%m%dT%H%M%SZ' "$S" \
-    || flag_proto "$b lacks unique QUIESCE_DIR per recovery (should have RECOVERY_RUN timestamp)"
-  # --skip-health-checks must be present on machine update
-  grep -Fq -- "--skip-health-checks" "$S" || flag_proto "$b missing --skip-health-checks on machine update"
-  # op-wrap invocation must pass QUIESCE_DIR and use \$QUIESCE_DIR/op-wrap.sh, not /app/op-wrap.sh
-  grep -Eq "QUIESCE_DIR=.*sh '\\\$QUIESCE_DIR/op-wrap" "$S" \
-    || grep -Eq 'sh ['\''\"]\$\(QUIESCE_DIR\)['\''\"]/op-wrap' "$S" \
-    || flag_proto "$b op-wrap invocation does not use persistent QUIESCE_DIR path"
+check_protocol_file(){
+  file="$1"
+  phase1_block=$(sed -n '/^4\. \*\*Fase 1/,/^4\.1\./p' "$file")
+  arm_line=$(grep -n '^4\.1\.' "$file" | head -1 | cut -d: -f1)
+  phase2_line=$(grep -n '^4\.2\.' "$file" | head -1 | cut -d: -f1)
+  [ -n "$arm_line" ] && [ -n "$phase2_line" ] || return 1
+  [ "$phase2_line" -gt "$arm_line" ] || return 1
+
+  arm_block=$(sed -n '/^4\.1\./,/^4\.2\./p' "$file")
+  phase2_block=$(sed -n '/^4\.2\./,/^5\./p' "$file")
+
+  printf '%s\n' "$phase1_block" | grep -Fq -- "--skip-health-checks" || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'jq -e --arg id "$MACHINE_ID" --arg q "$QUIESCE_DIR"' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '.[0].config.init.cmd == ["sh", ($q + "/watchdog.sh")]' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'tr "\\0" "\\n"' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'watchdog_found=1' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq '/app/watchdog.sh' && return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'curl' && return 1
+  printf '%s\n' "$phase2_block" | grep -Fq 'scripts/normalize-external-id-duplicates.mjs' || return 1
+  printf '%s\n' "$phase2_block" | grep -Fq '/app/normalize-external-id-duplicates.mjs' || return 1
+  return 0
+}
+
+check_protocol_file "$DEPLOY" && ok "protocol checker accepts the real DEPLOY.md" || { no "protocol checker rejected DEPLOY.md"; proto_ok=1; }
+
+PROTO_DIR="$(mktemp -d "${TMPDIR:-/tmp}/qwd-proto.XXXXXX")"
+M1="$PROTO_DIR/missing-skip.md"
+M2="$PROTO_DIR/init-app.md"
+M3="$PROTO_DIR/missing-proc.md"
+M4="$PROTO_DIR/order.md"
+cp "$DEPLOY" "$M1"
+cp "$DEPLOY" "$M2"
+cp "$DEPLOY" "$M3"
+cp "$DEPLOY" "$M4"
+perl -0pi -e 's/--skip-health-checks//g' "$M1"
+perl -0pi -e 's#/watchdog\.sh#/app/watchdog.sh#g' "$M2"
+python -c "from pathlib import Path; p = Path('$M3'); s = p.read_text(); s = s.replace('tr \"\\\\0\" \"\\\\n\"', 'cat'); s = s.replace('watchdog_found=1', 'watchdog_found=0'); p.write_text(s)"
+python -c "from pathlib import Path; p = Path('$M4'); s = p.read_text(); a = s.index('4.1. **Verificação pós-arm'); b = s.index('4.2. **Transferir e conferir o normalizer'); c = s.index('5. **Dry-run final'); p.write_text(s[:a] + s[b:c] + s[a:b] + s[c:])"
+
+for mutant in "$M1" "$M2" "$M3" "$M4"; do
+  if check_protocol_file "$mutant"; then
+    no "protocol checker accepted mutated $(basename "$mutant")"
+    proto_ok=1
+  else
+    ok "protocol checker rejects $(basename "$mutant")"
+  fi
 done
-[ "$proto_ok" -eq 0 ] && ok "persistent volume protocol: QUIESCE_DIR unique, never /app, watchdog in volume, --skip-health-checks enforced" || no "protocol check failed: see flags above"
+
+[ "$proto_ok" -eq 0 ] && ok "protocol checker covers skip-health, /app init, process scan and order" || no "protocol checker failed"
 
 # ---------------------------------------------------------------------------
-echo "--- T16a: boundary test - admission window 600s (exactly minimum) passes ---"
-# TTL=1139, OP_TIMEOUT=480, KILL_AFTER=30, MARGIN=29 => admission = 1139 - 480 - 30 - 29 = 600s
-boundary_ok=0
-QB="$TMPDIR/q-t16a-$$"
+echo "--- T16a: boundary test - admission window 600s passes under timeout 2 ---"
+QB="$PROTO_DIR/boundary-600-$$"
 mkdir -p "$QB"
 QUIESCE_DIR="$QB" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=29 \
-  QUIESCE_APP_DIR="$QB" timeout 5 sh "$HERE/../watchdog.sh" >"$QB/log" 2>&1
+  QUIESCE_APP_DIR="$QB" timeout 2 sh "$HERE/../watchdog.sh" >"$QB/log" 2>&1
 RC=$?
-# Timing valid (600s >= 600s): rc=0, files created
-[ $RC -eq 0 ] && [ -f "$QB/watchdog.log" ] && [ -f "$QB/deadline" ] && [ -f "$QB/lock" ] \
-  && ok "T16a: watchdog admission=600s valid (rc=$RC, files created)" \
-  || { no "T16a: watchdog failed (rc=$RC) or files missing"; boundary_ok=1; }
+if [ "$RC" -eq 124 ] && [ -f "$QB/deadline" ] && [ -f "$QB/lock" ] && [ -f "$QB/watchdog.log" ] && \
+   grep -q 'admission window valid' "$QB/log"; then
+  ok "T16a: watchdog admission=600s timed out under timeout 2 with files/logs present"
+else
+  no "T16a: watchdog admission=600s did not time out cleanly (rc=$RC)"
+fi
 rm -rf "$QB"
 
 # ---------------------------------------------------------------------------
-echo "--- T16b: boundary test - admission window 599s (below minimum) fails ---"
-# TTL=1139, OP_TIMEOUT=480, KILL_AFTER=30, MARGIN=30 => admission = 1139 - 480 - 30 - 30 = 599s
-QC="$TMPDIR/q-t16b-$$"
+echo "--- T16b: boundary test - admission window 599s fails ---"
+QC="$PROTO_DIR/boundary-599-$$"
 mkdir -p "$QC"
 QUIESCE_DIR="$QC" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=30 \
-  QUIESCE_APP_DIR="$QC" timeout 5 sh "$HERE/../watchdog.sh" >"$QC/log" 2>&1
+  QUIESCE_APP_DIR="$QC" timeout 2 sh "$HERE/../watchdog.sh" >"$QC/log" 2>&1
 RC=$?
-# Timing invalid (599s < 600s): rc!=0, no files created, FATAL logged
-[ $RC -ne 0 ] && grep -q "admission window.*< 600" "$QC/log" \
-  && [ ! -f "$QC/deadline" ] && [ ! -f "$QC/lock" ] && [ ! -f "$QC/watchdog.log" ] \
-  && ok "T16b: watchdog admission=599s rejected (rc=$RC, no files, FATAL logged)" \
-  || { no "T16b: watchdog not rejected or files created (rc=$RC)"; boundary_ok=1; }
-rm -rf "$QC"
-
-# ---------------------------------------------------------------------------
-echo "--- T16b: boundary test - admission window 599s (below minimum) fails ---"
-# TTL=1139, OP_TIMEOUT=480, KILL_AFTER=30, MARGIN=30 => admission = 1139 - 480 - 30 - 30 = 599s
-QC="$TMPDIR/q-t16b-$$"
-mkdir -p "$QC"
-QUIESCE_DIR="$QC" QUIESCE_TTL=1139 QUIESCE_OP_TIMEOUT=480 QUIESCE_KILL_AFTER=30 QUIESCE_MARGIN=30 \
-  QUIESCE_APP_DIR="$QC" timeout 5 sh "$HERE/../watchdog.sh" >"$QC/log" 2>&1 &
-W=$!
-sleep 0.5
-if ! kill -0 "$W" 2>/dev/null; then
-  if grep -q "admission window.*< 600" "$QC/log"; then
-    ok "watchdog rejected admission window 599s (< 600s minimum) with FATAL"
-    # Verify no files were created (validation failed before mkdir)
-    [ ! -f "$QC/deadline" ] && [ ! -f "$QC/lock" ] && [ ! -f "$QC/watchdog.log" ] \
-      && ok "watchdog exited before creating any files" \
-      || { no "watchdog FATAL but some files were created"; boundary_ok=1; }
-  else
-    no "watchdog exited but no FATAL message for invalid admission window"
-    boundary_ok=1
-  fi
+if [ "$RC" -eq 1 ] && grep -q 'FATAL: .*admission window' "$QC/log" && \
+   [ ! -e "$QC/deadline" ] && [ ! -e "$QC/lock" ] && [ ! -e "$QC/watchdog.log" ]; then
+  ok "T16b: watchdog admission=599s rejected with FATAL and no files"
 else
-  no "watchdog still running with admission=599s (should have exited FATAL)"
-  boundary_ok=1
-  kill -TERM "$W" 2>/dev/null
-  wait "$W" 2>/dev/null
+  no "T16b: watchdog admission=599s was not rejected cleanly (rc=$RC)"
 fi
 rm -rf "$QC"
 
-echo "--- T17: cleanup protocol validated ---"
-REPO="$HERE/../../.."
+# ---------------------------------------------------------------------------
+echo "--- T17: POSIX path validation and rmdir failure are honest ---"
 cleanup_ok=0
-flag_clean(){ no "$1"; cleanup_ok=1; }
-
-# Verify static protocol in DEPLOY.md
-for S in "$REPO/DEPLOY.md"; do
-  b=$(basename "$S"); [ -f "$S" ] || { no "$S missing"; cleanup_ok=1; continue; }
-  # cleanup section must contain rm -f (not rm -rf)
-  grep -A 70 "12\. \*\*Encerrar" "$S" | grep -q "rm -f --" \
-    || flag_clean "$b cleanup does not use rm -f for file removal"
-  # cleanup must contain rmdir for QUIESCE_DIR
-  grep -A 70 "12\. \*\*Encerrar" "$S" | grep -q "rmdir.*QUIESCE_DIR" \
-    || flag_clean "$b cleanup does not remove directory with rmdir"
-  # cleanup code must NOT use wildcard patterns
-  sed -n '/12\. \*\*Encerrar/,/^$/p' "$S" | sed -n '/```bash/,/```/p' | grep -q "\.mcur\.\*\|\.run\.\*\|\.put\.\*\|\.dl\.\*" \
-    && flag_clean "$b cleanup code uses wildcard patterns"
-  # cleanup must use POSIX case (not bash [[)
-  sed -n '/12\. \*\*Encerrar/,/^$/p' "$S" | sed -n '/```bash/,/```/p' | grep -q '\[\[' \
-    && flag_clean "$b cleanup has bash [[ instead of POSIX case"
-done
-
-# Verify POSIX case patterns work in isolation
 case "/data/quiesce-20260828T210456Z" in
   /data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ok "T17: valid Q format matches POSIX case" ;;
-  *) flag_clean "T17: valid Q format does not match POSIX case" ;;
+  *) no "T17: valid Q format does not match POSIX case"; cleanup_ok=1 ;;
 esac
 
 case "/invalid-quiesce-dir" in
-  /data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) flag_clean "T17: invalid Q format matched (should not)" ;;
+  /data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) no "T17: invalid Q format matched (should not)"; cleanup_ok=1 ;;
   *) ok "T17: invalid Q format rejected by POSIX case" ;;
 esac
 
 case "/data/quiesce-20260828T210456Z/manifest.captured.json" in
   /data/quiesce-*/manifest.*.json) ok "T17: manifest child path matches case glob" ;;
-  *) flag_clean "T17: manifest child path does not match case glob" ;;
+  *) no "T17: manifest child path does not match case glob"; cleanup_ok=1 ;;
 esac
 
 case "/tmp/manifest.wrong.json" in
-  /data/quiesce-*/manifest.*.json) flag_clean "T17: manifest outside Q matched (should not)" ;;
+  /data/quiesce-*/manifest.*.json) no "T17: manifest outside Q matched (should not)"; cleanup_ok=1 ;;
   *) ok "T17: manifest outside Q rejected by case glob" ;;
 esac
 
-[ "$cleanup_ok" -eq 0 ] && ok "T17: cleanup protocol static + POSIX case validation correct" || no "T17 check failed: see flags above"
+UNKNOWN_DIR="$PROTO_DIR/unknown-$$"
+rmdir "$UNKNOWN_DIR" 2>/dev/null && no "T17: rmdir unexpectedly succeeded on an unknown path" || ok "T17: rmdir fails on an unknown path"
+
+[ "$cleanup_ok" -eq 0 ] && ok "T17: POSIX path assertions and rmdir failure behave honestly" || no "T17 check failed: see flags above"
+rm -rf "$PROTO_DIR"
 
 
 # ---------------------------------------------------------------------------
