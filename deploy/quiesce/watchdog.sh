@@ -36,9 +36,24 @@ MARGIN="${QUIESCE_MARGIN:-180}"            # >=3m gap between op hard-kill and d
 POLL="${QUIESCE_POLL:-5}"
 LOCK_WAIT="${QUIESCE_LOCK_WAIT:-1800}"
 
+# Validate timing parameters BEFORE creating any files (fail-closed)
+for _t in TTL OP_TIMEOUT KILL_AFTER MARGIN; do
+  eval "_v=\$$_t"
+  case "$_v" in
+    *[!0-9]*) echo "FATAL: $_ is not a positive integer: $_v" >&2; exit 1 ;;
+    0) echo "FATAL: $_ must be positive, got $_v" >&2; exit 1 ;;
+  esac
+done
+ADMISSION=$(( TTL - OP_TIMEOUT - KILL_AFTER - MARGIN ))
+if [ "$ADMISSION" -lt 600 ]; then
+  echo "FATAL: admission window ${ADMISSION}s is < 600s minimum (TTL=$TTL - OP_TIMEOUT=$OP_TIMEOUT - KILL_AFTER=$KILL_AFTER - MARGIN=$MARGIN)" >&2
+  exit 1
+fi
+
 mkdir -p "$Q"
 : > "$LOCK"
 log(){ echo "$(date -u +%FT%TZ) [wd $$] $*" >> "$Q/watchdog.log"; }
+log "admission window valid: ${ADMISSION}s >= 600s"
 
 # Signal a whole process group by negative pid. The exact accepted form varies
 # (sh builtin vs /bin/kill, with/without `--`); pick one that actually works
@@ -76,24 +91,6 @@ if [ "$FRESH" = 1 ]; then
 fi
 D="$(cat "$DL")"
 log "watchdog up fresh=$FRESH deadline=$D ($(( D - $(date +%s) ))s left) op_timeout=$OP_TIMEOUT kill_after=$KILL_AFTER margin=$MARGIN"
-
-# Validate admission window: TTL - OP_TIMEOUT - KILL_AFTER - MARGIN >= 600s
-# Otherwise the human runbook cannot arm, transfer normalizer, dry-run, review, and enqueue apply.
-# This check runs at startup so a tight (invalid) timeout kills the watchdog BEFORE arming,
-# fail-closed.
-for _t in OP_TIMEOUT KILL_AFTER MARGIN; do
-  eval "_v=\$$_t"
-  case "$_v" in
-    *[!0-9]*) log "FATAL: $_ is not a positive integer: $_v"; exit 1 ;;
-    0) log "FATAL: $_ must be positive, got $_v"; exit 1 ;;
-  esac
-done
-ADMISSION=$(( TTL - OP_TIMEOUT - KILL_AFTER - MARGIN ))
-if [ "$ADMISSION" -lt 600 ]; then
-  log "FATAL: admission window ${ADMISSION}s is < 600s minimum (TTL=$TTL - OP_TIMEOUT=$OP_TIMEOUT - KILL_AFTER=$KILL_AFTER - MARGIN=$MARGIN)"
-  exit 1
-fi
-log "admission window valid: ${ADMISSION}s >= 600s"
 
 if _probe_group_kill; then
   log "group-signal form: [$GKFORM]"

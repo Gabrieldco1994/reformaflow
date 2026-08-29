@@ -170,11 +170,13 @@ completo.
     Antes de enviar o normalizer, valide que a machine iniciou corretamente com o watchdog:
 
     ```bash
-    # Confirm exactly one machine, state=started, init.cmd points to watchdog
-    MACHINE_CHECK=$(flyctl machines list --json --app reformaflow-api | jq '.[] | select(.state=="started") | {id: .id, state: .state, cmd: .config.init.cmd, quiesce_dir: .config.env.QUIESCE_DIR}')
-    echo "Machine state: $MACHINE_CHECK"
-    echo "$MACHINE_CHECK" | jq 'select(.cmd | contains([.*, "watchdog.sh"]))' | jq -e '.quiesce_dir != null' \
-      || { echo "ABORT: machine init.cmd does not match QUIESCE_DIR/watchdog.sh"; exit 1; }
+    # Confirm exactly one machine, state=started, init.cmd and env match
+    MCOUNT=$(flyctl machines list --json --app reformaflow-api | jq 'length')
+    [ "$MCOUNT" -eq 1 ] || { echo "ABORT: expected exactly 1 machine, got $MCOUNT"; exit 1; }
+
+    flyctl machines list --json --app reformaflow-api | jq -e \
+      ".[] | select(.id == \"$MACHINE_ID\" and .state == \"started\" and .config.init.cmd == [\"sh\", \"${QUIESCE_DIR}/watchdog.sh\"] and .config.env.QUIESCE_DIR == \"${QUIESCE_DIR}\")" \
+      >/dev/null || { echo "ABORT: machine does not match expected config (init.cmd, env.QUIESCE_DIR)"; exit 1; }
 
     # Check on the guest: watchdog is running, deadline/lock created, Node-direct NOT running
     flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -c '
@@ -182,15 +184,26 @@ completo.
       [ -f \"\$Q/watchdog.log\" ] || exit 1
       [ -f \"\$Q/deadline\" ] && [ -s \"\$Q/deadline\" ] || exit 1
       [ -f \"\$Q/lock\" ] || exit 1
-      pgrep -f \"/usr/local/bin/node.*apps/api/dist/main.js\" && exit 1 || true
+      # Check that Node-direct (apps/api/dist/main.js) is NOT running
+      for cmdline in /proc/[0-9]*/cmdline; do
+        [ -r \"\$cmdline\" ] || continue
+        # Read cmdline, split on null bytes, check argv[0] and argv[1]
+        argv0=$(sed \"s/\\0.*/\\n/g\" \"\$cmdline\" | head -1)
+        argv1=$(sed \"s/[^\\0]*\\0//; s/\\0.*/\\n/g\" \"\$cmdline\" | head -1)
+        if [ \"\$argv0\" = \"/usr/local/bin/node\" ] && [ \"\$argv1\" = \"apps/api/dist/main.js\" ]; then
+          echo \"FATAL: Node-direct is running (API not quiesced)\" >&2
+          exit 1
+        fi
+      done
       exit 0
-    '" || { echo "ABORT: watchdog not confirmed operational"; exit 1; }
+    '" || { echo "ABORT: watchdog not confirmed operational or API not quiesced"; exit 1; }
     echo "✓ Watchdog confirmed active, API quiesced"
     ```
 
     **Notas:**
     - Sem verificação de health HTTP (o watchdog não serve HTTP; é intencional)
     - A machine está no estado de quiesce esperado: chain pode rodar, Node-direto aguarda
+    - Verificação de processo via /proc/*/cmdline (read-only, sem pgrep)
     - Só então proceda à Fase 2
 
 5. **Fase 2 — Transferir e conferir o normalizer (APÓS machine update verificado):**
@@ -234,8 +247,10 @@ completo.
    Registre privadamente o SHA-256 completo e as contagens `expectedGroups`/`expectedUpdates` emitidas.
    O dry-run não escreve no banco. Guarde a cópia baixada em armazenamento privado; nunca anexe o
    manifest.
+
 6. **Revisar:** compare inventário, escopo e invariantes do manifest. Pare se houver mutação de linha
    ativa, mudança fora do escopo ou diferença entre os inventários do dry-run e do backup.
+
 7. **Normalize/apply:** ainda sem writers, use exatamente o hash completo e contagens aprovados no
    dry-run. O `op-wrap apply` reusa o mesmo manifest do dry-run (`$QUIESCE_DIR/manifest.current`) e
    enfileira `normalize --apply && migrate resolve && migrate deploy` numa única cadeia supervisionada:
@@ -250,19 +265,49 @@ completo.
    ```
 
    Preserve o manifest `0600` apenas no armazenamento operacional privado.
+
 8. **Resolve:** faz parte da cadeia do `op-wrap apply` (`prisma migrate resolve --rolled-back`), que só
    roda **após** o `normalize --apply` retornar 0 — a tentativa falha nunca é marcada como aplicada
    antes de o SQL concluir. Confira o estado real da migration no `op-wrap status` / log.
+
 9. **Migrate:** também na mesma cadeia (`prisma migrate deploy`, só após o resolve). Confirme que a
    migration consta como aplicada (`last rc` = 0) e só então encerre a janela sem writers.
-10. **Disarm + entrypoint:** rode `op-wrap disarm`; o `watchdog.sh` sobe o Node-direto assim que o
-   lock ficar livre (ou já teria subido pelo deadline absoluto / por um restart com lock livre).
-   Confirmada a API saudável, SRE limpa o override emergencial da machine:
-   `flyctl machine update <machine-id> --skip-health-checks --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes`.
-   O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
-11. **Encerrar:** preserve primeiro todas as evidências exigidas e confirme a cópia local `0600` do
-   manifest. Capture o path do manifest remoto antes de qualquer limpeza:
 
+10. **Disarm:** rode `op-wrap disarm`; o `watchdog.sh` sobe o Node-direto assim que o lock ficar livre
+   (ou já teria subido pelo deadline absoluto / por um restart com lock livre).
+
+11. **Restaurar entrypoint:** Confirmada a API saudável após migrate deploy, remova o override emergencial
+   da machine (desta vez **SEM** `--skip-health-checks`, deixando o `machine update` validar health):
+
+   ```bash
+   flyctl machine update "$MACHINE_ID" --app reformaflow-api \
+     --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes
+   # aguarde machine estar healthy antes de continuar
+   flyctl machines list --json --app reformaflow-api | jq -e \
+     ".[] | select(.id == \"$MACHINE_ID\" and .state == \"started\")" >/dev/null \
+     || { echo "ABORT: machine did not recover after restore"; exit 1; }
+
+   # Confirme que a API está saudável: docs + auth/me + logs
+   RETRY_COUNT=0
+   while [ $RETRY_COUNT -lt 30 ]; do
+     curl -f -s https://reformaflow.fly.dev/api/docs > /dev/null 2>&1 && break
+     RETRY_COUNT=$((RETRY_COUNT + 1))
+     sleep 2
+   done
+   [ $RETRY_COUNT -lt 30 ] || { echo "ABORT: API docs endpoint not responding"; exit 1; }
+
+   curl -f -s https://reformaflow.fly.dev/api/auth/me | jq -e '.statusCode == 401' >/dev/null \
+     || { echo "ABORT: API auth endpoint misbehaving"; exit 1; }
+
+   # Confirme que migrate deploy completou (logs via flyctl)
+   flyctl logs --app reformaflow-api --machine "$MACHINE_ID" | grep -i "migrate deploy" | head -1 \
+     || { echo "ABORT: no migrate deploy evidence in logs"; exit 1; }
+   ```
+
+   O Dockerfile `CMD` volta então a governar e restaura o entrypoint migrate-first.
+
+12. **Encerrar:** preserve primeiro todas as evidências exigidas e confirme a cópia local `0600` do
+   manifest. Capture o path do manifest remoto antes de qualquer limpeza:
    ```bash
    REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "cat '$QUIESCE_DIR/manifest.current'" 2>/dev/null || echo)"

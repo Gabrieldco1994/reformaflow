@@ -106,7 +106,9 @@ the watchdog exec Node-direct. Then, once the API is healthy, SRE clears the
 machine override so the Dockerfile `CMD` (migrate-first entrypoint) governs again:
 
 ```sh
-flyctl machine update <machine-id> --skip-health-checks --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes
+# NOTE: Restore does NOT use --skip-health-checks; it waits for health.
+flyctl machine update <machine-id> --app reformaflow-api \
+  --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes
 ```
 
 After the normal entrypoint is restored, remove the normalizer from `/app`:
