@@ -121,18 +121,30 @@ flyctl ssh console --app reformaflow-api --machine <machine-id> \
 Then remove the shipped scripts and manifest from the machine (exact paths,
 no wildcard, exact list only) as part of evidence-preservation cleanup.
 Validate that `QUIESCE_DIR` matches the expected format and `REMOTE_MANIFEST`
-is a child of it. Use fail-closed cleanup (set -e):
+is a child of it. Use fail-closed cleanup (set -e, POSIX case):
 
 ```sh
 QUIESCE_DIR="/data/quiesce-<RECOVERY_RUN>"
 REMOTE_MANIFEST="<path-from-manifest.current>"
 
 flyctl ssh console --app reformaflow-api --machine <machine-id> \
-  --command "set -e && \
-[[ '$QUIESCE_DIR' =~ ^/data/quiesce-[0-9]{8}T[0-9]{6}Z$ ]] && \
-[[ '$REMOTE_MANIFEST' == '$QUIESCE_DIR'/manifest.*.json ]] && \
-rm -f -- \
-  '$QUIESCE_DIR/watchdog.sh' \
+  --command "set -e; case \"\$QUIESCE_DIR\" in /data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;; *) echo ABORT: invalid QUIESCE_DIR >&2; exit 1; esac; case \"\$REMOTE_MANIFEST\" in \"\$QUIESCE_DIR\"/manifest.*.json) ;; *) echo ABORT: manifest outside Q >&2; exit 1; esac; rm -f -- \
+  \"\$QUIESCE_DIR/watchdog.sh\" \
+  \"\$QUIESCE_DIR/op-wrap.sh\" \
+  \"\$REMOTE_MANIFEST\" \
+  \"\$QUIESCE_DIR/manifest.current\" \
+  \"\$QUIESCE_DIR/deadline\" \
+  \"\$QUIESCE_DIR/lock\" \
+  \"\$QUIESCE_DIR/RUN\" \
+  \"\$QUIESCE_DIR/RUN.active\" \
+  \"\$QUIESCE_DIR/DISARM\" \
+  \"\$QUIESCE_DIR/op.pgid\" \
+  \"\$QUIESCE_DIR/op.pgid.raw\" \
+  \"\$QUIESCE_DIR/op.rc\" \
+  \"\$QUIESCE_DIR/.publish.lock\" \
+  \"\$QUIESCE_DIR/watchdog.log\" \
+  \"\$QUIESCE_DIR/op.log\"; rmdir -- \"\$QUIESCE_DIR\""
+```
   '$QUIESCE_DIR/op-wrap.sh' \
   '$REMOTE_MANIFEST' \
   '$QUIESCE_DIR/manifest.current' \

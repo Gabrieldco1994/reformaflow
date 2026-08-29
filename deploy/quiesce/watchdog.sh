@@ -40,8 +40,7 @@ LOCK_WAIT="${QUIESCE_LOCK_WAIT:-1800}"
 for _t in TTL OP_TIMEOUT KILL_AFTER MARGIN; do
   eval "_v=\$$_t"
   case "$_v" in
-    *[!0-9]*) echo "FATAL: $_ is not a positive integer: $_v" >&2; exit 1 ;;
-    0) echo "FATAL: $_ must be positive, got $_v" >&2; exit 1 ;;
+    ''|*[!0-9]*|0) echo "FATAL: $_t is not a positive integer: $_v" >&2; exit 1 ;;
   esac
 done
 ADMISSION=$(( TTL - OP_TIMEOUT - KILL_AFTER - MARGIN ))
