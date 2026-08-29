@@ -201,6 +201,39 @@ completo.
       echo "ABORT: watchdog not confirmed operational or API not quiesced" >&2
       exit 1
     }
+
+    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" --command "sh -ceu '
+      Q=\"${QUIESCE_DIR}\"
+      [ -s \"\$Q/deadline\" ] || exit 1
+      [ -e \"\$Q/lock\" ] || exit 1
+      [ -f \"\$Q/watchdog.log\" ] || exit 1
+      watchdog_found=0
+      node_direct_found=0
+      for cmdline in /proc/[0-9]*/cmdline; do
+        [ -r \"\$cmdline\" ] || continue
+        set -- \$(tr \"\\0\" \"\\n\" < \"\$cmdline\")
+        argv0=\${1:-}
+        argv1=\${2:-}
+        case \"\$argv0\" in
+          sh|/bin/sh)
+            [ \"\$argv1\" = \"\$Q/watchdog.sh\" ] && watchdog_found=1
+            ;;
+        esac
+        if [ \"\$argv0\" = \"/usr/local/bin/node\" ] && [ \"\$argv1\" = \"apps/api/dist/main.js\" ]; then
+          node_direct_found=1
+        fi
+      done
+      [ \"\$watchdog_found\" -eq 1 ] || exit 1
+      [ \"\$node_direct_found\" -eq 0 ] || exit 1
+    '" || {
+      flyctl machine update "$MACHINE_ID" --app reformaflow-api \
+        --machine-config '{"init":{"entrypoint":["/usr/local/bin/node"],"cmd":["apps/api/dist/main.js"]}}' --yes
+      flyctl checks list --json --app reformaflow-api | jq -e --arg id "$MACHINE_ID" '
+        has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")
+      ' >/dev/null || { echo "ABORT: emergency restore did not return health"; exit 1; }
+      echo "ABORT: watchdog not confirmed operational or API not quiesced" >&2
+      exit 1
+    }
     echo "✓ Watchdog confirmed active, API quiesced"
     ```
 

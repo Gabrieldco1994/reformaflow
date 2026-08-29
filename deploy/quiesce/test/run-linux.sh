@@ -383,6 +383,8 @@ check_protocol_file(){
   printf '%s\n' "$arm_block" | grep -Fq 'watchdog_found=1' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'node_direct_found=1' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'node_direct_found=0' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq 'op-wrap.sh\" status' || return 1
+  printf '%s\n' "$arm_block" | grep -Fq -- '--command "sh -ceu ' || return 1
   printf '%s\n' "$arm_block" | grep -Fq 'pgrep' && return 1
   printf '%s\n' "$arm_block" | grep -Fq '/app/watchdog.sh' && return 1
   printf '%s\n' "$arm_block" | grep -Fq 'curl' && return 1
@@ -476,12 +478,21 @@ perl -0pi -e 's/--command "sh -lc /--command /g' "$M5"
 perl -0pi -e 's/--command "mkdir -p -- \$QUIESCE_DIR"/--command "mkdir -p -- \$QUIESCE_DIR && chmod 0700 -- \$QUIESCE_DIR"/' "$M6"
 perl -0pi -e 's/--command "rm -f -- \$QUIESCE_DIR\/watchdog\.sh/--command "set -e && rm -f -- \$QUIESCE_DIR\/watchdog\.sh/' "$M7"
 
-for mutant in "$M1" "$M2" "$M3" "$M4" "$M5" "$M6" "$M7"; do
+for mutant in "$M1" "$M2" "$M3" "$M4" "$M7"; do
   if check_finish_protocol_file "$mutant"; then
     no "finish protocol checker accepted mutated $(basename "$mutant")"
     proto_ok=1
   else
     ok "finish protocol checker rejects $(basename "$mutant")"
+  fi
+done
+
+for mutant in "$M5" "$M6"; do
+  if check_protocol_file "$mutant"; then
+    no "protocol checker accepted mutated $(basename "$mutant")"
+    proto_ok=1
+  else
+    ok "protocol checker rejects $(basename "$mutant")"
   fi
 done
 
