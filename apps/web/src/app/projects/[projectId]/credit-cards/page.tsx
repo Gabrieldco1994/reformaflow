@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
@@ -56,6 +56,7 @@ export default function CreditCardsPage() {
   const [editing, setEditing] = useState<CardRow | null>(null);
   const [linksFor, setLinksFor] = useState<CardRow | null>(null);
   const [historyFor, setHistoryFor] = useState<CardRow | null>(null);
+  const consumedFocusDeepLinkKey = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,17 +83,22 @@ export default function CreditCardsPage() {
 
   // Deep-link: ?focus=closingDay&last4=XXXX auto-opens card edit
   useEffect(() => {
-    if (loading || searchParams.get('focus') !== 'closingDay') return;
+    if (loading || loadError !== null || searchParams.get('focus') !== 'closingDay') return;
+    const deepLinkKey = `${projectId}?${searchParams.toString()}`;
+    if (consumedFocusDeepLinkKey.current === deepLinkKey) return;
+
     const targetLast4 = searchParams.get('last4');
-    const target = targetLast4 ? cards.find((c) => c.last4 === targetLast4) : cards[0];
-    if (target) {
-      setEditing(target);
+    const matches = targetLast4 ? cards.filter((card) => card.last4 === targetLast4) : [];
+    consumedFocusDeepLinkKey.current = deepLinkKey;
+
+    if (matches.length === 1) {
+      setEditing(matches[0]);
       setFormOpen(true);
     } else if (cards.length === 0) {
       setEditing(null);
       setFormOpen(true);
     }
-  }, [loading, cards, searchParams]);
+  }, [loading, loadError, cards, projectId, searchParams]);
 
   // Deep-link: ?new=1 auto-opens new card form
   useEffect(() => {

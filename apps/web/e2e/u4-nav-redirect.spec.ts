@@ -136,9 +136,14 @@ test.describe('U4 AC3: query preservada e deep-links de cartão acionáveis', ()
   test('/credit-cards?focus=closingDay&last4=XXXX abre a edição do cartão certo', async ({ page, baseURL }) => {
     await page.clock.setFixedTime(new Date('2026-08-21T12:00:00.000Z'));
     await mockApi(page, baseURL!);
+    let cardsGetCount = 0;
     await page.route('http://localhost:3001/**', async (route) => {
       const path = new URL(route.request().url()).pathname;
-      if (path === `/projects/${PESSOAL_ID}/credit-cards` || path === '/tenant/credit-cards') {
+      if (
+        route.request().method() === 'GET' &&
+        (path === `/projects/${PESSOAL_ID}/credit-cards` || path === '/tenant/credit-cards')
+      ) {
+        cardsGetCount += 1;
         return route.fulfill(json([
           { id: 'c-1111', last4: '1111', institution: 'ITAU', brand: 'VISA', nickname: 'Itaú' },
           { id: 'c-4242', last4: '4242', institution: 'NUBANK', brand: 'MASTERCARD', nickname: 'Roxinho' },
@@ -150,11 +155,63 @@ test.describe('U4 AC3: query preservada e deep-links de cartão acionáveis', ()
     await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/credit-cards`), { timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Editar cartão' })).toBeVisible();
     await expect(page.locator('input.font-mono')).toHaveValue('4242');
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await expect.poll(() => cardsGetCount).toBe(2);
+    await page.waitForTimeout(100);
+    await expect(page).toHaveURL(
+      `/projects/${PESSOAL_ID}/credit-cards?focus=closingDay&last4=4242`,
+    );
+    await expect(page.getByRole('heading', { name: 'Editar cartão' })).toHaveCount(0);
   });
 
-  test('/credit-cards?new=1 SEM módulo creditCards → /no-permission', async ({ page, baseURL }) => {
-    const modules = ALL_MODULES.filter((m) => m !== 'creditCards');
-    await mockApi(page, baseURL!, { role: 'USER', modules });
+  test('focus com GET 500 exibe erro sem abrir formulário', async ({ page, baseURL }) => {
+    await page.clock.setFixedTime(new Date('2026-08-21T12:00:00.000Z'));
+    await mockApi(page, baseURL!);
+    await page.route('http://localhost:3001/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (
+        route.request().method() === 'GET' &&
+        path === `/projects/${PESSOAL_ID}/credit-cards`
+      ) {
+        return route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'erro interno' }),
+        });
+      }
+      return route.fallback();
+    });
+
+    await page.goto(`/projects/${PESSOAL_ID}/credit-cards?focus=closingDay&last4=4242`);
+    await expect(page.getByRole('heading', { name: 'Não foi possível carregar os cartões' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^(Editar|Novo) cartão$/ })).toHaveCount(0);
+  });
+
+  test('focus com last4 duplicado não escolhe uma edição arbitrária', async ({ page, baseURL }) => {
+    await page.clock.setFixedTime(new Date('2026-08-21T12:00:00.000Z'));
+    await mockApi(page, baseURL!);
+    await page.route('http://localhost:3001/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (
+        route.request().method() === 'GET' &&
+        path === `/projects/${PESSOAL_ID}/credit-cards`
+      ) {
+        return route.fulfill(json([
+          { id: 'c-a', last4: '4242', institution: 'ITAU', brand: 'VISA', nickname: 'Cartão A' },
+          { id: 'c-b', last4: '4242', institution: 'NUBANK', brand: 'MASTERCARD', nickname: 'Cartão B' },
+        ]));
+      }
+      return route.fallback();
+    });
+
+    await page.goto(`/projects/${PESSOAL_ID}/credit-cards?focus=closingDay&last4=4242`);
+    await expect(page.getByText('Cartão A', { exact: true })).toBeVisible();
+    await expect(page.getByText('Cartão B', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Editar cartão' })).toHaveCount(0);
+  });
+
+  test('/credit-cards?new=1 com allowedProjectTypes=[] → /no-permission', async ({ page, baseURL }) => {
+    await mockApi(page, baseURL!, { role: 'USER', projectTypes: [] });
     await page.goto(`/projects/${PESSOAL_ID}/credit-cards?new=1`);
     await expect(page).toHaveURL(/\/no-permission/, { timeout: 10_000 });
   });
