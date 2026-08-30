@@ -800,29 +800,17 @@ test.describe('U2 shell mobile — overlay único e foco', () => {
 // ───────────────────────────────────────────────────────────────────────────
 
 test.describe('U2 shell mobile — preservação de mês', () => {
-  // U2-P14 — monthly → conta pelo DOCK: mês sobrevive. Falha em dois pontos hoje
-  // (MobileTabBar monta href sem query; conta/page.tsx:29 ignora ?mes). A 2ª
-  // asserção (conta mostra março) impede o verde vazio.
-  test('375 — U2-P14 mês sobrevive ao toque no dock (monthly → conta)', async ({ page, baseURL }) => {
+  // U2-P14 owns the rendered dock href; U2-P20 owns destination month
+  // interpretation; U2-P17 owns real mobile dock click/launch behavior.
+  test('375 — U2-P14 dock Conta href preserva o mês (monthly → conta)', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
-    // Aquecimento deliberado, não é cosmético. Causa raiz medida (issue
-    // #581): em `next dev`, quando /conta é a PRIMEIRA rota compilada sob
-    // demanda no processo do webServer desta suíte, o clique no dock nunca
-    // navega — não "demora" (reproduzido com timeout de 20s numa única
-    // tentativa e a URL nunca mudou; ver trace no corpo do PR). Contra
-    // `next build && next start` (sem compilação sob demanda) a mesma
-    // sequência passa de forma determinística — a causa é do ambiente de
-    // dev, não do roteamento real (`MobileTabBar`/`next/link` seguem
-    // corretos). Visitar /conta uma vez antes do fluxo cronometrado força
-    // essa compilação fora da janela do assert.
-    await page.goto(`/projects/${PESSOAL_ID}/conta`);
     await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}`);
     const conta = page.locator('[data-dock-slot="conta"]');
     await expect(conta, 'slot conta ausente no dock — Lane A ainda não marcou').toBeVisible();
-    await conta.click();
-    await expect(page, 'dock dropou o mês (href sem ?mes)').toHaveURL(new RegExp(`/conta\\?.*mes=${TEST_MONTH}`));
-    await expect(page.locator('main'), '/conta ignorou ?mes (mostra o mês corrente)').toContainText(TEST_MONTH_LABEL);
-    await expect(page.locator('main')).not.toContainText(CURRENT_MONTH_LABEL);
+    await expect(conta, 'P14 deve assinar o href renderizado do dock').toHaveAttribute(
+      'href',
+      `/projects/${PESSOAL_ID}/conta?mes=${TEST_MONTH}`,
+    );
   });
 
   // U2-P15 — monthly → Mais: o SHELL carrega `?mes` na URL. É só o que MINHA
