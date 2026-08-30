@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { useProject } from '@/contexts/project-context';
 import { useAuth } from '@/contexts/auth-context';
@@ -29,6 +29,7 @@ export default function ExpensesPage() {
   const { hasModule } = useAuth();
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const routeProjectId = String(params?.projectId ?? projectId);
   const type = projectType as ProjectType;
   const shouldRedirectToAvulsas = !hasNavRoute(type, 'expenses') && hasNavRoute(type, 'bills');
@@ -47,9 +48,10 @@ export default function ExpensesPage() {
     } else if (noPermission) {
       router.replace('/no-permission');
     } else if (shouldRedirectToHub) {
-      router.replace(`/projects/${routeProjectId}/conta`);
+      const query = searchParams.toString();
+      router.replace(`/projects/${routeProjectId}/conta${query ? `?${query}` : ''}`);
     }
-  }, [shouldRedirectToAvulsas, noPermission, shouldRedirectToHub, routeProjectId, router]);
+  }, [shouldRedirectToAvulsas, noPermission, shouldRedirectToHub, routeProjectId, router, searchParams]);
 
   if (shouldRedirectToAvulsas || noPermission || shouldRedirectToHub) {
     return null;

@@ -111,6 +111,55 @@ test('#536: /bank-accounts preserva integralmente a query no redirect', async ({
   );
 });
 
+// ─── AC3 (#453): deep-links / query preservada no redirect ao hub ──────────
+test.describe('U4 AC3: query preservada e deep-links de cartão acionáveis', () => {
+  for (const slug of ['expenses', 'receipts', 'credit-cards']) {
+    test(`/${slug} preserva ordem, params desconhecidos e duplicados`, async ({ page, baseURL }) => {
+      await page.clock.setFixedTime(new Date('2026-08-21T12:00:00.000Z'));
+      await mockApi(page, baseURL!);
+      await page.goto(`/projects/${PESSOAL_ID}/${slug}?b=2&a=1&a=3&zzz=x`);
+      await expect(page).toHaveURL(
+        `/projects/${PESSOAL_ID}/conta?b=2&a=1&a=3&zzz=x`,
+        { timeout: 10_000 },
+      );
+    });
+  }
+
+  test('/credit-cards?new=1 abre o form "Novo cartão"', async ({ page, baseURL }) => {
+    await page.clock.setFixedTime(new Date('2026-08-21T12:00:00.000Z'));
+    await mockApi(page, baseURL!);
+    await page.goto(`/projects/${PESSOAL_ID}/credit-cards?new=1`);
+    await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/credit-cards`), { timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Novo cartão' })).toBeVisible();
+  });
+
+  test('/credit-cards?focus=closingDay&last4=XXXX abre a edição do cartão certo', async ({ page, baseURL }) => {
+    await page.clock.setFixedTime(new Date('2026-08-21T12:00:00.000Z'));
+    await mockApi(page, baseURL!);
+    await page.route('http://localhost:3001/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === `/projects/${PESSOAL_ID}/credit-cards` || path === '/tenant/credit-cards') {
+        return route.fulfill(json([
+          { id: 'c-1111', last4: '1111', institution: 'ITAU', brand: 'VISA', nickname: 'Itaú' },
+          { id: 'c-4242', last4: '4242', institution: 'NUBANK', brand: 'MASTERCARD', nickname: 'Roxinho' },
+        ]));
+      }
+      return route.fallback();
+    });
+    await page.goto(`/projects/${PESSOAL_ID}/credit-cards?focus=closingDay&last4=4242`);
+    await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/credit-cards`), { timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Editar cartão' })).toBeVisible();
+    await expect(page.locator('input.font-mono')).toHaveValue('4242');
+  });
+
+  test('/credit-cards?new=1 SEM módulo creditCards → /no-permission', async ({ page, baseURL }) => {
+    const modules = ALL_MODULES.filter((m) => m !== 'creditCards');
+    await mockApi(page, baseURL!, { role: 'USER', modules });
+    await page.goto(`/projects/${PESSOAL_ID}/credit-cards?new=1`);
+    await expect(page).toHaveURL(/\/no-permission/, { timeout: 10_000 });
+  });
+});
+
 // ─── CASO 1: sem módulo da página → /no-permission ─────────────────────────
 test.describe('U4-10 caso 1: sem módulo → /no-permission', () => {
   for (const slug of ['bank-accounts', 'expenses']) {

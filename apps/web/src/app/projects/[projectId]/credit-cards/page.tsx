@@ -40,6 +40,14 @@ export default function CreditCardsPage() {
   // suportado no PESSOAL. As QUATRO rotas colapsadas usam a mesma condição —
   // divergir uma delas já foi defeito antes. Travado por u4-nav-redirect (U4-10c/d).
   const shouldRedirectToHub = navCollapsed && hasModule('creditCards');
+  // AC3 (#453): `?new=1` e `?focus=closingDay&last4=...` são deep-links
+  // ACIONÁVEIS consumidos pelos useEffects abaixo (abrem "Novo cartão" / edição
+  // do cartão). O hub `/conta` não os consome, então para esses casos a página
+  // legada monta e executa a ação. `noPermission` continua avaliado primeiro
+  // (sem o módulo `creditCards` → /no-permission mesmo com deep-link). Bare
+  // `/credit-cards` segue redirecionando INCONDICIONALMENTE (#529 / U4-10c/d).
+  const cardDeepLink =
+    searchParams.get('new') === '1' || searchParams.get('focus') === 'closingDay';
 
   const [cards, setCards] = useState<CardRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,12 +105,13 @@ export default function CreditCardsPage() {
   useEffect(() => {
     if (noPermission) {
       router.replace('/no-permission');
-    } else if (shouldRedirectToHub) {
-      router.replace(`/projects/${projectId}/conta`);
+    } else if (shouldRedirectToHub && !cardDeepLink) {
+      const query = searchParams.toString();
+      router.replace(`/projects/${projectId}/conta${query ? `?${query}` : ''}`);
     }
-  }, [noPermission, shouldRedirectToHub, projectId, router]);
+  }, [noPermission, shouldRedirectToHub, cardDeepLink, projectId, router, searchParams]);
 
-  if (noPermission || shouldRedirectToHub) {
+  if (noPermission || (shouldRedirectToHub && !cardDeepLink)) {
     return null;
   }
 

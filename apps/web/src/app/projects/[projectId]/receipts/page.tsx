@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/auth-context';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { canReadBudgetAllocations } from '@/lib/budget-allocation-access';
@@ -44,6 +44,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function ReceiptsPage() {
   const { projectId: PROJECT_ID, projectType } = useProject();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user: authUser, hasModule } = useAuth();
   const queryClient = useQueryClient();
   const type = projectType as ProjectType;
@@ -386,9 +387,10 @@ export default function ReceiptsPage() {
     if (noPermission) {
       router.replace('/no-permission');
     } else if (shouldRedirectToHub) {
-      router.replace(`/projects/${PROJECT_ID}/conta`);
+      const query = searchParams.toString();
+      router.replace(`/projects/${PROJECT_ID}/conta${query ? `?${query}` : ''}`);
     }
-  }, [noPermission, shouldRedirectToHub, PROJECT_ID, router]);
+  }, [noPermission, shouldRedirectToHub, PROJECT_ID, router, searchParams]);
 
   if (noPermission || shouldRedirectToHub) {
     return null;
