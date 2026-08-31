@@ -35,13 +35,13 @@ const accounts = [
 ];
 const expenses = [
   { valorTotal: 250_000, status: 'PAGO', dataPagamento: D('2026-02-10'), createdAt: D('2026-02-10'),
-    bankLast4: '0001', importId: null }, // −R$2.500 realizado
+    bankLast4: '0001', importId: null, projectId: PESSOAL }, // −R$2.500 realizado
   { valorTotal: 900_000, status: 'PLANEJADO', dataPagamento: D('2026-07-01'), createdAt: D('2026-06-01'),
-    bankLast4: '0001', importId: null }, // futuro → §10 ignora
+    bankLast4: '0001', importId: null, projectId: PESSOAL }, // futuro → §10 ignora
 ];
 const receipts = [
-  { valor: 300_000, status: 'EM_CAIXA', data: D('2026-03-01'), bankLast4: '0001', importId: null }, // +R$3.000
-  { valor: 500_000, status: 'PREVISTO', data: D('2026-06-30'), bankLast4: '0001', importId: null }, // §10 ignora
+  { valor: 300_000, status: 'EM_CAIXA', data: D('2026-03-01'), bankLast4: '0001', importId: null, tipo: 'OUTROS' }, // +R$3.000
+  { valor: 500_000, status: 'PREVISTO', data: D('2026-06-30'), bankLast4: '0001', importId: null, tipo: 'OUTROS' }, // §10 ignora
 ];
 
 // Oracle = §10 primary-only (conta ancorada acc1); a isca acc2 fica de fora por construção.
@@ -104,6 +104,24 @@ describe('Motor Único — paridade §10 entre os consumidores (mesmo fixture, s
   it('monthly.getOverview.caixa.hoje === §10 (tela /monthly)', async () => {
     const overview = await monthly.getOverview(TENANT, PESSOAL);
     expect(overview.caixa.hoje).toBe(ORACLE.hoje);
+  });
+
+  // O OUTRO lado vivo do canario de prod (#95): /conta le o §10 via computeAccountView
+  // (query Prisma + eleicao de conta proprias antes do kernel). O canario semanal so
+  // compara getOverview.caixa.hoje x getAccountView.caixaHoje AS CEGAS — aqui provamos,
+  // sobre o MESMO fixture, que ambos convergem para o ORACLE do §10.
+  it('monthly.getAccountView.caixaHoje === §10 (tela /conta — lado par do canario #95)', async () => {
+    const accountView = await monthly.getAccountView(TENANT, PESSOAL);
+    expect(accountView.caixaHoje).toBe(ORACLE.hoje);
+  });
+
+  it('getOverview.caixa.hoje === getAccountView.caixaHoje === §10 (o par que o canario de prod cobre as cegas)', async () => {
+    const [overview, accountView] = await Promise.all([
+      monthly.getOverview(TENANT, PESSOAL),
+      monthly.getAccountView(TENANT, PESSOAL),
+    ]);
+    expect(overview.caixa.hoje).toBe(accountView.caixaHoje);
+    expect(accountView.caixaHoje).toBe(ORACLE.hoje);
   });
 
   it('tenant-financial.caixaTotal === §10 (motor consolidado interno)', async () => {
