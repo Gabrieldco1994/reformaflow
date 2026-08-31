@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
@@ -40,6 +40,14 @@ export default function CreditCardsPage() {
   // suportado no PESSOAL. As QUATRO rotas colapsadas usam a mesma condição —
   // divergir uma delas já foi defeito antes. Travado por u4-nav-redirect (U4-10c/d).
   const shouldRedirectToHub = navCollapsed && hasModule('creditCards');
+  // AC3 (#453): `?new=1` e `?focus=closingDay&last4=...` são deep-links
+  // ACIONÁVEIS consumidos pelos useEffects abaixo (abrem "Novo cartão" / edição
+  // do cartão). O hub `/conta` não os consome, então para esses casos a página
+  // legada monta e executa a ação. `noPermission` continua avaliado primeiro
+  // (sem o módulo `creditCards` → /no-permission mesmo com deep-link). Bare
+  // `/credit-cards` segue redirecionando INCONDICIONALMENTE (#529 / U4-10c/d).
+  const cardDeepLink =
+    searchParams.get('new') === '1' || searchParams.get('focus') === 'closingDay';
 
   const [cards, setCards] = useState<CardRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +56,7 @@ export default function CreditCardsPage() {
   const [editing, setEditing] = useState<CardRow | null>(null);
   const [linksFor, setLinksFor] = useState<CardRow | null>(null);
   const [historyFor, setHistoryFor] = useState<CardRow | null>(null);
+  const consumedFocusDeepLinkKey = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,17 +83,22 @@ export default function CreditCardsPage() {
 
   // Deep-link: ?focus=closingDay&last4=XXXX auto-opens card edit
   useEffect(() => {
-    if (loading || searchParams.get('focus') !== 'closingDay') return;
+    if (loading || loadError !== null || searchParams.get('focus') !== 'closingDay') return;
+    const deepLinkKey = `${projectId}?${searchParams.toString()}`;
+    if (consumedFocusDeepLinkKey.current === deepLinkKey) return;
+
     const targetLast4 = searchParams.get('last4');
-    const target = targetLast4 ? cards.find((c) => c.last4 === targetLast4) : cards[0];
-    if (target) {
-      setEditing(target);
+    const matches = targetLast4 ? cards.filter((card) => card.last4 === targetLast4) : [];
+    consumedFocusDeepLinkKey.current = deepLinkKey;
+
+    if (matches.length === 1) {
+      setEditing(matches[0]);
       setFormOpen(true);
     } else if (cards.length === 0) {
       setEditing(null);
       setFormOpen(true);
     }
-  }, [loading, cards, searchParams]);
+  }, [loading, loadError, cards, projectId, searchParams]);
 
   // Deep-link: ?new=1 auto-opens new card form
   useEffect(() => {
@@ -97,12 +111,13 @@ export default function CreditCardsPage() {
   useEffect(() => {
     if (noPermission) {
       router.replace('/no-permission');
-    } else if (shouldRedirectToHub) {
-      router.replace(`/projects/${projectId}/conta`);
+    } else if (shouldRedirectToHub && !cardDeepLink) {
+      const query = searchParams.toString();
+      router.replace(`/projects/${projectId}/conta${query ? `?${query}` : ''}`);
     }
-  }, [noPermission, shouldRedirectToHub, projectId, router]);
+  }, [noPermission, shouldRedirectToHub, cardDeepLink, projectId, router, searchParams]);
 
-  if (noPermission || shouldRedirectToHub) {
+  if (noPermission || (shouldRedirectToHub && !cardDeepLink)) {
     return null;
   }
 
