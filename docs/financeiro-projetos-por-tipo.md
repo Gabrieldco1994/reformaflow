@@ -6,13 +6,19 @@
 > Entrega documental da **U6a ([#455](https://github.com/Gabrieldco1994/reformaflow/issues/455))**.
 >
 > **Natureza: somente spec.** Nenhuma linha de produto ou runtime decorre deste documento.
-> **U6b ([#456](https://github.com/Gabrieldco1994/reformaflow/issues/456)) permanece BLOQUEADA**
-> até aprovação explícita de architect, lenses e PO. Este documento não escolhe fórmula, store,
-> migration, backfill nem serviço — essas decisões continuam livres para o architect de U6b.
+> **U6b ([#456](https://github.com/Gabrieldco1994/reformaflow/issues/456)) NÃO foi implementada.**
+> A **build 1** é a lente `by-type` — agrupamento por `project.type` **frontend-only, read-only,
+> dentro de `/conta`**, sem endpoint, query ou mutation novos. Estado: **design fechado**
+> (architect + 8 lentes + security PASS), **RED spec definido**, **aguardando autorização de
+> implementação do PO**; nada em produção. Os endpoints `upcoming` e `top-suppliers` **não fazem
+> parte da build 1** — são follow-up aprovado e rastreado em
+> [#635](https://github.com/Gabrieldco1994/reformaflow/issues/635), backend não autorizado nesta
+> rodada. Continua sendo **zero fórmula, store, migration ou backfill**.
 >
-> **Método:** cada linha foi derivada do **código vivo** em `main` `9da93391`, não da descrição do
-> plano. Onde o código e um doc/plano divergem, a divergência está registrada na §6 e escalada —
-> nunca silenciada e nunca resolvida por conta própria.
+> **Método:** cada linha foi derivada do **código vivo** em `main` (`9da93391` na redação original;
+> **matriz re-ratificada pelo architect (v2) contra `1da83286`** em 2026-08-31, conteúdo dos mapas
+> de capacidade inalterado onde verificado). Onde o código e um doc/plano divergem, a divergência
+> está registrada na §6 e escalada — nunca silenciada e nunca resolvida por conta própria.
 >
 > **Não reformula** os contratos normativos existentes:
 > [estado do Cockpit PESSOAL](estado-atual-cockpit-pessoal.md),
@@ -22,11 +28,21 @@
 > [datas e timezone](politica-datas-timezone.md).
 > Em divergência, esses vencem para fórmula e comportamento já entregue.
 >
-> **Status (2026-08-19):** proposta submetida ao PO. **Não normativo enquanto não aprovado.**
-> Nenhuma promessa deste documento pode ser copiada para o manual antes de chegar ao runtime.
-> O PO decidiu **A-1** (destino do `/financeiro`), **A-2** (CASA/CARRO seguem em Avulsas),
-> **A-3** (o invariante O8 vale e U6b não o renegocia) e a **dispensa do gate do B2** — todas
-> registradas na **§7**. **Não há decisão pendente.**
+> **Status (2026-08-31):** spec **mergeada** (#506); **A-1/A-2/A-3 decididas** em 2026-08-19
+> (destino do `/financeiro`; CASA/CARRO seguem em Avulsas; o invariante O8 vale e U6b não o
+> renegocia), além da **dispensa do gate do B2** — todas registradas na **§7**. A **matriz foi
+> re-ratificada contra `1da83286`**. A **U6b build 1** (lente `by-type`, frontend-only, read-only
+> em `/conta`) tem **design fechado** (architect + 8 lentes + security PASS) e **RED spec
+> definido**, mas **aguarda autorização de implementação do PO** — nada em produção. Os endpoints
+> `upcoming`/`top-suppliers` são follow-up aprovado (#635), fora desta rodada. Nenhuma promessa
+> deste documento chega ao manual antes do runtime.
+>
+> **Nota (B4 — `$use`/transação):** transaction clients não podem depender do `$use` para
+> segurança de tenant/soft-delete. `$use` roda dentro de `$transaction`, mas o middleware atual só
+> intercepta findMany/findFirst/delete/deleteMany; findUnique nunca é interceptado. Toda query
+> transacional futura aplica tenantId, deletedAt e ACL explicitamente e ganha teste próprio.
+> U6b/by-type não cria transação, query nem mutation, portanto B4 é N/A para o PR frontend e
+> permanece guardrail do follow-up backend (#635).
 
 ---
 
@@ -70,7 +86,7 @@ Deltas verificados entre as três fontes. `Δ gate` = está no gate mas não é 
 | **COMPRA** | `expenses`, `dashboard`, `priceCompare` | os 3 + `creditCards` | `dashboard`, `expenses`, `price-compare` | `creditCards` | — |
 | **CASA** | `dashboard`, `recurringBills`, `maintenance`, `reminders`, `expenses`, `financing` | idênticos | `dashboard`, `bills`, `financing`, `maintenance`, `reminders` | — | `expenses` (**intencional**, #369) |
 | **CARRO** | idênticos aos de CASA | os 6 + `carInfo`, `vehicleDocuments` | `dashboard`, `car-info`, `bills`, `vehicle-documents`, `financing`, `maintenance`, `reminders` | `carInfo`, `vehicleDocuments` | `expenses` (**intencional**, #369) |
-| **PESSOAL** | `monthlyOverview`, `dashboard`, `expenses`, `receipts`, `cashFlow`, `creditCards`, `bankAccounts`, `recurrences` | os 8 + `pendencias` | 14 linhas (`monthly`, `conta`, `dre`, `neutros`, `expenses`, `receipts`, `recorrentes`, `metas`, `planning`, `planejador`, `budget-allocation`, `cash-flow`, `credit-cards`, `bank-accounts`) | `pendencias` | `pendencias`; `recurrences` (ver §6 D-3) |
+| **PESSOAL** | `monthlyOverview`, `dashboard`, `expenses`, `receipts`, `cashFlow`, `creditCards`, `bankAccounts`, `recurrences` | os 8 + `pendencias` | **9 linhas** (`monthly`, `conta`, `dre`, `neutros`, `recorrentes`, `metas`, `planning`, `planejador`, `cash-flow`) | `pendencias` | `pendencias`; `recurrences`, `receipts`, `creditCards`, `bankAccounts` (capacidade/gate sem linha de nav — ver §1.3 e §6 D-3) |
 | **PLANTAS** | `dashboard`, `maintenance`, `reminders`, `plantsAi` | idênticos | `dashboard` (rotulado **"Cronograma"**), `plants-ai`, `plants`, `maintenance`, `reminders` | — | — |
 
 #### 1.1 CASA/CARRO: `expenses` é capacidade retida, não rota
@@ -101,6 +117,16 @@ tipo sem `expenses` no gate.
 
 **Ausência deliberada é resposta de spec, não lacuna.** PLANTAS entra na matriz como
 **"sem financeiro por design"**; U6b não deve criar superfície financeira para ele.
+
+#### 1.3 PESSOAL: nav colapsada de 13 → 9, com redirect que preserva query
+
+`PROJECT_NAV[PESSOAL]` tinha 13 linhas na redação original; hoje tem **9**. Saíram as cinco rotas
+financeiras de drill-down — `expenses`, `receipts`, `credit-cards`, `bank-accounts` (U4 #528, "nav
+13→9") e `budget-allocation` (B2 #500, §7.3) — e **cada uma redireciona para `/conta`** preservando
+`?mes`, query e deep-link (#528, #633). As **features** `receipts`, `creditCards`, `bankAccounts` e
+o slug `recurrences` **permanecem** em `PROJECT_FEATURES`/`TYPE_MODULES`: continuam alcançáveis por
+API e por deep-link para `/conta`; o que sumiu é só a **linha de menu**. Despesas/Recebimentos são
+drill-downs da Conta (`conta/_components/MovimentacoesSection.tsx`) e seguem no sheet "Mais".
 
 ---
 
@@ -204,18 +230,19 @@ A autorização é composta por camadas. Nenhuma delas sozinha é a resposta.
 (`auth-context.tsx:152,164`: `hasModule: (slug) => isAdmin || allowed.has(slug)`).
 
 > **`@Roles('ADMIN')` não é um gate administrativo em lugar nenhum do app** —
-> [#497](https://github.com/Gabrieldco1994/reformaflow/issues/497).
-> O convidado de demonstração é criado com **`role: 'ADMIN'`**
-> (`apps/api/src/auth/auth.service.ts:324-327`) e o `RolesGuard` **nunca lê `isGuest`** —
-> devolve `true` já em `isFullAccessRole(user.role)` (`roles.guard.ts:25`). Logo o convidado
-> atravessa `@Roles('ADMIN')`, o `ModulesGuard` e o `hasModule` do web.
+> [#497](https://github.com/Gabrieldco1994/reformaflow/issues/497). A fronteira real é sempre
+> **tenant**, nunca papel.
+> **Correção (#518/#505, mergeados):** o convidado de demonstração **não é mais `role: 'ADMIN'`**.
+> `AuthService` cunha o convidado com `role: SELF_SERVICE_ROLE` (`'USER'`) + `isGuest: true` +
+> `allowedModules` de `deriveObjectiveAccess(GUEST_PROJECT_TYPES)` (âncora simbólica
+> `registerGuest` em `auth.service.ts`). Portanto `isFullAccessRole(convidado)` = **false** e toda
+> frase antiga do tipo "o convidado atravessa `@Roles('ADMIN')` / `hasModule('financialDashboard')`"
+> está **obsoleta**: `/financeiro` está morto para **100 % da base, convidados inclusive**.
 > **Esta spec não pode usar "admin-only" como fronteira de segurança**, e U6b tampouco.
 > A fronteira que continua valendo é a de **tenant**, que independe de papel: o `ModulesGuard`
-> resolve o projeto por `findFirst({ id, tenantId })` (`:52-56`), de modo que o convidado alcança
-> superfícies administrativas **apenas sobre o próprio tenant efêmero** — é um problema de
-> alcance de superfície, não de vazamento entre tenants. O repositório já conhece a armadilha em
-> um ponto isolado, onde checa `isGuest` à mão antes do papel (`auth.service.ts:225-232`); é
-> defesa ad hoc por rota, não sistêmica.
+> resolve o projeto por `findFirst({ id, tenantId })` (`:52-56`). Um ADMIN/OWNER **real** ainda
+> atravessa os gates de módulo, mas apenas sobre o próprio tenant — alcance de superfície, não
+> vazamento entre tenants.
 
 **Branch legado:** quando `allowedProjectTypes` está **vazio**, os tipos acessíveis são derivados dos
 módulos possuídos (`accessibleProjectTypes`, `access-rules.ts:57-64`). Contas antigas ainda caem
@@ -228,7 +255,7 @@ nesse caminho.
 | CASA / CARRO | idem | `expenses` alcança a API mesmo sem rota de nav (#369) |
 | PESSOAL | idem | `pendencias` concede alcance sem superfície |
 | PLANTAS | `plantsAi`, `maintenance` ou `reminders` | sem recurso financeiro a alcançar |
-| **cross-project `/tenant/financial/*`** | `financialDashboard` — **que nenhum usuário possui** | alcançável só por ADMIN/OWNER reais e por **convidado de demo** (#497); ver §6 D-2 e §7.1 |
+| **cross-project `/tenant/financial/*`** | **ninguém** — rota web e controller HTTP não existem mais (#501/`ce27736b`) | superfície **morta por execução**: `apps/web/src/app/financeiro/` removido, `tenant-financial.controller.ts` deletado (0 rota HTTP), `financialDashboard` fora do `ModuleSlug`. `TenantFinancialService` sobrevive como provider interno (Maria). A reexposição de `getUpcoming`/`getTopSuppliers` sob gate `monthlyOverview` é follow-up aprovado e não entregue (#635), fora da U6b build 1. Ver §6 D-2 (resolvido) e §7.1 |
 
 ---
 
@@ -246,13 +273,19 @@ URL em critério de busca fora do escopo do solicitante.
 O shell do projeto deriva o slug do pathname e o procura na navegação **do tipo**:
 
 ```ts
-// apps/web/src/app/projects/[projectId]/_components/AppShell.tsx:110-114
+// apps/web/src/app/projects/[projectId]/_components/AppShell.tsx
+// (âncora simbólica — o bloco `const slug = pathname...` / `hasModule` / `router.replace('/no-permission')`;
+//  as linhas se deslocaram, não citar número)
 const slug = pathname.replace(basePath + '/', '').split('/')[0];
 const current = navItems.find((n) => n.slug === slug);
 if (current && !hasModule(current.module as ModuleSlug)) {
   router.replace('/no-permission');
 }
 ```
+
+> As quatro rotas colapsadas do PESSOAL (`expenses`, `receipts`, `credit-cards`, `bank-accounts`)
+> têm **redirect próprio para `/conta` preservando a query** (#529/#633) — isto entra como
+> restrição da decisão de fallback (§5.3), não como caso do shell.
 
 Comportamento efetivo, verificado:
 
@@ -270,9 +303,19 @@ não o cobre.
 rotulada **"Cronograma"** (`module-navigator.ts:73`). Deep-link casa por **slug**; qualquer
 resolução por rótulo quebra nesse tipo.
 
-#### 5.3 Fallback — decisão deixada ao architect de U6b
+#### 5.3 Fallback — DECIDIDA pelo architect de U6b (2026-08-31)
 
-Esta spec **registra as opções e não escolhe**. As três candidatas, com a consequência de cada uma:
+**Decisão:** o fallback depende do **nível** do identificador:
+
+- **nível de ITEM** (`?item=` apontando para algo fora do payload escopado) → **hub silencioso**,
+  sem revelar a existência do recurso — seleção simplesmente não acontece;
+- **nível de ROTA** (slug/rota sem módulo) → **`/no-permission`**, inalterado (casos 1 e 4 da §5.2).
+
+A escolha respeita a regra de U3 (§5.1), o precedente `/expenses` (#369, resolução por
+`hasNavRoute` derivado) e o casamento por slug (§5.2), além do redirect que preserva query das
+quatro rotas colapsadas do PESSOAL (#529/#633).
+
+Registro das opções consideradas e a consequência de cada uma:
 
 | Opção | Consequência |
 |---|---|
@@ -316,31 +359,21 @@ por slug (§5.2).
 Registradas como achado, não corrigidas por esta spec. **A divergência é a entrega mais valiosa da
 U6a**: sem ela, U6b implementaria a crença em vez da realidade.
 
-**D-1 — Status do programa estava estagnado.** Corrigido neste PR em
-`plano-centro-financeiro-sdd.md` e `docs/README.md`: B0 (#447) **CLOSED**; **B1a mergeado** em `main`
-(`5bbe5d69` #477, `720ff1fc` #478, `890b89b0` #479); **#448 segue OPEN** (B1b); **W1 (#214) OPEN**;
-**B2 (#449) não iniciado**. Também mergeados e fechados em 2026-08-19: #480, #481, #483, #484, #486.
-O **gate de extinção do B2 foi dispensado por evidência** pelo PO em 2026-08-19 — ver §7.3.
+> **D-2, D-9 e D-14 foram RESOLVIDOS** (por execução em #501/#596 e por atualização de doc) e o
+> detalhe histórico de cada um está no **Apêndice histórico → "Divergências resolvidas"**.
+> As entradas abaixo ficam apenas como ponteiro.
 
-**D-2 — A superfície `/financeiro` está morta para todo usuário comum.** → **[#494](https://github.com/Gabrieldco1994/reformaflow/issues/494)**
-`financialDashboard` **não é um slug de `TYPE_MODULES`** — tem **0 ocorrências** no mapa — e
-**0 dos 200 usuários de produção o possuem**
-(`SELECT COUNT(*) FROM users WHERE allowed_modules LIKE '%financialDashboard%'` → **0**, medido pelo
-PO no volume Fly de produção em 2026-08-19 — ver §7.3 sobre **por que a medição tem de ser feita
-lá, e não em `prisma/dev.db`**). **Nenhum usuário de autocadastro pode recebê-lo**: `deriveObjectiveAccess` deriva `allowedModules`
-**exclusivamente** de `TYPE_MODULES` (`onboarding-objectives.ts:19-30`) e `reconcileUserModules` só
-adiciona slugs desse mesmo mapa. A única via seria concessão manual de admin
-(`apps/api/src/users/dto/create-user.dto.ts:34`). Estão portanto inalcançáveis para usuário comum:
-a rota `apps/web/src/app/financeiro/` (gate em `layout.tsx:18,23`), o card "Saúde financeira
-consolidada" (`apps/web/src/app/projects/page.tsx:209`), os links "← Visão Geral" desktop e mobile
-(`apps/web/src/app/projects/[projectId]/dashboard/page.tsx:617,634`) e toda a API
-`GET /tenant/financial/*` (`tenant-financial.controller.ts:25`).
-**Precisão — quem ainda alcança:** ADMIN/OWNER reais, por bypass de papel (§4); e, por força de
-[#497](https://github.com/Gabrieldco1994/reformaflow/issues/497), **todo convidado de
-demonstração**, que é criado com `role: 'ADMIN'` (`auth.service.ts:324-327`) e portanto satisfaz
-`hasModule('financialDashboard')` em `auth-context.tsx:164`. O resultado é o pior dos dois mundos:
-a superfície é invisível para **todo usuário pagante** e visível para a classe **menos confiável**
-do produto. É uma superfície inteira já morta para a base real — não uma lacuna desta spec.
+**D-1 — Status do programa estava estagnado.** RESOLVIDO: B0 (#447) **CLOSED**; **B1a mergeado**
+(`5bbe5d69` #477, `720ff1fc` #478, `890b89b0` #479); **B1b CLOSED** (PR #499);
+**B2 (#449) CLOSED** (PR #500 — removeu `budget-allocation` da nav); **W1 (#214) CLOSED**.
+O **gate de extinção do B2 foi dispensado** pelo PO em 2026-08-19 — ver §7.3.
+
+**D-2 — RESOLVIDO POR EXECUÇÃO (#501/`ce27736b`).** A superfície `/financeiro` foi **morta por
+execução**, não só inalcançável: `apps/web/src/app/financeiro/` não existe, `tenant-financial.controller.ts`
+foi deletado (0 rota HTTP) e `financialDashboard` saiu do `ModuleSlug`. `TenantFinancialService`
+**sobrevive** como provider interno (Maria). A reexposição de `getUpcoming`/`getTopSuppliers` sob
+gate `monthlyOverview` é follow-up aprovado e não entregue (#635), fora da U6b build 1. Detalhe
+histórico movido para o Apêndice.
 
 **D-3 — Slugs concedidos e não aplicados.** `recurrences` e `rooms` estão em `TYPE_MODULES` (logo são
 concedidos no signup e reconciliados para todos) mas **nenhum controller os exige**:
@@ -364,8 +397,10 @@ exige `projectTypeHasModule(sourceProjectType, 'creditCards')`
 `vehicleDocuments` e `financialDashboard` **não são `ProjectFeature`**. `carInfo` é recurso 1:1
 (§3), não flag. Fundir os vocabulários quebraria os dois lados.
 
-**D-6 — `pendencias` gated para PESSOAL** (`type-modules.ts:76`) sem feature e sem linha de nav:
-API alcançável, produto inexistente.
+**D-6 — MUDOU.** `pendencias` **está agora em `PROJECT_FEATURES[REFORMA]`** (array REFORMA em
+`project-features.ts`) e em `PROJECT_NAV[REFORMA]` — para REFORMA deixou de ser gated-sem-superfície.
+Para **PESSOAL** o estado permanece: gated em `TYPE_MODULES` sem feature e sem linha de nav (API
+alcançável, produto inexistente).
 
 **D-7 — Exceção aceita ao "nunca hard-code o tipo"** em `resolve-variant.ts:13-16,19,24` (§0).
 Registrada como aceita, com motivo, não como drift.
@@ -373,11 +408,8 @@ Registrada como aceita, com motivo, não como drift.
 **D-8 — Deep-link é guardado só para slugs conhecidos da nav** (§5.2). Rotas fora da nav do tipo caem
 na página sem redirect do shell.
 
-**D-9 — `CarInfoService` ignora o `tenantId` que recebe.** → **[#498](https://github.com/Gabrieldco1994/reformaflow/issues/498)**
-`findUnique({ where: { projectId } })` e `upsert({ where: { projectId } })`
-(`car-info.service.ts:10-12,16-24`) não filtram por tenant; a segurança depende inteiramente dos
-guards (`modules.guard.ts:52-56`, `project-access.guard.ts:64-70`). **Não explorável pela rota HTTP
-hoje** — é dívida de defesa em profundidade, agravada por ser um `upsert` (escreve, não só lê).
+**D-9 — RESOLVIDO.** #498 CLOSED, corrigido em #596: `car-info.service.ts` agora faz
+`ensureProject(tenantId, projectId)` antes de ler/gravar. Detalhe histórico movido para o Apêndice.
 
 **D-10 — Carteira tem duas verdades em superfícies diferentes** (§2.1). Visível dentro do PESSOAL,
 nunca divulgada como origem cross-project (O8). Nenhum doc as coloca lado a lado — era o item com
@@ -394,9 +426,8 @@ módulos; grant JSON corrompido invalida a sessão.
 `linkedExpenseId` é só o primeiro alvo. O plano fala em "ocorrência única" sem dizer qual campo
 manda; esta spec diz.
 
-**D-14 — Estagnação residual não tocada.** `docs/visao-conta-faturas.md:13-17` ainda descreve B1a
-como "esta PR, pendente de merge". É doc normativo de contrato e não estava no escopo autorizado
-deste PR; fica registrado para o D0 (#458) corrigir.
+**D-14 — RESOLVIDO.** `docs/visao-conta-faturas.md` já diz "B1a MERGEADO" (âncora simbólica no
+bloco de status do topo); o alvo stale que o D-14 apontava não existe mais.
 
 ---
 
@@ -434,7 +465,7 @@ porque cria uma segunda fórmula que diverge em silêncio.
 | `upcoming` — próximos vencimentos | **ABSORVER** | **não é duplicada.** `pendencias` é outro conceito (módulo por projeto, `projects/:projectId/pendencias`), não agregação de vencimentos |
 | `top-suppliers` — fornecedores agregados | **ABSORVER** | **sem equivalente em lugar nenhum** — é a única agregação por `fornecedor` do backend. Aposentar isto perderia capacidade de verdade |
 
-**Duas advertências para quem executar a aposentadoria:**
+**Duas advertências que guiaram a aposentadoria** (executada em #501 — ver "Estado de execução" abaixo):
 
 1. **Não apagar `resolveAccessibleProjectScope`.** O controller o usa
    (`tenant-financial.controller.ts:34-48`), mas ele é consumido por **outros 10 arquivos**
@@ -442,6 +473,21 @@ porque cria uma segunda fórmula que diverge em silêncio.
    escopo do app, não da superfície.
 2. **Remover também os pontos de entrada**, ou sobram links mortos: `projects/page.tsx:209`,
    `dashboard/page.tsx:617,634`, a entrada de nav e o slug em `auth-context.tsx:34,57`.
+
+#### Estado de execução (2026-08-31)
+
+**A metade "APOSENTAR" foi feita em #501 (`ce27736b`):** rota web, controller HTTP e slug
+`financialDashboard` removidos; `overview`/`cash-flow`/`by-category` saíram junto. As **6 tools da
+Maria foram preservadas** — `TenantFinancialService` continua como provider interno.
+
+A metade "retirar HTTP + tela + slug" **já foi feita em #501**. A metade "ABSORVER" se divide em
+duas entregas distintas, sobre dados já tenant/ACL-scoped e deduplicados pelo motor:
+
+| Capacidade | Entrega | Estado |
+|---|---|---|
+| `by-project` → **agrupamento por `project.type`** | **U6b build 1** — lente `by-type`, **frontend-only, read-only em `/conta`** (deriva de `PROJECT_FEATURES`/`TYPE_MODULES`, inclui PLANTAS como "sem financeiro"); sem endpoint, query ou mutation novos | **design fechado** (architect + 8 lentes + security PASS), **RED spec definido**, **aguardando autorização de implementação do PO**; nada em produção |
+| `upcoming` — próximos vencimentos | **follow-up [#635](https://github.com/Gabrieldco1994/reformaflow/issues/635)** — reexpõe `getUpcoming` (ex.: `@Get('upcoming')` sob gate `monthlyOverview`); classificação **ABSORVER** conforme A-1 | **aprovado, NÃO entregue.** Cria superfície HTTP nova → exige architect + security novos. **Backend não autorizado nesta rodada.** |
+| `top-suppliers` — fornecedores agregados | **follow-up [#635](https://github.com/Gabrieldco1994/reformaflow/issues/635)** — reexpõe `getTopSuppliers`; classificação **ABSORVER** conforme A-1 | idem — **aprovado, NÃO entregue**, backend não autorizado nesta rodada |
 
 ### 7.2 A-2 — CASA/CARRO seguem em Avulsas, por ora — **DECIDIDA**
 
@@ -567,6 +613,28 @@ terceira via, e essa não é uma escolha que o architect de U6b possa reabrir.
   forte: **0 de 200**. Registrada a nota permanente de que `prisma/dev.db` não é produção (§7.3).
   **A-3 respondida e fechada** (§7.4): o invariante **O8 vale** e U6b não o renegocia; a §8 de
   pergunta aberta deixou de existir.
+- **2026-08-31 — re-ratificação (v2) e estado de execução.** Matriz re-ratificada pelo architect
+  contra `1da83286`; conteúdo dos mapas de capacidade inalterado onde verificado. Status do topo e
+  §7 atualizados: spec mergeada (#506), A-1/A-2/A-3 decididas. **U6b build 1** (lente `by-type`,
+  frontend-only, read-only em `/conta`): design fechado (architect + 8 lentes + security PASS), RED
+  spec definido, **aguardando autorização de implementação do PO** — nada em produção. `upcoming`/
+  `top-suppliers` → follow-up aprovado e não entregue (#635), ABSORVER conforme A-1, backend não
+  autorizado nesta rodada. §1 corrigida: `PROJECT_NAV[PESSOAL]`
+  de 13 → **9 linhas** (U4 #528; B2 #500 removeu `budget-allocation`), 5 rotas financeiras
+  redirecionam para `/conta` preservando query (#528/#529/#633). Fallback (§5.3) **decidido**:
+  ITEM → hub silencioso, ROTA → `/no-permission`.
+- **2026-08-31 — Divergências resolvidas (movidas de §6).**
+  - **D-2 (#494) — RESOLVIDO POR EXECUÇÃO (#501/`ce27736b`).** Detalhe histórico: `financialDashboard`
+    tinha 0 ocorrência em `TYPE_MODULES` e 0 de 200 usuários de produção o possuíam; a rota
+    `apps/web/src/app/financeiro/`, o card "Saúde financeira consolidada", os links "← Visão Geral"
+    e toda a API `GET /tenant/financial/*` estavam inalcançáveis para usuário comum e visíveis só a
+    ADMIN/OWNER reais (e, à época, ao convidado de demo com `role:'ADMIN'`). #501 removeu a rota web,
+    o controller HTTP e o slug; `TenantFinancialService` sobrevive como provider interno.
+  - **D-9 (#498) — RESOLVIDO (#596).** Detalhe histórico: `CarInfoService.findUnique/upsert` filtravam
+    só por `projectId`, ignorando o `tenantId` recebido; segurança dependia inteiramente dos guards.
+    #596 adicionou `ensureProject(tenantId, projectId)`.
+  - **D-14 — RESOLVIDO.** `visao-conta-faturas.md` já registra "B1a MERGEADO"; o stale que o D-14
+    apontava ("esta PR, pendente de merge") não existe mais.
 - **Precedentes citados:** #98 (mapa único de gate, cliente e servidor), #289 (combustível),
   #291 (dieta de COMPRA), #369 (superfície única de despesas em CASA/CARRO), #424 (origem do
   pagamento na REFORMA), #423/#428 (leitura canônica de rateio), #480/#484 (escopo prometido ×
