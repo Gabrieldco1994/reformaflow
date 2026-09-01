@@ -141,3 +141,92 @@ describe("MerchantClassifier — isolamento de tenant (#589)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('classifyBatch — SEC-3 preserva MANUAL sob corrida real (#582 TOCTOU)', () => {
+  const RACY_RAW = 'Fornecedor Corrida 582';
+  const RACY_KEY = MerchantClassifierService.normalizeKey(RACY_RAW);
+  const A = 'tenant-a-589';
+  const B = 'tenant-b-589';
+  const C = 'tenant-c-589';
+
+  let prisma: PrismaService;
+  let svc: MerchantClassifierService;
+  let prevKey: string | undefined;
+
+  beforeAll(async () => {
+    prevKey = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'test-key-582';
+    const moduleRef = await Test.createTestingModule({
+      providers: [MerchantClassifierService, PrismaService],
+    }).compile();
+    prisma = moduleRef.get(PrismaService);
+    svc = moduleRef.get(MerchantClassifierService);
+  });
+
+  afterAll(async () => {
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
+    await prisma.merchantCategory.deleteMany({ where: { merchantKey: { in: [RACY_KEY] } } });
+    await (prisma as any).$disconnect?.();
+  });
+
+  beforeEach(async () => {
+    jest.restoreAllMocks();
+    await prisma.merchantCategory.deleteMany({ where: { merchantKey: RACY_KEY } });
+  });
+
+  it('regra MANUAL de A criada DURANTE a chamada do Gemini sobrevive (não vira AI)', async () => {
+    let enteredGemini!: () => void;
+    let releaseGemini!: () => void;
+    const entered = new Promise<void>((r) => (enteredGemini = r));
+    const gate = new Promise<void>((r) => (releaseGemini = r));
+    jest.spyOn(svc as any, 'callGemini').mockImplementation(async () => {
+      enteredGemini();
+      await gate;
+      return [{ merchant: RACY_RAW, category: 'transporte', subcategory: null, confidence: 0.95 }];
+    });
+
+    const classifyP = svc.classifyBatch([RACY_RAW], A);
+    await entered;
+    await svc.setManual(RACY_RAW, 'alimentação', null, A);
+    releaseGemini();
+    await classifyP;
+
+    const row = await prisma.merchantCategory.findUnique({
+      where: { tenantId_merchantKey: { tenantId: A, merchantKey: RACY_KEY } },
+    });
+    expect(row).toBeTruthy();
+    expect(row!.source).toBe('MANUAL');
+    expect(row!.category).toBe('alimentação');
+    expect(row!.confidence).toBe(1);
+  });
+
+  it('classifyBatch de B não cria nem edita nenhuma linha MANUAL de A/C nem a global', async () => {
+    for (const t of [A, C]) {
+      await prisma.merchantCategory.create({
+        data: { tenantId: t, merchantKey: RACY_KEY, merchantSample: RACY_RAW, category: 'alimentação', subcategory: null, source: 'MANUAL', confidence: 1 },
+      });
+    }
+    await prisma.merchantCategory.create({
+      data: { tenantId: null, merchantKey: RACY_KEY, merchantSample: RACY_RAW, category: 'saúde', subcategory: null, source: 'MANUAL', confidence: 1 },
+    });
+    jest.spyOn(svc as any, 'callGemini').mockResolvedValue([
+      { merchant: RACY_RAW, category: 'transporte', subcategory: null, confidence: 0.99 },
+    ]);
+
+    await svc.classifyBatch([RACY_RAW], B);
+
+    const rows = await prisma.merchantCategory.findMany({ where: { merchantKey: RACY_KEY }, orderBy: { tenantId: 'asc' } });
+    const byT = new Map(rows.map((r) => [r.tenantId ?? '__global__', r]));
+    expect(byT.get(A)).toMatchObject({ source: 'MANUAL', category: 'alimentação' });
+    expect(byT.get(C)).toMatchObject({ source: 'MANUAL', category: 'alimentação' });
+    expect(byT.get('__global__')).toMatchObject({ source: 'MANUAL', category: 'saúde' });
+    if (byT.get(B)) expect(byT.get(B)).toMatchObject({ tenantId: B, source: 'AI' });
+  });
+
+  it('classifyBatch(["x"], "") lança BadRequestException e não escreve (classe do #589)', async () => {
+    await expect(svc.classifyBatch(['x'], '')).rejects.toThrow();
+    const rows = await prisma.merchantCategory.findMany({ where: { merchantKey: MerchantClassifierService.normalizeKey('x') } });
+    expect(rows).toHaveLength(0);
+  });
+});
