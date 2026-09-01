@@ -80,9 +80,17 @@ Na base original, e **não como resultado deste programa**:
 - O modelo de produto e as ondas E0–E4 estão aprovados.
 - S0.1 ([#444](https://github.com/Gabrieldco1994/reformaflow/issues/444)) é somente a
   canonicalização documental.
-- U6a está **escrita** em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md) e
-  aguarda aprovação; é somente spec e não é normativa enquanto o PO não aprovar. U6b permanece
-  bloqueada até U6a aprovada, lenses, architect e aprovação explícita do PO.
+- U6a está em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md), **spec mergeada
+  (#506)** com A-1/A-2/A-3 decididas e **matriz re-ratificada contra `1da83286`**. A **U6b build 1**
+  (lente `by-type` — agrupamento por `project.type`, **frontend-only, read-only em `/conta`**, sem
+  endpoint/query/mutation novos) tem **design fechado** (architect + 8 lentes + security PASS) e
+  **RED spec definido**, mas **aguarda autorização de implementação do PO** — nada em produção.
+  Os endpoints `upcoming`/`top-suppliers` são **follow-up aprovado e não entregue (#635)**, backend
+  não autorizado nesta rodada. Continua zero fórmula/store/migration/backfill.
+  > **Nota — Controle de ativação (build 1):** a lente `by-type` é ativada via variável de ambiente
+  > **build-time** `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (Next.js/Vercel). Ativação: `=== '1'`;
+  > padrão (ausente ou qualquer valor): desabilitada. **Não é `ProjectFeature`, `ModuleSlug` ou nav
+  > capability.** Não substitui gates server-side. Alteração exige novo build/deploy.
 - E6/H1–H5 é um envelope aprovado de hardening, mas cada item continua bloqueado por nova revisão
   architect+security e pelos gates de dados/PO/SRE aplicáveis.
 
@@ -314,13 +322,21 @@ liberada para desenho e implementação.
 - [U5 #454](https://github.com/Gabrieldco1994/reformaflow/issues/454): agrupar Planning e
   Planejador apenas visualmente; `localStorage` e API continuam independentes, e navegar não
   produz mutation.
-- [U6a #455](https://github.com/Gabrieldco1994/reformaflow/issues/455): escrever matriz por tipo,
-  capacidade, origem/finalidade, identidade, ACL e deep-link/fallback. É somente spec.
-  **Publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md); aguarda
-  aprovação do PO em três decisões abertas (A-1, A-2, A-3) e não desbloqueia U6b por si.**
-- [U6b #456](https://github.com/Gabrieldco1994/reformaflow/issues/456): **não entregue e
-  bloqueada**. Só materializa o contrato U6a aprovado por architect, lenses e PO; zero fórmula,
-  store, migration ou backfill não aprovados.
+- [U6a #455](https://github.com/Gabrieldco1994/reformaflow/issues/455): matriz por tipo,
+  capacidade, origem/finalidade, identidade, ACL e deep-link/fallback. Somente spec.
+  **Mergeada (#506) em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md); A-1/A-2/A-3
+  decididas (2026-08-19); matriz re-ratificada contra `1da83286` (2026-08-31).**
+- [U6b #456](https://github.com/Gabrieldco1994/reformaflow/issues/456): **NÃO implementada.**
+  **Build 1** = lente `by-type` (agrupamento por `project.type`, **frontend-only, read-only em
+  `/conta`**, sem endpoint/query/mutation novos): design fechado (architect + 8 lentes + security
+  PASS), RED spec definido, **aguardando autorização de implementação do PO** — nada em produção.
+  `upcoming`/`top-suppliers` → **follow-up aprovado e não entregue
+  ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))**, classificação ABSORVER
+  conforme A-1, backend não autorizado nesta rodada (criam superfície HTTP nova, exigem architect +
+  security novos). Zero fórmula/store/migration/backfill.
+  > **Nota — Controle de ativação:** ativada via `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (build-time,
+  > Next.js/Vercel); `=== '1'` para ativar, padrão desabilitada. Não é `ProjectFeature`/`ModuleSlug`.
+  > Não substitui gates server-side.
 
 #### E4 — qualidade, docs, release e analytics
 
@@ -481,15 +497,17 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-006 | Budget sai do discovery e fica ADMIN/read-only com histórico preservado. | **APROVADO — BLOQUEADO em B2. Gate de extinção DISPENSADO pelo PO em 2026-08-19 — não por uso zero, mas porque B2 é congelamento read-only com histórico preservado, não extinção** (nenhuma linha é apagada). Evidência real medida no volume Fly via `fly ssh console` em 2026-08-19: 200 usuários, 196 tenants, `budget_allocations` 6 total / **4 vivas somando R$ 235.000,00**, `ALOCACAO_ORCAMENTO` vivas 4, `category_budgets` 0, **todas as vivas concentradas em 1 tenant — `dev-tenant-1`, de desenvolvimento**. Efeito visível: as linhas `ALOCACAO_ORCAMENTO` somem da tela de Recebimentos desse tenant de dev. **Budget FOI usado; a leitura anterior de "uso zero" veio de `prisma/dev.db`, banco local, não de produção (`apps/api/fly.toml:5,11`).** Desenho do gate precisa considerar #497 — `@Roles('ADMIN')` não barra convidado de demo. |
 | D-007 | Mobile 375/390/desktop e acessibilidade são contrato de merge. | **APROVADO — BLOQUEADO** |
 | D-008 | Analytics usa Clarity existente e allowlist sem conteúdo financeiro. | **APROVADO — BLOQUEADO em A0** |
-| D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **BLOQUEADO; NÃO ENTREGUE** |
+| D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **NÃO IMPLEMENTADA. Build 1 (lente `by-type`, frontend-only, read-only em `/conta`): design fechado (architect + 8 lentes + security PASS), RED spec definido, aguardando autorização de implementação do PO — nada em produção. `upcoming`/`top-suppliers` → follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635)), ABSORVER conforme A-1, backend não autorizado nesta rodada** |
 | D-010 | Maria agent-first reutiliza serviços/cards/actions/ACLs e requer novo PO gate. | **FUTURO; NÃO ENTREGUE** |
 | D-011 | H1–H5 ficam separados e gated; não entram automaticamente no critical path. | **BLOQUEADO; NÃO ENTREGUE** |
-| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para o gate de produção/inventário de E0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA (gate #445); B0 ENTREGUE (PR #476, CLOSED); B1a MERGEADO (#477, #478, #479); B1b e W1 abertos; B2 não iniciado** |
+| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para o gate de produção/inventário de E0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA (gate #445); B0 ENTREGUE (PR #476, CLOSED); B1a MERGEADO (#477, #478, #479); B1b CLOSED (#499); B2 CLOSED (#500); W1 (#214) CLOSED. U6a spec MERGEADA (#506); U6b build 1 (lente `by-type`) com design fechado, NÃO IMPLEMENTADA — aguardando autorização do PO; `upcoming`/`top-suppliers` são follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))** |
 
 ## 12. Changelog
 
 | Data | Versão | Mudança |
 |---|---|---|
+| 2026-08-31 | U6b build 1 — contrato de `isIncludedInSaidaTotal` | **Decisão PO registrada:** lente `by-type` (U6b build 1) exclui do agrupamento/subtotais de cada `project.type` todo item com `isIncludedInSaidaTotal === false`, incluindo **INVESTIMENTOS**. Invariante: `Σ(by-type groups.total) === saiuMes`. INVESTIMENTOS continua visível nos modos atuais; `porProjetoFiltered`, `PorProjetoCategoriaView` e `isNeutralMovimentacao` inalterados; exclusão é específica ao novo builder/view. Nenhuma alteração em `saidaTotal`, `saiuMes`, caixa ou backend. Detalhes em [`financeiro-projetos-por-tipo.md:7.5`](financeiro-projetos-por-tipo.md). |
+| 2026-08-31 | U6a re-ratificada; U6b build 1 desenhada | Canário §10 recuperado (#634 — 2 motores, sem gate congelado). Matriz U6a **re-ratificada contra `1da83286`** — conteúdo dos mapas de capacidade inalterado onde verificado; **spec U6a MERGEADA (#506)**. **U6b build 1 = lente `by-type`** (agrupamento por `project.type`, derivado de `PROJECT_FEATURES`/`TYPE_MODULES`, **frontend-only, read-only em `/conta`**, sem endpoint/query/mutation novos): **design fechado** (architect + 8 lentes + security PASS), **RED spec definido**, **NÃO IMPLEMENTADA — aguardando autorização de implementação do PO**; nada em produção. **`upcoming`/`top-suppliers` → follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))**, classificação ABSORVER conforme A-1, backend não autorizado nesta rodada (criam superfície HTTP nova, exigem architect + security novos). A metade "retirar HTTP + tela + slug" do `/financeiro` **foi feita em #501** (`ce27736b`): rota web e controller HTTP removidos, slug `financialDashboard` fora do `ModuleSlug`; `TenantFinancialService` sobrevive como provider interno. B1b (#499), B2 (#500) e W1 (#214) **CLOSED**. Convidado de demo deixou de ser `role:'ADMIN'` (#518/#505). **Nota B4:** transaction clients não podem depender do `$use` para segurança de tenant/soft-delete (`$use` roda em `$transaction` mas o middleware atual só intercepta findMany/findFirst/delete/deleteMany; findUnique nunca é interceptado); toda query transacional futura aplica tenantId/deletedAt/ACL explicitamente com teste próprio. U6b/by-type não cria transação/query/mutation → B4 N/A para o PR frontend, guardrail do follow-up backend (#635). |
 | 2026-08-19 | B1a mergeado; U6a especificada | **B1a mergeado em `main`** via #477 (`5bbe5d69`), #478 (`720ff1fc`) e #479 (`890b89b0`); **#448 permanece OPEN pela fatia B1b**, **W1 (#214) aberto** e **B2 (#449) não iniciado**. Também mergeados e fechados: #480, #481, #483, #484, #486 — `main` em `9da93391`. **U6a (#455)** publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md): matriz por tipo (capacidade, origem/finalidade, identidade, ACL, deep-link/fallback) derivada do código vivo, divergências código×doc e três decisões escaladas ao PO. Somente spec: zero código, fórmula, store, migration ou backfill. Achados de autorização extraídos para #494 e #495 (D-9 já registrado em #498). **Decisões do PO na mesma data:** A-1 decidida (aproveitar o reaproveitável do `/financeiro` e aposentar o resto — lista absorver/aposentar na §7.1 da spec), A-2 decidida (CASA/CARRO seguem em Avulsas, escolha deliberada e revisitável) e **gate de extinção do B2 dispensado** — por B2 ser congelamento read-only com histórico preservado, **não por uso zero**. **A-3 decidida: o invariante O8 vale e U6b não o renegocia.** Incorporado #497 (`@Roles('ADMIN')` não é gate administrativo). **Correção de evidência no mesmo dia:** os números que sustentavam "uso zero" vinham de `prisma/dev.db` (banco local), não de produção; medição correta no volume Fly (`fly ssh console`) dá 200 usuários, 196 tenants, **4 alocações vivas somando R$ 235.000,00 concentradas no tenant de desenvolvimento `dev-tenant-1`**, `category_budgets` 0 e **0 de 200** usuários com `financialDashboard`. **U6b (#456) segue BLOQUEADA.** |
 | 2026-08-18 | B0 entregue; B1a implementado | B0 (#447) entregue via PR #476 (produção, SHA `389d8e6e`). B1a (#448) implementado e, naquela data, pendente de merge: child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN. Sequência após merge de B1a: W1 → B1b → B2. |
 | 2026-08-17 | Exceção PO S0.3 | #446 liberada para build/test/merge test-only independente de #445; #445 registrada como bloqueada/deferida e produção `NOT_COLLECTED`; gates conjuntos de #447/B0, limites da baseline sintética e distinção entre estado esperado e evidência de runtime explicitados. |
