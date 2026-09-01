@@ -52,6 +52,31 @@ export default function ContaPage() {
   );
   const [viewMode, setViewMode] = useState<'mes' | 'ano'>('mes');
 
+  // Deep-link da lente "Por tipo" (U6b build 1, #456): `?view=tipo` (única
+  // outra opção suportada — 'categoria'/'projeto' continuam puramente locais,
+  // sem refletir na URL) e `?tipo=<ProjectType>` (grupo selecionado dentro da
+  // lente). MovimentacoesSection é a fonte de verdade do estado; aqui só
+  // espelhamos para a URL ficar endereçável.
+  const initialContaViewParam = searchParams.get('view');
+  const [contaViewMode, setContaViewMode] = useState<'lista' | 'categoria' | 'projeto' | 'tipo'>(
+    initialContaViewParam === 'tipo' ? 'tipo' : 'lista',
+  );
+  const [contaTipoFilter, setContaTipoFilter] = useState<string | null>(searchParams.get('tipo'));
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (contaViewMode === 'tipo') {
+      next.set('view', 'tipo');
+      if (contaTipoFilter) next.set('tipo', contaTipoFilter);
+      else next.delete('tipo');
+    } else {
+      next.delete('view');
+      next.delete('tipo');
+    }
+    const query = next.toString();
+    if (query === searchParams.toString()) return;
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [contaViewMode, contaTipoFilter, pathname, router, searchParams]);
+
   // Deep-link: `?item=<id>` seleciona e abre o detalhe do item correspondente.
   // Se o id não está na resposta escopada, é silenciosamente ignorado.
   const itemId = searchParams.get('item');
@@ -277,6 +302,7 @@ export default function ContaPage() {
               <MovimentacoesSection
                 data={data}
                 projectId={projectId}
+                projectType={projectType}
                 originFilter={originFilter}
                 onClearOrigin={() => setOriginFilter(null)}
                 onPayInvoice={setPayCardLast4}
@@ -287,6 +313,10 @@ export default function ContaPage() {
                 onClearSummaryQuickFilter={() => setResumoQuickFilter(null)}
                 initialItemId={itemId}
                 onClearItemId={clearItemId}
+                initialViewMode={contaViewMode}
+                onViewModeChange={setContaViewMode}
+                initialTipoFilter={contaTipoFilter}
+                onTipoFilterChange={setContaTipoFilter}
               />
             </>
           )}
