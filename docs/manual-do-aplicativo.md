@@ -1105,6 +1105,8 @@ Etapas, tarefas e dependências da obra.
   (etapas e tarefas) e exige uma confirmação explícita num 2º passo (botão
   vermelho "Apagar e importar modelo") antes de apagar — não há como desfazer.
   Sem cronograma, importa direto.
+- **No mobile**, com cronograma já existente, o botão **"Importar"** fica no
+  cabeçalho da tela (sem cronograma, ele aparece no estado vazio).
 
 ### 5.7 Comparar Preço (`/price-compare`)
 Painel próprio de monitoramento de preços por produto.
