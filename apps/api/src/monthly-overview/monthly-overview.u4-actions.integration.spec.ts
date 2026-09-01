@@ -73,68 +73,68 @@ async function seed(prisma: PrismaClient) {
       {
         id: IDS.paidExpense, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 5000, quantidade: 1, valorTotal: 5000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', bankLast4: '1234',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, bankLast4: '1234',
       },
       // Espelho (linked to paidExpense)
       {
         id: IDS.espelhoExpense, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 5000, quantidade: 1, valorTotal: 5000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', bankLast4: '1234',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, bankLast4: '1234',
         linkedExpenseId: IDS.paidExpense,
       },
       // Carteira expense (no card, no bank)
       {
         id: IDS.carteiraExpense, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'OUTROS', valor: 3000, quantidade: 1, valorTotal: 3000,
-        formaPagamento: 'A_VISTA', status: 'PAGO',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D,
       },
       // Invoice expense (PAGAMENTO_FATURA_CARTAO, unpaid)
       {
         id: IDS.invoiceExpense, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', valor: 10000, quantidade: 1, valorTotal: 10000,
-        formaPagamento: 'A_VISTA', status: 'PLANEJADO', cardLast4: '9999',
+        formaPagamento: 'A_VISTA', status: 'PLANEJADO', createdAt: D, cardLast4: '9999',
       },
       // Invoice expense (PAGAMENTO_FATURA_CARTAO, paid)
       {
         id: IDS.invoicePaidExpense, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', valor: 8000, quantidade: 1, valorTotal: 8000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', cardLast4: '9999',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, cardLast4: '9999',
       },
       // Settlement expense (settlesInvoiceKey) — neutral, NOT in saiuMes
       {
         id: IDS.settlementExpense, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', valor: 8000, quantidade: 1, valorTotal: 8000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', bankLast4: '5678',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, bankLast4: '5678',
         settlesInvoiceKey: '9999:2026-08',
       },
       // Rateio source
       {
         id: IDS.rateioSource, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 10000, quantidade: 1, valorTotal: 10000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', bankLast4: '1234',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, bankLast4: '1234',
       },
       // Rateio targets (in reforma)
       {
         id: IDS.rateioTarget1, projectId: IDS.reforma, tenantId: T,
         tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 4000, quantidade: 1, valorTotal: 4000,
-        formaPagamento: 'A_VISTA', status: 'PAGO',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D,
       },
       {
         id: IDS.rateioTarget2, projectId: IDS.reforma, tenantId: T,
         tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 6000, quantidade: 1, valorTotal: 6000,
-        formaPagamento: 'A_VISTA', status: 'PAGO',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D,
       },
       // Rateio espelhos (in pessoal, linked to targets)
       {
         id: IDS.rateioEspelho1, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 4000, quantidade: 1, valorTotal: 4000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', bankLast4: '1234',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, bankLast4: '1234',
         linkedExpenseId: IDS.rateioTarget1,
       },
       {
         id: IDS.rateioEspelho2, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 6000, quantidade: 1, valorTotal: 6000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', bankLast4: '1234',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, bankLast4: '1234',
         linkedExpenseId: IDS.rateioTarget2,
       },
     ],

@@ -37,10 +37,9 @@
 > `upcoming`/`top-suppliers` são follow-up aprovado (#635), fora desta rodada. Nenhuma promessa
 > deste documento chega ao manual antes do runtime.
 >
-> **Nota (B4 — `$use`/transação):** transaction clients não podem depender do `$use` para
-> segurança de tenant/soft-delete. `$use` roda dentro de `$transaction`, mas o middleware atual só
-> intercepta findMany/findFirst/delete/deleteMany; findUnique nunca é interceptado. Toda query
-> transacional futura aplica tenantId, deletedAt e ACL explicitamente e ganha teste próprio.
+> **Nota (B4 — `$use`/transação):** `$use` roda dentro de `$transaction`. Serviços ainda aplicam
+> tenantId, deletedAt e ACL explicitamente e ganham teste próprio; o middleware atual só intercepta
+> findMany/findFirst/delete/deleteMany, e findUnique nunca é interceptado.
 > U6b/by-type não cria transação, query nem mutation, portanto B4 é N/A para o PR frontend e
 > permanece guardrail do follow-up backend (#635).
 
@@ -608,22 +607,24 @@ Contexto: RED spec U6b build 1 (lente `by-type`), contrato de agrupamento e subt
 e subtotais de cada tipo todo item financeiro para o qual `isIncludedInSaidaTotal` retorna **false**,
 inclusive **INVESTIMENTOS**. O invariante que governa esta exclusão é:
 
-$$\Sigma(\text{by-type groups.total}) \equiv \text{saiuMes}$$
+$$\Sigma(\text{by-type groups.total}) \equiv \text{account-view.saidaTotal}$$
 
-isto é, a **soma dos subtotais de cada grupo `project.type` iguala exatamente `saiuMes`**, derivada
-de forma **independente e redundante** pela aplicação da regra `isIncludedInSaidaTotal` a cada
-movimento.
+isto é, a **soma dos subtotais de cada grupo `project.type` iguala exatamente o `saidaTotal` da
+account view**. Esse campo é o subtotal já existente do card **Saiu**: saídas elegíveis realizadas
+mais planejadas, com **INVESTIMENTOS** fora da soma. O agrupamento aplica
+`isIncludedInSaidaTotal` a cada movimento de forma **independente e redundante**.
 
 #### Preservação do comportamento vigente
 
 - **INVESTIMENTOS permanece visível** em modos e telas atuais (`porProjetoFiltered`, `PorProjetoCategoriaView`,
   listas de movimentos). Nenhum comportamento observável muda fora da **nova** lente `by-type`.
-- **Nenhuma alteração em `saidaTotal`, `saiuMes`, caixa ou backend.** O contrato de totais consolidados
+- **Nenhuma alteração em `saidaTotal`, `saiuMes`, caixa ou backend.** A nova lente apenas reconcilia
+  seus grupos com o `saidaTotal` já fornecido pela account view; o contrato de totais consolidados
   do PESSOAL permanece inalterado.
 - **`porProjetoFiltered` não muda.** A visão existente por projeto continua incluindo todo item de
   `isNeutralMovimentacao` compatível e não é redesenhada.
 - **`isNeutralMovimentacao` permanece inalterado.** INVESTIMENTOS não é neutral para este critério e
-  continua como é; a exclusão do agrupamento `by-type` é **específica da lente novo**, não uma reinterpretação
+  continua como é; a exclusão do agrupamento `by-type` é **específica da lente nova**, não uma reinterpretação
   da neutralidade.
 
 #### Escopo de aplicação
@@ -636,8 +637,9 @@ movimento.
 #### Invariante testável
 
 Qualquer PR que implemente U6b build 1 deve verificar que `SUM(groups[i].total for each type)` iguala
-o `saiuMes` da account view correspondente, com arredondamento a centavos e na mesma zona horária
-aplicável. Divergência de qualquer valor bloqueia merge e rollout.
+o `saidaTotal` da account view correspondente, com arredondamento a centavos e na mesma zona
+horária aplicável. Divergência de qualquer valor bloqueia merge e rollout. U6b permanece
+frontend-only/read-only; os endpoints de follow-up permanecem em #635 e **SEC-2 permanece aberto**.
 
 ---
 
@@ -687,12 +689,14 @@ aplicável. Divergência de qualquer valor bloqueia merge e rollout.
     #596 adicionou `ensureProject(tenantId, projectId)`.
   - **D-14 — RESOLVIDO.** `visao-conta-faturas.md` já registra "B1a MERGEADO"; o stale que o D-14
     apontava ("esta PR, pendente de merge") não existe mais.
-- **2026-08-31 — Decisão PO — U6b build 1: contrato de `isIncludedInSaidaTotal` na lente `by-type`.**
+- **2026-09-01 — Correção PO — U6b build 1: contrato de `isIncludedInSaidaTotal` na lente `by-type`.**
   A lente `by-type` exclui do agrupamento e subtotais de cada `project.type` todo item para o qual
   `isIncludedInSaidaTotal` retorna **false**, incluindo **INVESTIMENTOS**. Invariante: `Σ(by-type
-  groups.total) === saiuMes`. INVESTIMENTOS continua visível nos modos atuais; `porProjetoFiltered`
-  e `PorProjetoCategoriaView` não mudam; exclusão é específica ao novo builder/view `by-type`. Nenhuma
-  alteração em `saidaTotal`, `saiuMes`, caixa, backend ou `isNeutralMovimentacao`. Registrado em §7.5.
+  groups.total) === account-view.saidaTotal`, o subtotal já existente do card Saiu (realizadas +
+  planejadas elegíveis, sem INVESTIMENTOS). INVESTIMENTOS continua visível nos modos atuais;
+  `porProjetoFiltered` e `PorProjetoCategoriaView` não mudam; exclusão é específica ao novo
+  builder/view `by-type`. Nenhuma alteração em `saidaTotal`, `saiuMes`, caixa, backend ou
+  `isNeutralMovimentacao`. Registrado em §7.5.
 - **Precedentes citados:** #98 (mapa único de gate, cliente e servidor), #289 (combustível),
   #291 (dieta de COMPRA), #369 (superfície única de despesas em CASA/CARRO), #424 (origem do
   pagamento na REFORMA), #423/#428 (leitura canônica de rateio), #480/#484 (escopo prometido ×
