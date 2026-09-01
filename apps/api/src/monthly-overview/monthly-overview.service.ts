@@ -802,13 +802,6 @@ export class MonthlyOverviewService {
       return cardSum > 0 && cardSum >= foreignValorTotal;
     };
 
-    const projetoOrigemFor = (linkedExpenseId: string | null | undefined) => {
-      if (!linkedExpenseId) return null;
-      const target = foreignById.get(linkedExpenseId);
-      if (!target?.project) return null;
-      return { id: target.project.id, name: target.project.name, type: target.project.type };
-    };
-
     // P3 — origem POR PARCELA. Cada crossProjectSettlement mapeia (foreign, parcela)
     // ao espelho que a quitou; a origem (cartão/banco) é derivada do espelho.
     // Espelhos soft-deletados (P1/P2/P6) já saíram de `allExpenses`, então uma
@@ -832,11 +825,50 @@ export class MonthlyOverviewService {
     // `localCarteiraThisMonth` NÃO as excluir, preservando a supressão do alvo
     // (rateioTargetIds acima) e do vínculo simples PAGO (manualWalletMirror...).
     const rateioSourceIds = new Set<string>();
+    // Contagem de allocations por fonte (mesmo loop, zero query nova): usada só
+    // por `projetoOrigemFor` abaixo para decidir se o fan-out é 1:1 (linkedExpenseId
+    // resolve o único alvo) ou 1:N (ambíguo — nenhum alvo específico "é" a fonte,
+    // então NUNCA atribuímos o valor inteiro ao 1º só porque é ele quem carrega o
+    // campo legado `linkedExpenseId`). Revisão Architect+Security #646.
+    const rateioAllocationCountBySource = new Map<string, number>();
     for (const a of rateioAllocations) {
       if (!allExpensesById.has(a.sourceExpenseId)) continue; // fonte sumiu → não suprime
       rateioTargetIds.add(a.targetExpenseId);
       rateioSourceIds.add(a.sourceExpenseId);
+      rateioAllocationCountBySource.set(
+        a.sourceExpenseId,
+        (rateioAllocationCountBySource.get(a.sourceExpenseId) ?? 0) + 1,
+      );
     }
+
+    /**
+     * Resolve o projeto de DESTINO de uma saída PESSOAL vinculada/rateada, para
+     * exibição na Visão Conta (badge/lente "Por projeto"/runway).
+     *
+     * `linkedExpenseId` é um campo legado 1:1: só o 1º alvo de um rateio o
+     * recebe. Com exatamente 0 ou 1 `RateioAllocation` para `sourceExpenseId`
+     * (vínculo simples de conciliação, ou rateio de alvo único), o alvo é
+     * inequívoco — resolve via `foreignById`, fail-closed (`null`) se o alvo
+     * não existir/estiver fora do Hub.
+     *
+     * Com >=2 allocations, o fan-out é AMBÍGUO: a fonte foi distribuída entre
+     * vários projetos e nenhum deles "é" a origem inteira. Retornar o 1º alvo
+     * aqui vazaria uma atribuição de valor incorreta (o item mostra o
+     * `valorTotal` da fonte, não a fração do 1º alvo) e, mais grave, violaria o
+     * contrato B0/#436 de redação: a linha deve ficar source-only, sem NENHUM
+     * metadata de rateio — mesmo que todos os alvos sejam visíveis/autorizados
+     * (ver `finance-center.fixture.integration.spec.ts`, cenário 30029).
+     */
+    const projetoOrigemFor = (
+      sourceExpenseId: string,
+      linkedExpenseId: string | null | undefined,
+    ) => {
+      if ((rateioAllocationCountBySource.get(sourceExpenseId) ?? 0) >= 2) return null;
+      if (!linkedExpenseId) return null;
+      const target = foreignById.get(linkedExpenseId);
+      if (!target?.project) return null;
+      return { id: target.project.id, name: target.project.name, type: target.project.type };
+    };
 
     type ParcelaOrigin =
       | { origem: 'card' }
@@ -1123,7 +1155,7 @@ export class MonthlyOverviewService {
           isInvoice: false,
           editavel: true,
           dueMonth,
-          projetoOrigem: projetoOrigemFor(entry.expense!.linkedExpenseId),
+          projetoOrigem: projetoOrigemFor(entry.expense!.id, entry.expense!.linkedExpenseId),
         };
       })
       .filter((row) => row.dueMonth === mesSelecionado)
@@ -1454,7 +1486,7 @@ export class MonthlyOverviewService {
           isInvoice: false,
           editavel: true,
           dueMonth: null as string | null,
-          projetoOrigem: projetoOrigemFor(expense.linkedExpenseId),
+          projetoOrigem: projetoOrigemFor(expense.id, expense.linkedExpenseId),
           parcelaIndex,
           foreignExpenseId: null as string | null,
         }),
@@ -1517,7 +1549,7 @@ export class MonthlyOverviewService {
           isInvoice: false,
           editavel: true,
           dueMonth: null as string | null,
-          projetoOrigem: null as { id: string; name: string; type: string } | null,
+          projetoOrigem: projetoOrigemFor(expense.id, expense.linkedExpenseId),
           parcelaIndex,
           foreignExpenseId: null as string | null,
           origem: { tipo: 'carteira' as const },
