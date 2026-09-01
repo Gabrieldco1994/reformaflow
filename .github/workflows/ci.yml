@@ -64,6 +64,8 @@ jobs:
         run: npm run test:migration-recovery
       - name: Prepare disposable test database (63 committed migrations)
         run: npm run test:db:prepare
+      - name: FK integrity check (#628)
+        run: DATABASE_URL="file:$PWD/prisma/test.db" npm run db:check
       - name: Synthetic finance-center fixture contract (UTC)
         run: cd apps/api && TZ=UTC npx jest src/monthly-overview/finance-center.fixture.integration.spec.ts --runInBand
       - name: Synthetic finance-center fixture contract (America/Sao_Paulo)
