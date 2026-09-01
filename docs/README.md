@@ -55,4 +55,7 @@ read-only com histórico preservado, e não extinção. U6a (spec #455) está me
 matriz foi re-ratificada contra `1da83286`. A **U6b build 1** (#456 — lente `by-type`,
 frontend-only, read-only em `/conta`) tem design fechado (architect + 8 lentes + security PASS) e
 RED spec definido, mas **aguarda autorização de implementação do PO — nada em produção**; os
-endpoints `upcoming`/`top-suppliers` são follow-up aprovado e não entregue (#635).**
+endpoints `upcoming`/`top-suppliers` são follow-up aprovado e não entregue (#635).
+**Controle de ativação (build 1):** variável de ambiente build-time `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO`
+(Next.js/Vercel); ativada somente quando `=== '1'` (padrão: desabilitada). Não altera autorização,
+capacidade, nav ou gates server-side; exige novo build/deploy para mudança.

@@ -87,6 +87,10 @@ Na base original, e **não como resultado deste programa**:
   **RED spec definido**, mas **aguarda autorização de implementação do PO** — nada em produção.
   Os endpoints `upcoming`/`top-suppliers` são **follow-up aprovado e não entregue (#635)**, backend
   não autorizado nesta rodada. Continua zero fórmula/store/migration/backfill.
+  > **Nota — Controle de ativação (build 1):** a lente `by-type` é ativada via variável de ambiente
+  > **build-time** `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (Next.js/Vercel). Ativação: `=== '1'`;
+  > padrão (ausente ou qualquer valor): desabilitada. **Não é `ProjectFeature`, `ModuleSlug` ou nav
+  > capability.** Não substitui gates server-side. Alteração exige novo build/deploy.
 - E6/H1–H5 é um envelope aprovado de hardening, mas cada item continua bloqueado por nova revisão
   architect+security e pelos gates de dados/PO/SRE aplicáveis.
 
@@ -330,6 +334,9 @@ liberada para desenho e implementação.
   ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))**, classificação ABSORVER
   conforme A-1, backend não autorizado nesta rodada (criam superfície HTTP nova, exigem architect +
   security novos). Zero fórmula/store/migration/backfill.
+  > **Nota — Controle de ativação:** ativada via `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (build-time,
+  > Next.js/Vercel); `=== '1'` para ativar, padrão desabilitada. Não é `ProjectFeature`/`ModuleSlug`.
+  > Não substitui gates server-side.
 
 #### E4 — qualidade, docs, release e analytics
 

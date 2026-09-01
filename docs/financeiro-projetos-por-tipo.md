@@ -489,6 +489,19 @@ duas entregas distintas, sobre dados já tenant/ACL-scoped e deduplicados pelo m
 | `upcoming` — próximos vencimentos | **follow-up [#635](https://github.com/Gabrieldco1994/reformaflow/issues/635)** — reexpõe `getUpcoming` (ex.: `@Get('upcoming')` sob gate `monthlyOverview`); classificação **ABSORVER** conforme A-1 | **aprovado, NÃO entregue.** Cria superfície HTTP nova → exige architect + security novos. **Backend não autorizado nesta rodada.** |
 | `top-suppliers` — fornecedores agregados | **follow-up [#635](https://github.com/Gabrieldco1994/reformaflow/issues/635)** — reexpõe `getTopSuppliers`; classificação **ABSORVER** conforme A-1 | idem — **aprovado, NÃO entregue**, backend não autorizado nesta rodada |
 
+##### Controle de ativação — U6b build 1
+
+A lente `by-type` é ativada via **variável de ambiente build-time** (Next.js/Vercel):
+
+- **Nome:** `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO`
+- **Ativação:** habilitada somente quando `=== '1'`
+- **Padrão (ausente ou qualquer outro valor):** desabilitada
+- **Escopo:** variável pública Next.js; **não é `ProjectFeature`, `ModuleSlug` ou nav capability** — não entra em `PROJECT_FEATURES`, `TYPE_MODULES` ou `PROJECT_NAV`
+- **Mecanismo:** build-time (Vercel/Next); **não substitui gates server-side** de autorização ou capacidade
+- **Impacto de mudança:** alteração exige novo build e deploy da aplicação
+
+Esta variável é **somente e exclusivamente** para renderização de UI frontend; não altera autorização, scope de dados, rota HTTP nem comportamento persistido.
+
 ### 7.2 A-2 — CASA/CARRO seguem em Avulsas, por ora — **DECIDIDA**
 
 Contexto: §1.1, #369.
