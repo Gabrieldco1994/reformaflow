@@ -107,17 +107,32 @@ const SAMPLE_DATA = {
   ],
 };
 
+function contagem(n: number, singular: string, plural: string) {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
 export function ImportModal({
   projectId,
   onImported,
   onClose,
+  stageCount,
+  taskCount,
 }: {
   projectId: string;
   onImported: () => void;
   onClose: () => void;
+  stageCount: number;
+  taskCount: number;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [confirming, setConfirming] = useState(false);
+
+  // "Há cronograma" = existe QUALQUER etapa ou tarefa. A importação apaga os
+  // dois (hard-delete no backend, sem desfazer), então count > 0 em qualquer
+  // um já exige o passo de confirmação.
+  const hasSchedule = stageCount > 0 || taskCount > 0;
+  const resumo = `${contagem(stageCount, 'etapa', 'etapas')} e ${contagem(taskCount, 'tarefa', 'tarefas')}`;
 
   const handleImportSample = async () => {
     setLoading(true);
@@ -137,33 +152,93 @@ export function ImportModal({
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90dvh] overflow-y-auto">
         <h3 className="text-lg font-bold mb-4">Importar Cronograma</h3>
 
-        <p className="text-sm text-gray-600 mb-4">
-          Importe um cronograma modelo de obra com etapas e tarefas pré-configuradas,
-          incluindo dependências entre tarefas e cálculo automático de datas.
-        </p>
-
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded p-2 mb-4 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" /> {error}
           </div>
         )}
 
-        <div className="flex gap-3">
-          <button
-            onClick={handleImportSample}
-            disabled={loading}
-            className="flex-1 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <Upload className="w-4 h-4" />
-            {loading ? 'Importando...' : 'Importar Modelo de Obra'}
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-          >
-            Cancelar
-          </button>
-        </div>
+        {!hasSchedule ? (
+          <>
+            <p className="text-sm text-gray-600 mb-4">
+              Importe um cronograma modelo de obra com etapas e tarefas pré-configuradas,
+              incluindo dependências entre tarefas e cálculo automático de datas.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleImportSample}
+                disabled={loading}
+                className="flex-1 min-h-[44px] bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                {loading ? 'Importando...' : 'Importar Modelo de Obra'}
+              </button>
+              <button
+                onClick={onClose}
+                className="min-h-[44px] px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </>
+        ) : !confirming ? (
+          <>
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg p-3 mb-4 flex gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Isto vai substituir o cronograma atual.</p>
+                <p className="mt-1">
+                  O cronograma deste projeto tem hoje {resumo}. Importar o modelo de obra
+                  apaga tudo isso — não há como desfazer.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setError('');
+                  setConfirming(true);
+                }}
+                className="flex-1 min-h-[44px] bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 flex items-center justify-center gap-2"
+              >
+                Substituir cronograma
+              </button>
+              <button
+                onClick={onClose}
+                className="min-h-[44px] px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3 mb-4 flex gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Apagar {resumo} e importar o modelo de obra?</p>
+                <p className="mt-1">Esta ação não pode ser desfeita.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleImportSample}
+                disabled={loading}
+                className="flex-1 min-h-[44px] bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                {loading ? 'Importando...' : 'Apagar e importar modelo'}
+              </button>
+              <button
+                onClick={onClose}
+                disabled={loading}
+                className="min-h-[44px] px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
