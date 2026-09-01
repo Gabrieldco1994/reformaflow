@@ -6,7 +6,7 @@
  * in isolation, not that the app mounts it.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MovimentacoesSection } from './MovimentacoesSection';
 import type { AccountViewResponse, AccountViewSaida, AccountViewEntrada } from '../_types';
@@ -19,6 +19,7 @@ vi.mock('@/lib/api', () => ({
     delete: vi.fn().mockResolvedValue({}),
   },
 }));
+vi.mock('../_lib/feature-flags', () => ({ CONTA_LENTE_POR_TIPO_ENABLED: true }));
 
 afterEach(cleanup);
 
@@ -164,6 +165,48 @@ describe('quick=saiuMes', () => {
     expect(screen.queryByText('Pago Itaú')).not.toBeInTheDocument();
     expect(screen.getByText('Planejado Nubank')).toBeInTheDocument();
     expect(screen.queryByText('Aporte Itaú')).not.toBeInTheDocument();
+  });
+});
+
+describe('controles da lente por tipo', () => {
+  it('expõe o modo selecionado e sincroniza mudanças vindas da URL', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const props: React.ComponentProps<typeof MovimentacoesSection> = {
+      data: makeResponse(),
+      projectId: 'proj-1',
+      projectType: 'PESSOAL',
+      originFilter: null,
+      onClearOrigin: vi.fn(),
+      onPayInvoice: vi.fn(),
+      onAdjustInvoice: vi.fn(),
+      onSettleWithResidual: vi.fn(),
+      onUndoPayment: vi.fn(),
+      summaryQuickFilter: null,
+      onClearSummaryQuickFilter: vi.fn(),
+      initialViewMode: 'tipo',
+      initialTipoFilter: 'REFORMA',
+    };
+    const view = render(
+      <QueryClientProvider client={client}>
+        <MovimentacoesSection {...props} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Lista' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Por categoria' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Por tipo' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Por projeto' })).toHaveAttribute('aria-pressed', 'false');
+
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <MovimentacoesSection {...props} initialViewMode="lista" initialTipoFilter={null} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Lista' })).toHaveAttribute('aria-pressed', 'true'),
+    );
+    expect(screen.getByRole('button', { name: 'Por tipo' })).toHaveAttribute('aria-pressed', 'false');
   });
 });
 

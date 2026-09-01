@@ -147,17 +147,24 @@ export function MovimentacoesSection({
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => (CONTA_LENTE_POR_TIPO_ENABLED && initialViewMode === 'tipo' ? 'tipo' : 'lista'),
   );
-  // URL-addressable (#456): reflete o modo/tipo atual para page.tsx sincronizar
-  // `?view=`/`?tipo=`. Somente leitura para as chamadoras — este componente
-  // continua sendo a única fonte de verdade do estado local.
   useEffect(() => {
-    onViewModeChange?.(viewMode);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode]);
+    if (CONTA_LENTE_POR_TIPO_ENABLED && initialViewMode === 'tipo') {
+      setViewMode('tipo');
+      return;
+    }
+    setViewMode((current) => (current === 'tipo' ? 'lista' : current));
+  }, [initialViewMode]);
   useEffect(() => {
-    onTipoFilterChange?.(tipoFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tipoFilter]);
+    setTipoFilter(initialTipoFilter);
+  }, [initialTipoFilter]);
+  const selectViewMode = (next: ViewMode) => {
+    setViewMode(next);
+    onViewModeChange?.(next);
+  };
+  const selectTipoFilter = (next: string | null) => {
+    setTipoFilter(next);
+    onTipoFilterChange?.(next);
+  };
   const [semContaFilter, setSemContaFilter] = useState(false);
   const [showInvestimentos, setShowInvestimentos] = useState(true);
   // Faturas expandidas inline (por cardLast4): revela as compras do cartão na Lista.
@@ -634,7 +641,7 @@ export function MovimentacoesSection({
   const categoriaShown = viewMode === 'categoria' && tab !== 'entradas';
   const projetoShown = viewMode === 'projeto' && tab !== 'entradas';
   // Lente `by-type` (#456) é um recorte MENSAL por design (§7.5 amarra o
-  // invariante a `saiuMes`): não existe no modo 'ano' (`ContaAnoView` nem
+  // invariante a `account-view.saidaTotal`): não existe no modo 'ano' (`ContaAnoView` nem
   // passa `projectType`, e a soma de 12 meses não tem o mesmo significado
   // de "saída do mês"). Fora do mês, o botão nem aparece.
   const tipoShown = CONTA_LENTE_POR_TIPO_ENABLED && mode === 'mes' && viewMode === 'tipo' && tab !== 'entradas';
@@ -642,7 +649,7 @@ export function MovimentacoesSection({
   // Lente "Por tipo" (U6b build 1, #456): agrupa saidas+comprasCartao por
   // `project.type` de origem, fail-closed. Não reaproveita `porProjetoFiltered`
   // nem `isNeutralMovimentacao` (ver `_lib/by-type.ts` — a soma dos grupos
-  // precisa bater exatamente com o total "Saiu" já exibido, o que exige a
+  // precisa bater exatamente com `account-view.saidaTotal`, o que exige a
   // mesma exclusão do total, i.e. `isIncludedInSaidaTotal`, não a lista de
   // neutros de exibição).
   const byTypeGroups = useMemo(() => {
@@ -669,7 +676,7 @@ export function MovimentacoesSection({
   const drillProjetoCategoria = (projKey: string, tipo: string | null) => {
     setProjetoFilter(projKey);
     if (tipo) setCatFilter(tipo);
-    setViewMode('lista');
+    selectViewMode('lista');
   };
 
   const openEditExpense = (item: AccountViewSaida) => {
@@ -946,7 +953,8 @@ export function MovimentacoesSection({
         <div className={`inline-flex h-11 rounded-xl bg-lifeone-sidebar p-1 md:h-10 ${stacked ? 'w-full' : ''}`}>
           <button
             type="button"
-            onClick={() => setViewMode('lista')}
+            onClick={() => selectViewMode('lista')}
+            aria-pressed={viewMode === 'lista'}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
               viewMode === 'lista' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
             }`}
@@ -957,7 +965,8 @@ export function MovimentacoesSection({
           </button>
           <button
             type="button"
-            onClick={() => setViewMode('categoria')}
+            onClick={() => selectViewMode('categoria')}
+            aria-pressed={viewMode === 'categoria'}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
               viewMode === 'categoria' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
             }`}
@@ -969,7 +978,8 @@ export function MovimentacoesSection({
           {CONTA_LENTE_POR_TIPO_ENABLED && mode === 'mes' && (
             <button
               type="button"
-              onClick={() => setViewMode('tipo')}
+              onClick={() => selectViewMode('tipo')}
+              aria-pressed={viewMode === 'tipo'}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
                 viewMode === 'tipo' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
               }`}
@@ -994,7 +1004,8 @@ export function MovimentacoesSection({
           {!stacked && (
             <button
               type="button"
-              onClick={() => setViewMode('projeto')}
+              onClick={() => selectViewMode('projeto')}
+              aria-pressed={viewMode === 'projeto'}
               className={`hidden flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:flex ${
                 viewMode === 'projeto' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
               }`}
@@ -1260,7 +1271,7 @@ export function MovimentacoesSection({
       )}
 
       {tipoShown ? (
-        <PorTipoView groups={byTypeGroups} selectedType={tipoFilter} onSelectType={setTipoFilter} />
+        <PorTipoView groups={byTypeGroups} selectedType={tipoFilter} onSelectType={selectTipoFilter} />
       ) : projetoShown ? (
         <PorProjetoCategoriaView
           items={porProjetoFiltered}

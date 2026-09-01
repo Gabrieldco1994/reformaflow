@@ -23,12 +23,23 @@ const useQueryMock = vi.fn();
 const resumoCardsMock = vi.fn();
 const cartoesSectionMock = vi.fn();
 const movimentacoesSectionMock = vi.fn();
+const navigationMock = vi.hoisted(() => ({
+  searchParams: new URLSearchParams(),
+  push: vi.fn(),
+  replace: vi.fn(),
+}));
+const featureFlagMock = vi.hoisted(() => ({ enabled: true }));
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ projectId: 'p1' }),
   usePathname: () => '/projects/p1/conta',
-  useRouter: () => ({ replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: navigationMock.push, replace: navigationMock.replace }),
+  useSearchParams: () => navigationMock.searchParams,
+}));
+vi.mock('./_lib/feature-flags', () => ({
+  get CONTA_LENTE_POR_TIPO_ENABLED() {
+    return featureFlagMock.enabled;
+  },
 }));
 
 vi.mock('@/contexts/project-context', () => ({
@@ -129,7 +140,7 @@ function renderConta() {
     if (queryKey[0] === 'dre-overview') return { data: null, isLoading: false, error: null };
     return { data: [], isLoading: false, error: null };
   });
-  render(<ContaPage />);
+  return render(<ContaPage />);
 }
 
 describe('ContaPage — composição de filtros (#575)', () => {
@@ -138,6 +149,10 @@ describe('ContaPage — composição de filtros (#575)', () => {
     resumoCardsMock.mockReset();
     cartoesSectionMock.mockReset();
     movimentacoesSectionMock.mockReset();
+    navigationMock.searchParams = new URLSearchParams();
+    navigationMock.push.mockReset();
+    navigationMock.replace.mockReset();
+    featureFlagMock.enabled = true;
   });
 
   it('mantém o filtro de conta ao selecionar um quick filter do resumo', () => {
@@ -172,5 +187,59 @@ describe('ContaPage — composição de filtros (#575)', () => {
 
     // Limpar aqui é intencional: a conta pode não existir no outro recorte.
     expect(lastProps(movimentacoesSectionMock).originFilter).toBeNull();
+  });
+
+  it('restaura a lente por tipo a partir da URL e acompanha back/forward', () => {
+    navigationMock.searchParams = new URLSearchParams('mes=2026-07&item=expense-1&view=tipo&tipo=REFORMA');
+    const view = renderConta();
+
+    expect(lastProps(movimentacoesSectionMock)).toMatchObject({
+      initialViewMode: 'tipo',
+      initialTipoFilter: 'REFORMA',
+    });
+    act(() => {
+      (lastProps(movimentacoesSectionMock).onTipoFilterChange as (tipo: string | null) => void)(null);
+    });
+    expect(navigationMock.push).toHaveBeenCalledWith(
+      '/projects/p1/conta?mes=2026-07&item=expense-1&view=tipo',
+      { scroll: false },
+    );
+
+    navigationMock.searchParams = new URLSearchParams('mes=2026-07&item=expense-1');
+    view.rerender(<ContaPage />);
+
+    expect(lastProps(movimentacoesSectionMock)).toMatchObject({
+      initialViewMode: 'lista',
+      initialTipoFilter: null,
+    });
+  });
+
+  it('navega com push e preserva mes/item ao selecionar a lente por tipo', () => {
+    navigationMock.searchParams = new URLSearchParams('mes=2026-07&item=expense-1');
+    renderConta();
+
+    act(() => {
+      (lastProps(movimentacoesSectionMock).onViewModeChange as (mode: string) => void)('tipo');
+    });
+
+    expect(navigationMock.push).toHaveBeenCalledWith(
+      '/projects/p1/conta?mes=2026-07&item=expense-1&view=tipo',
+      { scroll: false },
+    );
+  });
+
+  it('ignora e limpa view=tipo quando a flag está desligada', () => {
+    featureFlagMock.enabled = false;
+    navigationMock.searchParams = new URLSearchParams('mes=2026-07&item=expense-1&view=tipo&tipo=REFORMA');
+    renderConta();
+
+    expect(lastProps(movimentacoesSectionMock)).toMatchObject({
+      initialViewMode: 'lista',
+      initialTipoFilter: null,
+    });
+    expect(navigationMock.replace).toHaveBeenCalledWith(
+      '/projects/p1/conta?mes=2026-07&item=expense-1',
+      { scroll: false },
+    );
   });
 });

@@ -26,8 +26,15 @@ export function PorTipoView({
 
   if (selectedType && visible.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-lifeone-hairline bg-lifeone-card p-8 text-center text-sm text-lifeone-ink-3">
-        Nenhum tipo encontrado com esses filtros.
+      <div className="space-y-3 rounded-2xl border border-dashed border-lifeone-hairline bg-lifeone-card p-8 text-center text-sm text-lifeone-ink-3">
+        <p>Nenhum tipo encontrado com esses filtros.</p>
+        <button
+          type="button"
+          onClick={() => onSelectType(null)}
+          className="inline-flex h-11 items-center rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 font-medium text-lifeone-ink-2 transition hover:border-lifeone-blue"
+        >
+          Ver todos os tipos
+        </button>
       </div>
     );
   }
@@ -55,11 +62,12 @@ export function PorTipoView({
             <button
               type="button"
               disabled={!g.hasFinance || !!selectedType}
+              aria-pressed={g.hasFinance ? selectedType === g.type : undefined}
               onClick={() => (g.hasFinance ? onSelectType(g.type) : undefined)}
               className={`flex min-h-[44px] w-full items-center gap-2 px-4 py-3 text-left transition ${
                 g.hasFinance ? 'hover:bg-lifeone-sidebar' : 'cursor-default'
               }`}
-              title={g.hasFinance ? 'Ver lançamentos deste tipo' : 'Este tipo não tem financeiro'}
+              title={g.hasFinance ? 'Filtrar por este tipo' : 'Este tipo não tem financeiro'}
             >
               <span
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
