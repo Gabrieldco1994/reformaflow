@@ -950,12 +950,12 @@ export function MovimentacoesSection({
         {sortDir === 'desc' ? 'Mais recentes' : 'Mais antigas'}
       </button>
       {tab !== 'entradas' && (
-        <div className={`inline-flex h-11 rounded-xl bg-lifeone-sidebar p-1 md:h-10 ${stacked ? 'w-full' : ''}`}>
+        <div className={`inline-flex rounded-xl bg-lifeone-sidebar p-1 md:h-10 ${stacked ? 'w-full' : ''}`}>
           <button
             type="button"
             onClick={() => selectViewMode('lista')}
             aria-pressed={viewMode === 'lista'}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
+            className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:min-h-0 ${
               viewMode === 'lista' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
             }`}
             title="Ver lançamentos"
@@ -967,7 +967,7 @@ export function MovimentacoesSection({
             type="button"
             onClick={() => selectViewMode('categoria')}
             aria-pressed={viewMode === 'categoria'}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
+            className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:min-h-0 ${
               viewMode === 'categoria' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
             }`}
             title="Ver por categoria"
@@ -980,7 +980,7 @@ export function MovimentacoesSection({
               type="button"
               onClick={() => selectViewMode('tipo')}
               aria-pressed={viewMode === 'tipo'}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
+              className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:min-h-0 ${
                 viewMode === 'tipo' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
               }`}
               title="Ver por tipo de projeto"
@@ -1006,7 +1006,7 @@ export function MovimentacoesSection({
               type="button"
               onClick={() => selectViewMode('projeto')}
               aria-pressed={viewMode === 'projeto'}
-              className={`hidden flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:flex ${
+              className={`hidden min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:flex md:min-h-0 ${
                 viewMode === 'projeto' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
               }`}
               title="Ver por projeto e categoria"
@@ -1228,7 +1228,7 @@ export function MovimentacoesSection({
         <Modal open={filterSheetOpen} onClose={() => setFilterSheetOpen(false)} title="Filtros" variant="sheet" size="sm">
           <div className="flex flex-col gap-3 pb-2">
             {renderFilterControls(true)}
-            <Button type="button" onClick={() => setFilterSheetOpen(false)} className="mt-1 w-full">
+            <Button type="button" onClick={() => setFilterSheetOpen(false)} className="mt-1 min-h-11 w-full md:min-h-0">
               Aplicar
             </Button>
           </div>
