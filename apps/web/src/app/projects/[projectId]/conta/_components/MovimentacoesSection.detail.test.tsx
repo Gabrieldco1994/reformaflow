@@ -11,6 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MovimentacoesSection } from './MovimentacoesSection';
 import type { AccountViewResponse, AccountViewSaida, AccountViewEntrada } from '../_types';
 
+const featureFlagMock = vi.hoisted(() => ({ enabled: true }));
+
 vi.mock('@/lib/api', () => ({
   api: {
     get: vi.fn().mockResolvedValue([]),
@@ -19,9 +21,16 @@ vi.mock('@/lib/api', () => ({
     delete: vi.fn().mockResolvedValue({}),
   },
 }));
-vi.mock('../_lib/feature-flags', () => ({ CONTA_LENTE_POR_TIPO_ENABLED: true }));
+vi.mock('../_lib/feature-flags', () => ({
+  get CONTA_LENTE_POR_TIPO_ENABLED() {
+    return featureFlagMock.enabled;
+  },
+}));
 
-afterEach(cleanup);
+afterEach(() => {
+  featureFlagMock.enabled = true;
+  cleanup();
+});
 
 function makeSaida(overrides: Partial<AccountViewSaida> = {}): AccountViewSaida {
   return {
@@ -165,6 +174,20 @@ describe('quick=saiuMes', () => {
     expect(screen.queryByText('Pago Itaú')).not.toBeInTheDocument();
     expect(screen.getByText('Planejado Nubank')).toBeInTheDocument();
     expect(screen.queryByText('Aporte Itaú')).not.toBeInTheDocument();
+  });
+});
+
+describe('lente por tipo desabilitada', () => {
+  it('não oferece a view nem honra o deep-link no componente real', () => {
+    featureFlagMock.enabled = false;
+    renderSection(makeResponse(), {
+      projectType: 'PESSOAL',
+      initialViewMode: 'tipo',
+      initialTipoFilter: 'REFORMA',
+    });
+
+    expect(screen.queryByRole('button', { name: 'Por tipo' })).not.toBeInTheDocument();
+    expect(screen.getByText('Cimento 50kg')).toBeInTheDocument();
   });
 });
 

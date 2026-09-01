@@ -13,7 +13,7 @@ import type { AccountViewSaida } from '../_types';
 
 function saida(overrides: Partial<AccountViewSaida> & { valor: number }): AccountViewSaida {
   return {
-    id: overrides.id ?? `s-${Math.random()}`,
+    id: overrides.id ?? 'saida-fixture',
     kind: 'saida',
     descricao: 'Movimento',
     data: '2026-07-10T00:00:00.000Z',
@@ -57,6 +57,75 @@ describe('buildByTypeGroups', () => {
     const groups = buildByTypeGroups({ ...fixture, selfProjectType: ProjectType.PESSOAL });
 
     expect(groups.find((g) => g.type === ProjectType.PESSOAL)).toMatchObject({ total: 5_000, count: 1 });
+    expect(groups.find((g) => g.type === ProjectType.REFORMA)).toBeUndefined();
+    expect(groups.reduce((sum, group) => sum + group.total, 0)).toBe(fixture.saidaTotal);
+  });
+
+  it('ignora compra do mesmo cartão quando o mês da fatura é diferente', () => {
+    const fixture = {
+      saidaTotal: 5_000,
+      saidas: [
+        saida({ valor: 5_000, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', isInvoice: true, cardLast4: '1111', dueMonth: '2026-07' }),
+      ],
+      comprasCartao: [
+        saida({ valor: 5_000, cardLast4: '1111', dueMonth: '2026-08', projetoOrigem: { id: 'project-reforma', name: 'Obra', type: ProjectType.REFORMA } }),
+      ],
+    };
+    const groups = buildByTypeGroups({ ...fixture, selfProjectType: ProjectType.PESSOAL });
+
+    expect(groups.find((g) => g.type === ProjectType.PESSOAL)).toMatchObject({ total: 5_000, count: 1 });
+    expect(groups.find((g) => g.type === ProjectType.REFORMA)).toBeUndefined();
+    expect(groups.reduce((sum, group) => sum + group.total, 0)).toBe(fixture.saidaTotal);
+  });
+
+  it.each([
+    { missing: 'cardLast4', cardLast4: null, dueMonth: '2026-07' },
+    { missing: 'dueMonth', cardLast4: '1111', dueMonth: null },
+  ])('ignora compra quando a fatura não tem $missing', ({ cardLast4, dueMonth }) => {
+    const fixture = {
+      saidaTotal: 5_000,
+      saidas: [
+        saida({ valor: 5_000, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', isInvoice: true, cardLast4, dueMonth }),
+      ],
+      comprasCartao: [
+        saida({ valor: 5_000, cardLast4: '1111', dueMonth: '2026-07', projetoOrigem: { id: 'project-reforma', name: 'Obra', type: ProjectType.REFORMA } }),
+      ],
+    };
+    const groups = buildByTypeGroups({ ...fixture, selfProjectType: ProjectType.PESSOAL });
+
+    expect(groups.find((g) => g.type === ProjectType.PESSOAL)).toMatchObject({ total: 5_000, count: 1 });
+    expect(groups.find((g) => g.type === ProjectType.REFORMA)).toBeUndefined();
+    expect(groups.reduce((sum, group) => sum + group.total, 0)).toBe(fixture.saidaTotal);
+  });
+
+  it('não desloca compra quando a fatura casada não criou baseline PESSOAL', () => {
+    const fixture = {
+      saidaTotal: 5_000,
+      saidas: [
+        saida({
+          id: 'invoice-carro-1111-2026-07',
+          valor: 5_000,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          isInvoice: true,
+          cardLast4: '1111',
+          dueMonth: '2026-07',
+          projetoOrigem: { id: 'project-carro', name: 'Carro', type: ProjectType.CARRO },
+        }),
+      ],
+      comprasCartao: [
+        saida({
+          id: 'purchase-reforma-1111-2026-07',
+          valor: 2_000,
+          cardLast4: '1111',
+          dueMonth: '2026-07',
+          projetoOrigem: { id: 'project-reforma', name: 'Obra', type: ProjectType.REFORMA },
+        }),
+      ],
+    };
+    const groups = buildByTypeGroups({ ...fixture, selfProjectType: ProjectType.PESSOAL });
+
+    expect(groups.find((g) => g.type === ProjectType.PESSOAL)).toMatchObject({ total: 0, count: 0 });
+    expect(groups.find((g) => g.type === ProjectType.CARRO)).toMatchObject({ total: 5_000, count: 1 });
     expect(groups.find((g) => g.type === ProjectType.REFORMA)).toBeUndefined();
     expect(groups.reduce((sum, group) => sum + group.total, 0)).toBe(fixture.saidaTotal);
   });

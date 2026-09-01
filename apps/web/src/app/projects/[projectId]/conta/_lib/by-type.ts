@@ -110,7 +110,8 @@ export function buildByTypeGroups({
     if (!proj) continue; // já é PESSOAL — nada a deslocar
     if (!NETTABLE_TYPES.has(proj.type)) continue; // PESSOAL/PLANTAS/desconhecido: fail-closed, fica onde está
     const pessoal = totals.get(ProjectType.PESSOAL);
-    if (pessoal) pessoal.total -= c.valor;
+    if (!pessoal) continue;
+    pessoal.total -= c.valor;
     bump(totals, proj.type, c.valor);
   }
 
