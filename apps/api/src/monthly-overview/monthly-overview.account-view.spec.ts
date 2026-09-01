@@ -2916,9 +2916,12 @@ describe("MonthlyOverviewService.getAccountView", () => {
       // #646: com exatamente 1 RateioAllocation para a fonte, o alvo é
       // inequívoco — projetoOrigem resolve o destino (REFORMA) via
       // linkedExpenseId/foreignById, mesmo resolver já usado pelas demais linhas.
-      expect(linhas[0].projetoOrigem).toEqual(
-        expect.objectContaining({ id: reforma.id, name: reforma.name, type: "REFORMA" }),
-      );
+      // Objeto exato (não objectContaining): pega mutação que vaze/omita campo.
+      expect(linhas[0].projetoOrigem).toEqual({
+        id: reforma.id,
+        name: reforma.name,
+        type: "REFORMA",
+      });
 
       // Ela entra no total de falta pagar (sem conta = caixa real, §14).
       expect(res.faltaPagarMes).toBeGreaterThanOrEqual(3_000);
@@ -2978,9 +2981,12 @@ describe("MonthlyOverviewService.getAccountView", () => {
       expect(linhas).toHaveLength(1);
       expect(linhas[0].realizado).toBe(true);
       expect(linhas[0].origem).toEqual({ tipo: "carteira" });
-      expect(linhas[0].projetoOrigem).toEqual(
-        expect.objectContaining({ id: reforma.id, type: "REFORMA" }),
-      );
+      // Objeto exato (não objectContaining): pega mutação que vaze/omita campo.
+      expect(linhas[0].projetoOrigem).toEqual({
+        id: reforma.id,
+        name: reforma.name,
+        type: "REFORMA",
+      });
 
       // saiuMes preservado (a fonte conta uma vez, o alvo não dobra).
       expect(res.saiuMes).toBeGreaterThanOrEqual(4_000);
