@@ -2913,6 +2913,12 @@ describe("MonthlyOverviewService.getAccountView", () => {
       expect(linhas[0].cardLast4).toBeNull();
       expect(linhas[0].bankLast4).toBeNull();
       expect(linhas[0].origem).toEqual({ tipo: "carteira" });
+      // #646: com exatamente 1 RateioAllocation para a fonte, o alvo é
+      // inequívoco — projetoOrigem resolve o destino (REFORMA) via
+      // linkedExpenseId/foreignById, mesmo resolver já usado pelas demais linhas.
+      expect(linhas[0].projetoOrigem).toEqual(
+        expect.objectContaining({ id: reforma.id, name: reforma.name, type: "REFORMA" }),
+      );
 
       // Ela entra no total de falta pagar (sem conta = caixa real, §14).
       expect(res.faltaPagarMes).toBeGreaterThanOrEqual(3_000);
@@ -2921,6 +2927,443 @@ describe("MonthlyOverviewService.getAccountView", () => {
       expect(res.saidas.some((s: any) => s.descricao === "Piso Rateado")).toBe(
         false,
       );
+    });
+
+    // #646 (contrato 2): mesmo caso acima, mas fonte PAGA À VISTA (não
+    // PLANEJADO/PARCELADO) — 1 RateioAllocation (alvo inequívoco), o resolver
+    // deve valer também para o caminho PAGO da Carteira local, preservando
+    // fonte única/alvo suprimido/saiuMes.
+    it("rateio de fonte SEM cartão/conta (Pago/À vista, 1 allocation): projetoOrigem aponta pro alvo REFORMA e a fonte permanece única", async () => {
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        { sourceExpenseId: "src-carteira-pago", targetExpenseId: "tgt-carteira-pago" },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-carteira-pago",
+          projectId,
+          titulo: "Compra Materiais Via Carteira Pago",
+          fornecedor: "Loja X",
+          valorTotal: 4_000,
+          valor: 4_000,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          cardLast4: null,
+          bankLast4: null,
+          formaPagamento: "A_VISTA",
+          linkedExpenseId: "tgt-carteira-pago",
+        }),
+        base({
+          id: "tgt-carteira-pago",
+          projectId: reforma.id,
+          titulo: "Piso Rateado Pago",
+          fornecedor: "Loja X",
+          valorTotal: 4_000,
+          valor: 4_000,
+          formaPagamento: "A_VISTA",
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: reforma,
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      const linhas = res.saidas.filter(
+        (s: any) => s.descricao === "Compra Materiais Via Carteira Pago",
+      );
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].realizado).toBe(true);
+      expect(linhas[0].origem).toEqual({ tipo: "carteira" });
+      expect(linhas[0].projetoOrigem).toEqual(
+        expect.objectContaining({ id: reforma.id, type: "REFORMA" }),
+      );
+
+      // saiuMes preservado (a fonte conta uma vez, o alvo não dobra).
+      expect(res.saiuMes).toBeGreaterThanOrEqual(4_000);
+      expect(
+        res.saidas.some((s: any) => s.descricao === "Piso Rateado Pago"),
+      ).toBe(false);
+    });
+
+    // #646 (contrato 3, REVISADO Architect+Security): rateio multi-alvo (>=2
+    // RateioAllocation para a mesma fonte) é fan-out AMBÍGUO — nenhum alvo
+    // "é" a origem inteira, então projetoOrigem deve ser null ANTES de
+    // consultar linkedExpenseId/foreignById, mesmo que TODOS os alvos sejam
+    // visíveis/autorizados (REFORMA + CASA, ambos no Hub). Nunca atribuir o
+    // valor inteiro ao 1º alvo só porque `linkedExpenseId` (campo legado 1:1)
+    // aponta pra ele. Preserva o contrato B0/#436 de redação source-only
+    // (ver `finance-center.fixture.integration.spec.ts`, cenário 30029).
+    it("rateio multi-alvo REFORMA+CASA (fonte SEM cartão/conta, >=2 allocations): projetoOrigem null — fan-out ambíguo, nunca o 1º alvo", async () => {
+      const casa = { id: "casa-1", name: "Casa", type: "CASA" };
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        { sourceExpenseId: "src-multi", targetExpenseId: "tgt-reforma-multi" },
+        { sourceExpenseId: "src-multi", targetExpenseId: "tgt-casa-multi" },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-multi",
+          projectId,
+          titulo: "Compra Multi Rateio",
+          fornecedor: "Loja Y",
+          valorTotal: 10_000,
+          valor: 10_000,
+          status: "PLANEJADO",
+          cardLast4: null,
+          bankLast4: null,
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          linkedExpenseId: "tgt-reforma-multi",
+        }),
+        base({
+          id: "tgt-reforma-multi",
+          projectId: reforma.id,
+          titulo: "Alvo Reforma Multi",
+          fornecedor: "Loja Y",
+          valorTotal: 6_000,
+          valor: 6_000,
+          status: "PLANEJADO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: reforma,
+        }),
+        base({
+          id: "tgt-casa-multi",
+          projectId: casa.id,
+          titulo: "Alvo Casa Multi",
+          fornecedor: "Loja Y",
+          valorTotal: 4_000,
+          valor: 4_000,
+          status: "PLANEJADO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: casa,
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      const linhas = res.saidas.filter(
+        (s: any) => s.descricao === "Compra Multi Rateio",
+      );
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].valor).toBe(10_000);
+      expect(linhas[0].origem).toEqual({ tipo: "carteira" });
+      expect(linhas[0].projetoOrigem).toBeNull();
+
+      // Sem NENHUMA key/ID/metadata de rateio vazando na linha da fonte.
+      const forbiddenKeys = [
+        "targetExpenseId",
+        "targetExpenseIds",
+        "sourceExpenseId",
+        "allocation",
+        "allocations",
+        "rateio",
+        "hiddenCount",
+        "hiddenSum",
+      ];
+      for (const key of forbiddenKeys) {
+        expect(Object.prototype.hasOwnProperty.call(linhas[0], key)).toBe(
+          false,
+        );
+      }
+      const serialized = JSON.stringify(linhas[0]);
+      expect(serialized).not.toContain("tgt-reforma-multi");
+      expect(serialized).not.toContain("tgt-casa-multi");
+      expect(serialized).not.toContain("Alvo Reforma Multi");
+      expect(serialized).not.toContain("Alvo Casa Multi");
+
+      // A fonte conta uma vez (valor total preservado) e ambos alvos seguem
+      // suprimidos.
+      expect(
+        res.saidas.some((s: any) => s.descricao === "Alvo Reforma Multi"),
+      ).toBe(false);
+      expect(
+        res.saidas.some((s: any) => s.descricao === "Alvo Casa Multi"),
+      ).toBe(false);
+      expect(res.faltaPagarMes).toBe(10_000);
+    });
+
+    // #646: mesmo contrato acima, mas fonte PAGA — reproduz a FORMA do fixture
+    // B0 (`finance-center.fixture.integration.spec.ts`, fonte 30029: 1 alvo
+    // ALLOWED + 1 alvo hidden/CASA, ambos somando o valorTotal) neste arquivo,
+    // sem tocar o fixture travado. PAGO não muda o gate: >=2 allocations ainda
+    // é null.
+    it("rateio PAGO multi-alvo (forma do fixture B0 30029): projetoOrigem null mesmo com status PAGO e ambos os alvos visíveis", async () => {
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        { sourceExpenseId: "src-30029", targetExpenseId: "tgt-30029-reforma" },
+        { sourceExpenseId: "src-30029", targetExpenseId: "tgt-30029-casa" },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-30029",
+          projectId,
+          titulo: "Fonte rateio 30029",
+          fornecedor: "Loja W",
+          valorTotal: 30_029,
+          valor: 30_029,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-12T00:00:00.000Z"),
+          cardLast4: null,
+          bankLast4: null,
+          formaPagamento: "A_VISTA",
+          linkedExpenseId: "tgt-30029-reforma",
+        }),
+        base({
+          id: "tgt-30029-reforma",
+          projectId: reforma.id,
+          titulo: "Alvo Reforma 30029",
+          fornecedor: "Loja W",
+          valorTotal: 12_007,
+          valor: 12_007,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-12T00:00:00.000Z"),
+          project: reforma,
+        }),
+        base({
+          id: "tgt-30029-casa",
+          projectId: "casa-30029",
+          titulo: "Alvo Casa 30029",
+          fornecedor: "Loja W",
+          valorTotal: 18_022,
+          valor: 18_022,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-12T00:00:00.000Z"),
+          project: { id: "casa-30029", name: "Casa 30029", type: "CASA" },
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      const linhas = res.saidas.filter(
+        (s: any) => s.descricao === "Fonte rateio 30029",
+      );
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].valor).toBe(30_029);
+      expect(linhas[0].realizado).toBe(true);
+      expect(linhas[0].origem).toEqual({ tipo: "carteira" });
+      expect(linhas[0].projetoOrigem).toBeNull();
+      expect(res.saiuMes).toBeGreaterThanOrEqual(30_029);
+      expect(
+        res.saidas.some((s: any) => s.descricao === "Alvo Reforma 30029"),
+      ).toBe(false);
+      expect(
+        res.saidas.some((s: any) => s.descricao === "Alvo Casa 30029"),
+      ).toBe(false);
+    });
+
+    // #646: fonte multi-alvo NA CONTA (bankLast4) — prova que o gate
+    // compartilhado (mesma `projetoOrigemFor`) protege `accountExpenseList`,
+    // não só a Carteira local.
+    it("rateio multi-alvo com fonte NA CONTA (bankLast4): projetoOrigem null — mesmo gate protege accountExpenseList", async () => {
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        { sourceExpenseId: "src-bank-multi", targetExpenseId: "tgt-bank-reforma" },
+        { sourceExpenseId: "src-bank-multi", targetExpenseId: "tgt-bank-casa" },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-bank-multi",
+          projectId,
+          titulo: "Compra Multi Rateio Conta",
+          fornecedor: "Loja Z",
+          valorTotal: 5_000,
+          valor: 5_000,
+          status: "PLANEJADO",
+          cardLast4: null,
+          bankLast4: "4242",
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-06-14T00:00:00.000Z"),
+          linkedExpenseId: "tgt-bank-reforma",
+        }),
+        base({
+          id: "tgt-bank-reforma",
+          projectId: reforma.id,
+          titulo: "Alvo Reforma Bank Multi",
+          fornecedor: "Loja Z",
+          valorTotal: 3_000,
+          valor: 3_000,
+          status: "PLANEJADO",
+          dataPagamento: new Date("2026-06-14T00:00:00.000Z"),
+          project: reforma,
+        }),
+        base({
+          id: "tgt-bank-casa",
+          projectId: "casa-bank",
+          titulo: "Alvo Casa Bank Multi",
+          fornecedor: "Loja Z",
+          valorTotal: 2_000,
+          valor: 2_000,
+          status: "PLANEJADO",
+          dataPagamento: new Date("2026-06-14T00:00:00.000Z"),
+          project: { id: "casa-bank", name: "Casa Bank", type: "CASA" },
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      const linhas = res.saidas.filter(
+        (s: any) => s.descricao === "Compra Multi Rateio Conta",
+      );
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].bankLast4).toBe("4242");
+      expect(linhas[0].projetoOrigem).toBeNull();
+      expect(
+        res.saidas.some((s: any) => s.descricao === "Alvo Reforma Bank Multi"),
+      ).toBe(false);
+      expect(
+        res.saidas.some((s: any) => s.descricao === "Alvo Casa Bank Multi"),
+      ).toBe(false);
+    });
+
+    // #646: fonte multi-alvo NO CARTÃO (cardLast4) — teste pequeno adicional
+    // provando que o mesmo gate protege `comprasCartao` (3º call-site).
+    it("rateio multi-alvo com fonte NO CARTÃO: projetoOrigem null — mesmo gate protege comprasCartao", async () => {
+      prisma.creditCard.findMany.mockResolvedValue([
+        {
+          id: "c-9911",
+          tenantId,
+          projectId,
+          nickname: "Cartão",
+          last4: "9911",
+          closingDay: 20,
+          dueDay: 28,
+          limitTotalCents: 100_000,
+          limitAvailableCents: 50_000,
+        },
+      ]);
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        { sourceExpenseId: "src-card-multi", targetExpenseId: "tgt-card-reforma" },
+        { sourceExpenseId: "src-card-multi", targetExpenseId: "tgt-card-casa" },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-card-multi",
+          projectId,
+          titulo: "Compra Multi Rateio Cartão",
+          fornecedor: "Loja Q",
+          valorTotal: 8_000,
+          valor: 8_000,
+          status: "PLANEJADO",
+          cardLast4: "9911",
+          bankLast4: null,
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          linkedExpenseId: "tgt-card-reforma",
+        }),
+        base({
+          id: "tgt-card-reforma",
+          projectId: reforma.id,
+          titulo: "Alvo Reforma Card Multi",
+          fornecedor: "Loja Q",
+          valorTotal: 5_000,
+          valor: 5_000,
+          status: "PLANEJADO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: reforma,
+        }),
+        base({
+          id: "tgt-card-casa",
+          projectId: "casa-card",
+          titulo: "Alvo Casa Card Multi",
+          fornecedor: "Loja Q",
+          valorTotal: 3_000,
+          valor: 3_000,
+          status: "PLANEJADO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: { id: "casa-card", name: "Casa Card", type: "CASA" },
+        }),
+      ]);
+      // comprasCartao lê de `cashFlowEntry`, não de `expense.findMany` — a
+      // fonte precisa de um lançamento de caixa próprio (mesmo padrão dos
+      // demais testes de comprasCartao neste arquivo).
+      prisma.cashFlowEntry.findMany.mockResolvedValue([
+        {
+          id: "cfe-src-card-multi",
+          tenantId,
+          projectId,
+          tipo: "DESPESA",
+          valor: 8_000,
+          data: new Date("2026-06-10T00:00:00.000Z"),
+          status: "PLANEJADO",
+          categoria: "OUTROS",
+          subcategoria: null,
+          formaPagamento: "CARTAO_CREDITO",
+          parcela: null,
+          expense: {
+            id: "src-card-multi",
+            tipoDespesa: "OUTROS",
+            titulo: "Compra Multi Rateio Cartão",
+            fornecedor: "Loja Q",
+            cardLast4: "9911",
+            bankLast4: null,
+            linkedExpenseId: "tgt-card-reforma",
+          },
+          receipt: null,
+        },
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      const linhas = res.comprasCartao.filter(
+        (s: any) => s.descricao === "Compra Multi Rateio Cartão",
+      );
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].cardLast4).toBe("9911");
+      expect(linhas[0].projetoOrigem).toBeNull();
+    });
+
+    // #646 (contrato 4): linkedExpenseId aponta pra um alvo ausente/fora do Hub
+    // (deletado ou não retornado por expense.findMany) — 0 RateioAllocation
+    // (vínculo simples), o resolver é fail-closed (retorna null), sem crash, e
+    // a fonte Carteira permanece visível/no total.
+    it("linkedExpenseId aponta pra alvo ausente/fora do Hub (0 allocations): projetoOrigem null, sem crash, fonte visível e total preservado", async () => {
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-alvo-ausente",
+          projectId,
+          titulo: "Compra Alvo Ausente",
+          fornecedor: "Loja Z",
+          valorTotal: 2_000,
+          valor: 2_000,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          cardLast4: null,
+          bankLast4: null,
+          formaPagamento: "A_VISTA",
+          linkedExpenseId: "tgt-inexistente",
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      const linha = res.saidas.find(
+        (s: any) => s.descricao === "Compra Alvo Ausente",
+      );
+      expect(linha).toBeDefined();
+      expect(linha.projetoOrigem).toBeNull();
+      expect(linha.origem).toEqual({ tipo: "carteira" });
+      expect(res.saiuMes).toBeGreaterThanOrEqual(2_000);
     });
 
     it("financiamento (CASA): parcela materializada aparece em falta pagar antes de ser paga", async () => {
