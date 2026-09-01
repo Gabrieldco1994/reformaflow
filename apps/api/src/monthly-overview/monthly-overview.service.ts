@@ -1155,7 +1155,7 @@ export class MonthlyOverviewService {
           isInvoice: false,
           editavel: true,
           dueMonth,
-          projetoOrigem: projetoOrigemFor(entry.expense!.id as string, entry.expense!.linkedExpenseId),
+          projetoOrigem: projetoOrigemFor(entry.expense!.id, entry.expense!.linkedExpenseId),
         };
       })
       .filter((row) => row.dueMonth === mesSelecionado)
