@@ -53,22 +53,22 @@ async function seed(prisma: PrismaClient) {
       {
         id: IDS.bankPaid, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 15000, quantidade: 1, valorTotal: 15000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', bankLast4: '1234',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, bankLast4: '1234',
       },
       {
         id: IDS.carteiraPaid, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'OUTROS', valor: 7500, quantidade: 1, valorTotal: 7500,
-        formaPagamento: 'A_VISTA', status: 'PAGO',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D,
       },
       {
         id: IDS.cardPurchase, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'ELETRODOMESTICO', valor: 12000, quantidade: 1, valorTotal: 12000,
-        formaPagamento: 'A_VISTA', status: 'PAGO', cardLast4: '5678',
+        formaPagamento: 'A_VISTA', status: 'PAGO', createdAt: D, cardLast4: '5678',
       },
       {
         id: IDS.invoiceUnpaid, projectId: IDS.pessoal, tenantId: T,
         tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', valor: 12000, quantidade: 1, valorTotal: 12000,
-        formaPagamento: 'A_VISTA', status: 'PLANEJADO', cardLast4: '5678',
+        formaPagamento: 'A_VISTA', status: 'PLANEJADO', createdAt: D, cardLast4: '5678',
       },
     ],
   });
