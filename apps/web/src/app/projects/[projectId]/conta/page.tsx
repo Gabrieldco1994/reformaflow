@@ -19,6 +19,7 @@ import { InvoiceInterventionDialog } from './_components/InvoiceInterventionDial
 import { ContaAnoView } from './_components/ContaAnoView';
 import { ContaQuickActions } from './_components/ContaQuickActions';
 import BankAccountsSection from './_components/BankAccountsSection';
+import { CONTA_LENTE_POR_TIPO_ENABLED } from './_lib/feature-flags';
 import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
 import { PendenciasQueueCard } from '../monthly/_cockpit/PendenciasQueueCard';
 import type { AccountViewResponse } from './_types';
@@ -51,6 +52,50 @@ export default function ContaPage() {
     [pathname, router, searchParams],
   );
   const [viewMode, setViewMode] = useState<'mes' | 'ano'>('mes');
+
+  // `view=tipo`/`tipo=` vêm sempre da URL para back/forward restaurar a lente.
+  // Categoria/projeto continuam locais ao MovimentacoesSection.
+  const contaViewMode =
+    CONTA_LENTE_POR_TIPO_ENABLED && searchParams.get('view') === 'tipo' ? 'tipo' : 'lista';
+  const contaTipoFilter = contaViewMode === 'tipo' ? searchParams.get('tipo') : null;
+  useEffect(() => {
+    if (contaViewMode === 'tipo') return;
+    if (!searchParams.has('view') && !searchParams.has('tipo')) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('view');
+    next.delete('tipo');
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [contaViewMode, pathname, router, searchParams]);
+
+  const selectContaViewMode = useCallback(
+    (mode: 'lista' | 'categoria' | 'projeto' | 'tipo') => {
+      const next = new URLSearchParams(searchParams.toString());
+      if (mode === 'tipo' && CONTA_LENTE_POR_TIPO_ENABLED) {
+        next.set('view', 'tipo');
+      } else {
+        next.delete('view');
+        next.delete('tipo');
+      }
+      const query = next.toString();
+      if (query === searchParams.toString()) return;
+      router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+  const selectContaTipo = useCallback(
+    (tipo: string | null) => {
+      if (!CONTA_LENTE_POR_TIPO_ENABLED) return;
+      const next = new URLSearchParams(searchParams.toString());
+      next.set('view', 'tipo');
+      if (tipo) next.set('tipo', tipo);
+      else next.delete('tipo');
+      const query = next.toString();
+      if (query === searchParams.toString()) return;
+      router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   // Deep-link: `?item=<id>` seleciona e abre o detalhe do item correspondente.
   // Se o id não está na resposta escopada, é silenciosamente ignorado.
@@ -277,6 +322,7 @@ export default function ContaPage() {
               <MovimentacoesSection
                 data={data}
                 projectId={projectId}
+                projectType={projectType}
                 originFilter={originFilter}
                 onClearOrigin={() => setOriginFilter(null)}
                 onPayInvoice={setPayCardLast4}
@@ -287,6 +333,10 @@ export default function ContaPage() {
                 onClearSummaryQuickFilter={() => setResumoQuickFilter(null)}
                 initialItemId={itemId}
                 onClearItemId={clearItemId}
+                initialViewMode={contaViewMode}
+                onViewModeChange={selectContaViewMode}
+                initialTipoFilter={contaTipoFilter}
+                onTipoFilterChange={selectContaTipo}
               />
             </>
           )}

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownUp, CreditCard, Eye, EyeOff, Filter, Layers, LayoutList, PieChart, Settings, X } from 'lucide-react';
+import { ArrowDownUp, CreditCard, Eye, EyeOff, Filter, Layers, LayoutList, PieChart, Settings, Shapes, X } from 'lucide-react';
 import { ExpenseType, isConsumptionNeutralExpenseType, isNeutralReceiptType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -17,6 +17,8 @@ import {
   isIncludedInSaidaTotal,
   monthLabelLong,
 } from '../_lib';
+import { buildByTypeGroups } from '../_lib/by-type';
+import { CONTA_LENTE_POR_TIPO_ENABLED } from '../_lib/feature-flags';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import type { Expense } from '@/types';
@@ -25,6 +27,7 @@ import { MovimentacaoRow, type QuitarTarget } from './MovimentacaoRow';
 import { QuitarParcelaModal } from './QuitarParcelaModal';
 import { ReceitaModal, type ReceitaEditing } from './ReceitaModal';
 import { PorProjetoCategoriaView } from './PorProjetoCategoriaView';
+import { PorTipoView } from './PorTipoView';
 import { RatearCompraModal } from '../../expenses/_components/RatearCompraModal';
 import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
 import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutations';
@@ -42,7 +45,7 @@ import type {
 type Tab = 'saidas' | 'entradas' | 'tudo';
 type StatusFilter = 'todos' | 'pago' | 'apagar';
 type SortDir = 'desc' | 'asc';
-type ViewMode = 'lista' | 'categoria' | 'projeto';
+type ViewMode = 'lista' | 'categoria' | 'projeto' | 'tipo';
 type MerchantSuggestion = {
   suggestedTipoDespesa: string | null;
   source: 'MANUAL' | 'AI' | 'REGEX' | 'CACHE';
@@ -73,6 +76,7 @@ function isCarteiraItem(m: AccountViewMovimentacao): boolean {
 export function MovimentacoesSection({
   data,
   projectId,
+  projectType = null,
   originFilter,
   onClearOrigin,
   onPayInvoice,
@@ -86,9 +90,20 @@ export function MovimentacoesSection({
   onMonthFilterChange,
   initialItemId = null,
   onClearItemId,
+  initialViewMode = null,
+  onViewModeChange,
+  initialTipoFilter = null,
+  onTipoFilterChange,
 }: {
   data: AccountViewResponse | AccountViewYearlyResponse;
   projectId: string;
+  /**
+   * Tipo do projeto ATUAL (`useProject().projectType`), usado só pela lente
+   * `by-type` (U6b build 1, #456) como bucket "self" — estrito, nunca
+   * inferido pelo nome. `null`/ausente ou diferente de `'PESSOAL'` desliga a
+   * lente por fail-closed (a Conta já é PESSOAL-only, `page.tsx:132-138`).
+   */
+  projectType?: string | null;
   originFilter: string | null;
   onClearOrigin: () => void;
   /**
@@ -112,6 +127,14 @@ export function MovimentacoesSection({
   initialItemId?: string | null;
   /** Chamado ao fechar o detalhe para limpar `?item=` da URL. */
   onClearItemId?: () => void;
+  /** Deep-link `?view=` (hoje só `'tipo'` é lido/escrito; demais modos continuam
+   *  puramente locais, sem refletir na URL). */
+  initialViewMode?: ViewMode | null;
+  onViewModeChange?: (mode: ViewMode) => void;
+  /** Deep-link `?tipo=` — seleciona um grupo da lente `by-type`. Desconhecido
+   *  vira estado vazio seguro dentro de `PorTipoView`, nunca erro/fetch. */
+  initialTipoFilter?: string | null;
+  onTipoFilterChange?: (tipo: string | null) => void;
 }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('tudo');
@@ -119,8 +142,29 @@ export function MovimentacoesSection({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos');
   const [catFilter, setCatFilter] = useState<string>('todas');
   const [projetoFilter, setProjetoFilter] = useState<string>('todos');
+  const [tipoFilter, setTipoFilter] = useState<string | null>(initialTipoFilter);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [viewMode, setViewMode] = useState<ViewMode>('lista');
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (CONTA_LENTE_POR_TIPO_ENABLED && initialViewMode === 'tipo' ? 'tipo' : 'lista'),
+  );
+  useEffect(() => {
+    if (CONTA_LENTE_POR_TIPO_ENABLED && initialViewMode === 'tipo') {
+      setViewMode('tipo');
+      return;
+    }
+    setViewMode((current) => (current === 'tipo' ? 'lista' : current));
+  }, [initialViewMode]);
+  useEffect(() => {
+    setTipoFilter(initialTipoFilter);
+  }, [initialTipoFilter]);
+  const selectViewMode = (next: ViewMode) => {
+    setViewMode(next);
+    onViewModeChange?.(next);
+  };
+  const selectTipoFilter = (next: string | null) => {
+    setTipoFilter(next);
+    onTipoFilterChange?.(next);
+  };
   const [semContaFilter, setSemContaFilter] = useState(false);
   const [showInvestimentos, setShowInvestimentos] = useState(true);
   // Faturas expandidas inline (por cardLast4): revela as compras do cartão na Lista.
@@ -596,6 +640,26 @@ export function MovimentacoesSection({
   }, [filtered]);
   const categoriaShown = viewMode === 'categoria' && tab !== 'entradas';
   const projetoShown = viewMode === 'projeto' && tab !== 'entradas';
+  // Lente `by-type` (#456) é um recorte MENSAL por design (§7.5 amarra o
+  // invariante a `account-view.saidaTotal`): não existe no modo 'ano' (`ContaAnoView` nem
+  // passa `projectType`, e a soma de 12 meses não tem o mesmo significado
+  // de "saída do mês"). Fora do mês, o botão nem aparece.
+  const tipoShown = CONTA_LENTE_POR_TIPO_ENABLED && mode === 'mes' && viewMode === 'tipo' && tab !== 'entradas';
+
+  // Lente "Por tipo" (U6b build 1, #456): agrupa saidas+comprasCartao por
+  // `project.type` de origem, fail-closed. Não reaproveita `porProjetoFiltered`
+  // nem `isNeutralMovimentacao` (ver `_lib/by-type.ts` — a soma dos grupos
+  // precisa bater exatamente com `account-view.saidaTotal`, o que exige a
+  // mesma exclusão do total, i.e. `isIncludedInSaidaTotal`, não a lista de
+  // neutros de exibição).
+  const byTypeGroups = useMemo(() => {
+    if (!tipoShown) return [];
+    return buildByTypeGroups({
+      saidas: data.saidas,
+      comprasCartao: data.comprasCartao,
+      selfProjectType: projectType ?? '',
+    });
+  }, [tipoShown, data.saidas, data.comprasCartao, projectType]);
 
   // Base da visão Por projeto/categoria: saídas com as compras de cartão SEMPRE
   // expandidas (a fatura agregada não tem projeto/categoria). Aplica os mesmos
@@ -612,7 +676,7 @@ export function MovimentacoesSection({
   const drillProjetoCategoria = (projKey: string, tipo: string | null) => {
     setProjetoFilter(projKey);
     if (tipo) setCatFilter(tipo);
-    setViewMode('lista');
+    selectViewMode('lista');
   };
 
   const openEditExpense = (item: AccountViewSaida) => {
@@ -886,11 +950,12 @@ export function MovimentacoesSection({
         {sortDir === 'desc' ? 'Mais recentes' : 'Mais antigas'}
       </button>
       {tab !== 'entradas' && (
-        <div className={`inline-flex h-11 rounded-xl bg-lifeone-sidebar p-1 md:h-10 ${stacked ? 'w-full' : ''}`}>
+        <div className={`inline-flex rounded-xl bg-lifeone-sidebar p-1 md:h-10 ${stacked ? 'w-full' : ''}`}>
           <button
             type="button"
-            onClick={() => setViewMode('lista')}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
+            onClick={() => selectViewMode('lista')}
+            aria-pressed={viewMode === 'lista'}
+            className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:min-h-0 ${
               viewMode === 'lista' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
             }`}
             title="Ver lançamentos"
@@ -900,8 +965,9 @@ export function MovimentacoesSection({
           </button>
           <button
             type="button"
-            onClick={() => setViewMode('categoria')}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
+            onClick={() => selectViewMode('categoria')}
+            aria-pressed={viewMode === 'categoria'}
+            className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:min-h-0 ${
               viewMode === 'categoria' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
             }`}
             title="Ver por categoria"
@@ -909,6 +975,20 @@ export function MovimentacoesSection({
             <PieChart className="h-3.5 w-3.5" />
             Por categoria
           </button>
+          {CONTA_LENTE_POR_TIPO_ENABLED && mode === 'mes' && (
+            <button
+              type="button"
+              onClick={() => selectViewMode('tipo')}
+              aria-pressed={viewMode === 'tipo'}
+              className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:min-h-0 ${
+                viewMode === 'tipo' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
+              }`}
+              title="Ver por tipo de projeto"
+            >
+              <Shapes className="h-3.5 w-3.5" />
+              Por tipo
+            </button>
+          )}
           {/*
             "Por projeto" só no desktop (drill-down largo); no sheet mobile fica
             fora.
@@ -924,8 +1004,9 @@ export function MovimentacoesSection({
           {!stacked && (
             <button
               type="button"
-              onClick={() => setViewMode('projeto')}
-              className={`hidden flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:flex ${
+              onClick={() => selectViewMode('projeto')}
+              aria-pressed={viewMode === 'projeto'}
+              className={`hidden min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition md:flex md:min-h-0 ${
                 viewMode === 'projeto' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
               }`}
               title="Ver por projeto e categoria"
@@ -1037,7 +1118,7 @@ export function MovimentacoesSection({
             <button
               type="button"
               onClick={() => setRulesOpen(true)}
-              className="inline-flex h-8 items-center gap-1 rounded-lg border border-lifeone-hairline px-2.5 text-[12px] font-semibold text-lifeone-ink-2 transition hover:border-lifeone-blue hover:text-lifeone-blue"
+              className="inline-flex h-11 items-center gap-1 rounded-lg border border-lifeone-hairline px-2.5 text-[12px] font-semibold text-lifeone-ink-2 transition hover:border-lifeone-blue hover:text-lifeone-blue md:h-8"
               title="Gerenciar regras de categoria"
             >
               <Settings className="h-3.5 w-3.5" />
@@ -1147,7 +1228,7 @@ export function MovimentacoesSection({
         <Modal open={filterSheetOpen} onClose={() => setFilterSheetOpen(false)} title="Filtros" variant="sheet" size="sm">
           <div className="flex flex-col gap-3 pb-2">
             {renderFilterControls(true)}
-            <Button type="button" onClick={() => setFilterSheetOpen(false)} className="mt-1 w-full">
+            <Button type="button" onClick={() => setFilterSheetOpen(false)} className="mt-1 min-h-11 w-full md:min-h-0">
               Aplicar
             </Button>
           </div>
@@ -1189,7 +1270,9 @@ export function MovimentacoesSection({
         </Modal>
       )}
 
-      {projetoShown ? (
+      {tipoShown ? (
+        <PorTipoView groups={byTypeGroups} selectedType={tipoFilter} onSelectType={selectTipoFilter} />
+      ) : projetoShown ? (
         <PorProjetoCategoriaView
           items={porProjetoFiltered}
           selfProjectId={projectId}
