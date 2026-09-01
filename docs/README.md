@@ -19,7 +19,7 @@ Regra: o CONTRATO é atemporal e não carrega narrativa de "antes/depois". Hist�
 | `visao-conta-faturas.md` | Visão Conta, faturas de cartão, neutros, casamento pagamento→fatura, "cartão paga cartão". |
 | `saas-onboarding.md` | Autocadastro SaaS, objetivos, permissões, papéis e criação do primeiro projeto. |
 | `quitacao-parcela-cross-project.md` | Quitação de parcela cross-project (PESSOAL): bug-raiz do "sumiço", fluxo espelho+conciliar, invariantes P1–P7/E5/E8, UI e validação; §10 cobre o contrato read-only de origem exibida no alvo (`GET .../expenses/paid-origins`, O1–O12). |
-| [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md) | Financeiro por tipo de projeto (spec U6a #455): matriz capacidade/origem-finalidade/identidade/ACL/deep-link, as tres fontes distintas (`PROJECT_FEATURES`, `TYPE_MODULES`, `PROJECT_NAV`), divergencias codigo x doc, decisoes do PO de 2026-08-19 (A-1, A-2 e A-3 decididas; gate do B2 dispensado) e a nota de que `prisma/dev.db` nao e producao. **Spec mergeada (#506); matriz re-ratificada contra `1da83286`; U6b build 1 (lente `by-type`, frontend-only) com design fechado, aguardando autorização de implementação do PO — não implementada; `upcoming`/`top-suppliers` são follow-up #635.** |
+| [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md) | Financeiro por tipo de projeto (spec U6a #455): matriz capacidade/origem-finalidade/identidade/ACL/deep-link, as tres fontes distintas (`PROJECT_FEATURES`, `TYPE_MODULES`, `PROJECT_NAV`), divergencias codigo x doc, decisoes do PO de 2026-08-19 (A-1, A-2 e A-3 decididas; gate do B2 dispensado) e a nota de que `prisma/dev.db` nao e producao. **Spec mergeada (#506); matriz re-ratificada contra `1da83286`; U6b build 1 (lente `by-type`, frontend-only) com design fechado e contrato de reconciliação com `account-view.saidaTotal`, aguardando autorização de implementação do PO — não implementada; `upcoming`/`top-suppliers` são follow-up #635.** |
 | `manual-do-aplicativo.md` | Manual do usuário: comportamento observável por tela + conceitos-chave e glossário (não normativo para regras — estas vivem nos docs acima). |
 | `despesa-recorrente.md` | Despesa recorrente (mensal/quinzenal): gera N despesas planejadas reais; modo cross-project (obra+espelho); canais UI/Copilot/voz; API e validação. |
 | `politica-datas-timezone.md` | Política de datas e fronteira de timezone (BRT×UTC) nas telas financeiras. |
@@ -55,9 +55,12 @@ read-only com histórico preservado, e não extinção. U6a (spec #455) está me
 matriz foi re-ratificada contra `1da83286`. A **U6b build 1** (#456 — lente `by-type`,
 frontend-only, read-only em `/conta`) tem design fechado (architect + 8 lentes + security PASS) e
 RED spec definido, com contrato registrado em [`financeiro-projetos-por-tipo.md:7.5`](financeiro-projetos-por-tipo.md#75-u6b-build-1--exclusão-de-isincludedinsaidatotal--false-no-agrupamento-by-type--decidida)
-(exclusão de `isIncludedInSaidaTotal === false` no agrupamento, invariante `Σ(by-type) === saiuMes`),
+(exclusão de `isIncludedInSaidaTotal === false` no agrupamento, invariante
+`Σ(by-type) === account-view.saidaTotal`, subtotal já existente do card Saiu: realizadas +
+planejadas elegíveis, sem INVESTIMENTOS),
 mas **aguarda autorização de implementação do PO — nada em produção**; os
-endpoints `upcoming`/`top-suppliers` são follow-up aprovado e não entregue (#635).
+endpoints `upcoming`/`top-suppliers` são follow-up aprovado e não entregue (#635), e **SEC-2
+permanece aberto**.
 **Controle de ativação (build 1):** variável de ambiente build-time `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO`
 (Next.js/Vercel); ativada somente quando `=== '1'` (padrão: desabilitada). Não altera autorização,
 capacidade, nav ou gates server-side; exige novo build/deploy para mudança.
