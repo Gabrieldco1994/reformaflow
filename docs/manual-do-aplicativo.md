@@ -639,6 +639,12 @@ reunir os cards de fluxo.
   drill-downs dedicados (`/expenses` e `/receipts`).
 - **Visões (só saídas):** **Lista**, **Por categoria** e **Por projeto** — as duas
   últimas agrupam os gastos com subtotais e ícone da categoria (drill-down por linha).
+- **Por tipo:** quando o recurso está habilitado nesta versão do app, aparece somente na visão
+  mensal do PESSOAL. Agrupa por tipo de projeto as saídas elegíveis realizadas + planejadas, e a
+  soma dos grupos corresponde ao subtotal já existente do card **Saiu**. Tocar em um tipo filtra a
+  visão; **Ver todos os tipos** remove o filtro e também recupera um filtro desconhecido. PLANTAS
+  aparece como **Sem financeiro**. INVESTIMENTOS fica fora somente desta lente; as demais visões
+  continuam inalteradas.
 - Filtro de **origem** (Todos / uma conta / um cartão específico), **categoria** e
   **projeto**, busca por descrição e ordenação por data. Toggle **"Sem conta"** filtra
   só os lançamentos sem conta/cartão vinculado. Quando há qualquer filtro ativo, aparece o
