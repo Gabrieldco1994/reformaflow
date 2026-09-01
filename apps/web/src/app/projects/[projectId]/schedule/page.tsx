@@ -251,12 +251,24 @@ export default function SchedulePage() {
       </div>
 
       {/* Header mobile editorial */}
-      <div className="md:hidden -mt-2">
-        <p className="text-[11px] uppercase tracking-[0.2em] text-darc-raspberry/70">Obra</p>
-        <h1 className="font-editorial italic text-3xl text-darc-velvet leading-tight flex items-center gap-2">
-          Cronograma
-          {saving && <Loader2 className="w-4 h-4 animate-spin text-darc-raspberry" />}
-        </h1>
+      <div className="md:hidden -mt-2 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-darc-raspberry/70">Obra</p>
+          <h1 className="font-editorial italic text-3xl text-darc-velvet leading-tight flex items-center gap-2">
+            Cronograma
+            {saving && <Loader2 className="w-4 h-4 animate-spin text-darc-raspberry" />}
+          </h1>
+        </div>
+        {/* Sem cronograma o empty-state já traz o botão de importar — não duplicar. */}
+        {hasData && (
+          <button
+            type="button"
+            onClick={() => setShowImport(true)}
+            className="shrink-0 mt-1 inline-flex items-center gap-1 min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <Upload className="w-4 h-4" /> Importar
+          </button>
+        )}
       </div>
 
       {/* KPIs */}

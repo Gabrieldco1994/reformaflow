@@ -7,9 +7,11 @@ import { expect, test, type Page } from '@playwright/test';
  * confirmação explícita (2º passo, botão destrutivo). Sem cronograma o fluxo
  * atual é inalterado.
  *
- * A entrada do modal com cronograma existente só existe no header desktop
- * (`hidden md:flex`) — no mobile com dados não há botão "Importar" (limitação
- * pré-existente, fora do escopo do #607). Por isso o spec roda só no desktop.
+ * #647 — a entrada do modal com cronograma existente vivia SÓ no header desktop
+ * (`hidden md:flex`); em 375/390px o usuário com cronograma ficava sem ponto de
+ * entrada. O header mobile editorial (`div.md:hidden`) passa a expor "Importar"
+ * quando `hasData`, abrindo o MESMO `ImportModal`. O bloco `#647` abaixo cobre
+ * os viewports mobile; o bloco `#607` segue rodando só no desktop.
  *
  * API mockada via `page.route` (mesmo padrão de `u4-nav-redirect.spec.ts` /
  * `rateio-detalhe.spec.ts`) — nenhum backend real necessário.
@@ -214,4 +216,80 @@ test.describe('#607 — confirmação antes da importação destrutiva de cronog
     await modal.getByRole('button', { name: 'Importar Modelo de Obra' }).click();
     await expect.poll(() => importPosts.length).toBe(1);
   });
+});
+
+test.describe('#647 — importação alcançável no mobile quando já há cronograma', () => {
+  for (const width of [375, 390]) {
+    test(`${width}px: "Importar" no header mobile, hitável, sem overflow; confirma em 2 passos e "Cancelar" não importa`, async ({
+      page,
+      baseURL,
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== 'mobile',
+        'o gap é mobile-only — roda no viewport mobile (Pixel 5), variando a largura',
+      );
+      await page.setViewportSize({ width, height: 780 });
+
+      const importPosts: string[] = [];
+      await mockApi(page, baseURL!, GANTT_WITH_SCHEDULE, importPosts);
+      await page.goto(`/projects/${PROJECT_ID}/schedule`);
+
+      // header mobile editorial renderizado (o header desktop é display:none aqui)
+      await expect(page.getByRole('heading', { name: 'Cronograma', exact: true })).toBeVisible();
+
+      const importBtn = page.getByRole('button', { name: 'Importar', exact: true });
+      await expect(importBtn).toBeVisible();
+
+      // alvo de toque: bounding box não-zero, altura >= 44, e elementFromPoint no
+      // centro devolve o próprio botão (cicatriz #21: caixa não gerada / coberta).
+      const box = await importBtn.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.width).toBeGreaterThan(0);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      const hitLabel = await page.evaluate(
+        ({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.textContent?.trim() ?? null,
+        { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 },
+      );
+      expect(hitLabel).toContain('Importar');
+
+      const noHorizontalScroll = () =>
+        page.evaluate(() => {
+          const de = document.documentElement;
+          return de.scrollWidth <= de.clientWidth && document.body.scrollWidth <= de.clientWidth;
+        });
+
+      // sem scroll horizontal na tela do cronograma
+      expect(await noHorizontalScroll()).toBe(true);
+
+      // 1) abre o modal no passo 1 (aviso âmbar + contagens do estado carregado)
+      await importBtn.click();
+      const modal = page.locator(MODAL);
+      await expect(modal.getByRole('heading', { name: 'Importar Cronograma' })).toBeVisible();
+      await expect(modal.getByText('Isto vai substituir o cronograma atual.')).toBeVisible();
+      await expect(modal.getByText(/1 etapa e 2 tarefas/)).toBeVisible();
+
+      // sem scroll horizontal com o modal aberto
+      expect(await noHorizontalScroll()).toBe(true);
+
+      // 2) "Cancelar" no passo 1 → 0 POST /schedule/import
+      await modal.getByRole('button', { name: 'Cancelar' }).click();
+      await expect(page.locator(MODAL)).toHaveCount(0);
+      expect(importPosts).toEqual([]);
+
+      // 3) reabre, avança para o passo 2, "Cancelar" → ainda 0 POST
+      await importBtn.click();
+      await modal.getByRole('button', { name: 'Substituir cronograma' }).click();
+      await expect(modal.getByRole('button', { name: 'Apagar e importar modelo' })).toBeVisible();
+      await modal.getByRole('button', { name: 'Cancelar' }).click();
+      await expect(page.locator(MODAL)).toHaveCount(0);
+      expect(importPosts).toEqual([]);
+
+      // 4) reabre e confirma os DOIS passos → exatamente 1 POST /schedule/import
+      await importBtn.click();
+      await modal.getByRole('button', { name: 'Substituir cronograma' }).click();
+      await modal.getByRole('button', { name: 'Apagar e importar modelo' }).click();
+      await expect.poll(() => importPosts.length).toBe(1);
+      await expect(page.locator(MODAL)).toHaveCount(0);
+    });
+  }
 });
