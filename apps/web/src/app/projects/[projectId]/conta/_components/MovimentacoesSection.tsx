@@ -1118,7 +1118,7 @@ export function MovimentacoesSection({
             <button
               type="button"
               onClick={() => setRulesOpen(true)}
-              className="inline-flex h-8 items-center gap-1 rounded-lg border border-lifeone-hairline px-2.5 text-[12px] font-semibold text-lifeone-ink-2 transition hover:border-lifeone-blue hover:text-lifeone-blue"
+              className="inline-flex h-11 items-center gap-1 rounded-lg border border-lifeone-hairline px-2.5 text-[12px] font-semibold text-lifeone-ink-2 transition hover:border-lifeone-blue hover:text-lifeone-blue md:h-8"
               title="Gerenciar regras de categoria"
             >
               <Settings className="h-3.5 w-3.5" />
