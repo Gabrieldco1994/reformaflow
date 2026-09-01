@@ -31,6 +31,89 @@ function saida(overrides: Partial<AccountViewSaida> & { valor: number }): Accoun
   };
 }
 describe('buildByTypeGroups', () => {
+  it('ignora compra sem fatura do mesmo cartão e mês', () => {
+    const fixture = {
+      saidaTotal: 5_000,
+      saidas: [
+        saida({
+          id: 'invoice-1111-2026-07',
+          valor: 5_000,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          isInvoice: true,
+          cardLast4: '1111',
+          dueMonth: '2026-07',
+        }),
+      ],
+      comprasCartao: [
+        saida({
+          id: 'purchase-2222-2026-07',
+          valor: 5_000,
+          cardLast4: '2222',
+          dueMonth: '2026-07',
+          projetoOrigem: { id: 'project-reforma', name: 'Obra', type: ProjectType.REFORMA },
+        }),
+      ],
+    };
+    const groups = buildByTypeGroups({ ...fixture, selfProjectType: ProjectType.PESSOAL });
+
+    expect(groups.find((g) => g.type === ProjectType.PESSOAL)).toMatchObject({ total: 5_000, count: 1 });
+    expect(groups.find((g) => g.type === ProjectType.REFORMA)).toBeUndefined();
+    expect(groups.reduce((sum, group) => sum + group.total, 0)).toBe(fixture.saidaTotal);
+  });
+
+  it('desloca compra casada sem limitar ao valor ajustado da fatura', () => {
+    const fixture = {
+      saidaTotal: 8_000,
+      saidas: [
+        saida({
+          id: 'invoice-adjusted-1111-2026-07',
+          valor: 8_000,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          isInvoice: true,
+          cardLast4: '1111',
+          dueMonth: '2026-07',
+        }),
+      ],
+      comprasCartao: [
+        saida({
+          id: 'purchase-reforma-1111-2026-07',
+          valor: 10_000,
+          cardLast4: '1111',
+          dueMonth: '2026-07',
+          projetoOrigem: { id: 'project-reforma', name: 'Obra', type: ProjectType.REFORMA },
+        }),
+      ],
+    };
+    const groups = buildByTypeGroups({ ...fixture, selfProjectType: ProjectType.PESSOAL });
+
+    expect(groups.find((g) => g.type === ProjectType.PESSOAL)).toMatchObject({ total: -2_000, count: 1 });
+    expect(groups.find((g) => g.type === ProjectType.REFORMA)).toMatchObject({ total: 10_000, count: 1 });
+    expect(groups.reduce((sum, group) => sum + group.total, 0)).toBe(fixture.saidaTotal);
+  });
+
+  it('faz netting por cartão e mês para movimentos realizados e planejados', () => {
+    const fixture = {
+      saidaTotal: 19_000,
+      saidas: [
+        saida({ id: 'invoice-1111-2026-07', valor: 9_000, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', isInvoice: true, cardLast4: '1111', dueMonth: '2026-07' }),
+        saida({ id: 'invoice-2222-2026-08', valor: 10_000, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', isInvoice: true, cardLast4: '2222', dueMonth: '2026-08', realizado: false, status: 'PENDENTE' }),
+      ],
+      comprasCartao: [
+        saida({ id: 'purchase-reforma-1111-2026-07', valor: 6_000, cardLast4: '1111', dueMonth: '2026-07', projetoOrigem: { id: 'project-reforma', name: 'Obra', type: ProjectType.REFORMA } }),
+        saida({ id: 'purchase-carro-2222-2026-08', valor: 4_000, cardLast4: '2222', dueMonth: '2026-08', projetoOrigem: { id: 'project-carro', name: 'Carro', type: ProjectType.CARRO } }),
+        saida({ id: 'purchase-casa-1111-2026-07', valor: 3_000, cardLast4: '1111', dueMonth: '2026-07', realizado: false, status: 'PENDENTE', projetoOrigem: { id: 'project-casa', name: 'Casa', type: ProjectType.CASA } }),
+        saida({ id: 'purchase-investimento-2222-2026-08', valor: 7_000, cardLast4: '2222', dueMonth: '2026-08', tipoDespesa: 'INVESTIMENTOS', projetoOrigem: { id: 'project-carro', name: 'Carro', type: ProjectType.CARRO } }),
+      ],
+    };
+    const groups = buildByTypeGroups({ ...fixture, selfProjectType: ProjectType.PESSOAL });
+
+    expect(groups.find((g) => g.type === ProjectType.PESSOAL)).toMatchObject({ total: 6_000, count: 2 });
+    expect(groups.find((g) => g.type === ProjectType.REFORMA)).toMatchObject({ total: 6_000, count: 1 });
+    expect(groups.find((g) => g.type === ProjectType.CARRO)).toMatchObject({ total: 4_000, count: 1 });
+    expect(groups.find((g) => g.type === ProjectType.CASA)).toMatchObject({ total: 3_000, count: 1 });
+    expect(groups.reduce((sum, group) => sum + group.total, 0)).toBe(fixture.saidaTotal);
+  });
+
   it('fail-closed: selfProjectType diferente de PESSOAL não produz grupos', () => {
     const groups = buildByTypeGroups({
       saidas: [saida({ valor: 1000 })],
@@ -128,6 +211,7 @@ describe('buildByTypeGroups', () => {
       tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
       isInvoice: true,
       cardLast4: '4242',
+      dueMonth: '2026-07',
       projetoOrigem: null,
     });
     const comprasCartao: AccountViewSaida[] = [
@@ -135,6 +219,7 @@ describe('buildByTypeGroups', () => {
         id: 'compra-reforma',
         valor: 6_000,
         cardLast4: '4242',
+        dueMonth: '2026-07',
         tipoDespesa: 'MATERIAL_CONSTRUCAO',
         projetoOrigem: { id: 'p1', name: 'Obra', type: 'REFORMA' },
       }),
@@ -142,6 +227,7 @@ describe('buildByTypeGroups', () => {
         id: 'compra-pessoal',
         valor: 2_000,
         cardLast4: '4242',
+        dueMonth: '2026-07',
         tipoDespesa: 'MERCADO',
         projetoOrigem: null,
       }),
@@ -151,6 +237,7 @@ describe('buildByTypeGroups', () => {
         id: 'compra-fatura-outro-cartao',
         valor: 1_000,
         cardLast4: '4242',
+        dueMonth: '2026-07',
         tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
         projetoOrigem: null,
       }),
@@ -242,14 +329,14 @@ describe('buildByTypeGroups', () => {
 
   it('invariante: Σ(groups.total) === soma de saidas elegíveis (isIncludedInSaidaTotal), independente de comprasCartao', () => {
     const saidas: AccountViewSaida[] = [
-      saida({ id: 'fatura', valor: 12_345, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', isInvoice: true, cardLast4: '9999' }),
+      saida({ id: 'fatura', valor: 12_345, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', isInvoice: true, cardLast4: '9999', dueMonth: '2026-07' }),
       saida({ id: 'aporte', valor: 50_000, tipoDespesa: 'INVESTIMENTOS' }),
       saida({ id: 'reforma-direta', valor: 7_777, projetoOrigem: { id: 'p9', name: 'Obra', type: 'REFORMA' } }),
       saida({ id: 'pessoal-direta', valor: 1_111 }),
     ];
     const comprasCartao: AccountViewSaida[] = [
-      saida({ id: 'c1', valor: 4_000, cardLast4: '9999', tipoDespesa: 'MATERIAL_CONSTRUCAO', projetoOrigem: { id: 'p9', name: 'Obra', type: 'REFORMA' } }),
-      saida({ id: 'c2', valor: 8_345, cardLast4: '9999', tipoDespesa: 'MERCADO', projetoOrigem: null }),
+      saida({ id: 'c1', valor: 4_000, cardLast4: '9999', dueMonth: '2026-07', tipoDespesa: 'MATERIAL_CONSTRUCAO', projetoOrigem: { id: 'p9', name: 'Obra', type: 'REFORMA' } }),
+      saida({ id: 'c2', valor: 8_345, cardLast4: '9999', dueMonth: '2026-07', tipoDespesa: 'MERCADO', projetoOrigem: null }),
     ];
 
     const groups = buildByTypeGroups({ saidas, comprasCartao, selfProjectType: ProjectType.PESSOAL });

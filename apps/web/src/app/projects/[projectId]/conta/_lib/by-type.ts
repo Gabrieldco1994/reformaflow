@@ -10,9 +10,9 @@ import type { AccountViewSaida } from '../_types';
  * `projetoOrigem.type` estrito — nunca por rótulo/nome. `entradas` fica de
  * fora por design (não é parâmetro desta função).
  *
- * Invariante travado por teste: Σ(groups[i].total) === soma dos `saidas` para
- * os quais `isIncludedInSaidaTotal` é verdadeiro (a mesma base do "Saiu" da
- * Visão Conta, `page.tsx:110`). A soma NUNCA usa `comprasCartao` como fonte
+ * Invariante travado por teste: Σ(groups[i].total) === `account-view.saidaTotal`,
+ * a soma dos `saidas` para os quais `isIncludedInSaidaTotal` é verdadeiro. A
+ * soma NUNCA usa `comprasCartao` como fonte
  * adicional de valor — comprasCartao só desloca (nunca soma) dinheiro já
  * contado na fatura (`saidas[].isInvoice`) do bucket PESSOAL para o tipo real
  * do projeto que originou a compra, um item de cada vez e sem alterar o total.
@@ -87,13 +87,17 @@ export function buildByTypeGroups({
   if (selfProjectType !== ProjectType.PESSOAL) return [];
 
   const totals = new Map<string, Bucket>();
+  const eligibleInvoiceKeys = new Set<string>();
 
   // 1) Baseline: cada saída elegível (isIncludedInSaidaTotal) conta 1x. As
   //    linhas de fatura (`isInvoice`) contam o valor cheio em PESSOAL aqui —
-  //    é o mesmo valor que o "Saiu" da tela já soma.
+  //    é a mesma base de `account-view.saidaTotal`.
   for (const s of saidas) {
     if (!isIncludedInSaidaTotal(s)) continue;
     bump(totals, bucketTypeForSaida(s.projetoOrigem, selfProjectType), s.valor);
+    if (s.isInvoice && s.cardLast4 && s.dueMonth) {
+      eligibleInvoiceKeys.add(`${s.cardLast4}:${s.dueMonth}`);
+    }
   }
 
   // 2) Netting: uma compra de cartão atribuível a outro tipo desloca o valor
@@ -101,6 +105,7 @@ export function buildByTypeGroups({
   //    soma líquida zero, então o invariante Σ = total nunca muda aqui.
   for (const c of comprasCartao) {
     if (!isIncludedInSaidaTotal(c)) continue;
+    if (!c.cardLast4 || !c.dueMonth || !eligibleInvoiceKeys.has(`${c.cardLast4}:${c.dueMonth}`)) continue;
     const proj = c.projetoOrigem;
     if (!proj) continue; // já é PESSOAL — nada a deslocar
     if (!NETTABLE_TYPES.has(proj.type)) continue; // PESSOAL/PLANTAS/desconhecido: fail-closed, fica onde está
