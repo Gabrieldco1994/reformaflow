@@ -327,6 +327,8 @@ export default function SchedulePage() {
       {showImport && (
         <ImportModal
           projectId={projectId}
+          stageCount={data.stages.length}
+          taskCount={data.stages.reduce((n, s) => n + s.tasks.length, 0)}
           onImported={() => {
             setShowImport(false);
             loadData({ silent: true });

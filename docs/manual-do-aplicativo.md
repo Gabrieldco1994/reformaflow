@@ -1100,6 +1100,11 @@ Etapas, tarefas e dependências da obra.
 - **Botões:** **Nova tarefa**, **AddStage/AddTask**, **Importar** (modais);
   alternar visão da tabela (completa → compacta → só gráfico); tela cheia.
 - Ações destrutivas (excluir etapa/tarefa) pedem confirmação.
+- **Importar Modelo de Obra substitui o cronograma inteiro.** Quando já há
+  etapas ou tarefas, o modal avisa da substituição, mostra as contagens atuais
+  (etapas e tarefas) e exige uma confirmação explícita num 2º passo (botão
+  vermelho "Apagar e importar modelo") antes de apagar — não há como desfazer.
+  Sem cronograma, importa direto.
 
 ### 5.7 Comparar Preço (`/price-compare`)
 Painel próprio de monitoramento de preços por produto.
