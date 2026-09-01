@@ -600,6 +600,45 @@ Consequência prática para U6b, já decidida: uma superfície nova que mostre o
 **respeita o `null`** — alvos pagos pela Carteira aparecem com pagador **não divulgado**. Não há
 terceira via, e essa não é uma escolha que o architect de U6b possa reabrir.
 
+### 7.5 U6b build 1 — exclusão de `isIncludedInSaidaTotal === false` no agrupamento `by-type` — **DECIDIDA**
+
+Contexto: RED spec U6b build 1 (lente `by-type`), contrato de agrupamento e subtotais.
+
+**Decisão:** a lente `by-type` (agrupamento por `project.type` em `/conta`) exclui do agrupamento
+e subtotais de cada tipo todo item financeiro para o qual `isIncludedInSaidaTotal` retorna **false**,
+inclusive **INVESTIMENTOS**. O invariante que governa esta exclusão é:
+
+$$\Sigma(\text{by-type groups.total}) \equiv \text{saiuMes}$$
+
+isto é, a **soma dos subtotais de cada grupo `project.type` iguala exatamente `saiuMes`**, derivada
+de forma **independente e redundante** pela aplicação da regra `isIncludedInSaidaTotal` a cada
+movimento.
+
+#### Preservação do comportamento vigente
+
+- **INVESTIMENTOS permanece visível** em modos e telas atuais (`porProjetoFiltered`, `PorProjetoCategoriaView`,
+  listas de movimentos). Nenhum comportamento observável muda fora da **nova** lente `by-type`.
+- **Nenhuma alteração em `saidaTotal`, `saiuMes`, caixa ou backend.** O contrato de totais consolidados
+  do PESSOAL permanece inalterado.
+- **`porProjetoFiltered` não muda.** A visão existente por projeto continua incluindo todo item de
+  `isNeutralMovimentacao` compatível e não é redesenhada.
+- **`isNeutralMovimentacao` permanece inalterado.** INVESTIMENTOS não é neutral para este critério e
+  continua como é; a exclusão do agrupamento `by-type` é **específica da lente novo**, não uma reinterpretação
+  da neutralidade.
+
+#### Escopo de aplicação
+
+- **Aplica-se apenas ao novo builder/view `by-type` (U6b build 1).**
+- **Não altera qualquer superfície, endpoint, rota ou comportamento **anterior** à lente.**
+- **Retroativo apenas para leitura de dados já persistidos** — não toca `UpsertExpense`, fórmulas de
+  cálculo, ledger de movimentos ou reconciliação existente.
+
+#### Invariante testável
+
+Qualquer PR que implemente U6b build 1 deve verificar que `SUM(groups[i].total for each type)` iguala
+o `saiuMes` da account view correspondente, com arredondamento a centavos e na mesma zona horária
+aplicável. Divergência de qualquer valor bloqueia merge e rollout.
+
 ---
 
 ## Apêndice histórico
@@ -648,6 +687,12 @@ terceira via, e essa não é uma escolha que o architect de U6b possa reabrir.
     #596 adicionou `ensureProject(tenantId, projectId)`.
   - **D-14 — RESOLVIDO.** `visao-conta-faturas.md` já registra "B1a MERGEADO"; o stale que o D-14
     apontava ("esta PR, pendente de merge") não existe mais.
+- **2026-08-31 — Decisão PO — U6b build 1: contrato de `isIncludedInSaidaTotal` na lente `by-type`.**
+  A lente `by-type` exclui do agrupamento e subtotais de cada `project.type` todo item para o qual
+  `isIncludedInSaidaTotal` retorna **false**, incluindo **INVESTIMENTOS**. Invariante: `Σ(by-type
+  groups.total) === saiuMes`. INVESTIMENTOS continua visível nos modos atuais; `porProjetoFiltered`
+  e `PorProjetoCategoriaView` não mudam; exclusão é específica ao novo builder/view `by-type`. Nenhuma
+  alteração em `saidaTotal`, `saiuMes`, caixa, backend ou `isNeutralMovimentacao`. Registrado em §7.5.
 - **Precedentes citados:** #98 (mapa único de gate, cliente e servidor), #289 (combustível),
   #291 (dieta de COMPRA), #369 (superfície única de despesas em CASA/CARRO), #424 (origem do
   pagamento na REFORMA), #423/#428 (leitura canônica de rateio), #480/#484 (escopo prometido ×
