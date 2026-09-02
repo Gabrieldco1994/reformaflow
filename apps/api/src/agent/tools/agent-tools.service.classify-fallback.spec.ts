@@ -13,7 +13,7 @@ describe('create_expense — fallback do MerchantClassifier', () => {
   let service: AgentToolsService;
   let prisma: any;
   let expenses: any;
-  let classifier: { classifyBatch: jest.Mock };
+  let classifier: { classifyBatch: jest.Mock; resolveLearnedExpenseType: jest.Mock };
   const ctx: ToolContext = { tenantId: 'tenant-1', role: 'ADMIN', projectId: 'proj-1' };
 
   beforeEach(async () => {
@@ -30,7 +30,12 @@ describe('create_expense — fallback do MerchantClassifier', () => {
     expenses = {
       create: jest.fn().mockResolvedValue({ id: 'exp-1', titulo: null, fornecedor: null, valorTotal: 10000 }),
     };
-    classifier = { classifyBatch: jest.fn().mockResolvedValue(new Map()) };
+    classifier = {
+      classifyBatch: jest.fn().mockResolvedValue(new Map()),
+      resolveLearnedExpenseType: jest.fn().mockResolvedValue({
+        expenseType: null, source: null, confidence: null, category: null, reason: 'sem-regra',
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -48,7 +53,7 @@ describe('create_expense — fallback do MerchantClassifier', () => {
     service = module.get(AgentToolsService);
   });
 
-  it('tipoDespesa resolve OUTROS + titulo/fornecedor presente → chama classifyBatch e usa a categoria mapeada se houver', async () => {
+  it('tipoDespesa resolve OUTROS + titulo/fornecedor presente → chama classifyBatch e aplica a regra aprendida (>= limiar)', async () => {
     classifier.classifyBatch.mockResolvedValue(
       new Map([
         [
@@ -57,6 +62,9 @@ describe('create_expense — fallback do MerchantClassifier', () => {
         ],
       ]),
     );
+    classifier.resolveLearnedExpenseType.mockResolvedValue({
+      expenseType: 'ALIMENTACAO', source: 'AI_TENANT', confidence: 0.9, category: 'alimentação', reason: 'resolvido',
+    });
 
     const res: any = await service.execute('create_expense', ctx, {
       valor: '50,00',
@@ -64,12 +72,44 @@ describe('create_expense — fallback do MerchantClassifier', () => {
     });
 
     expect(classifier.classifyBatch).toHaveBeenCalledWith(['Ifood'], 'tenant-1');
+    expect(classifier.resolveLearnedExpenseType).toHaveBeenCalledWith('Ifood', 'tenant-1');
     expect(res.error).toBeUndefined();
     expect(res.despesa.tipoDespesa).toBe('ALIMENTACAO');
     expect(expenses.create).toHaveBeenCalledWith(
       'tenant-1',
       'proj-1',
-      expect.objectContaining({ tipoDespesa: 'ALIMENTACAO' }),
+      expect.objectContaining({ tipoDespesa: 'ALIMENTACAO', valor: 50 }),
+      null,
+      undefined,
+      expect.objectContaining({ role: 'ADMIN' }),
+    );
+  });
+
+  it('#582 PR-2: regra AI sub-limiar (0.7) → tipoDespesa fica OUTROS (era ALIMENTACAO)', async () => {
+    classifier.classifyBatch.mockResolvedValue(
+      new Map([
+        [
+          MerchantClassifierService.normalizeKey('Ifood'),
+          { merchant: 'Ifood', category: 'alimentação', subcategory: null, source: 'AI' as const, confidence: 0.7 },
+        ],
+      ]),
+    );
+    classifier.resolveLearnedExpenseType.mockResolvedValue({
+      expenseType: null, source: null, confidence: null, category: null, reason: 'sub-limiar',
+    });
+
+    const res: any = await service.execute('create_expense', ctx, {
+      valor: '50,00',
+      fornecedor: 'Ifood',
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.despesa.tipoDespesa).toBe('OUTROS');
+    // o fallback NUNCA toca o valor — nem quando NÃO muda a categoria
+    expect(expenses.create).toHaveBeenCalledWith(
+      'tenant-1',
+      'proj-1',
+      expect.objectContaining({ tipoDespesa: 'OUTROS', valor: 50 }),
       null,
       undefined,
       expect.objectContaining({ role: 'ADMIN' }),
@@ -84,6 +124,7 @@ describe('create_expense — fallback do MerchantClassifier', () => {
     });
 
     expect(classifier.classifyBatch).not.toHaveBeenCalled();
+    expect(classifier.resolveLearnedExpenseType).not.toHaveBeenCalled();
     expect(res.error).toBeUndefined();
     expect(res.despesa.tipoDespesa).toBe('ALIMENTACAO');
   });

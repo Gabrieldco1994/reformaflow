@@ -18,7 +18,16 @@ const USER: RateioRequester = {
 function serviceWith(prisma: any): BankAccountService {
   return new BankAccountService(
     prisma,
-    { manualExpenseType: jest.fn().mockResolvedValue(null) } as any,
+    {
+      manualExpenseType: jest.fn().mockResolvedValue(null),
+      resolveLearnedExpenseType: jest.fn().mockResolvedValue({
+        expenseType: null,
+        source: null,
+        confidence: null,
+        category: null,
+        reason: 'sem-regra',
+      }),
+    } as any,
     {} as any,
     { prepareSettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }) } as any,
   );

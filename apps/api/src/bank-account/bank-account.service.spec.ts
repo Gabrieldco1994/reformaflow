@@ -76,10 +76,19 @@ function makePrismaMock() {
   } as any;
 }
 
+const NO_LEARNED_RULE = {
+  expenseType: null,
+  source: null,
+  confidence: null,
+  category: null,
+  reason: 'sem-regra' as const,
+};
+
 function makeClassifierMock() {
   return {
     classifyBatch: jest.fn().mockResolvedValue(new Map()),
     manualExpenseType: jest.fn().mockResolvedValue(null),
+    resolveLearnedExpenseType: jest.fn().mockResolvedValue(NO_LEARNED_RULE),
   } as any;
 }
 
@@ -256,7 +265,7 @@ describe('BankAccountService', () => {
 
   describe('previewImport — cross-project matches', () => {
     it('PIX PF sem regra manual permanece OUTROS no preview', async () => {
-      classifier.manualExpenseType.mockResolvedValue(null);
+      classifier.resolveLearnedExpenseType.mockResolvedValue(NO_LEARNED_RULE);
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'PIX TRANSF JOAO SILVA', 'PF1'));
       const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const tx = result.preview.find((t: any) => t.amountCents > 0);
@@ -264,13 +273,37 @@ describe('BankAccountService', () => {
       expect(tx?.categoriaFonte).toBeNull();
     });
 
-    it('regra manual aparece como fonte regra no preview', async () => {
-      classifier.manualExpenseType.mockResolvedValue('MORADIA');
+    it('regra MANUAL do tenant aparece como fonte regra no preview (#582 PR-2)', async () => {
+      classifier.resolveLearnedExpenseType.mockResolvedValue({
+        expenseType: 'MORADIA', source: 'MANUAL_TENANT', confidence: 1, category: 'moradia', reason: 'resolvido',
+      });
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'RG1'));
       const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const tx = result.preview.find((t: any) => t.amountCents > 0);
       expect(tx?.suggestedCategory).toBe('MORADIA');
       expect(tx?.categoriaFonte).toBe('regra');
+      expect(classifier.manualExpenseType).not.toHaveBeenCalled();
+    });
+
+    it('regra AI do tenant >= limiar vira sugestão no preview (#582 PR-2)', async () => {
+      classifier.resolveLearnedExpenseType.mockResolvedValue({
+        expenseType: 'TRANSPORTE', source: 'AI_TENANT', confidence: 0.9, category: 'transporte', reason: 'resolvido',
+      });
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'POSTO SHELL 42', 'AI1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      const tx = result.preview.find((t: any) => t.amountCents > 0);
+      expect(tx?.suggestedCategory).toBe('TRANSPORTE');
+      expect(tx?.categoriaFonte).toBe('regra');
+    });
+
+    it('regra AI do tenant < limiar (sub-limiar) NÃO vira sugestão — cai no classificador local (#582 PR-2)', async () => {
+      classifier.resolveLearnedExpenseType.mockResolvedValue({
+        expenseType: null, source: null, confidence: null, category: null, reason: 'sub-limiar',
+      });
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'SL1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      const tx = result.preview.find((t: any) => t.amountCents > 0);
+      expect(tx?.categoriaFonte).toBeNull();
     });
 
     it('débito casa com Expense PLANEJADO em outro projeto (kind=expense)', async () => {

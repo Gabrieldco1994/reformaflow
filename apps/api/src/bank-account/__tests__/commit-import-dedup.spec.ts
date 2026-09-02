@@ -59,7 +59,20 @@ async function buildService(prisma: any) {
       BankAccountService,
       ConciliacaoService,
       { provide: PrismaService, useValue: prisma },
-      { provide: MerchantClassifierService, useValue: { classifyBatch: jest.fn().mockResolvedValue(new Map()), manualExpenseType: jest.fn().mockResolvedValue(null) } },
+      {
+        provide: MerchantClassifierService,
+        useValue: {
+          classifyBatch: jest.fn().mockResolvedValue(new Map()),
+          manualExpenseType: jest.fn().mockResolvedValue(null),
+          resolveLearnedExpenseType: jest.fn().mockResolvedValue({
+            expenseType: null,
+            source: null,
+            confidence: null,
+            category: null,
+            reason: 'sem-regra',
+          }),
+        },
+      },
       CardInvoiceSettlementService,
     ],
   }).compile();

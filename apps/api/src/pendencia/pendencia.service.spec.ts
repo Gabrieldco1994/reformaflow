@@ -57,7 +57,12 @@ describe('PendenciaService', () => {
       expense: { findMany: jest.fn().mockResolvedValue([]) },
     };
     monthlyOverviewService = { getAccountView: jest.fn() };
-    merchantClassifierService = { fromCache: jest.fn() };
+    merchantClassifierService = {
+      fromCache: jest.fn(),
+      resolveLearnedExpenseType: jest.fn().mockResolvedValue({
+        expenseType: null, source: null, confidence: null, category: null, reason: 'sem-regra',
+      }),
+    };
     bankAccountService = { loadCardsWithEntries: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -241,8 +246,8 @@ describe('PendenciaService', () => {
           },
         ],
       });
-      merchantClassifierService.fromCache.mockResolvedValue({
-        category: 'alimentação',
+      merchantClassifierService.resolveLearnedExpenseType.mockResolvedValue({
+        expenseType: 'ALIMENTACAO', source: 'AI_TENANT', confidence: 0.9, category: 'alimentação', reason: 'resolvido',
       });
 
       const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
@@ -266,6 +271,66 @@ describe('PendenciaService', () => {
       expect(res.grupos.find((g: any) => g.tipo === 'RECEBIMENTO_SEM_CONTA')).toBeUndefined();
       const atrasado = res.grupos.find((g: any) => g.tipo === 'RECEBIMENTO_PREVISTO_ATRASADO')!;
       expect(atrasado.itens[0].receiptId).toBe('r1');
+    });
+
+    describe('SEM_CATEGORIA usa resolveLearnedExpenseType — limiar e precedência (#582 PR-2)', () => {
+      const oneOutrosSaida = () => {
+        monthlyOverviewService.getAccountView.mockResolvedValue({
+          mesSelecionado: '2026-07',
+          cartoes: [],
+          saidas: [
+            {
+              id: 'e-cat',
+              descricao: 'ENEL DISTRIBUICAO',
+              valor: 12000,
+              data: '2026-07-10T00:00:00.000Z',
+              isInvoice: false,
+              cardLast4: '1234',
+              bankLast4: null,
+              tipoDespesa: 'OUTROS',
+              realizado: false,
+            },
+          ],
+          entradas: [],
+        });
+        prisma.expense.findMany.mockResolvedValue([]);
+      };
+
+      it('regra AI < limiar (sub-limiar) → nenhum item SEM_CATEGORIA, mesmo com fromCache retornando categoria', async () => {
+        oneOutrosSaida();
+        merchantClassifierService.fromCache.mockResolvedValue({ category: 'alimentação' });
+        merchantClassifierService.resolveLearnedExpenseType.mockResolvedValue({
+          expenseType: null, source: null, confidence: null, category: null, reason: 'sub-limiar',
+        });
+
+        const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
+
+        expect(res.grupos.find((g: any) => g.tipo === 'SEM_CATEGORIA')).toBeUndefined();
+      });
+
+      it('resolução sem tipo de despesa (expenseType null) → nenhum item SEM_CATEGORIA', async () => {
+        oneOutrosSaida();
+        merchantClassifierService.fromCache.mockResolvedValue({ category: 'saúde' });
+        merchantClassifierService.resolveLearnedExpenseType.mockResolvedValue({
+          expenseType: null, source: 'MANUAL_TENANT', confidence: 1, category: 'compras', reason: 'sem-categoria-equivalente',
+        });
+
+        const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
+
+        expect(res.grupos.find((g: any) => g.tipo === 'SEM_CATEGORIA')).toBeUndefined();
+      });
+
+      it('regra MANUAL/AI >= limiar → item SEM_CATEGORIA com o tipo sugerido', async () => {
+        oneOutrosSaida();
+        merchantClassifierService.resolveLearnedExpenseType.mockResolvedValue({
+          expenseType: 'MORADIA', source: 'MANUAL_TENANT', confidence: 1, category: 'moradia', reason: 'resolvido',
+        });
+
+        const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
+
+        const grupo = res.grupos.find((g: any) => g.tipo === 'SEM_CATEGORIA')!;
+        expect(grupo.itens[0].suggestionTipoDespesa).toBe('MORADIA');
+      });
     });
 
     // Rede de segurança do bug real (jul/2026): o pagamento de fatura sem

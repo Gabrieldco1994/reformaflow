@@ -8,11 +8,7 @@ import {
   rankCardCandidates,
   type CardInvoiceCandidate,
 } from '../bank-account/card-invoice-match';
-import {
-  MerchantClassifierService,
-  MERCHANT_TO_EXPENSE_TYPE,
-  type MerchantCategory,
-} from '../merchant-classifier/merchant-classifier.service';
+import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 import {
   assertRateioRequester,
   type RateioRequester,
@@ -162,10 +158,6 @@ export class PendenciaService {
     return 'Recebimento previsto atrasado';
   }
 
-  private static merchantCategoryToExpenseType(category: MerchantCategory): string {
-    return MERCHANT_TO_EXPENSE_TYPE[category] ?? ExpenseType.OUTROS;
-  }
-
   async findFinancialQueue(
     tenantId: string,
     projectId: string,
@@ -212,10 +204,14 @@ export class PendenciaService {
     );
     const semCategoriaWithSuggestion: Array<FinancialQueueItem | null> = await Promise.all(
       semCategoriaBase.map(async (s) => {
-        const cached = await this.merchantClassifierService.fromCache(s.descricao, tenantId);
-        if (!cached) return null;
-        const suggested = PendenciaService.merchantCategoryToExpenseType(cached.category);
-        if (suggested === ExpenseType.OUTROS) return null;
+        // #582 PR-2: precedência de regra aprendida com limiar (MANUAL tenant >
+        // AI tenant >= τ > MANUAL global; AI global nunca). Só vira pendência
+        // quando resolve um ExpenseType concreto (≠ OUTROS).
+        const learned = await this.merchantClassifierService.resolveLearnedExpenseType(
+          s.descricao,
+          tenantId,
+        );
+        if (!learned.expenseType) return null;
         return {
           id: `sem-categoria-${s.id}`,
           tipo: 'SEM_CATEGORIA' as const,
@@ -224,7 +220,7 @@ export class PendenciaService {
           valor: s.valor,
           data: s.data,
           expenseId: s.id ?? undefined,
-          suggestionTipoDespesa: suggested,
+          suggestionTipoDespesa: learned.expenseType,
         } satisfies FinancialQueueItem;
       }),
     );

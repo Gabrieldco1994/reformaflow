@@ -1,6 +1,5 @@
 import { Body, Controller, Get, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { MerchantClassifierService, type MerchantCategory } from './merchant-classifier.service';
-import { MERCHANT_TO_EXPENSE_TYPE } from './merchant-classifier.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
@@ -13,7 +12,7 @@ export interface SuggestCategoryResponse {
   category: string | null;
   subcategory: string | null;
   confidence: number;
-  source: 'REGEX' | 'AI' | 'MANUAL' | 'CACHE';
+  source: 'AI' | 'MANUAL' | 'CACHE';
   suggestedTipoDespesa: string | null;
 }
 
@@ -135,12 +134,17 @@ export class MerchantClassifierController {
       return { ...NEUTRAL_SUGGESTION };
     }
 
+    // #582 PR-2: `category`/`confidence`/`source` seguem crus no payload (display).
+    // `suggestedTipoDespesa` passa pela precedência/limiar de regra aprendida —
+    // sem regra confiável, fica null e o form não pré-seleciona nada.
+    const learned = await this.svc.resolveLearnedExpenseType(text, tenantId);
+
     return {
       category: result.category,
       subcategory: result.subcategory,
       confidence: result.confidence,
       source: result.source,
-      suggestedTipoDespesa: MERCHANT_TO_EXPENSE_TYPE[result.category] ?? null,
+      suggestedTipoDespesa: learned.expenseType,
     };
   }
 }
