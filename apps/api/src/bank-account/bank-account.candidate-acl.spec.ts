@@ -27,6 +27,7 @@ function serviceWith(prisma: any): BankAccountService {
         category: null,
         reason: 'sem-regra',
       }),
+      classifyForImport: jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() }),
     } as any,
     {} as any,
     { prepareSettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }) } as any,

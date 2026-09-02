@@ -5,7 +5,7 @@ import { CreditCardService } from './credit-card.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { withAclRequester } from '../test-utils/acl-requester-test-helper';
-import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import { MerchantClassifierService, MERCHANT_TO_EXPENSE_TYPE } from '../merchant-classifier/merchant-classifier.service';
 import { NotFoundException } from '@nestjs/common';
 import type { RateioRequester } from '../expense/rateio.types';
 
@@ -109,7 +109,7 @@ function plannedMatcherExpenses(formaPagamento: 'PARCELADO' | 'QUINZENAL') {
 describe('CreditCardService', () => {
   let service: CreditCardService;
   let prisma: ReturnType<typeof makePrismaMock>;
-  let merchantClassifier: { manualExpenseType: jest.Mock };
+  let merchantClassifier: { manualExpenseType: jest.Mock; classifyForImport: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
@@ -125,7 +125,10 @@ describe('CreditCardService', () => {
           : null,
       ),
     );
-    merchantClassifier = { manualExpenseType: jest.fn().mockResolvedValue(null) };
+    merchantClassifier = {
+      manualExpenseType: jest.fn().mockResolvedValue(null),
+      classifyForImport: jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() }),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CreditCardService,
@@ -298,10 +301,13 @@ describe('CreditCardService', () => {
 
   describe('previewImport — cross-project matches', () => {
     it('aplica regra manual no suggestedCategory e marca fonte regra', async () => {
-      merchantClassifier.manualExpenseType.mockResolvedValue('ALIMENTACAO');
+      merchantClassifier.classifyForImport = jest.fn().mockResolvedValue({
+        status: 'ok',
+        classifications: new Map([['padaria central', { category: 'alimentação', source: 'regra', confidence: 1.0 }]]),
+      });
       const ofx = buildOfx(ofxFor('20260429', 100, 'PADARIA CENTRAL', 'RGX'));
       const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
-      expect(result.preview[0].suggestedCategory).toBe('ALIMENTACAO');
+      expect(result.preview[0].suggestedCategory).toBe(MERCHANT_TO_EXPENSE_TYPE['alimentação']);
       expect(result.preview[0].categoriaFonte).toBe('regra');
     });
 
@@ -965,6 +971,81 @@ describe('CreditCardService', () => {
         installmentCurrent: null,
         installmentTotal: null,
       });
+    });
+  });
+
+  describe('previewImport — classifyForImport integration #582 PR-5', () => {
+    const card = { id: 'card1', last4: '1234', limitTotalCents: 100000, closingDay: 10, dueDay: 20 };
+
+    it('calls classifyForImport once with every parsed merchant', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      const csv = 'date,title,amount\n2026-08-10,COMPRA UM,100.00\n2026-08-11,COMPRA DOIS,50.00';
+      await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
+      expect(merchantClassifier.classifyForImport).toHaveBeenCalledTimes(1);
+      const [merchants, tenantId] = merchantClassifier.classifyForImport.mock.calls[0];
+      expect(merchants).toEqual(['COMPRA UM', 'COMPRA DOIS']);
+      expect(tenantId).toBe('t1');
+    });
+
+    it('classificationStatus "unavailable" preserves every line and the futureInstallments field', async () => {
+      merchantClassifier.classifyForImport = jest.fn().mockResolvedValue({ status: 'unavailable', classifications: new Map() });
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      const csv = 'date,title,amount\n2026-08-10,COMPRA UM,100.00\n2026-08-11,COMPRA DOIS,50.00';
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
+      expect(result.classificationStatus).toBe('unavailable');
+      expect(result.preview).toHaveLength(2);
+      expect(result.preview[0].amountCents).toBe(10000);
+      expect(result.preview[1].amountCents).toBe(5000);
+      // #568: o payload sempre expõe `futureInstallments` (mesmo vazio para
+      // CSV_GENERIC, que não faz split de fatura futura) — degradação não some com o campo.
+      expect(Array.isArray(result.futureInstallments)).toBe(true);
+    });
+
+    it('classificationStatus "error" preserves line values and totals', async () => {
+      merchantClassifier.classifyForImport = jest.fn().mockResolvedValue({ status: 'error', classifications: new Map() });
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      const csv = 'date,title,amount\n2026-08-10,COMPRA UM,100.00\n2026-08-11,COMPRA DOIS,50.00';
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
+      expect(result.classificationStatus).toBe('error');
+      expect(result.preview).toHaveLength(2);
+      const sum = result.preview.reduce((acc, tx) => acc + tx.amountCents, 0);
+      expect(sum).toBe(15000);
+    });
+
+    it('commitImport never calls classifyForImport (cache-only, uses manualExpenseType shim)', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      prisma.expense.create.mockClear();
+      const csv = 'date,title,amount\n2026-08-10,COMPRA UM,100.00';
+      await service.commitImport('t1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
+      expect(merchantClassifier.classifyForImport).not.toHaveBeenCalled();
+      // prova que o caminho de escrita realmente executou (não é um no-op mascarando "zero calls")
+      expect(prisma.expense.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('#582 F3: sem hit e sem match do heurístico local → categoriaFonte null (não "regex")', async () => {
+      merchantClassifier.classifyForImport = jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() });
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      const csv = 'date,title,amount\n2026-08-10,ESTABELECIMENTO XPTO,100.00';
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
+      expect(result.preview[0].suggestedCategory).toBe('OUTROS');
+      expect(result.preview[0].categoriaFonte).toBeNull();
+    });
+
+    it('applies the hit even though the parser delivers a raw merchant and the map is keyed by normalized text (#582 normalization contract, regression for c96b8ee0)', async () => {
+      // classifyForImport devolve a chave NORMALIZADA (MerchantClassifierService.normalizeKey);
+      // o parser CSV_GENERIC entrega o merchant BRUTO ("COMPRA UM"). Se o
+      // caller consultar o Map com a string bruta em vez de normalizá-la
+      // antes do `.get`, o hit nunca é encontrado e o teste falha
+      // (categoriaFonte cai para 'regex', não 'regra').
+      merchantClassifier.classifyForImport = jest.fn().mockResolvedValue({
+        status: 'ok',
+        classifications: new Map([['compra um', { category: 'moradia', source: 'regra', confidence: 1.0 }]]),
+      });
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      const csv = 'date,title,amount\n2026-08-10,COMPRA UM,100.00';
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
+      expect(result.preview[0].suggestedCategory).toBe(MERCHANT_TO_EXPENSE_TYPE.moradia);
+      expect(result.preview[0].categoriaFonte).toBe('regra');
     });
   });
 });

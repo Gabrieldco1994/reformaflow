@@ -220,6 +220,21 @@ export function fastClassify(merchant: string): string | null {
 }
 
 /**
+ * (#582 F3) Heurístico local de categoria para uma linha de débito SEM hit
+ * confiável do classificador. Retorna `null` — não o literal `'OUTROS'` — quando
+ * NEM `fastClassify` NEM o categorizador de keywords casaram: `categorize`
+ * devolve `'outros'` só como fallback (nunca de um match real), então esse caso
+ * não é uma classificação e não deve marcar `categoriaFonte: 'regex'`.
+ */
+export function localHeuristicCategory(merchant: string): string | null {
+  const fast = fastClassify(merchant);
+  if (fast) return fast;
+  const cat = categorize(merchant);
+  if (cat === 'outros') return null;
+  return PESSOAL_CATEGORY_MAP[cat] ?? null;
+}
+
+/**
  * Detecta despesa de utility/telco/imposto que deveria virar RecurringBill em
  * outro projeto (CASA ou CARRO). Retorna config ou null.
  */
@@ -644,6 +659,18 @@ export class BankAccountService {
       .map((card) => card.id)
       .filter((id): id is string => Boolean(id));
 
+    // #582 PR-4: uma única chamada de classificação para todos os merchants de
+    // débito do lote (cache + Gemini, quando disponível) — nunca por transação.
+    // `classifications` só carrega hits confiáveis (regra/ia); ausência de
+    // chave = "sem hit confiável", tratado como heurística local abaixo.
+    const debitMerchants = [...new Set(
+      parsed.transactions.filter((t) => t.amountCents > 0).map((t) => t.merchant),
+    )];
+    const importClassification = await this.merchantClassifier.classifyForImport(
+      debitMerchants,
+      tenantId,
+    );
+
     const preview = await Promise.all(parsed.transactions.map(async (tx) => {
       let isCardPay = tx.amountCents > 0 && detectCardPayment(tx.merchant).isCardPayment;
       // Match async por valor para "Pagamento PIX" / "PgConta" sem texto explícito
@@ -676,15 +703,17 @@ export class BankAccountService {
       const matches = tx.amountCents < 0
         ? findReceiptMatches(tx)         // crédito → match com Receipt PLANEJADO
         : findExpenseMatches(tx);        // débito → match com Expense PLANEJADO
-      // #582 PR-2: o preview ganha a precedência COMPLETA de regra aprendida —
-      // MANUAL do tenant, AI do tenant >= limiar, MANUAL global. (Commit e
-      // retroativo continuam no shim `manualExpenseType`, regra #16.)
-      const learnedType =
-        tx.amountCents > 0
-          ? await this.merchantClassifier.resolveLearnedExpenseType(tx.merchant, tenantId)
-          : null;
-      const manualExpenseType = learnedType?.expenseType ?? null;
+      // #582 PR-4: hit confiável (regra=MANUAL, ia=AI>=limiar) vem do lote único
+      // acima; sem hit, cai na heurística local existente ('regex'). Commit e
+      // retroativo continuam no shim `manualExpenseType`, regra #16.
+      const hit = tx.amountCents > 0
+        ? importClassification.classifications.get(MerchantClassifierService.normalizeKey(tx.merchant))
+        : undefined;
       const isPixPf = tx.amountCents > 0 && MerchantClassifierService.isLikelyPixPessoaFisica(tx.merchant);
+      // (#582 F3) heurístico local — `null` quando nada casou, para não rotular
+      // um fallback 'OUTROS' como classificação confiável ('regex').
+      const localCat =
+        tx.amountCents > 0 && !isCardPay && !isPixPf ? localHeuristicCategory(tx.merchant) : null;
       return {
         ...tx,
         date: tx.date.toISOString().slice(0, 10),
@@ -694,13 +723,16 @@ export class BankAccountService {
         suggestedCategory: tx.amountCents > 0
           ? (isCardPay
               ? 'PAGAMENTO_FATURA_CARTAO'
-              : (manualExpenseType
-                  ?? (isPixPf
+              : (hit
+                  ? MERCHANT_TO_EXPENSE_TYPE[hit.category]
+                  : (isPixPf
                     ? 'OUTROS'
-                    : (fastClassify(tx.merchant) ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'))))
+                    : (localCat ?? 'OUTROS'))))
           : (fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA' ? 'MOVIMENTACAO_INTERNA' : 'RECEITA'),
         categoriaFonte:
-          tx.amountCents > 0 && !isCardPay && manualExpenseType ? 'regra' : null,
+          tx.amountCents > 0 && !isCardPay
+            ? (hit ? hit.source : (localCat != null ? 'regex' : null))
+            : null,
         cardCandidates,
         suggestedCardLast4: autoCard,
         crossProjectMatches: matches,
@@ -719,6 +751,7 @@ export class BankAccountService {
       duplicated: preview.filter((p) => p.duplicate).length,
       inserted: 0,
       preview,
+      classificationStatus: importClassification.status,
       ...(warning ? { warning } : {}),
     };
   }

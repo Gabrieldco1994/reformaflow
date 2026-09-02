@@ -106,6 +106,25 @@ export interface LearnedTypeResolution {
   reason: 'resolvido' | 'sem-categoria-equivalente' | 'sub-limiar' | 'sem-regra';
 }
 
+/** Uma classificação confiável o bastante para sugerir categoria num import. */
+export interface ImportClassification {
+  category: MerchantCategory;
+  /** 'regra' = MANUAL (tenant ou global); 'ia' = AI com confidence >= AI_RULE_MIN_CONFIDENCE. */
+  source: 'regra' | 'ia';
+  confidence: number;
+}
+
+/**
+ * Resposta de `classifyForImport` para os previews de import (extrato/fatura).
+ * `status` nunca é `'ok'` quando o provider falhou ou ficou pendência sem
+ * sequer tentar (sem `GEMINI_API_KEY`) — o preview usa isso para avisar o
+ * usuário em vez de aparentar sucesso silencioso.
+ */
+export interface ClassifyForImportResponse {
+  classifications: Map<string, ImportClassification>;
+  status: 'ok' | 'unavailable' | 'error';
+}
+
 /**
  * Núcleo puro da precedência de regra aprendida (testável sem Prisma):
  *   1. MANUAL do tenant  — vence tudo
@@ -283,10 +302,9 @@ export class MerchantClassifierService {
   }
 
   /**
-   * Classifica batch:
-   *   1. Cache lookup (DB)
-   *   2. Gemini para os faltantes (1 chamada)
-   *   3. Persiste no cache
+   * Classifica batch: cache lookup + IA para os faltantes + persiste no cache.
+   * Delega a `classifyBatchDetailed` e expõe só o Map (compatibilidade com os
+   * callers existentes — controllers `/classify`/`/suggest` e Maria).
    */
   async classifyBatch(merchants: string[], tenantId: string): Promise<Map<string, ClassifyResult>> {
     // SEC-2: sem tenant, um `updateMany`/`findMany` com `tenantId: undefined`
@@ -294,9 +312,51 @@ export class MerchantClassifierService {
     if (!tenantId || typeof tenantId !== 'string') {
       throw new BadRequestException('tenantId é obrigatório para classificar merchants');
     }
+    return (await this.classifyBatchDetailed(merchants, tenantId)).classifications;
+  }
 
-    const result = new Map<string, ClassifyResult>();
-    if (!merchants.length) return result;
+  /**
+   * Núcleo de `classifyBatch`: mesma lógica (cache → IA em chunks de 60 →
+   * persistência), mas devolve também o diagnóstico que `classifyForImport`
+   * precisa para decidir `status` sem uma segunda leitura:
+   *   - `pendingCount`: merchants sem hit de cache antes de tentar o provider.
+   *   - `providerAttempted`: só `true` se havia `apiKey` E pendência (chegou a
+   *     chamar o Gemini pelo menos uma vez).
+   *   - `providerError`: `true` se algum chunk falhou (rede ou persistência) —
+   *     aborta os chunks seguintes.
+   *   - `providerIncomplete`: `true` se algum chunk voltou com MENOS itens do que
+   *     foi enviado (truncação de resposta / JSON malformado que `callGemini`
+   *     degrada para `[]`). Os merchants faltantes ficam fora do Map; NÃO aborta
+   *     os chunks seguintes, mas o caller trata como falha para efeito de status
+   *     (F2 #582 — proibido devolver formato de sucesso com merchants ausentes).
+   * Sem estado de instância — cada chamada monta seu próprio `Map` local,
+   * seguro sob chamadas concorrentes (#582 PR-4).
+   *
+   * TOCTOU (SEC-3): por chunk, o resultado da IA é acumulado num buffer LOCAL
+   * (`chunkResult`) e só é mesclado no `classifications` final DEPOIS que a
+   * `$transaction` do chunk persiste com sucesso — uma classificação nunca é
+   * exposta sem estar persistida (ou já ter vindo do cache).
+   */
+  private async classifyBatchDetailed(
+    merchants: string[],
+    tenantId: string,
+  ): Promise<{
+    classifications: Map<string, ClassifyResult>;
+    pendingCount: number;
+    providerAttempted: boolean;
+    providerError: boolean;
+    providerIncomplete: boolean;
+  }> {
+    const classifications = new Map<string, ClassifyResult>();
+    if (!merchants.length) {
+      return {
+        classifications,
+        pendingCount: 0,
+        providerAttempted: false,
+        providerError: false,
+        providerIncomplete: false,
+      };
+    }
 
     const uniqueByKey = new Map<string, string>();
     for (const m of merchants) {
@@ -321,7 +381,7 @@ export class MerchantClassifierService {
     for (const [key, sample] of uniqueByKey) {
       const c = cachedMap.get(key);
       if (c) {
-        result.set(key, {
+        classifications.set(key, {
           merchant: sample,
           category: c.category as MerchantCategory,
           subcategory: c.subcategory,
@@ -333,106 +393,212 @@ export class MerchantClassifierService {
       }
     }
 
-    if (pending.length && this.apiKey) {
-      // Paginação: chunk de 60 evita prompts gigantes e respostas truncadas
-      const CHUNK = 60;
+    if (!pending.length) {
+      return {
+        classifications,
+        pendingCount: 0,
+        providerAttempted: false,
+        providerError: false,
+        providerIncomplete: false,
+      };
+    }
+
+    if (!this.apiKey) {
+      this.logger.debug(`No GEMINI_API_KEY — ${pending.length} merchants sem classificação`);
+      return {
+        classifications,
+        pendingCount: pending.length,
+        providerAttempted: false,
+        providerError: false,
+        providerIncomplete: false,
+      };
+    }
+
+    // Paginação: chunk de 60 evita prompts gigantes e respostas truncadas
+    const CHUNK = 60;
+    let providerError = false;
+    let providerIncomplete = false;
+    for (let i = 0; i < pending.length && !providerError; i += CHUNK) {
+      const slice = pending.slice(i, i + CHUNK);
+      const chunkKeys = slice.map((p) => p.key);
+      // Buffer local: só entra em `classifications` depois que a tx persiste.
+      const chunkResult = new Map<string, ClassifyResult>();
       try {
-        for (let i = 0; i < pending.length; i += CHUNK) {
-          const slice = pending.slice(i, i + CHUNK);
-          // callGemini é chamada de rede de segundos — SEMPRE fora da tx
-          // (seguraria o único writer lock do SQLite). MerchantCategory ∈
-          // modelsWithoutSoftDelete → $use é inerte aqui; sem findById pós-tx.
-          const aiResults = await this.callGemini(slice.map((p) => p.sample));
-          const chunkKeys = slice.map((p) => p.key);
+        // callGemini é chamada de rede de segundos — SEMPRE fora da tx
+        // (seguraria o único writer lock do SQLite). MerchantCategory ∈
+        // modelsWithoutSoftDelete → $use é inerte aqui; sem findById pós-tx.
+        const aiResults = await this.callGemini(slice.map((p) => p.sample));
 
-          await this.prisma.$transaction(
-            async (tx) => {
-              // SEC-3: re-leitura DENTRO da tx fecha a janela TOCTOU entre o
-              // cache lookup (fora de tx) e a escrita. Um setManual/confirmRule
-              // concorrente durante o callGemini cria uma regra MANUAL para a
-              // mesma (tenantId, merchantKey) — e ela tem precedência absoluta.
-              const existing = await tx.merchantCategory.findMany({
-                where: { tenantId, merchantKey: { in: chunkKeys } },
-                select: {
-                  merchantKey: true,
-                  source: true,
-                  category: true,
-                  subcategory: true,
-                  confidence: true,
-                },
-              });
-              const byKey = new Map(existing.map((row) => [row.merchantKey, row]));
+        // F2 (#582): resposta mais curta que o enviado — truncação num chunk de
+        // 60 ou JSON malformado que `callGemini` degradou para `[]`. Os merchants
+        // além de `aiResults.length` nunca entram no `chunkResult` (o `for` de
+        // merge para em `j < aiResults.length`). Marca incompleto para o status,
+        // mas segue com os próximos chunks (um chunk curto não aborta o lote).
+        if (aiResults.length < slice.length) providerIncomplete = true;
 
-              const toCreate: Prisma.MerchantCategoryCreateManyInput[] = [];
-              for (let j = 0; j < slice.length && j < aiResults.length; j++) {
-                const r = aiResults[j];
-                const key = slice[j].key;
-                const cat = (MERCHANT_CATEGORIES as readonly string[]).includes(r.category)
-                  ? r.category
-                  : 'outros';
-                const prior = byKey.get(key);
+        await this.prisma.$transaction(
+          async (tx) => {
+            // SEC-3: re-leitura DENTRO da tx fecha a janela TOCTOU entre o
+            // cache lookup (fora de tx) e a escrita. Um setManual/confirmRule
+            // concorrente durante o callGemini cria uma regra MANUAL para a
+            // mesma (tenantId, merchantKey) — e ela tem precedência absoluta.
+            const existing = await tx.merchantCategory.findMany({
+              where: { tenantId, merchantKey: { in: chunkKeys } },
+              select: {
+                merchantKey: true,
+                source: true,
+                category: true,
+                subcategory: true,
+                confidence: true,
+              },
+            });
+            const byKey = new Map(existing.map((row) => [row.merchantKey, row]));
 
-                if (prior?.source === 'MANUAL') {
-                  // regra manual do tenant tem precedência absoluta — não
-                  // sobrescreve, e o Map reflete o que está PERSISTIDO.
-                  result.set(key, {
-                    merchant: slice[j].sample,
-                    category: prior.category as MerchantCategory,
-                    subcategory: prior.subcategory,
-                    source: 'MANUAL',
-                    confidence: prior.confidence,
-                  });
-                  continue;
-                }
+            const toCreate: Prisma.MerchantCategoryCreateManyInput[] = [];
+            for (let j = 0; j < slice.length && j < aiResults.length; j++) {
+              const r = aiResults[j];
+              const key = slice[j].key;
+              const cat = (MERCHANT_CATEGORIES as readonly string[]).includes(r.category)
+                ? r.category
+                : 'outros';
+              const prior = byKey.get(key);
 
-                const confidence = sanitizeConfidence(r.confidence);
-                result.set(key, {
+              if (prior?.source === 'MANUAL') {
+                // regra manual do tenant tem precedência absoluta — não
+                // sobrescreve, e o Map reflete o que está PERSISTIDO.
+                chunkResult.set(key, {
                   merchant: slice[j].sample,
-                  category: cat as MerchantCategory,
+                  category: prior.category as MerchantCategory,
+                  subcategory: prior.subcategory,
+                  source: 'MANUAL',
+                  confidence: prior.confidence,
+                });
+                continue;
+              }
+
+              const confidence = sanitizeConfidence(r.confidence);
+              chunkResult.set(key, {
+                merchant: slice[j].sample,
+                category: cat as MerchantCategory,
+                subcategory: r.subcategory ?? null,
+                source: 'AI',
+                confidence,
+              });
+
+              const aiResponse = JSON.stringify(r).slice(0, 1000);
+              if (!prior) {
+                toCreate.push({
+                  tenantId,
+                  merchantKey: key,
+                  merchantSample: slice[j].sample.slice(0, 200),
+                  category: cat,
                   subcategory: r.subcategory ?? null,
                   source: 'AI',
                   confidence,
+                  aiResponse,
                 });
-
-                const aiResponse = JSON.stringify(r).slice(0, 1000);
-                if (!prior) {
-                  toCreate.push({
-                    tenantId,
-                    merchantKey: key,
-                    merchantSample: slice[j].sample.slice(0, 200),
+              } else {
+                // prior.source é AI/CACHE (não MANUAL) — seguro atualizar
+                await tx.merchantCategory.update({
+                  where: { tenantId_merchantKey: { tenantId, merchantKey: key } },
+                  data: {
                     category: cat,
                     subcategory: r.subcategory ?? null,
                     source: 'AI',
                     confidence,
                     aiResponse,
-                  });
-                } else {
-                  // prior.source é AI/CACHE (não MANUAL) — seguro atualizar
-                  await tx.merchantCategory.update({
-                    where: { tenantId_merchantKey: { tenantId, merchantKey: key } },
-                    data: {
-                      category: cat,
-                      subcategory: r.subcategory ?? null,
-                      source: 'AI',
-                      confidence,
-                      aiResponse,
-                    },
-                  });
-                }
+                  },
+                });
               }
-              if (toCreate.length) await tx.merchantCategory.createMany({ data: toCreate });
-            },
-            { timeout: 10000 },
-          );
-        }
+            }
+            if (toCreate.length) await tx.merchantCategory.createMany({ data: toCreate });
+          },
+          { timeout: 10000 },
+        );
+
+        // Só mescla no Map final depois que a tx do chunk persistiu com sucesso.
+        for (const [key, value] of chunkResult) classifications.set(key, value);
       } catch (err) {
+        // Provider ou persistência falhou: loga e para — sem segunda query,
+        // sem catch de fallback que reclassifique do zero. Chunks seguintes
+        // não rodam (ver condição do `for`).
         this.logger.warn(`Gemini classify failed: ${(err as Error).message}`);
+        providerError = true;
       }
-    } else if (pending.length) {
-      this.logger.debug(`No GEMINI_API_KEY — ${pending.length} merchants sem classificação`);
     }
 
-    return result;
+    return {
+      classifications,
+      pendingCount: pending.length,
+      providerAttempted: true,
+      providerError,
+      providerIncomplete,
+    };
+  }
+
+  /**
+   * Classifica merchants para os previews de import (extrato/fatura). Chama
+   * `classifyBatchDetailed` (mesma leitura de cache + IA + persistência de
+   * `classifyBatch`) e filtra o resultado para o que é confiável o bastante
+   * para virar sugestão de categoria no preview:
+   *   - MANUAL (regra do usuário, tenant ou global) em qualquer confidence;
+   *   - AI com `confidence >= AI_RULE_MIN_CONFIDENCE`.
+   * AI abaixo do limiar, `CACHE`/fonte desconhecida e um eventual `source`
+   * legado `'REGEX'` (linha antiga no banco — fora da união de tipos desde a
+   * PR-2) ficam de fora do Map: o preview cai no heurístico local nesse caso.
+   *
+   * F1 (#582): um hit cuja categoria mapeia para `ExpenseType.OUTROS` em
+   * `MERCHANT_TO_EXPENSE_TYPE` (`compras`, `servicos`, `impostos`,
+   * `investimentos`, `outros`) TAMBÉM fica de fora — espelha o
+   * `classifyLearnedRow` da PR-2 (`reason: 'sem-categoria-equivalente'`). Sem
+   * `ExpenseType` equivalente, "OUTROS · fonte ia" seria pior que o regex e ainda
+   * rotulado como classificação confiável; o preview cai no heurístico local.
+   *
+   * `status` nunca é `'ok'` quando houve erro/resposta incompleta do provider ou
+   * quando restou pendência sem sequer tentar o provider (sem `GEMINI_API_KEY`):
+   *   `(providerError || providerIncomplete) ? 'error'
+   *      : (pendingCount > 0 && !providerAttempted) ? 'unavailable' : 'ok'`.
+   */
+  async classifyForImport(merchants: string[], tenantId: string): Promise<ClassifyForImportResponse> {
+    if (!tenantId || typeof tenantId !== 'string') {
+      throw new BadRequestException('tenantId é obrigatório para classificar merchants');
+    }
+    if (!merchants.length) {
+      return { classifications: new Map(), status: 'ok' };
+    }
+
+    const {
+      classifications: detailed,
+      pendingCount,
+      providerAttempted,
+      providerError,
+      providerIncomplete,
+    } = await this.classifyBatchDetailed(merchants, tenantId);
+
+    const classifications = new Map<string, ImportClassification>();
+    for (const [key, r] of detailed) {
+      // F1: categoria sem ExpenseType equivalente (mapeia p/ OUTROS) nunca vira
+      // sugestão confiável — o preview cai no heurístico local, como a PR-2.
+      const mapped = MERCHANT_TO_EXPENSE_TYPE[r.category];
+      if (!mapped || mapped === ExpenseType.OUTROS) continue;
+
+      if (r.source === 'MANUAL') {
+        classifications.set(key, { category: r.category, source: 'regra', confidence: r.confidence });
+      } else if (r.source === 'AI' && r.confidence >= AI_RULE_MIN_CONFIDENCE) {
+        classifications.set(key, { category: r.category, source: 'ia', confidence: r.confidence });
+      }
+      // AI sub-limiar, CACHE e um `source` legado desconhecido (ex.: 'REGEX')
+      // ficam de fora — sem entrada no Map.
+    }
+
+    const status: ClassifyForImportResponse['status'] =
+      providerError || providerIncomplete
+        ? 'error'
+        : pendingCount > 0 && !providerAttempted
+          ? 'unavailable'
+          : 'ok';
+
+    return { classifications, status };
   }
 
   /**
