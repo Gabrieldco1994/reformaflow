@@ -13,6 +13,7 @@ import { NovaDespesaWizard } from './NovaDespesaWizard';
 import { RecorrenteWizard } from './RecorrenteWizard';
 import { VoiceExpenseModal } from './VoiceExpenseModal';
 import { SemCartaoEmptyState } from '../../_components/SemCartaoEmptyState';
+import { SemContaEmptyState } from '../../_components/SemContaEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
@@ -248,9 +249,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
         <Modal open onClose={() => setImportStep(null)} title="Para qual conta é esse extrato?">
           {loadingAccounts && <p className="text-sm text-gray-500">Carregando contas…</p>}
           {!loadingAccounts && importAccounts.length === 0 && (
-            <p className="text-sm text-gray-600">
-              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar.
-            </p>
+            <SemContaEmptyState projectId={projectId} />
           )}
           {!loadingAccounts && importAccounts.length > 0 && (
             <div className="space-y-2">

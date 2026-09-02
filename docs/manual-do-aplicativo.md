@@ -547,6 +547,10 @@ Cada KPI tem um **botão de ajuda (ⓘ)** que explica o cálculo ao passar o mou
   paga), **Ainda vai sair (planejado)** (saídas ainda não pagas — parcelas e
   contas previstas), **Ticket médio** (valor médio por lançamento = total ÷ nº de
   lançamentos).
+- **Estado vazio por falta de conta (planejado — issue #218, aguardando merge):**
+  sem nenhuma conta bancária cadastrada, o estado vazio leva a **Nova conta**
+  reaproveitando o mesmo deep-link existente do banner degradado
+  (`/conta?focus=openingBalance`, ver §4.8) — nenhuma tela nova.
 
 **Visão Ano:**
 - **Resultado do ano**, **Taxa de poupança**, **Evolução do patrimônio**,
@@ -663,6 +667,13 @@ reunir os cards de fluxo.
   **linha 2** com metadados (data · categoria · origem) + chip "Sem conta" quando carteira
   + chip de projeto quando cross-project, e **status textual** ("Paga/A pagar/Previsto/Recebido")
   abaixo do valor, alinhado à direita. Estado vazio quando não há itens.
+  **Planejado (issue #218, aguardando merge):** quando a lista está
+  genuinamente vazia (nenhum lançamento no projeto), o estado vazio ganha CTA
+  **"Novo lançamento"**, reaproveitando o mesmo launcher já usado no topo da
+  tela (§4.2, "Lançar"/"+"). Quando a lista está vazia **por causa de um
+  filtro ou aba ativa** (ex.: aba Entradas sem recebimentos, filtro de
+  categoria sem resultado), o estado vazio **não** mostra esse CTA — só o
+  aviso de que não há itens para o filtro atual.
 - As **faturas de cartão** podem ser **expandidas na própria linha** para revelar as
   compras que as compõem (no celular, tocando na linha). Nas linhas de fatura há
   ações rápidas **Ajustar** e **Resíduo**, além do status.
@@ -839,7 +850,9 @@ Projeção e realizado, lançamento a lançamento, por data.
 - **Tabela** por data: Data, Tipo, Valor, Categoria/Subcategoria, Status,
   Parcela e saldos acumulados (projetado/realizado). No celular, vira lista de
   cards equivalente.
-- **Estado vazio:** "Sem lançamentos no período".
+- **Estado vazio:** "Sem lançamentos no período". **Planejado (issue #218,
+  aguardando merge):** o estado vazio passa a linkar para **Despesas**
+  (`/expenses`) como CTA, em vez de ficar sem ação.
 
 ### 4.6b Recorrentes (`/recorrentes`) — apenas PESSOAL
 As contas que se repetem todo mês, em um lugar só.

@@ -1,4 +1,5 @@
 'use client';
+import { useRouter } from 'next/navigation';
 import { useProject } from '@/contexts/project-context';
 
 import { useQuery } from '@tanstack/react-query';
@@ -23,6 +24,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function CashFlowPage() {
+  const router = useRouter();
   const { projectId: PROJECT_ID, projectType } = useProject();
   const isPessoal = projectType === 'PESSOAL';
   const { data: entries = [], isLoading, error } = useQuery<CashFlowEntry[]>({
@@ -80,6 +82,12 @@ export default function CashFlowPage() {
           icon={ArrowUpCircle}
           title="Sem lançamentos no período"
           description="Recebimentos e despesas aparecerão aqui quando forem cadastrados."
+          action={{
+            label: 'Lançar despesa ou recebimento',
+            onClick: () => {
+              router.push(`/projects/${PROJECT_ID}/expenses`);
+            },
+          }}
         />
       ) : (
         <>

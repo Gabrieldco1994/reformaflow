@@ -150,6 +150,22 @@ O v1 resolveu a **arquitetura de informação** (Conta = linha do tempo única; 
 
 **Agentes:** `architect` (mapa do fluxo novo-usuário) → **todas as lenses Phase 1** (empty states tocam superfícies compartilhadas — CASA/CARRO/REFORMA/COMPRA não podem regredir) → `frontend-expert` (+`backend-expert` só se faltar endpoint de contagem) → `qa-engineer` → lenses Phase 2 → `doc-librarian`.
 
+**Status desta execução (issue #218, revisão 2026-09-01 — planejado, aguardando merge):**
+- [x] Onboarding (fluxo completo com criar PESSOAL → onboarding → skip → jornada por
+  foto → importação → reload) já validado em QA de ponta a ponta.
+- [x] Escopo de empty states acionáveis refinado por tela (mais específico que a lista
+  genérica acima): **Extrato sem conta cadastrada** → CTA **Nova conta** reaproveitando
+  o deep-link já existente (`/conta?focus=openingBalance`); **Fluxo de Caixa vazio**
+  (`/cash-flow`) → CTA para **Despesas**; **Movimentações genuinamente vazias** (sem
+  nenhum lançamento) → CTA **Novo lançamento** reaproveitando o launcher já existente.
+  Vazio **por filtro/aba ativa** (não por ausência real de dados) **não** ganha CTA de
+  primeiro uso, para não confundir "nada aqui ainda" com "nada aqui com este filtro".
+- [x] Uma tela de **"welcome" mensal dedicada** foi avaliada e **cortada por YAGNI**: os
+  empty states acionáveis acima já cobrem a rampa do usuário novo sem precisar de uma
+  tela redundante — não recriar essa ideia sem um motivo novo e concreto.
+- Nada disto está mergeado em `main`; ver `manual-do-aplicativo.md` §4.1/§4.2/§4.6 para
+  as marcações "planejado — issue #218, aguardando merge" equivalentes.
+
 ---
 
 ## 6. Documentação (todo PR, mesmo PR)

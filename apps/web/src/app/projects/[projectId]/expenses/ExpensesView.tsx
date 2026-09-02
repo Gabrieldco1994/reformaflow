@@ -26,6 +26,7 @@ import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
 import { SemCartaoEmptyState } from '../_components/SemCartaoEmptyState';
+import { SemContaEmptyState } from '../_components/SemContaEmptyState';
 import { RatearCompraModal } from './_components/RatearCompraModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
 import { NovaDespesaWizard } from './_components/NovaDespesaWizard';
@@ -1509,9 +1510,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         <Modal open onClose={() => setImportStep(null)} title="Para qual conta é esse extrato?">
           {loadingAccounts && <p className="text-sm text-gray-500">Carregando contas…</p>}
           {!loadingAccounts && importAccounts.length === 0 && (
-            <p className="text-sm text-gray-600">
-              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar.
-            </p>
+            <SemContaEmptyState projectId={PROJECT_ID} />
           )}
           {!loadingAccounts && importAccounts.length > 0 && (
             <div className="space-y-2">
