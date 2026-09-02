@@ -4,15 +4,19 @@ import { expect, test, type Page } from '@playwright/test';
  * W5 / #218 — empty states escopados + gate de import de extrato por
  * `hasFeature('bankAccounts') && hasModule('bankAccounts')`.
  *
- * ROTEIRO DO qa-engineer (RED até o GREEN do frontend-expert). Modelado em
- * `apps/web/e2e/u4-nav-redirect.spec.ts` (mock via `page.route`, cookie
- * `rf_token`, `/auth/me` com `allowedModules`). Relógio fixo, 375 + 1280.
+ * Modelado nos e2e vizinhos que RENDERIZAM `ExpensesView`/`/conta`
+ * (`expenses-mobile.spec.ts`, `conta-bank-management.spec.ts`): mock via
+ * `page.route`, cookie `rf_token`, `/auth/me` com `allowedModules`, e as FORMAS
+ * de resposta reais (`/expenses` → `ExpensesPage`, `account-view` → objeto…
+ * — o catch-all `[]` derrubava o `ExpensesView` no `buildPaidOriginIndex`).
  *
- * A lição da #655/#656: PESSOAL-only NÃO basta — o `PayOptionsModal` e o
- * `ExpensesView` são compartilhados com REFORMA/COMPRA, e lá "Extrato bancário"
- * levava a `GET /projects/:id/bank-accounts` → 403 mascarado como `[]`; a #655
- * transformou o dead-end num loop de 403 clicável. Estes cenários rodam a
- * jornada REAL em REFORMA e PESSOAL.
+ * O mock ESPELHA o `ModulesGuard`: qualquer rota de bank-accounts responde 403
+ * quando o usuário não tem `bankAccounts` em `allowedModules` — o 403 real que a
+ * #655 mascarava. Assim os cenários 1 e 4 são regressões de verdade: se o gate
+ * quebrar, o front dispara a chamada e o 403 falha o teste.
+ *
+ * Relógio fixo. A spec controla as próprias larguras → roda só no projeto
+ * `desktop` (padrão do repo).
  */
 
 const PESSOAL_ID = 'w5-pessoal';
@@ -21,6 +25,9 @@ const FIXED_TIME = new Date('2026-09-02T12:00:00.000Z');
 
 function json(body: unknown) {
   return { status: 200, contentType: 'application/json', body: JSON.stringify(body) };
+}
+function forbidden() {
+  return { status: 403, contentType: 'application/json', body: JSON.stringify({ statusCode: 403, message: 'Forbidden' }) };
 }
 
 const ALL_MODULES = [
@@ -35,6 +42,27 @@ const ALL_MODULES = [
 // `creditCards` continua no allowedModules (autorização), `bankAccounts` NÃO.
 const REFORMA_MODULES = ALL_MODULES.filter((m) => m !== 'bankAccounts' && m !== 'monthlyOverview');
 
+const EXPENSES_PAGE = { items: [], total: 0, page: 1, pageSize: 2000, totalPages: 0 };
+
+const ACCOUNT_VIEW = {
+  mesSelecionado: '2026-09',
+  caixaHoje: 0,
+  carteiraHoje: 0,
+  entrouMes: 0,
+  saiuMes: 0,
+  faltaPagarMes: 0,
+  saidaTotal: 0,
+  recebimentosPrevistosMes: 0,
+  sobraPrevista: 0,
+  devoCartaoTotal: 0,
+  cartoes: [],
+  contas: [],
+  saidas: [],
+  comprasCartao: [],
+  entradas: [],
+  ticketMedio: { valor: 0, nCompras: 0, totalCompras: 0, serie6m: [], media6m: 0, deltaVsMediaPct: null },
+};
+
 async function mockApi(
   page: Page,
   baseURL: string,
@@ -42,9 +70,11 @@ async function mockApi(
 ) {
   const modules = opts.modules ?? ALL_MODULES;
   const projectTypes = opts.projectTypes ?? ['PESSOAL', 'REFORMA'];
+  const canBank = modules.includes('bankAccounts');
   await page.context().addCookies([{ name: 'rf_token', value: 'w5-test', url: baseURL }]);
   await page.route('http://localhost:3001/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
+
     if (path === '/auth/me') {
       return route.fulfill(json({
         id: 'w5-user',
@@ -64,43 +94,77 @@ async function mockApi(
     if (path === `/projects/${REFORMA_ID}`) {
       return route.fulfill(json({ id: REFORMA_ID, name: 'Reforma', type: 'REFORMA', onboardedAt: '2026-01-01T00:00:00.000Z' }));
     }
-    // Tudo o mais: coleções vazias (inclui expenses, cash-flow, account-view…).
+
+    // ─── ModulesGuard: 403 real de bank-accounts sem o módulo ──────────────
+    if (path === '/tenant/bank-accounts' || /\/bank-accounts(\/.*)?$/.test(path)) {
+      return canBank ? route.fulfill(json([])) : route.fulfill(forbidden());
+    }
+
+    // ─── Formas que o catch-all `[]` quebrava ─────────────────────────────
+    if (/^\/projects\/[^/]+\/expenses$/.test(path)) {
+      return route.fulfill(json(EXPENSES_PAGE));
+    }
+    // `buildPaidOriginIndex` itera `response.items` — `[]` → estouro/ErrorBoundary.
+    if (/^\/projects\/[^/]+\/expenses\/paid-origins$/.test(path)) {
+      return route.fulfill(json({ items: [] }));
+    }
+    if (path.endsWith('/monthly-overview/account-view')) {
+      return route.fulfill(json(ACCOUNT_VIEW));
+    }
+    if (path.endsWith('/monthly-overview/dre-overview')) {
+      return route.fulfill(json({ anual: { saldoAcumuladoSerie: [] } }));
+    }
+    if (path.endsWith('/monthly-overview/origin-items-yearly')) {
+      return route.fulfill(json({ year: 2026, kind: 'all', last4: '', total: 0, items: [] }));
+    }
+
+    if (path === '/journeys/eligible') {
+      return route.fulfill(json([])); // cenário 4 sobrescreve com `**/journeys/eligible*`
+    }
+
+    // Tudo o mais: coleções vazias.
     return route.fulfill(json([]));
   });
 }
 
-/** Falha o teste em qualquer 403 numa rota que casa `pattern`. */
-function failOn403(page: Page, pattern: RegExp, hits: string[]) {
+/** Registra qualquer 403 numa rota que casa `pattern`. */
+function trap403(page: Page, pattern: RegExp, hits: string[]) {
   page.on('response', (res) => {
-    if (res.status() === 403 && pattern.test(res.url())) {
-      hits.push(res.url());
-    }
+    if (res.status() === 403 && pattern.test(res.url())) hits.push(res.url());
   });
 }
 
-test.beforeEach(async ({ page }) => {
+/** Localiza o modal de `@/components/ui/modal` (sem `role=dialog`) pelo título. */
+function uiModal(page: Page, title: string) {
+  return page.locator('[data-mobile-sheet="modal"]').filter({ hasText: title });
+}
+
+test.beforeEach(async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'a spec controla as próprias larguras');
   await page.clock.setFixedTime(FIXED_TIME);
 });
 
 // ─── Cenário 1: REFORMA — zero 403 de bank-accounts ───────────────────────
 test.describe('W5 #218 · REFORMA — a oferta de extrato não existe e nada dá 403', () => {
   test('nenhum GET /bank-accounts 403; "Extrato bancário" ausente e "Fatura de cartão" presente', async ({ page, baseURL }) => {
-    const forbidden: string[] = [];
-    failOn403(page, /\/bank-accounts/, forbidden);
+    const hits: string[] = [];
+    trap403(page, /\/bank-accounts/, hits);
     await mockApi(page, baseURL!, { modules: REFORMA_MODULES });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/projects/${REFORMA_ID}/expenses`);
-    await page.getByRole('button', { name: /Nova despesa/i }).first().click();
+    await page.getByRole('button', { name: 'Nova despesa', exact: true }).first().click();
 
-    await expect(page.getByRole('button', { name: /Fatura de cartão/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Extrato bancário/i })).toHaveCount(0);
+    const modal = uiModal(page, 'Novo lançamento');
+    await expect(modal.getByRole('button', { name: /Fatura de cartão/i })).toBeVisible();
+    await expect(modal.getByRole('button', { name: /Extrato bancário/i })).toHaveCount(0);
 
-    expect(forbidden, `403 de bank-accounts em REFORMA: ${forbidden.join(', ')}`).toEqual([]);
+    expect(hits, `403 de bank-accounts em REFORMA: ${hits.join(', ')}`).toEqual([]);
   });
 
   test('/cash-flow vazio → CTA "Lançar despesa ou recebimento" leva a /expenses e renderiza (não /no-permission)', async ({ page, baseURL }) => {
     await mockApi(page, baseURL!, { modules: REFORMA_MODULES });
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/projects/${REFORMA_ID}/cash-flow`);
 
     await page.getByRole('button', { name: /Lançar despesa ou recebimento/i }).click();
@@ -116,24 +180,25 @@ test.describe('W5 #218 · PESSOAL — "Extrato bancário" abre empty state acion
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto(`/projects/${PESSOAL_ID}/conta`);
 
-    await page.getByRole('button', { name: /^Lançar$|^\+$/ }).first().click();
+    await page.getByRole('button', { name: 'Lançar', exact: true }).first().click();
     await page.getByRole('button', { name: /Fatura \/ Extrato/i }).click();
     await page.getByRole('button', { name: /Extrato bancário/i }).click();
 
-    await expect(page.getByText('Nenhuma conta cadastrada')).toBeVisible();
-    await expect(page.getByText(/Cadastre em Contas Bancárias antes de importar/)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Nova conta' })).toBeVisible();
+    const modal = uiModal(page, 'Para qual conta é esse extrato?');
+    await expect(modal.getByText('Nenhuma conta cadastrada')).toBeVisible();
+    await expect(modal.getByText(/Cadastre em Contas Bancárias antes de importar/)).toHaveCount(0);
+    await expect(modal.getByRole('button', { name: 'Nova conta' })).toBeVisible();
   });
 
-  test('"Nova conta" passa por /bank-accounts?focus=openingBalance e resolve /conta?focus=openingBalance com o form aberto', async ({ page, baseURL }) => {
+  test('"Nova conta" passa por /bank-accounts?focus=openingBalance e resolve /conta?focus=openingBalance', async ({ page, baseURL }) => {
     await mockApi(page, baseURL!);
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto(`/projects/${PESSOAL_ID}/conta`);
 
-    await page.getByRole('button', { name: /^Lançar$|^\+$/ }).first().click();
+    await page.getByRole('button', { name: 'Lançar', exact: true }).first().click();
     await page.getByRole('button', { name: /Fatura \/ Extrato/i }).click();
     await page.getByRole('button', { name: /Extrato bancário/i }).click();
-    await page.getByRole('button', { name: 'Nova conta' }).click();
+    await uiModal(page, 'Para qual conta é esse extrato?').getByRole('button', { name: 'Nova conta' }).click();
 
     await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/conta\\?focus=openingBalance`), { timeout: 10_000 });
     await expect(page).not.toHaveURL(/\/no-permission/);
@@ -142,46 +207,86 @@ test.describe('W5 #218 · PESSOAL — "Extrato bancário" abre empty state acion
 
 // ─── Cenário 3: duplicatas (cicatriz regra de ouro #23) ───────────────────
 test.describe('W5 #218 · sem rótulos de ação duplicados no PayOptionsModal', () => {
-  for (const [label, projectId, modules] of [
-    ['REFORMA', REFORMA_ID, REFORMA_MODULES],
-    ['PESSOAL', PESSOAL_ID, ALL_MODULES],
-  ] as const) {
-    test(`${label}: nenhum botão do menu de lançamento aparece duas vezes`, async ({ page, baseURL }) => {
-      await mockApi(page, baseURL!, { modules: [...modules] });
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/projects/${projectId}/expenses`);
-      await page.getByRole('button', { name: /Nova despesa/i }).first().click();
+  test('REFORMA: nenhum botão do menu de lançamento aparece duas vezes', async ({ page, baseURL }) => {
+    await mockApi(page, baseURL!, { modules: REFORMA_MODULES });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/projects/${REFORMA_ID}/expenses`);
+    await page.getByRole('button', { name: 'Nova despesa', exact: true }).first().click();
+    await expectNoDuplicateActionLabels(page);
+  });
 
-      const dialog = page.getByRole('dialog');
-      const labels = (await dialog.getByRole('button').allInnerTexts())
-        .map((t) => t.split('\n')[0]!.trim())
-        .filter(Boolean);
-      const dups = labels.filter((t, i) => labels.indexOf(t) !== i);
-      expect(dups, `botões duplicados: ${dups.join(', ')}`).toEqual([]);
-    });
-  }
+  test('PESSOAL: nenhum botão do menu de lançamento aparece duas vezes', async ({ page, baseURL }) => {
+    await mockApi(page, baseURL!);
+    // PESSOAL: `/expenses` redireciona ao hub; o PayOptionsModal vem do
+    // `NovaDespesaLauncher` fiado no `/conta` (botão "Lançar" desktop).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/projects/${PESSOAL_ID}/conta`);
+    await page.getByRole('button', { name: 'Lançar', exact: true }).first().click();
+    await expectNoDuplicateActionLabels(page);
+  });
 });
+
+async function expectNoDuplicateActionLabels(page: Page) {
+  const modal = uiModal(page, 'Novo lançamento');
+  await expect(modal).toBeVisible();
+  const labels = (await modal.getByRole('button').allInnerTexts())
+    .map((t) => t.split('\n')[0]!.trim())
+    .filter(Boolean);
+  const dups = labels.filter((t, i) => labels.indexOf(t) !== i);
+  expect(dups, `botões duplicados: ${dups.join(', ')}`).toEqual([]);
+}
 
 // ─── Cenário 4: onboarding REFORMA sem 403 silencioso ─────────────────────
 test.describe('W5 #218 · onboarding REFORMA — passo de despesa não dispara 403 de bank-accounts', () => {
-  test('avançar até o passo expense não gera GET /tenant/bank-accounts 403', async ({ page, baseURL }) => {
-    const forbidden: string[] = [];
-    failOn403(page, /\/tenant\/bank-accounts/, forbidden);
+  test('painel da jornada no passo expense não gera GET /tenant/bank-accounts 403', async ({ page, baseURL }) => {
+    const hits: string[] = [];
+    trap403(page, /\/tenant\/bank-accounts/, hits);
     await mockApi(page, baseURL!, { modules: REFORMA_MODULES });
 
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto(`/projects/${REFORMA_ID}/dashboard`);
-    await page.evaluate(() => {
-      window.dispatchEvent(new CustomEvent('rf:project-created', { detail: { projectId: 'w5-reforma', projectType: 'REFORMA' } }));
-    });
+    // Jornada real: SCREEN_VISIT abre o painel no passo `expense`
+    // (SUMMARY → `QuickExpenseStep`). Modo foto = OCR de comprovante, não import
+    // de extrato — o ponto é: nenhum 403 silencioso de bank-accounts.
+    await page.route('**/journeys/eligible*', (route) =>
+      route.fulfill(json([
+        {
+          key: 'w5:onboarding-reforma',
+          name: 'Onboarding REFORMA',
+          active: true,
+          targetScope: 'ALL_PROJECTS',
+          targetProjectType: null,
+          targetProjectId: null,
+          repeatPolicy: 'ALWAYS',
+          allowCrossProjectNavigation: false,
+          steps: [
+            {
+              stepKey: 'expense',
+              order: 0,
+              enabled: true,
+              skippable: true,
+              experience: 'SUMMARY',
+              label: 'Traga seus gastos',
+              subtitle: null,
+              conditionKey: null,
+              conditionUnmetBehavior: 'SKIP',
+              targetProjectType: null,
+            },
+          ],
+          triggers: [
+            { triggerType: 'SCREEN_VISIT', screenKey: 'expenses', actionKey: null, device: 'any', active: true },
+          ],
+        },
+      ])),
+    );
+    await page.route('**/journeys/*/complete', (route) => route.fulfill({ status: 204, body: '' }));
 
-    // Avança a jornada até o passo `expense` (modo foto = OCR de comprovante,
-    // não import de extrato). O ponto é: nenhum 403 silencioso de bank-accounts.
-    const quickExpense = page.getByRole('button', { name: /despesa/i }).first();
-    if (await quickExpense.isVisible().catch(() => false)) {
-      await quickExpense.click();
-    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/projects/${REFORMA_ID}/expenses`);
 
-    expect(forbidden, `403 de /tenant/bank-accounts no onboarding REFORMA: ${forbidden.join(', ')}`).toEqual([]);
+    // Painel da jornada montado no passo `expense` (SUMMARY → QuickExpenseStep).
+    await expect(page.locator('[data-journey-step="expense"]')).toBeVisible({ timeout: 15_000 });
+    // Dá tempo de qualquer query do passo disparar (a de bank-accounts NÃO deve).
+    await page.waitForTimeout(600);
+
+    expect(hits, `403 de /tenant/bank-accounts no onboarding REFORMA: ${hits.join(', ')}`).toEqual([]);
   });
 });
