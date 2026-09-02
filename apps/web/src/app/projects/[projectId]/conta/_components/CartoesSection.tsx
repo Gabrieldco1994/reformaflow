@@ -59,13 +59,7 @@ export function CartoesSection({
     }
   }
 
-  // #216 (W3): o carrossel compacto (`overflow-x-auto` + `snap-x`) não traz o
-  // tile focado por teclado (Tab) totalmente para dentro do viewport — o
-  // navegador só garante que o elemento fique "alcançável", então o 2º de 3
-  // tiles a 375px ficava ~30–36% visível. `scrollIntoView` nativo com
-  // `block/inline: 'nearest'` resolve sem gerenciar Tab/índice manualmente e
-  // sem forçar `behavior: 'smooth'` (respeita o comportamento/reduced-motion
-  // padrão do navegador). Toque/click não passam por aqui.
+  // #216: garante que o tile focado por Tab fique totalmente visível no carrossel compacto.
   function scrollTileIntoView(event: FocusEvent<HTMLButtonElement>) {
     event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }

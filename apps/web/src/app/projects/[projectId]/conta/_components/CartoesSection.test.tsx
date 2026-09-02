@@ -300,13 +300,7 @@ describe('CartoesSection', () => {
     expect(onPayInvoice).toHaveBeenCalledWith('4488');
   });
 
-  // --- #216 (W3): foco por teclado (Tab) no carrossel compacto mobile ---
-  //
-  // Bug reproduzido em runtime a 375/390px: Tab no 2º tile de 3 deixava
-  // scrollLeft ~6, só 30–36% do tile visível (status/valor/vencimento
-  // cortados). jsdom não implementa `scrollIntoView`, então mockamos o
-  // mínimo pra provar que o tile pede pra si mesmo ficar visível ao
-  // receber foco real — sem gerenciar Tab/setas/índice manualmente.
+  // #216: jsdom não implementa scrollIntoView, mockamos o mínimo pra provar a chamada no foco.
   it('brings the focused compact tile fully into view on keyboard focus', () => {
     const scrollIntoView = vi.fn();
     const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
