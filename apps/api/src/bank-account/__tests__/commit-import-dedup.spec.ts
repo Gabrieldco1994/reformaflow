@@ -71,6 +71,7 @@ async function buildService(prisma: any) {
             category: null,
             reason: 'sem-regra',
           }),
+          classifyForImport: jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() }),
         },
       },
       CardInvoiceSettlementService,

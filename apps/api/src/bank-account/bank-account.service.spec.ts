@@ -2,7 +2,7 @@ import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BankAccountService } from './bank-account.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import { MerchantClassifierService, MERCHANT_TO_EXPENSE_TYPE } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import { withAclRequester } from '../test-utils/acl-requester-test-helper';
@@ -89,8 +89,13 @@ function makeClassifierMock() {
     classifyBatch: jest.fn().mockResolvedValue(new Map()),
     manualExpenseType: jest.fn().mockResolvedValue(null),
     resolveLearnedExpenseType: jest.fn().mockResolvedValue(NO_LEARNED_RULE),
+    // #582 PR-4: default seguro para os testes PRÉ-EXISTENTES que não conhecem
+    // classifyForImport — sem isto, toda a suíte de previewImport quebra assim
+    // que a implementação real passar a chamá-lo incondicionalmente.
+    classifyForImport: jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() }),
   } as any;
 }
+
 
 function ofxBankFor(date: string, amountCentsNormalized: number, memo: string, fitid: string) {
   // O parser bancário OFX inverte o sinal do TRNAMT (TRNAMT negativo → despesa positiva).
@@ -274,8 +279,9 @@ describe('BankAccountService', () => {
     });
 
     it('regra MANUAL do tenant aparece como fonte regra no preview (#582 PR-2)', async () => {
-      classifier.resolveLearnedExpenseType.mockResolvedValue({
-        expenseType: 'MORADIA', source: 'MANUAL_TENANT', confidence: 1, category: 'moradia', reason: 'resolvido',
+      classifier.classifyForImport = jest.fn().mockResolvedValue({
+        status: 'ok',
+        classifications: new Map([['enel distribuicao', { category: 'moradia', source: 'regra', confidence: 1.0 }]]),
       });
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'RG1'));
       const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
@@ -286,24 +292,27 @@ describe('BankAccountService', () => {
     });
 
     it('regra AI do tenant >= limiar vira sugestão no preview (#582 PR-2)', async () => {
-      classifier.resolveLearnedExpenseType.mockResolvedValue({
-        expenseType: 'TRANSPORTE', source: 'AI_TENANT', confidence: 0.9, category: 'transporte', reason: 'resolvido',
+      classifier.classifyForImport = jest.fn().mockResolvedValue({
+        status: 'ok',
+        classifications: new Map([['posto shell 42', { category: 'transporte', source: 'ia', confidence: 0.9 }]]),
       });
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'POSTO SHELL 42', 'AI1'));
       const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const tx = result.preview.find((t: any) => t.amountCents > 0);
       expect(tx?.suggestedCategory).toBe('TRANSPORTE');
-      expect(tx?.categoriaFonte).toBe('regra');
+      expect(tx?.categoriaFonte).toBe('ia');
     });
 
     it('regra AI do tenant < limiar (sub-limiar) NÃO vira sugestão — cai no classificador local (#582 PR-2)', async () => {
-      classifier.resolveLearnedExpenseType.mockResolvedValue({
-        expenseType: null, source: null, confidence: null, category: null, reason: 'sub-limiar',
-      });
+      // Sub-limiar nunca aparece no Map de classifyForImport (contrato:
+      // apenas hits confiáveis são expostos) — sem hit, categoriaFonte cai
+      // para o heurístico local 'regex' (não mais `null`; `null` só ocorre
+      // para pagamento de fatura de cartão ou créditos).
+      classifier.classifyForImport = jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() });
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'SL1'));
       const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const tx = result.preview.find((t: any) => t.amountCents > 0);
-      expect(tx?.categoriaFonte).toBeNull();
+      expect(tx?.categoriaFonte).toBe('regex');
     });
 
     it('débito casa com Expense PLANEJADO em outro projeto (kind=expense)', async () => {
@@ -1066,6 +1075,80 @@ describe('BankAccountService', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('previewImport — classifyForImport integration #582 PR-4', () => {
+    it('calls classifyForImport once with debit merchants only, credits excluded', async () => {
+      classifier.classifyForImport = jest.fn().mockResolvedValue({
+        status: 'ok',
+        classifications: new Map([['enel distribuicao', { category: 'moradia', source: 'regra', confidence: 1.0 }]]),
+      });
+      const ofx = buildBankOfx(
+        ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'D1'),
+        ofxBankFor('20260401', -5000, 'DEPOSITO JOAO', 'CR1'),
+      );
+      await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      expect(classifier.classifyForImport).toHaveBeenCalledTimes(1);
+      const call = (classifier.classifyForImport as jest.Mock).mock.calls[0];
+      expect(call[0]).toEqual(['ENEL DISTRIBUICAO']);
+      expect(call[1]).toBe('t1');
+    });
+
+    it('classificationStatus "unavailable" is surfaced and preserves every line and total', async () => {
+      classifier.classifyForImport = jest.fn().mockResolvedValue({
+        status: 'unavailable',
+        classifications: new Map(),
+      });
+      const ofx = buildBankOfx(
+        ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'D1'),
+        ofxBankFor('20260402', 5000, 'AGUA COMPANHIA', 'D2'),
+      );
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      expect(result.classificationStatus).toBe('unavailable');
+      expect(result.preview).toHaveLength(2);
+      expect(result.preview[0].amountCents).toBe(10000);
+      expect(result.preview[1].amountCents).toBe(5000);
+      const total = result.preview.reduce((sum, tx) => sum + tx.amountCents, 0);
+      expect(total).toBe(15000);
+    });
+
+    it('classificationStatus "error" is surfaced and preview never aborts (exact line preserved)', async () => {
+      classifier.classifyForImport = jest.fn().mockResolvedValue({
+        status: 'error',
+        classifications: new Map(),
+      });
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL', 'D1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      expect(result.classificationStatus).toBe('error');
+      expect(result.preview).toHaveLength(1);
+      expect(result.preview[0].amountCents).toBe(10000);
+    });
+
+    it('commitImport never calls classifyForImport (cache-only, uses manualExpenseType shim)', async () => {
+      classifier.classifyForImport = jest.fn();
+      prisma.expense.create.mockClear();
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'D1'));
+      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
+      expect(classifier.classifyForImport).not.toHaveBeenCalled();
+      // prova que o caminho de escrita realmente executou (não é um no-op mascarando "zero calls")
+      expect(prisma.expense.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies the hit even though the parser delivers a raw merchant and the map is keyed by normalized text (#582 normalization contract, regression for c96b8ee0)', async () => {
+      // classifyForImport devolve a chave NORMALIZADA (MerchantClassifierService.normalizeKey),
+      // exatamente como a implementação real faz — o parser entrega o merchant
+      // BRUTO ("ENEL DISTRIBUICAO"). Se o caller consultar o Map com a string
+      // bruta em vez de normalizá-la antes do `.get`, este hit nunca é
+      // encontrado e o teste falha (categoriaFonte cai para 'regex', não 'regra').
+      classifier.classifyForImport = jest.fn().mockResolvedValue({
+        status: 'ok',
+        classifications: new Map([['enel distribuicao', { category: 'moradia', source: 'regra', confidence: 1.0 }]]),
+      });
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'D1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      expect(result.preview[0].suggestedCategory).toBe(MERCHANT_TO_EXPENSE_TYPE.moradia);
+      expect(result.preview[0].categoriaFonte).toBe('regra');
     });
   });
 });

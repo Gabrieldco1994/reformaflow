@@ -13,7 +13,7 @@ function serviceWith(prisma: any): CreditCardService {
   return new CreditCardService(
     prisma,
     {} as any,
-    { manualExpenseType: jest.fn().mockResolvedValue(null) } as any,
+    { manualExpenseType: jest.fn().mockResolvedValue(null), classifyForImport: jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() }) } as any,
   );
 }
 

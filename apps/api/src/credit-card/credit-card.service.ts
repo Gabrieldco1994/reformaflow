@@ -5,7 +5,7 @@ import { ExpenseTypeLabels, NEUTRAL_EXPENSE_TYPES, buildInstallments, caixaMonth
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffers, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
-import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import { MerchantClassifierService, MERCHANT_TO_EXPENSE_TYPE } from '../merchant-classifier/merchant-classifier.service';
 import {
   assertRateioRequester,
   RateioRequester,
@@ -385,32 +385,45 @@ export class CreditCardService {
       return scored.slice(0, 5);
     }
 
-    const preview = await Promise.all(
-      parsed.transactions.map(async (tx) => {
-        const manualExpenseType = await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId);
-        return {
-          ...tx,
-          date: tx.date.toISOString().slice(0, 10),
-          duplicate: existing.has(tx.externalId),
-          suggestedCategory: manualExpenseType ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS',
-          categoriaFonte: manualExpenseType ? 'regra' : null,
-          crossProjectMatches: findMatches(tx),
-        };
-      }),
+    // #582 PR-5: uma única chamada de classificação para os merchants de
+    // TODAS as transações do lote (atuais + parcelas futuras) — nunca por
+    // transação. `classifications` só carrega hits confiáveis (regra/ia);
+    // ausência de chave = "sem hit confiável", cai na heurística local.
+    const allMerchants = [
+      ...parsed.transactions.map((t) => t.merchant),
+      ...(parsed.futureInstallments ?? []).map((t) => t.merchant),
+    ];
+    const importClassification = await this.merchantClassifier.classifyForImport(
+      [...new Set(allMerchants)],
+      tenantId,
     );
 
-    const futureInstallments = await Promise.all(
-      (parsed.futureInstallments ?? []).map(async (tx) => {
-        const manualExpenseType = await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId);
-        return {
-          ...tx,
-          date: tx.date.toISOString().slice(0, 10),
-          suggestedCategory: manualExpenseType ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS',
-          categoriaFonte: manualExpenseType ? 'regra' : null,
-          crossProjectMatches: findMatches(tx),
-        };
-      }),
-    );
+    const preview = parsed.transactions.map((tx) => {
+      const hit = importClassification.classifications.get(MerchantClassifierService.normalizeKey(tx.merchant));
+      return {
+        ...tx,
+        date: tx.date.toISOString().slice(0, 10),
+        duplicate: existing.has(tx.externalId),
+        suggestedCategory: hit
+          ? MERCHANT_TO_EXPENSE_TYPE[hit.category]
+          : (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'),
+        categoriaFonte: hit ? hit.source : 'regex',
+        crossProjectMatches: findMatches(tx),
+      };
+    });
+
+    const futureInstallments = (parsed.futureInstallments ?? []).map((tx) => {
+      const hit = importClassification.classifications.get(MerchantClassifierService.normalizeKey(tx.merchant));
+      return {
+        ...tx,
+        date: tx.date.toISOString().slice(0, 10),
+        suggestedCategory: hit
+          ? MERCHANT_TO_EXPENSE_TYPE[hit.category]
+          : (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'),
+        categoriaFonte: hit ? hit.source : 'regex',
+        crossProjectMatches: findMatches(tx),
+      };
+    });
 
     return {
       source: parsed.source,
@@ -421,6 +434,7 @@ export class CreditCardService {
       inserted: 0, // ainda não inseriu
       preview,
       futureInstallments,
+      classificationStatus: importClassification.status,
     };
   }
 
