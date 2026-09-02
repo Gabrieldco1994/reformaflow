@@ -676,8 +676,14 @@ export class BankAccountService {
       const matches = tx.amountCents < 0
         ? findReceiptMatches(tx)         // crédito → match com Receipt PLANEJADO
         : findExpenseMatches(tx);        // débito → match com Expense PLANEJADO
-      const manualExpenseType =
-        tx.amountCents > 0 ? await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId) : null;
+      // #582 PR-2: o preview ganha a precedência COMPLETA de regra aprendida —
+      // MANUAL do tenant, AI do tenant >= limiar, MANUAL global. (Commit e
+      // retroativo continuam no shim `manualExpenseType`, regra #16.)
+      const learnedType =
+        tx.amountCents > 0
+          ? await this.merchantClassifier.resolveLearnedExpenseType(tx.merchant, tenantId)
+          : null;
+      const manualExpenseType = learnedType?.expenseType ?? null;
       const isPixPf = tx.amountCents > 0 && MerchantClassifierService.isLikelyPixPessoaFisica(tx.merchant);
       return {
         ...tx,

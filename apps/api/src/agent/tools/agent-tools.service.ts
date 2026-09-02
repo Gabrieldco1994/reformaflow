@@ -18,10 +18,7 @@ import { ExpenseService } from '../../expense/expense.service';
 import { ReceiptService } from '../../receipt/receipt.service';
 import { CreditCardService } from '../../credit-card/credit-card.service';
 import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
-import {
-  MerchantClassifierService,
-  MERCHANT_TO_EXPENSE_TYPE,
-} from '../../merchant-classifier/merchant-classifier.service';
+import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
 import { PriceMonitorService } from '../../price-compare/price-monitor.service';
 import {
   CREDIT_CARD_MODULE,
@@ -648,14 +645,22 @@ export class AgentToolsService {
           // Fallback de categorização automática: só entra quando o agente não
           // conseguiu inferir a categoria (ficou OUTROS) e há algum texto
           // (título/fornecedor) para classificar. NUNCA sobrepõe uma categoria
-          // que o agente já resolveu para algo diferente de OUTROS.
+          // que o agente já resolveu para algo diferente de OUTROS, e NUNCA toca
+          // valor/valorCents.
+          //
+          // #582 PR-2 — EXCEÇÃO à regra #16 (auto-aplicação de IA só com regra
+          // manual), aprovada pelo PO para a Maria: `classifyBatch` dispara a
+          // classificação + persistência da regra AI; `resolveLearnedExpenseType`
+          // aplica a precedência/limiar (MANUAL tenant > AI tenant >= τ > MANUAL
+          // global; AI global nunca). Abaixo do limiar → permanece OUTROS.
           if (tipoDespesa === 'OUTROS' && (titulo || fornecedor)) {
             const classifyText = titulo || fornecedor || '';
-            const classified = await this.merchantClassifier.classifyBatch([classifyText], ctx.tenantId);
-            const key = MerchantClassifierService.normalizeKey(classifyText);
-            const suggestion = classified.get(key);
-            const mapped = suggestion ? MERCHANT_TO_EXPENSE_TYPE[suggestion.category] : undefined;
-            if (mapped) tipoDespesa = mapped;
+            await this.merchantClassifier.classifyBatch([classifyText], ctx.tenantId);
+            const learned = await this.merchantClassifier.resolveLearnedExpenseType(
+              classifyText,
+              ctx.tenantId,
+            );
+            if (learned.expenseType) tipoDespesa = learned.expenseType;
           }
 
           const dupWindowStart = new Date(Date.now() - 5 * 60_000);

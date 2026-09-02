@@ -47,6 +47,13 @@ describe("PendenciaService.findFinancialQueue — hidden/multi-PESSOAL scope del
   // classificador.
   const merchantClassifierService = {
     fromCache: jest.fn().mockResolvedValue({ category: "alimentação" }),
+    resolveLearnedExpenseType: jest.fn().mockResolvedValue({
+      expenseType: "ALIMENTACAO",
+      source: "AI_TENANT",
+      confidence: 0.9,
+      category: "alimentação",
+      reason: "resolvido",
+    }),
   };
   const bankAccountService = {
     loadCardsWithEntries: jest.fn().mockResolvedValue([]),

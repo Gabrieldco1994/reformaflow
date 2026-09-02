@@ -1,7 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExpenseType } from '@reformaflow/domain';
-import { MERCHANT_CATEGORIES, MERCHANT_TO_EXPENSE_TYPE, MerchantClassifierService } from './merchant-classifier.service';
+import {
+  AI_RULE_MIN_CONFIDENCE,
+  EXPENSE_TYPE_TO_MERCHANT_CATEGORY,
+  MERCHANT_CATEGORIES,
+  MERCHANT_TO_EXPENSE_TYPE,
+  MerchantClassifierService,
+  sanitizeConfidence,
+  UNKNOWN_CONFIDENCE,
+} from './merchant-classifier.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('MERCHANT_TO_EXPENSE_TYPE export', () => {
@@ -237,5 +245,49 @@ describe('classifyBatch — SEC-2 guard + SEC-3 preserva MANUAL (#582 PR-1)', ()
       expect(result.get(KEY)).toMatchObject({ category: 'alimentação', source: 'MANUAL', confidence: 1 });
       expect(result.get(KEY)!.category).not.toBe('transporte');
     });
+
+    it('Gemini SEM confidence → persiste UNKNOWN_CONFIDENCE, nunca 0.8', async () => {
+      (service as any).callGemini.mockResolvedValue([
+        { merchant: RAW, category: 'transporte', subcategory: null },
+      ]);
+      prisma.merchantCategory.findMany.mockResolvedValue([]);
+
+      const result = await service.classifyBatch([RAW], TENANT);
+
+      const data = prisma.merchantCategory.createMany.mock.calls[0][0].data;
+      const rows = Array.isArray(data) ? data : [data];
+      expect(rows[0].confidence).toBe(UNKNOWN_CONFIDENCE);
+      expect(rows[0].confidence).not.toBe(0.8);
+      expect(result.get(KEY)!.confidence).toBe(UNKNOWN_CONFIDENCE);
+    });
+  });
+});
+
+describe('MERCHANT_TO_EXPENSE_TYPE ↔ EXPENSE_TYPE_TO_MERCHANT_CATEGORY round-trip (#582 PR-2)', () => {
+  it('exatamente 10 ExpenseType têm categoria de merchant equivalente', () => {
+    expect(Object.keys(EXPENSE_TYPE_TO_MERCHANT_CATEGORY)).toHaveLength(10);
+  });
+  it('cada par (ExpenseType → categoria) volta ao mesmo ExpenseType sem perda', () => {
+    for (const [et, cat] of Object.entries(EXPENSE_TYPE_TO_MERCHANT_CATEGORY)) {
+      expect(MERCHANT_TO_EXPENSE_TYPE[cat as keyof typeof MERCHANT_TO_EXPENSE_TYPE]).toBe(et);
+    }
+  });
+  it('nenhuma categoria equivalente mapeia para OUTROS', () => {
+    for (const cat of Object.values(EXPENSE_TYPE_TO_MERCHANT_CATEGORY)) {
+      expect(MERCHANT_TO_EXPENSE_TYPE[cat]).not.toBe(ExpenseType.OUTROS);
+    }
+  });
+});
+
+describe('sanitizeConfidence (#582 PR-2 / B3 / SEC-4)', () => {
+  it.each([
+    [undefined, UNKNOWN_CONFIDENCE], [null, UNKNOWN_CONFIDENCE],
+    ['abc', 0], [NaN, 0], [{}, 0],
+    [1.5, 1], [-0.3, 0], [0.83, 0.83], [0, 0], [1, 1],
+  ])('sanitizeConfidence(%p) === %p', (input, expected) => {
+    expect(sanitizeConfidence(input as unknown)).toBe(expected);
+  });
+  it('o sentinel de "não reportado" é sempre sub-limiar', () => {
+    expect(UNKNOWN_CONFIDENCE).toBeLessThan(AI_RULE_MIN_CONFIDENCE);
   });
 });
