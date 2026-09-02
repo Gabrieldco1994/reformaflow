@@ -487,13 +487,21 @@ export class CreditCardService {
         ),
       );
     }
-    const duplicated = parsed.transactions.length - toProcess.length - (decisions?.filter((d) => d?.action === 'skip').length ?? 0);
+    // manter em sincronia com bank-account.service.ts (commitImport: userSkipped / duplicatedItems / duplicated)
     const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
+    // `duplicated` NÃO subtrai TODAS as decisions `skip`: uma linha que é
+    // duplicata-contra-histórico (`existingIds.has`) E veio marcada `skip` já
+    // saiu de `toProcess` pelas duas condições — subtraí-la de novo por
+    // `decisions.filter(skip).length` a fazia sumir do relatório inteiro
+    // (`total !== inserted + duplicated + skipped`). Só o skip de linha NOVA
+    // (`userSkipped`) é balde à parte. (#568 M6a)
+    const duplicated = parsed.transactions.length - toProcess.length - userSkipped;
     // Lista auditável do que foi ignorado como duplicata (linhas, não só a contagem).
+    // manter em sincronia com bank-account.service.ts (commitImport: userSkipped / duplicatedItems / duplicated)
     const duplicatedItems = parsed.transactions
       .filter((t) => {
         const d = decisionByExt.get(t.externalId);
-        if (d?.action === 'skip') return false;
+        if (d?.action === 'skip' && !existingIds.has(t.externalId)) return false; // skip do usuário em linha nova, contado à parte
         return existingIds.has(t.externalId);
       })
       .map((t) => ({
