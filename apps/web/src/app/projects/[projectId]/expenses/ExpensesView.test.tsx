@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Expense, ExpensesPage, Project } from "@/types";
@@ -6,14 +6,26 @@ import { ExpensesView } from "./ExpensesView";
 import { groupExpensesByMes } from "./_lib/grouping-by-month";
 
 let mockProjectType = "REFORMA";
+// #218: o gate de import de extrato é `hasFeature(type,'bankAccounts') && hasModule('bankAccounts')`.
+// Default true — o eixo do gate exercitado por tipo é o `hasFeature`; os casos que
+// provam a metade `hasModule` sobrescrevem para false.
+let mockHasModule: (slug: string) => boolean = () => true;
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn() } }));
 vi.mock("@/contexts/project-context", () => ({
   useProject: () => ({ projectId: "reforma-1", projectType: mockProjectType }),
 }));
 vi.mock("@/contexts/auth-context", () => ({
-  useAuth: () => ({ user: { name: "Teste" } }),
+  useAuth: () => ({ user: { name: "Teste" }, hasModule: (slug: string) => mockHasModule(slug) }),
 }));
+// O componente real de empty state é do frontend-expert (PEÇA B). Mock de contrato:
+// expõe o `projectId` recebido para provar o escopo do CTA.
+vi.mock("../_components/SemContaEmptyState", () => {
+  const SemContaEmptyState = ({ projectId }: { projectId: string }) => (
+    <div data-testid="sem-conta-empty" data-pid={projectId} />
+  );
+  return { SemContaEmptyState, default: SemContaEmptyState };
+});
 vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/reforma-1/expenses",
   useRouter: () => ({ replace: vi.fn() }),
@@ -99,6 +111,7 @@ function renderView(overrides?: {
   ownExpenses?: Expense[];
   crossExpenses?: Expense[];
   rateioDetalhe?: Array<{ sourceId: string; detalhe: unknown }>;
+  importAccounts?: Array<Record<string, unknown>>;
 }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -119,6 +132,8 @@ function renderView(overrides?: {
   client.setQueryData(["tenant", "credit-cards"], []);
   client.setQueryData(["tenant", "bank-accounts"], []);
   client.setQueryData(["tenant", "projects"], []);
+  // #218: query project-scoped do picker de conta (`['bank-accounts', PROJECT_ID]`).
+  client.setQueryData(["bank-accounts", "reforma-1"], overrides?.importAccounts ?? []);
   client.setQueryData(
     ["cross-project-expenses", "reforma-1", "unified-view"],
     overrides?.crossExpenses ?? [],
@@ -273,5 +288,88 @@ describe("ExpensesView — PESSOAL com rateio (Telha Norte, issue #428 follow-up
     expect(screen.getByTestId("personal-kpis")).toHaveTextContent(
       JSON.stringify({ noCartao: 0, naConta: 40_000, aConfirmar: 0 }),
     );
+  });
+});
+
+// #218 (W5) — o `ExpensesView` monta em REFORMA e COMPRA e cabeia
+// `onImportAccount` INCONDICIONALMENTE no `PayOptionsModal` (~L1455). Em
+// REFORMA/COMPRA `bankAccounts` não é feature nem módulo autorizado → clicar
+// "Extrato bancário" dispara `GET /projects/:id/bank-accounts` → 403 mascarado
+// como `[]` (`data = []` default em ~L919). A #655 transformou isso num loop de
+// 403 clicável e foi revertida (#656). O gate correto:
+// `hasFeature(type,'bankAccounts') && hasModule('bankAccounts')`.
+describe("ExpensesView — gate de import de extrato bancário (#218)", () => {
+  beforeEach(() => {
+    mockProjectType = "REFORMA";
+    mockHasModule = () => true;
+  });
+
+  function abrirNovaDespesa() {
+    // REFORMA/COMPRA renderizam também o FAB (mesmo `aria-label`); ambos os
+    // gatilhos chamam `openPayOptions`. Pega o primeiro.
+    fireEvent.click(screen.getAllByRole("button", { name: /Nova despesa/i })[0]);
+  }
+
+  it("REFORMA: sem botão 'Extrato bancário' no menu de lançamento", () => {
+    mockProjectType = "REFORMA";
+    renderView();
+    abrirNovaDespesa();
+    expect(
+      screen.queryByRole("button", { name: /Extrato bancário/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("REFORMA: 'Fatura de cartão' continua presente (creditCards funciona — não regride)", () => {
+    mockProjectType = "REFORMA";
+    renderView();
+    abrirNovaDespesa();
+    expect(
+      screen.getByRole("button", { name: /Fatura de cartão/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("COMPRA: sem botão 'Extrato bancário'", () => {
+    mockProjectType = "COMPRA";
+    renderView();
+    abrirNovaDespesa();
+    expect(
+      screen.queryByRole("button", { name: /Extrato bancário/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("PESSOAL + hasModule('bankAccounts') true: 'Extrato bancário' presente", () => {
+    mockProjectType = "PESSOAL";
+    mockHasModule = () => true;
+    renderView();
+    abrirNovaDespesa();
+    expect(
+      screen.getByRole("button", { name: /Extrato bancário/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("PESSOAL mas hasModule('bankAccounts') false: 'Extrato bancário' AUSENTE (trava a forma hasFeature && hasModule)", () => {
+    // Mutation-guard: trocar o gate por `if (projectType === 'PESSOAL')` faz este
+    // caso passar quando deveria falhar. É ele que trava a forma do gate.
+    mockProjectType = "PESSOAL";
+    mockHasModule = (slug) => slug !== "bankAccounts";
+    renderView();
+    abrirNovaDespesa();
+    expect(
+      screen.queryByRole("button", { name: /Extrato bancário/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("PESSOAL + hasModule true, sem conta: picker mostra SemContaEmptyState escopado, sem texto morto", () => {
+    mockProjectType = "PESSOAL";
+    mockHasModule = () => true;
+    renderView({ importAccounts: [] });
+    abrirNovaDespesa();
+    fireEvent.click(screen.getByRole("button", { name: /Extrato bancário/i }));
+
+    const empty = screen.getByTestId("sem-conta-empty");
+    expect(empty).toHaveAttribute("data-pid", "reforma-1");
+    expect(
+      screen.queryByText(/Nenhuma conta cadastrada\. Cadastre em/),
+    ).not.toBeInTheDocument();
   });
 });
