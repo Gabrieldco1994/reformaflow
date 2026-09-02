@@ -13,7 +13,6 @@ import { getExpenseOptions } from '../../expenses/_types';
 import { useVoiceExpense } from '../../expenses/_hooks/useVoiceExpense';
 import { VoiceExpenseModal } from '../../expenses/_components/VoiceExpenseModal';
 import { SemCartaoEmptyState } from '../SemCartaoEmptyState';
-import { SemContaEmptyState } from '../SemContaEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import { currentMonthKey } from '../../conta/_lib';
@@ -318,7 +317,9 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
       {open && screen === 'extrato' && !selectedAccountId && (
         <Modal open onClose={handleClose} title="Para qual conta é esse extrato?">
           {accounts.length === 0 ? (
-            <SemContaEmptyState projectId={projectId} />
+            <p className="text-sm text-gray-600">
+              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar o extrato.
+            </p>
           ) : (
             <div className="space-y-2">
               {accounts.map((a) => (

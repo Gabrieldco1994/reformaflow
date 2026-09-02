@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownUp, CreditCard, Eye, EyeOff, Filter, Layers, LayoutList, PieChart, Plus, Settings, Shapes, X } from 'lucide-react';
+import { ArrowDownUp, CreditCard, Eye, EyeOff, Filter, Layers, LayoutList, PieChart, Settings, Shapes, X } from 'lucide-react';
 import { ExpenseType, isConsumptionNeutralExpenseType, isNeutralReceiptType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -21,7 +21,6 @@ import { buildByTypeGroups } from '../_lib/by-type';
 import { CONTA_LENTE_POR_TIPO_ENABLED } from '../_lib/feature-flags';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
-import { EmptyState } from '@/components/ui/EmptyState';
 import type { Expense } from '@/types';
 import { DespesaModal } from './DespesaModal';
 import { MovimentacaoRow, type QuitarTarget } from './MovimentacaoRow';
@@ -95,7 +94,6 @@ export function MovimentacoesSection({
   onViewModeChange,
   initialTipoFilter = null,
   onTipoFilterChange,
-  onOpenLaunch,
 }: {
   data: AccountViewResponse | AccountViewYearlyResponse;
   projectId: string;
@@ -137,8 +135,6 @@ export function MovimentacoesSection({
    *  vira estado vazio seguro dentro de `PorTipoView`, nunca erro/fetch. */
   initialTipoFilter?: string | null;
   onTipoFilterChange?: (tipo: string | null) => void;
-  /** Habilita a CTA "Novo lançamento" no estado vazio genuíno. */
-  onOpenLaunch?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('tudo');
@@ -846,12 +842,6 @@ export function MovimentacoesSection({
     monthFilter != null ||
     summaryQuickFilter != null;
 
-  // Vazio genuíno: nenhum dado bruto nas três listas de origem (não `filtered`).
-  const hasAnyRawData =
-    data.saidas.length > 0 || data.entradas.length > 0 || data.comprasCartao.length > 0;
-  const showLaunchEmptyState =
-    !hasAnyRawData && !anyFilterActive && tab === 'tudo' && !!onOpenLaunch;
-
   const clearAllFilters = () => {
     setSearch('');
     setCatFilter('todas');
@@ -1289,18 +1279,9 @@ export function MovimentacoesSection({
           onDrill={drillProjetoCategoria}
         />
       ) : filtered.length === 0 ? (
-        showLaunchEmptyState ? (
-          <EmptyState
-            icon={Plus}
-            title="Nenhuma movimentação ainda"
-            description="Lance uma despesa ou recebimento para começar a acompanhar a Conta."
-            action={{ label: 'Novo lançamento', onClick: () => onOpenLaunch?.() }}
-          />
-        ) : (
-          <div className="rounded-2xl border border-dashed border-lifeone-hairline bg-lifeone-card p-8 text-center text-sm text-lifeone-ink-3">
-            Nenhuma movimentação com esses filtros.
-          </div>
-        )
+        <div className="rounded-2xl border border-dashed border-lifeone-hairline bg-lifeone-card p-8 text-center text-sm text-lifeone-ink-3">
+          Nenhuma movimentação com esses filtros.
+        </div>
       ) : categoriaShown ? (
         <div className="divide-y divide-lifeone-hairline overflow-hidden rounded-2xl border border-lifeone-hairline bg-lifeone-card">
           {porCategoria.map((c) => {
