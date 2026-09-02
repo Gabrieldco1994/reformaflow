@@ -322,7 +322,13 @@ export class MerchantClassifierService {
    *   - `pendingCount`: merchants sem hit de cache antes de tentar o provider.
    *   - `providerAttempted`: só `true` se havia `apiKey` E pendência (chegou a
    *     chamar o Gemini pelo menos uma vez).
-   *   - `providerError`: `true` se algum chunk falhou (rede ou persistência).
+   *   - `providerError`: `true` se algum chunk falhou (rede ou persistência) —
+   *     aborta os chunks seguintes.
+   *   - `providerIncomplete`: `true` se algum chunk voltou com MENOS itens do que
+   *     foi enviado (truncação de resposta / JSON malformado que `callGemini`
+   *     degrada para `[]`). Os merchants faltantes ficam fora do Map; NÃO aborta
+   *     os chunks seguintes, mas o caller trata como falha para efeito de status
+   *     (F2 #582 — proibido devolver formato de sucesso com merchants ausentes).
    * Sem estado de instância — cada chamada monta seu próprio `Map` local,
    * seguro sob chamadas concorrentes (#582 PR-4).
    *
@@ -339,10 +345,17 @@ export class MerchantClassifierService {
     pendingCount: number;
     providerAttempted: boolean;
     providerError: boolean;
+    providerIncomplete: boolean;
   }> {
     const classifications = new Map<string, ClassifyResult>();
     if (!merchants.length) {
-      return { classifications, pendingCount: 0, providerAttempted: false, providerError: false };
+      return {
+        classifications,
+        pendingCount: 0,
+        providerAttempted: false,
+        providerError: false,
+        providerIncomplete: false,
+      };
     }
 
     const uniqueByKey = new Map<string, string>();
@@ -381,17 +394,30 @@ export class MerchantClassifierService {
     }
 
     if (!pending.length) {
-      return { classifications, pendingCount: 0, providerAttempted: false, providerError: false };
+      return {
+        classifications,
+        pendingCount: 0,
+        providerAttempted: false,
+        providerError: false,
+        providerIncomplete: false,
+      };
     }
 
     if (!this.apiKey) {
       this.logger.debug(`No GEMINI_API_KEY — ${pending.length} merchants sem classificação`);
-      return { classifications, pendingCount: pending.length, providerAttempted: false, providerError: false };
+      return {
+        classifications,
+        pendingCount: pending.length,
+        providerAttempted: false,
+        providerError: false,
+        providerIncomplete: false,
+      };
     }
 
     // Paginação: chunk de 60 evita prompts gigantes e respostas truncadas
     const CHUNK = 60;
     let providerError = false;
+    let providerIncomplete = false;
     for (let i = 0; i < pending.length && !providerError; i += CHUNK) {
       const slice = pending.slice(i, i + CHUNK);
       const chunkKeys = slice.map((p) => p.key);
@@ -402,6 +428,13 @@ export class MerchantClassifierService {
         // (seguraria o único writer lock do SQLite). MerchantCategory ∈
         // modelsWithoutSoftDelete → $use é inerte aqui; sem findById pós-tx.
         const aiResults = await this.callGemini(slice.map((p) => p.sample));
+
+        // F2 (#582): resposta mais curta que o enviado — truncação num chunk de
+        // 60 ou JSON malformado que `callGemini` degradou para `[]`. Os merchants
+        // além de `aiResults.length` nunca entram no `chunkResult` (o `for` de
+        // merge para em `j < aiResults.length`). Marca incompleto para o status,
+        // mas segue com os próximos chunks (um chunk curto não aborta o lote).
+        if (aiResults.length < slice.length) providerIncomplete = true;
 
         await this.prisma.$transaction(
           async (tx) => {
@@ -499,6 +532,7 @@ export class MerchantClassifierService {
       pendingCount: pending.length,
       providerAttempted: true,
       providerError,
+      providerIncomplete,
     };
   }
 
@@ -513,9 +547,17 @@ export class MerchantClassifierService {
    * legado `'REGEX'` (linha antiga no banco — fora da união de tipos desde a
    * PR-2) ficam de fora do Map: o preview cai no heurístico local nesse caso.
    *
-   * `status` nunca é `'ok'` quando houve erro de provider ou quando restou
-   * pendência sem sequer tentar o provider (sem `GEMINI_API_KEY`):
-   *   `providerError ? 'error' : pendingCount > 0 && !providerAttempted ? 'unavailable' : 'ok'`.
+   * F1 (#582): um hit cuja categoria mapeia para `ExpenseType.OUTROS` em
+   * `MERCHANT_TO_EXPENSE_TYPE` (`compras`, `servicos`, `impostos`,
+   * `investimentos`, `outros`) TAMBÉM fica de fora — espelha o
+   * `classifyLearnedRow` da PR-2 (`reason: 'sem-categoria-equivalente'`). Sem
+   * `ExpenseType` equivalente, "OUTROS · fonte ia" seria pior que o regex e ainda
+   * rotulado como classificação confiável; o preview cai no heurístico local.
+   *
+   * `status` nunca é `'ok'` quando houve erro/resposta incompleta do provider ou
+   * quando restou pendência sem sequer tentar o provider (sem `GEMINI_API_KEY`):
+   *   `(providerError || providerIncomplete) ? 'error'
+   *      : (pendingCount > 0 && !providerAttempted) ? 'unavailable' : 'ok'`.
    */
   async classifyForImport(merchants: string[], tenantId: string): Promise<ClassifyForImportResponse> {
     if (!tenantId || typeof tenantId !== 'string') {
@@ -525,11 +567,21 @@ export class MerchantClassifierService {
       return { classifications: new Map(), status: 'ok' };
     }
 
-    const { classifications: detailed, pendingCount, providerAttempted, providerError } =
-      await this.classifyBatchDetailed(merchants, tenantId);
+    const {
+      classifications: detailed,
+      pendingCount,
+      providerAttempted,
+      providerError,
+      providerIncomplete,
+    } = await this.classifyBatchDetailed(merchants, tenantId);
 
     const classifications = new Map<string, ImportClassification>();
     for (const [key, r] of detailed) {
+      // F1: categoria sem ExpenseType equivalente (mapeia p/ OUTROS) nunca vira
+      // sugestão confiável — o preview cai no heurístico local, como a PR-2.
+      const mapped = MERCHANT_TO_EXPENSE_TYPE[r.category];
+      if (!mapped || mapped === ExpenseType.OUTROS) continue;
+
       if (r.source === 'MANUAL') {
         classifications.set(key, { category: r.category, source: 'regra', confidence: r.confidence });
       } else if (r.source === 'AI' && r.confidence >= AI_RULE_MIN_CONFIDENCE) {
@@ -539,11 +591,12 @@ export class MerchantClassifierService {
       // ficam de fora — sem entrada no Map.
     }
 
-    const status: ClassifyForImportResponse['status'] = providerError
-      ? 'error'
-      : pendingCount > 0 && !providerAttempted
-        ? 'unavailable'
-        : 'ok';
+    const status: ClassifyForImportResponse['status'] =
+      providerError || providerIncomplete
+        ? 'error'
+        : pendingCount > 0 && !providerAttempted
+          ? 'unavailable'
+          : 'ok';
 
     return { classifications, status };
   }

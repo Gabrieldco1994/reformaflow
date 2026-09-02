@@ -1022,6 +1022,15 @@ describe('CreditCardService', () => {
       expect(prisma.expense.create).toHaveBeenCalledTimes(1);
     });
 
+    it('#582 F3: sem hit e sem match do heurístico local → categoriaFonte null (não "regex")', async () => {
+      merchantClassifier.classifyForImport = jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() });
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      const csv = 'date,title,amount\n2026-08-10,ESTABELECIMENTO XPTO,100.00';
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
+      expect(result.preview[0].suggestedCategory).toBe('OUTROS');
+      expect(result.preview[0].categoriaFonte).toBeNull();
+    });
+
     it('applies the hit even though the parser delivers a raw merchant and the map is keyed by normalized text (#582 normalization contract, regression for c96b8ee0)', async () => {
       // classifyForImport devolve a chave NORMALIZADA (MerchantClassifierService.normalizeKey);
       // o parser CSV_GENERIC entrega o merchant BRUTO ("COMPRA UM"). Se o

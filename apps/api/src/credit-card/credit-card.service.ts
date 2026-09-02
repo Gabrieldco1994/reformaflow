@@ -36,6 +36,19 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = {
 
 import { categorize } from './categorizer';
 
+/**
+ * (#582 F3) Categoria heurística local para uma transação de fatura SEM hit
+ * confiável do classificador. `null` — não `'OUTROS'` — quando o categorizador
+ * de keywords não casou nada (`categorize` devolve `'outros'` só como fallback,
+ * nunca de match real). Sem isso, `categoriaFonte` marcaria `'regex'` para uma
+ * linha que ninguém classificou.
+ */
+function localHeuristicCategory(merchant: string): string | null {
+  const cat = categorize(merchant);
+  if (cat === 'outros') return null;
+  return PESSOAL_CATEGORY_MAP[cat] ?? null;
+}
+
 export interface ImportDecision {
   externalId: string;
   action?: 'create' | 'skip' | 'link';
@@ -398,32 +411,37 @@ export class CreditCardService {
       tenantId,
     );
 
-    const preview = parsed.transactions.map((tx) => {
-      const hit = importClassification.classifications.get(MerchantClassifierService.normalizeKey(tx.merchant));
+    // (#582 F3) hit → fonte do classificador; sem hit, PIX PF nunca é
+    // classificado (mesmo tratamento do extrato) e o heurístico local só marca
+    // 'regex' quando de fato casou algo — senão `categoriaFonte: null`.
+    const classifyTx = (tx: NormalizedTx) => {
+      const hit = importClassification.classifications.get(
+        MerchantClassifierService.normalizeKey(tx.merchant),
+      );
+      const isPixPf = MerchantClassifierService.isLikelyPixPessoaFisica(tx.merchant);
+      const localCat = hit || isPixPf ? null : localHeuristicCategory(tx.merchant);
       return {
-        ...tx,
-        date: tx.date.toISOString().slice(0, 10),
-        duplicate: existing.has(tx.externalId),
         suggestedCategory: hit
           ? MERCHANT_TO_EXPENSE_TYPE[hit.category]
-          : (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'),
-        categoriaFonte: hit ? hit.source : 'regex',
-        crossProjectMatches: findMatches(tx),
+          : (localCat ?? 'OUTROS'),
+        categoriaFonte: hit ? hit.source : localCat != null ? 'regex' : null,
       };
-    });
+    };
 
-    const futureInstallments = (parsed.futureInstallments ?? []).map((tx) => {
-      const hit = importClassification.classifications.get(MerchantClassifierService.normalizeKey(tx.merchant));
-      return {
-        ...tx,
-        date: tx.date.toISOString().slice(0, 10),
-        suggestedCategory: hit
-          ? MERCHANT_TO_EXPENSE_TYPE[hit.category]
-          : (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'),
-        categoriaFonte: hit ? hit.source : 'regex',
-        crossProjectMatches: findMatches(tx),
-      };
-    });
+    const preview = parsed.transactions.map((tx) => ({
+      ...tx,
+      date: tx.date.toISOString().slice(0, 10),
+      duplicate: existing.has(tx.externalId),
+      ...classifyTx(tx),
+      crossProjectMatches: findMatches(tx),
+    }));
+
+    const futureInstallments = (parsed.futureInstallments ?? []).map((tx) => ({
+      ...tx,
+      date: tx.date.toISOString().slice(0, 10),
+      ...classifyTx(tx),
+      crossProjectMatches: findMatches(tx),
+    }));
 
     return {
       source: parsed.source,

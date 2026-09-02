@@ -220,6 +220,21 @@ export function fastClassify(merchant: string): string | null {
 }
 
 /**
+ * (#582 F3) Heurístico local de categoria para uma linha de débito SEM hit
+ * confiável do classificador. Retorna `null` — não o literal `'OUTROS'` — quando
+ * NEM `fastClassify` NEM o categorizador de keywords casaram: `categorize`
+ * devolve `'outros'` só como fallback (nunca de um match real), então esse caso
+ * não é uma classificação e não deve marcar `categoriaFonte: 'regex'`.
+ */
+export function localHeuristicCategory(merchant: string): string | null {
+  const fast = fastClassify(merchant);
+  if (fast) return fast;
+  const cat = categorize(merchant);
+  if (cat === 'outros') return null;
+  return PESSOAL_CATEGORY_MAP[cat] ?? null;
+}
+
+/**
  * Detecta despesa de utility/telco/imposto que deveria virar RecurringBill em
  * outro projeto (CASA ou CARRO). Retorna config ou null.
  */
@@ -695,6 +710,10 @@ export class BankAccountService {
         ? importClassification.classifications.get(MerchantClassifierService.normalizeKey(tx.merchant))
         : undefined;
       const isPixPf = tx.amountCents > 0 && MerchantClassifierService.isLikelyPixPessoaFisica(tx.merchant);
+      // (#582 F3) heurístico local — `null` quando nada casou, para não rotular
+      // um fallback 'OUTROS' como classificação confiável ('regex').
+      const localCat =
+        tx.amountCents > 0 && !isCardPay && !isPixPf ? localHeuristicCategory(tx.merchant) : null;
       return {
         ...tx,
         date: tx.date.toISOString().slice(0, 10),
@@ -708,11 +727,11 @@ export class BankAccountService {
                   ? MERCHANT_TO_EXPENSE_TYPE[hit.category]
                   : (isPixPf
                     ? 'OUTROS'
-                    : (fastClassify(tx.merchant) ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'))))
+                    : (localCat ?? 'OUTROS'))))
           : (fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA' ? 'MOVIMENTACAO_INTERNA' : 'RECEITA'),
         categoriaFonte:
           tx.amountCents > 0 && !isCardPay
-            ? (hit ? hit.source : (isPixPf ? null : 'regex'))
+            ? (hit ? hit.source : (localCat != null ? 'regex' : null))
             : null,
         cardCandidates,
         suggestedCardLast4: autoCard,

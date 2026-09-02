@@ -306,13 +306,24 @@ describe('BankAccountService', () => {
     it('regra AI do tenant < limiar (sub-limiar) NÃO vira sugestão — cai no classificador local (#582 PR-2)', async () => {
       // Sub-limiar nunca aparece no Map de classifyForImport (contrato:
       // apenas hits confiáveis são expostos) — sem hit, categoriaFonte cai
-      // para o heurístico local 'regex' (não mais `null`; `null` só ocorre
-      // para pagamento de fatura de cartão ou créditos).
+      // para o heurístico local quando ele DE FATO classifica ('ENEL' casa
+      // fastClassify → MORADIA), senão `null` (ver o teste F3 abaixo).
       classifier.classifyForImport = jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() });
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'SL1'));
       const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const tx = result.preview.find((t: any) => t.amountCents > 0);
       expect(tx?.categoriaFonte).toBe('regex');
+    });
+
+    it('#582 F3: débito sem hit e sem match do heurístico local → categoriaFonte null (não "regex")', async () => {
+      // fastClassify(null) + categorize→'outros' (fallback, nunca de match): não
+      // houve classificação, então rotular 'regex' mentiria sobre a confiança.
+      classifier.classifyForImport = jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() });
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ESTABELECIMENTO XPTO', 'F3'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      const tx = result.preview.find((t: any) => t.amountCents > 0);
+      expect(tx?.suggestedCategory).toBe('OUTROS');
+      expect(tx?.categoriaFonte).toBeNull();
     });
 
     it('débito casa com Expense PLANEJADO em outro projeto (kind=expense)', async () => {

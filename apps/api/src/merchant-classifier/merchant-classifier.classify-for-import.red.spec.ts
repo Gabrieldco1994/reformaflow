@@ -74,6 +74,10 @@ describe('MerchantClassifierService.classifyForImport — #582 PR-4/5 contract',
     service = await buildService(prisma);
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('rejects an invalid tenantId before any I/O (SEC-2)', async () => {
     // Chamada deliberadamente inválida — o argumento null não é assinável ao
     // parâmetro `tenantId: string`; @ts-expect-error documenta a violação de
@@ -255,5 +259,87 @@ describe('MerchantClassifierService.classifyForImport — #582 PR-4/5 contract',
       if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = originalKey;
     }
+  });
+
+  // ── F1 (#582 code-review): categoria confiável mas SEM ExpenseType equivalente
+  // (mapeia p/ ExpenseType.OUTROS em MERCHANT_TO_EXPENSE_TYPE — `compras`,
+  // `servicos`, `impostos`, `investimentos`, `outros`) NÃO pode entrar no Map:
+  // o consumidor faria `MERCHANT_TO_EXPENSE_TYPE[hit.category] === 'OUTROS'` e
+  // ainda rotularia "OUTROS · fonte ia/regra" como classificação confiável, pior
+  // que o regex. Espelha o `classifyLearnedRow` da PR-2 (`sem-categoria-equivalente`).
+  it('F1: MANUAL and AI≥limiar hits whose category maps to ExpenseType.OUTROS are absent from the map', async () => {
+    prisma = buildPrismaMock([
+      { merchantKey: 'regra servicos', category: 'servicos', source: 'MANUAL', confidence: 1.0, tenantId: 'tenant-1' },
+      { merchantKey: 'ia compras', category: 'compras', source: 'AI', confidence: 0.9, tenantId: 'tenant-1' },
+      // controle: categoria COM ExpenseType equivalente continua no Map
+      { merchantKey: 'regra comida', category: 'alimentação', source: 'MANUAL', confidence: 1.0, tenantId: 'tenant-1' },
+    ]);
+    service = await buildService(prisma);
+
+    const result = await service.classifyForImport(
+      ['Regra Servicos', 'IA Compras', 'Regra Comida'],
+      'tenant-1',
+    );
+
+    expect(result.status).toBe('ok');
+    // sem entrada no Map → o preview cai no heurístico local (regex), como a PR-2
+    expect(result.classifications.has('regra servicos')).toBe(false);
+    expect(result.classifications.has('ia compras')).toBe(false);
+    expect(result.classifications.get('regra comida')).toEqual({
+      category: 'alimentação',
+      source: 'regra',
+      confidence: 1.0,
+    });
+    expect(prisma.merchantCategory.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  // ── F2 (#582 code-review): resposta incompleta do provider (menos itens do que
+  // o enviado, ou `[]` de um JSON malformado que `callGemini` degrada) é FALHA
+  // para efeito de status — proibido devolver `status: 'ok'` com merchants
+  // ausentes do Map. Não aborta os chunks seguintes (só um throw aborta).
+  describe('F2 — resposta parcial/vazia do provider vira status error', () => {
+    it('empty AI response for a non-empty pending slice → status error, cached preserved, pending absent', async () => {
+      prisma = buildPrismaMock([
+        { merchantKey: 'cached trusted', category: 'viagem', source: 'AI', confidence: 0.9, tenantId: 'tenant-1' },
+      ]);
+      service = await buildService(prisma);
+      (service as unknown as { apiKey: string }).apiKey = 'test-key-582';
+      jest.spyOn(service as unknown as { callGemini: () => Promise<unknown[]> }, 'callGemini').mockResolvedValue([]);
+
+      const result = await service.classifyForImport(['Cached Trusted', 'New Unknown'], 'tenant-1');
+
+      expect(result.status).toBe('error');
+      expect(result.classifications.get('cached trusted')).toEqual({
+        category: 'viagem',
+        source: 'ia',
+        confidence: 0.9,
+      });
+      expect(result.classifications.has('new unknown')).toBe(false);
+    });
+
+    it('short AI response (1 item for 3 pending) → status error; the returned item stays, the missing ones do not', async () => {
+      prisma = buildPrismaMock([]);
+      service = await buildService(prisma);
+      (service as unknown as { apiKey: string }).apiKey = 'test-key-582';
+      jest
+        .spyOn(service as unknown as { callGemini: () => Promise<unknown[]> }, 'callGemini')
+        .mockResolvedValue([
+          { merchant: 'Pendente Um', category: 'transporte', subcategory: 'app', confidence: 0.95 },
+        ]);
+
+      const result = await service.classifyForImport(
+        ['Pendente Um', 'Pendente Dois', 'Pendente Tres'],
+        'tenant-1',
+      );
+
+      expect(result.status).toBe('error');
+      expect(result.classifications.get('pendente um')).toEqual({
+        category: 'transporte',
+        source: 'ia',
+        confidence: 0.95,
+      });
+      expect(result.classifications.has('pendente dois')).toBe(false);
+      expect(result.classifications.has('pendente tres')).toBe(false);
+    });
   });
 });
