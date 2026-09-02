@@ -26,6 +26,7 @@ import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
 import { SemCartaoEmptyState } from '../_components/SemCartaoEmptyState';
+import { SemContaEmptyState } from '../_components/SemContaEmptyState';
 import { RatearCompraModal } from './_components/RatearCompraModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
 import { NovaDespesaWizard } from './_components/NovaDespesaWizard';
@@ -89,9 +90,14 @@ const todayBrtIsoDate = () =>
 
 export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) {
   const { projectId: PROJECT_ID, projectType } = useProject();
-  const { user } = useAuth();
+  const { user, hasModule } = useAuth();
   const TIPO_DESPESA_OPTIONS = useMemo(() => getExpenseOptions(projectType), [projectType]);
   const showRooms = hasFeature(projectType as ProjectType, 'rooms');
+  // #218 (W5): oferecer import de extrato bancário só onde a feature existe E o
+  // usuário tem o módulo autorizado — mesmo padrão de `BankAccountsSection.tsx`.
+  // Sem isso, "Extrato bancário" em REFORMA/COMPRA dispara GET /bank-accounts → 403.
+  const canImportBankStatement =
+    hasFeature(projectType as ProjectType, 'bankAccounts') && hasModule('bankAccounts');
   const showMaoDeObra = projectType === 'REFORMA';
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'despesas' | 'compraveis'>('despesas');
@@ -893,6 +899,9 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   >({
     queryKey: ['tenant', 'bank-accounts'],
     queryFn: () => api.get('/tenant/bank-accounts'),
+    // #218: só serve p/ auto-vínculo de voz a conta — não disparar onde bankAccounts
+    // não é feature/módulo (403 silencioso mascarado como []).
+    enabled: canImportBankStatement,
     staleTime: 60_000,
   });
   const { data: tenantProjects = [] } = useQuery<Array<{ id: string; name: string; type: string }>>({
@@ -919,7 +928,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const { data: importAccounts = [], isFetching: loadingAccounts } = useQuery<Array<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null }>>({
     queryKey: ['bank-accounts', PROJECT_ID],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/bank-accounts`),
-    enabled: importStep === 'pick-account',
+    enabled: importStep === 'pick-account' && canImportBankStatement,
     staleTime: 30_000,
   });
   const limitsByTipo = useMemo(() => {
@@ -1452,7 +1461,11 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           openVoiceModal();
         }}
         onImportCard={() => { setPayModalOpen(false); setImportStep('pick-card'); }}
-        onImportAccount={() => { setPayModalOpen(false); setImportStep('pick-account'); }}
+        onImportAccount={
+          canImportBankStatement
+            ? () => { setPayModalOpen(false); setImportStep('pick-account'); }
+            : undefined
+        }
       />
 
       <NovaDespesaWizard
@@ -1509,9 +1522,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         <Modal open onClose={() => setImportStep(null)} title="Para qual conta é esse extrato?">
           {loadingAccounts && <p className="text-sm text-gray-500">Carregando contas…</p>}
           {!loadingAccounts && importAccounts.length === 0 && (
-            <p className="text-sm text-gray-600">
-              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar.
-            </p>
+            <SemContaEmptyState projectId={PROJECT_ID} />
           )}
           {!loadingAccounts && importAccounts.length > 0 && (
             <div className="space-y-2">

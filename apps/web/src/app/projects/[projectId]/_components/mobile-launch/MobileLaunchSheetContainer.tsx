@@ -4,15 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CreditCard, Landmark } from 'lucide-react';
-import { ExpenseType } from '@reformaflow/domain';
+import { ExpenseType, hasFeature, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Modal } from '@/components/ui/modal';
 import { useProject } from '@/contexts/project-context';
+import { useAuth } from '@/contexts/auth-context';
 import { invalidateExpenseQueries, invalidateImportQueries } from '../../expenses/_hooks/useExpenseMutations';
 import { getExpenseOptions } from '../../expenses/_types';
 import { useVoiceExpense } from '../../expenses/_hooks/useVoiceExpense';
 import { VoiceExpenseModal } from '../../expenses/_components/VoiceExpenseModal';
 import { SemCartaoEmptyState } from '../SemCartaoEmptyState';
+import { SemContaEmptyState } from '../SemContaEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import { currentMonthKey } from '../../conta/_lib';
@@ -39,6 +41,13 @@ const accountLabel = (a: LaunchAccountOption) =>
 export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) {
   const queryClient = useQueryClient();
   const { projectType } = useProject();
+  const { hasModule } = useAuth();
+  // #218 (W5): import de extrato bancário só onde a feature existe E o módulo
+  // está autorizado (padrão de `BankAccountsSection.tsx`). O container só é montado
+  // em PESSOAL (AppShell gate `hasFeature('monthlyOverview')`), mas o gate é
+  // explícito/defensivo — sem ele "Extrato bancário" dispara GET /bank-accounts → 403.
+  const canImportBankStatement =
+    hasFeature(projectType as ProjectType, 'bankAccounts') && hasModule('bankAccounts');
   const month = currentMonthKey();
   const year = month.slice(0, 4);
 
@@ -62,7 +71,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   const { data: accounts = [] } = useQuery<LaunchAccountOption[]>({
     queryKey: ['project', projectId, 'bank-accounts'],
     queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
-    enabled: open,
+    enabled: open && canImportBankStatement,
     staleTime: 60_000,
   });
 
@@ -99,7 +108,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   >({
     queryKey: ['tenant', 'bank-accounts'],
     queryFn: () => api.get('/tenant/bank-accounts'),
-    enabled: open,
+    enabled: open && canImportBankStatement,
     staleTime: 60_000,
   });
   const { data: tenantProjects = [] } = useQuery<Array<{ id: string; name: string; type: string }>>({
@@ -179,8 +188,10 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
     if (open && screen === 'fatura' && cards.length === 1) setSelectedCardId(cards[0].id);
   }, [open, screen, cards]);
   useEffect(() => {
-    if (open && screen === 'extrato' && accounts.length === 1) setSelectedAccountId(accounts[0].id);
-  }, [open, screen, accounts]);
+    if (open && screen === 'extrato' && canImportBankStatement && accounts.length === 1) {
+      setSelectedAccountId(accounts[0].id);
+    }
+  }, [open, screen, accounts, canImportBankStatement]);
 
   const recentDescriptions = useMemo(() => {
     const unique = new Set<string>();
@@ -314,12 +325,10 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
         />
       )}
 
-      {open && screen === 'extrato' && !selectedAccountId && (
+      {open && screen === 'extrato' && canImportBankStatement && !selectedAccountId && (
         <Modal open onClose={handleClose} title="Para qual conta é esse extrato?">
           {accounts.length === 0 ? (
-            <p className="text-sm text-gray-600">
-              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar o extrato.
-            </p>
+            <SemContaEmptyState projectId={projectId} />
           ) : (
             <div className="space-y-2">
               {accounts.map((a) => (
@@ -336,7 +345,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
           )}
         </Modal>
       )}
-      {open && screen === 'extrato' && selectedAccountId && (
+      {open && screen === 'extrato' && canImportBankStatement && selectedAccountId && (
         <ImportBankStatementModal
           projectId={projectId}
           account={(accounts.find((a) => a.id === selectedAccountId) ?? { id: selectedAccountId }) as never}

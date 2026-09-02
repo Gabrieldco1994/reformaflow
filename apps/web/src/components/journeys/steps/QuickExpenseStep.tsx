@@ -4,8 +4,9 @@ import { useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Camera, CreditCard, Landmark, SkipForward, Wallet } from 'lucide-react';
-import { ExpenseType } from '@reformaflow/domain';
+import { ExpenseType, hasFeature, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
+import { useAuth } from '@/contexts/auth-context';
 import { maskCurrencyInputPositive, centsToReaisInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getExpenseOptions } from '@/app/projects/[projectId]/expenses/_types';
 import { invalidateExpenseQueries } from '@/app/projects/[projectId]/expenses/_hooks/useExpenseMutations';
@@ -42,6 +43,12 @@ export function QuickExpenseStep({
 }: OnboardingStepProps) {
   const options = getExpenseOptions(projectType);
   const queryClient = useQueryClient();
+  const { hasModule } = useAuth();
+  // #218 (W5): a query de contas bancárias só serve ao contexto de voz / rótulo
+  // da fonte. Em REFORMA/COMPRA `bankAccounts` não é feature nem módulo
+  // autorizado — disparar `GET /tenant/bank-accounts` ali é só um 403 silencioso.
+  const canUseBankAccounts =
+    hasFeature(projectType as ProjectType, 'bankAccounts') && hasModule('bankAccounts');
   /**
    * Categoria padrão: `OUTROS` quando o tipo de projeto o oferece, senão o
    * primeiro da lista.
@@ -94,6 +101,7 @@ export function QuickExpenseStep({
   const { data: accounts = [] } = useQuery<TenantAccount[]>({
     queryKey: ['tenant', 'bank-accounts'],
     queryFn: () => api.get('/tenant/bank-accounts'),
+    enabled: canUseBankAccounts,
     staleTime: 60_000,
   });
   const { data: tenantProjects = [] } = useQuery<TenantProject[]>({

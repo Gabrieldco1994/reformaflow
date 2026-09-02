@@ -3,9 +3,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ExpenseType } from '@reformaflow/domain';
+import { ExpenseType, hasFeature, type ProjectType } from '@reformaflow/domain';
 import { CreditCard, Landmark, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/contexts/auth-context';
 import type { Expense, ExpenseFormData } from '@/types';
 import { getExpenseOptions } from '../_types';
 import { PayOptionsModal } from './PayOptionsModal';
@@ -13,6 +14,7 @@ import { NovaDespesaWizard } from './NovaDespesaWizard';
 import { RecorrenteWizard } from './RecorrenteWizard';
 import { VoiceExpenseModal } from './VoiceExpenseModal';
 import { SemCartaoEmptyState } from '../../_components/SemCartaoEmptyState';
+import { SemContaEmptyState } from '../../_components/SemContaEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
@@ -37,7 +39,12 @@ interface Props {
  */
 export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged }: Props) {
   const queryClient = useQueryClient();
+  const { hasModule } = useAuth();
   const isPersonal = projectType === 'PESSOAL';
+  // #218 (W5): oferecer import de extrato bancário só onde a feature existe E o
+  // usuário tem o módulo autorizado — mesmo padrão de `BankAccountsSection.tsx`.
+  const canImportBankStatement =
+    hasFeature(projectType as ProjectType, 'bankAccounts') && hasModule('bankAccounts');
 
   const tipoOptions = useMemo(() => getExpenseOptions(projectType), [projectType]);
   const allowedExpenseTypes = useMemo(
@@ -80,6 +87,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
   >({
     queryKey: ['tenant', 'bank-accounts'],
     queryFn: () => api.get('/tenant/bank-accounts'),
+    enabled: canImportBankStatement,
     staleTime: 60_000,
   });
   const { data: tenantProjects = [] } = useQuery<Array<{ id: string; name: string; type: string }>>({
@@ -97,7 +105,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
   const { data: importAccounts = [], isFetching: loadingAccounts } = useQuery<Array<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null }>>({
     queryKey: ['bank-accounts', projectId],
     queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
-    enabled: importStep === 'pick-account',
+    enabled: importStep === 'pick-account' && canImportBankStatement,
     staleTime: 30_000,
   });
 
@@ -156,7 +164,11 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
           voice.openVoiceModal();
         }}
         onImportCard={() => { setPayModalOpen(false); setImportStep('pick-card'); }}
-        onImportAccount={() => { setPayModalOpen(false); setImportStep('pick-account'); }}
+        onImportAccount={
+          canImportBankStatement
+            ? () => { setPayModalOpen(false); setImportStep('pick-account'); }
+            : undefined
+        }
         onOpenNewReceiptForm={isPersonal ? () => {
           setPayModalOpen(false);
           setReceitaOpen(true);
@@ -248,9 +260,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
         <Modal open onClose={() => setImportStep(null)} title="Para qual conta é esse extrato?">
           {loadingAccounts && <p className="text-sm text-gray-500">Carregando contas…</p>}
           {!loadingAccounts && importAccounts.length === 0 && (
-            <p className="text-sm text-gray-600">
-              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar.
-            </p>
+            <SemContaEmptyState projectId={projectId} />
           )}
           {!loadingAccounts && importAccounts.length > 0 && (
             <div className="space-y-2">

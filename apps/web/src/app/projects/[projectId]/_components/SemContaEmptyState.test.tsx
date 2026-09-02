@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-// @ts-expect-error #218 (W5) — componente re-adicionado pelo frontend-expert (PEÇA B).
-// Enquanto não existe, este import falha e o arquivo fica RED. Ao criar o
-// componente, remova esta diretiva (o tsc acusa `@ts-expect-error` não usado).
 import { SemContaEmptyState } from './SemContaEmptyState';
 
 /**
