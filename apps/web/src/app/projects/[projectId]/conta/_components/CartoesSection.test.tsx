@@ -299,4 +299,40 @@ describe('CartoesSection', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Ambíguo · 4488/ })[0]);
     expect(onPayInvoice).toHaveBeenCalledWith('4488');
   });
+
+  // #216: jsdom não implementa scrollIntoView, mockamos o mínimo pra provar a chamada no foco.
+  it('brings the focused compact tile fully into view on keyboard focus', () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      render(
+        <CartoesSection
+          projectId="pessoal-1"
+          cartoes={[
+            cardAPagar({ last4: '1111', nickname: 'Um' }),
+            cardAPagar({ last4: '2222', nickname: 'Dois' }),
+            cardAPagar({ last4: '3333', nickname: 'Três' }),
+          ]}
+          contas={[]}
+          selected={null}
+          onSelect={vi.fn()}
+          onPayInvoice={vi.fn()}
+          onAdjustInvoice={vi.fn()}
+          onSettleWithResidual={vi.fn()}
+          onUndoPayment={vi.fn()}
+        />,
+      );
+
+      const secondTile = screen.getAllByRole('button', { name: /Dois · 2222/ })[0];
+      fireEvent.focus(secondTile);
+
+      expect(scrollIntoView).toHaveBeenCalledWith(
+        expect.objectContaining({ block: 'nearest', inline: 'nearest' }),
+      );
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
 });
