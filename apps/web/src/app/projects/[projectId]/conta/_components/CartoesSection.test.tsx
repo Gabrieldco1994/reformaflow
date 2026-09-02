@@ -299,4 +299,46 @@ describe('CartoesSection', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Ambíguo · 4488/ })[0]);
     expect(onPayInvoice).toHaveBeenCalledWith('4488');
   });
+
+  // --- #216 (W3): foco por teclado (Tab) no carrossel compacto mobile ---
+  //
+  // Bug reproduzido em runtime a 375/390px: Tab no 2º tile de 3 deixava
+  // scrollLeft ~6, só 30–36% do tile visível (status/valor/vencimento
+  // cortados). jsdom não implementa `scrollIntoView`, então mockamos o
+  // mínimo pra provar que o tile pede pra si mesmo ficar visível ao
+  // receber foco real — sem gerenciar Tab/setas/índice manualmente.
+  it('brings the focused compact tile fully into view on keyboard focus', () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      render(
+        <CartoesSection
+          projectId="pessoal-1"
+          cartoes={[
+            cardAPagar({ last4: '1111', nickname: 'Um' }),
+            cardAPagar({ last4: '2222', nickname: 'Dois' }),
+            cardAPagar({ last4: '3333', nickname: 'Três' }),
+          ]}
+          contas={[]}
+          selected={null}
+          onSelect={vi.fn()}
+          onPayInvoice={vi.fn()}
+          onAdjustInvoice={vi.fn()}
+          onSettleWithResidual={vi.fn()}
+          onUndoPayment={vi.fn()}
+        />,
+      );
+
+      const secondTile = screen.getAllByRole('button', { name: /Dois · 2222/ })[0];
+      fireEvent.focus(secondTile);
+
+      expect(scrollIntoView).toHaveBeenCalledWith(
+        expect.objectContaining({ block: 'nearest', inline: 'nearest' }),
+      );
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
 });

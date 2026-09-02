@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FocusEvent } from 'react';
 import { Landmark } from 'lucide-react';
 import Link from 'next/link';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
@@ -59,6 +59,17 @@ export function CartoesSection({
     }
   }
 
+  // #216 (W3): o carrossel compacto (`overflow-x-auto` + `snap-x`) não traz o
+  // tile focado por teclado (Tab) totalmente para dentro do viewport — o
+  // navegador só garante que o elemento fique "alcançável", então o 2º de 3
+  // tiles a 375px ficava ~30–36% visível. `scrollIntoView` nativo com
+  // `block/inline: 'nearest'` resolve sem gerenciar Tab/índice manualmente e
+  // sem forçar `behavior: 'smooth'` (respeita o comportamento/reduced-motion
+  // padrão do navegador). Toque/click não passam por aqui.
+  function scrollTileIntoView(event: FocusEvent<HTMLButtonElement>) {
+    event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between">
@@ -90,6 +101,7 @@ export function CartoesSection({
             key={`card-mobile-${card.last4}`}
             type="button"
             onClick={() => handleCompactCardTap(card)}
+            onFocus={scrollTileIntoView}
             style={{ background: pickCardGradient(card.last4) }}
             className={`flex min-h-[64px] w-[260px] shrink-0 snap-start flex-col justify-center rounded-2xl border px-3 py-2 text-left shadow-lifeone-card transition-colors ${
               selected === card.last4
@@ -121,6 +133,7 @@ export function CartoesSection({
               key={`bank-mobile-${conta.last4}`}
               type="button"
               onClick={() => onSelect(active ? null : conta.last4)}
+              onFocus={scrollTileIntoView}
               className={`flex min-h-[64px] w-[220px] shrink-0 snap-start flex-col justify-center rounded-2xl border px-3 py-2 text-left shadow-lifeone-card transition-colors ${
                 active
                   ? 'border-lifeone-blue ring-1 ring-lifeone-blue'
