@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { ExpenseType } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -144,6 +145,12 @@ export class MerchantClassifierService {
    *   3. Persiste no cache
    */
   async classifyBatch(merchants: string[], tenantId: string): Promise<Map<string, ClassifyResult>> {
+    // SEC-2: sem tenant, um `updateMany`/`findMany` com `tenantId: undefined`
+    // vazaria/reescreveria todos os tenants (classe do incidente #589).
+    if (!tenantId || typeof tenantId !== 'string') {
+      throw new BadRequestException('tenantId é obrigatório para classificar merchants');
+    }
+
     const result = new Map<string, ClassifyResult>();
     if (!merchants.length) return result;
 
@@ -188,41 +195,90 @@ export class MerchantClassifierService {
       try {
         for (let i = 0; i < pending.length; i += CHUNK) {
           const slice = pending.slice(i, i + CHUNK);
+          // callGemini é chamada de rede de segundos — SEMPRE fora da tx
+          // (seguraria o único writer lock do SQLite). MerchantCategory ∈
+          // modelsWithoutSoftDelete → $use é inerte aqui; sem findById pós-tx.
           const aiResults = await this.callGemini(slice.map((p) => p.sample));
-          const ops = aiResults.slice(0, slice.length).map((r, j) => {
-            const key = slice[j].key;
-            const cat = (MERCHANT_CATEGORIES as readonly string[]).includes(r.category)
-              ? r.category
-              : 'outros';
-            result.set(key, {
-              merchant: slice[j].sample,
-              category: cat as MerchantCategory,
-              subcategory: r.subcategory ?? null,
-              source: 'AI',
-              confidence: r.confidence ?? 0.8,
-            });
-            return this.prisma.merchantCategory.upsert({
-              where: { tenantId_merchantKey: { tenantId, merchantKey: key } },
-              create: {
-                tenantId,
-                merchantKey: key,
-                merchantSample: slice[j].sample.slice(0, 200),
-                category: cat,
-                subcategory: r.subcategory ?? null,
-                source: 'AI',
-                confidence: r.confidence ?? 0.8,
-                aiResponse: JSON.stringify(r).slice(0, 1000),
-              },
-              update: {
-                category: cat,
-                subcategory: r.subcategory ?? null,
-                source: 'AI',
-                confidence: r.confidence ?? 0.8,
-                aiResponse: JSON.stringify(r).slice(0, 1000),
-              },
-            });
-          });
-          if (ops.length) await this.prisma.$transaction(ops);
+          const chunkKeys = slice.map((p) => p.key);
+
+          await this.prisma.$transaction(
+            async (tx) => {
+              // SEC-3: re-leitura DENTRO da tx fecha a janela TOCTOU entre o
+              // cache lookup (fora de tx) e a escrita. Um setManual/confirmRule
+              // concorrente durante o callGemini cria uma regra MANUAL para a
+              // mesma (tenantId, merchantKey) — e ela tem precedência absoluta.
+              const existing = await tx.merchantCategory.findMany({
+                where: { tenantId, merchantKey: { in: chunkKeys } },
+                select: {
+                  merchantKey: true,
+                  source: true,
+                  category: true,
+                  subcategory: true,
+                  confidence: true,
+                },
+              });
+              const byKey = new Map(existing.map((row) => [row.merchantKey, row]));
+
+              const toCreate: Prisma.MerchantCategoryCreateManyInput[] = [];
+              for (let j = 0; j < slice.length && j < aiResults.length; j++) {
+                const r = aiResults[j];
+                const key = slice[j].key;
+                const cat = (MERCHANT_CATEGORIES as readonly string[]).includes(r.category)
+                  ? r.category
+                  : 'outros';
+                const prior = byKey.get(key);
+
+                if (prior?.source === 'MANUAL') {
+                  // regra manual do tenant tem precedência absoluta — não
+                  // sobrescreve, e o Map reflete o que está PERSISTIDO.
+                  result.set(key, {
+                    merchant: slice[j].sample,
+                    category: prior.category as MerchantCategory,
+                    subcategory: prior.subcategory,
+                    source: 'MANUAL',
+                    confidence: prior.confidence,
+                  });
+                  continue;
+                }
+
+                result.set(key, {
+                  merchant: slice[j].sample,
+                  category: cat as MerchantCategory,
+                  subcategory: r.subcategory ?? null,
+                  source: 'AI',
+                  confidence: r.confidence ?? 0.8,
+                });
+
+                const aiResponse = JSON.stringify(r).slice(0, 1000);
+                if (!prior) {
+                  toCreate.push({
+                    tenantId,
+                    merchantKey: key,
+                    merchantSample: slice[j].sample.slice(0, 200),
+                    category: cat,
+                    subcategory: r.subcategory ?? null,
+                    source: 'AI',
+                    confidence: r.confidence ?? 0.8,
+                    aiResponse,
+                  });
+                } else {
+                  // prior.source é AI/CACHE/REGEX (não MANUAL) — seguro atualizar
+                  await tx.merchantCategory.update({
+                    where: { tenantId_merchantKey: { tenantId, merchantKey: key } },
+                    data: {
+                      category: cat,
+                      subcategory: r.subcategory ?? null,
+                      source: 'AI',
+                      confidence: r.confidence ?? 0.8,
+                      aiResponse,
+                    },
+                  });
+                }
+              }
+              if (toCreate.length) await tx.merchantCategory.createMany({ data: toCreate });
+            },
+            { timeout: 10000 },
+          );
         }
       } catch (err) {
         this.logger.warn(`Gemini classify failed: ${(err as Error).message}`);
