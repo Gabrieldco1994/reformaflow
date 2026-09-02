@@ -68,6 +68,14 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+// #218 (W5): o gate `hasFeature(type,'bankAccounts') && hasModule('bankAccounts')`
+// decide se a query `['tenant','bank-accounts']` sequer dispara. Default true — a
+// metade `hasFeature` é o eixo por tipo; os casos que provam `hasModule` sobrescrevem.
+let mockHasModule: (slug: string) => boolean = () => true;
+vi.mock('@/contexts/auth-context', () => ({
+  useAuth: () => ({ user: { name: 'Teste' }, hasModule: (slug: string) => mockHasModule(slug) }),
+}));
+
 function renderStep(props: React.ComponentProps<typeof QuickExpenseStep>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -96,6 +104,7 @@ describe('QuickExpenseStep', () => {
     apiGetMock.mockReset();
     apiUploadMock.mockReset();
     apiGetMock.mockResolvedValue([]);
+    mockHasModule = () => true;
   });
 
   it('renders tipo options from getExpenseOptions(projectType) — different sets for REFORMA vs PESSOAL', () => {
@@ -502,3 +511,41 @@ describe('QuickExpenseStep', () => {
       );
     });
   });
+
+/**
+ * #218 (W5) — a query de contexto `['tenant','bank-accounts']` no passo de
+ * despesa do onboarding disparava `GET /tenant/bank-accounts` em QUALQUER tipo
+ * de projeto. Em REFORMA/COMPRA isso é 403 silencioso (bankAccounts não é
+ * feature nem módulo). Gate: `hasFeature(type,'bankAccounts') && hasModule(...)`.
+ */
+describe('QuickExpenseStep — gate da query de contas do tenant (#218)', () => {
+  beforeEach(() => {
+    apiPostMock.mockReset();
+    apiGetMock.mockReset();
+    apiUploadMock.mockReset();
+    apiGetMock.mockResolvedValue([]);
+    mockHasModule = () => true;
+  });
+
+  const chamouTenantAccounts = () =>
+    apiGetMock.mock.calls.some((c) => c[0] === '/tenant/bank-accounts');
+
+  it('REFORMA: NÃO dispara GET /tenant/bank-accounts (feature ausente)', async () => {
+    renderStep({ projectId: 'p1', projectType: ProjectType.REFORMA, onDone: vi.fn(), onSkip: vi.fn() });
+    await Promise.resolve();
+    expect(chamouTenantAccounts()).toBe(false);
+  });
+
+  it('PESSOAL + hasModule("bankAccounts") true: dispara a query', async () => {
+    mockHasModule = () => true;
+    renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone: vi.fn(), onSkip: vi.fn() });
+    await waitFor(() => expect(chamouTenantAccounts()).toBe(true));
+  });
+
+  it('PESSOAL mas hasModule("bankAccounts") false: NÃO dispara (trava a forma hasFeature && hasModule)', async () => {
+    mockHasModule = (slug) => slug !== 'bankAccounts';
+    renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone: vi.fn(), onSkip: vi.fn() });
+    await Promise.resolve();
+    expect(chamouTenantAccounts()).toBe(false);
+  });
+});

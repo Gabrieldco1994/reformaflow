@@ -662,7 +662,13 @@ reunir os cards de fluxo.
   + valor `nowrap` à direita (valor nunca divide linha com chip/badge variável),
   **linha 2** com metadados (data · categoria · origem) + chip "Sem conta" quando carteira
   + chip de projeto quando cross-project, e **status textual** ("Paga/A pagar/Previsto/Recebido")
-  abaixo do valor, alinhado à direita. Estado vazio quando não há itens.
+  abaixo do valor, alinhado à direita.
+- **Estado vazio (issue #218):** quando a lista está **genuinamente vazia** (nenhum
+  lançamento no projeto — saídas, entradas e compras de cartão brutas todas vazias),
+  na aba **"Tudo"** e sem filtro ativo, o estado vazio ganha o CTA **"Novo lançamento"**,
+  que abre o mesmo launcher do topo da tela. Vazia **por filtro ou aba** (ex.: aba
+  Entradas sem recebimentos, busca sem resultado) mantém **"Nenhuma movimentação com
+  esses filtros."** + "Limpar filtros", sem o CTA de primeiro uso.
 - As **faturas de cartão** podem ser **expandidas na própria linha** para revelar as
   compras que as compõem (no celular, tocando na linha). Nas linhas de fatura há
   ações rápidas **Ajustar** e **Resíduo**, além do status.
@@ -738,6 +744,12 @@ Onde se registra e acompanha tudo que se gasta. É o módulo mais rico.
 4. Passo **Ação:** **Planejar/Salvar** ou **Vincular** (rateio para outro projeto).
 - No modal de opções também há **Planejar**, **Despesa recorrente** (mensal/quinzenal),
   **Novo recebimento**, **Lançar por voz** e **importação** (OFX/CSV de fatura/extrato).
+  - **Importar extrato bancário é só do PESSOAL.** A opção "Extrato bancário"
+    (e o modal "Para qual conta é esse extrato?") só aparece onde `bankAccounts`
+    é feature do tipo de projeto **e** o módulo está autorizado para a pessoa
+    (issue #218). REFORMA/COMPRA continuam com **"Fatura de cartão"** (o módulo
+    `creditCards` é autorizado nesses tipos), mas não veem a oferta de extrato —
+    antes ela aparecia e levava a um `GET /bank-accounts` que respondia 403.
 - **Validações:** valor > 0; máscara monetária `1.234,56`.
 
 **KPI hero "Gasto no mês":** total gasto no mês + **% pago** (barra), com
@@ -839,7 +851,10 @@ Projeção e realizado, lançamento a lançamento, por data.
 - **Tabela** por data: Data, Tipo, Valor, Categoria/Subcategoria, Status,
   Parcela e saldos acumulados (projetado/realizado). No celular, vira lista de
   cards equivalente.
-- **Estado vazio:** "Sem lançamentos no período".
+- **Estado vazio:** "Sem lançamentos no período", com CTA **"Lançar despesa ou
+  recebimento"** → **Despesas** (`/expenses`). O CTA é *type-agnostic* (issue #218):
+  `/cash-flow` só existe em REFORMA e PESSOAL e `/expenses` é rota válida nos dois —
+  não depende de `bankAccounts`.
 
 ### 4.6b Recorrentes (`/recorrentes`) — apenas PESSOAL
 As contas que se repetem todo mês, em um lugar só.
@@ -898,6 +913,11 @@ visões de Mês/Ano.
   agência e número), sem criar um segundo saldo calculado.
 - **Editar conta e saldo inicial** abre o formulário existente de identidade e
   reconciliação; **Nova conta** usa o mesmo formulário.
+- **Sem nenhuma conta cadastrada**, o modal "Para qual conta é esse extrato?"
+  mostra o estado vazio **"Nenhuma conta cadastrada"** com CTA **"Nova conta"** →
+  `/bank-accounts?focus=openingBalance` (redireciona para `/conta?focus=openingBalance`,
+  abrindo o formulário). Esse estado só é alcançável no PESSOAL — nos demais tipos a
+  oferta de importar extrato nem aparece (issue #218).
 - **Importações** abre, para cada conta, o histórico de extratos já importados
   nela, com o impacto de cada um e a opção de **desfazer** — o mesmo histórico
   antes disponível apenas na tela `/bank-accounts`. Desfazer uma importação

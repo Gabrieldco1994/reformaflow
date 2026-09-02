@@ -150,6 +150,35 @@ O v1 resolveu a **arquitetura de informação** (Conta = linha do tempo única; 
 
 **Agentes:** `architect` (mapa do fluxo novo-usuário) → **todas as lenses Phase 1** (empty states tocam superfícies compartilhadas — CASA/CARRO/REFORMA/COMPRA não podem regredir) → `frontend-expert` (+`backend-expert` só se faltar endpoint de contagem) → `qa-engineer` → lenses Phase 2 → `doc-librarian`.
 
+### Execução — issue #218 (redesenho pós-revert #656, 2026-09-02)
+
+- **#655 foi revertida (#656).** A primeira versão trocou o texto morto "Nenhuma
+  conta cadastrada" dos 3 modais "Para qual conta é esse extrato?" por um
+  `SemContaEmptyState` com CTA "Nova conta". Mas `ExpensesView` monta em
+  **REFORMA e COMPRA** e cabeava `onImportAccount` incondicionalmente — clicar
+  "Extrato bancário" ali dispara `GET /projects/:id/bank-accounts` → **403**
+  (mascarado como `[]`). Com o CTA acionável isso virou um **loop de 403 /
+  beco clicável** (`/bank-accounts` não redireciona em REFORMA, a página monta,
+  GET e POST 403). Daí o revert.
+- **Assimetria que causou o bug:** `creditCards ∈ TYPE_MODULES[REFORMA|COMPRA]`
+  (por isso "Fatura de cartão" funciona nesses tipos), mas `bankAccounts` é
+  **feature/módulo só de PESSOAL** (`PROJECT_FEATURES`, `TYPE_MODULES`). A oferta
+  de extrato tinha que ser barrada só nela.
+- **Correção de escopo (Peça A):** todo picker de extrato (`ExpensesView`,
+  `NovaDespesaLauncher`, `MobileLaunchSheetContainer`) e a query de contexto do
+  passo de despesa do onboarding (`QuickExpenseStep`) passam pelo gate
+  `hasFeature(type,'bankAccounts') && hasModule('bankAccounts')` — o mesmo
+  padrão de `BankAccountsSection.tsx`. Onde o gate falha: `onImportAccount` vira
+  `undefined` (o botão some), as queries de conta ficam `enabled: false` (zero
+  403), e o bloco do modal não monta. **Sem** `if (projectType === 'PESSOAL')`
+  hard-coded; **sem** helper novo (3 call-sites × 1 expressão).
+- **Ganhos W5 reintroduzidos (Peça B), agora type-safe:** `SemContaEmptyState`
+  só renderiza atrás do gate (PESSOAL); o CTA do `/cash-flow` vazio ("Lançar
+  despesa ou recebimento" → `/expenses`) e o CTA do vazio-genuíno das
+  Movimentações ("Novo lançamento" → launcher do topo) são **type-agnostic** —
+  não dependem de `bankAccounts`, que foi a dependência que quebrou a #655.
+  Vazio por filtro/aba preserva "Nenhuma movimentação com esses filtros."
+
 ---
 
 ## 6. Documentação (todo PR, mesmo PR)

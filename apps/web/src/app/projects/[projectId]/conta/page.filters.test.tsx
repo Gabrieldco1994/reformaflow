@@ -29,6 +29,11 @@ const navigationMock = vi.hoisted(() => ({
   replace: vi.fn(),
 }));
 const featureFlagMock = vi.hoisted(() => ({ enabled: true }));
+// #218 (W5): fio do launcher — `page.tsx` guarda `open` num ref e o passa tanto
+// para `ContaQuickActions.onOpenLaunch` quanto (novo) para
+// `MovimentacoesSection.onOpenLaunch`. Este mock captura esse `open`.
+const novaDespesaOpenMock = vi.hoisted(() => vi.fn());
+const contaQuickActionsMock = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ projectId: 'p1' }),
@@ -60,8 +65,18 @@ vi.mock('./_components/ContaMonthPicker', () => ({ ContaMonthPicker: () => null 
 vi.mock('./_components/BankAccountsSection', () => ({ default: () => null }));
 vi.mock('./_components/ContaAnoView', () => ({ ContaAnoView: () => null }));
 vi.mock('../monthly/_cockpit/PendenciasQueueCard', () => ({ PendenciasQueueCard: () => null }));
-vi.mock('../expenses/_components/NovaDespesaLauncher', () => ({ NovaDespesaLauncher: () => null }));
-vi.mock('./_components/ContaQuickActions', () => ({ ContaQuickActions: () => null }));
+vi.mock('../expenses/_components/NovaDespesaLauncher', () => ({
+  NovaDespesaLauncher: ({ trigger }: { trigger: (open: () => void) => unknown }) => {
+    trigger(novaDespesaOpenMock);
+    return null;
+  },
+}));
+vi.mock('./_components/ContaQuickActions', () => ({
+  ContaQuickActions: (props: Record<string, unknown>) => {
+    contaQuickActionsMock(props);
+    return null;
+  },
+}));
 vi.mock('./_components/PagarFaturaDialog', () => ({ PagarFaturaDialog: () => null }));
 vi.mock('./_components/UndoInvoicePaymentDialog', () => ({ UndoInvoicePaymentDialog: () => null }));
 vi.mock('./_components/InvoiceInterventionDialog', () => ({ InvoiceInterventionDialog: () => null }));
@@ -152,6 +167,8 @@ describe('ContaPage — composição de filtros (#575)', () => {
     navigationMock.searchParams = new URLSearchParams();
     navigationMock.push.mockReset();
     navigationMock.replace.mockReset();
+    novaDespesaOpenMock.mockReset();
+    contaQuickActionsMock.mockReset();
     featureFlagMock.enabled = true;
   });
 
@@ -241,5 +258,36 @@ describe('ContaPage — composição de filtros (#575)', () => {
       '/projects/p1/conta?mes=2026-07&item=expense-1',
       { scroll: false },
     );
+  });
+});
+
+describe('ContaPage — fio do launcher no MovimentacoesSection (#218)', () => {
+  beforeEach(() => {
+    useQueryMock.mockReset();
+    resumoCardsMock.mockReset();
+    cartoesSectionMock.mockReset();
+    movimentacoesSectionMock.mockReset();
+    navigationMock.searchParams = new URLSearchParams();
+    navigationMock.push.mockReset();
+    navigationMock.replace.mockReset();
+    novaDespesaOpenMock.mockReset();
+    contaQuickActionsMock.mockReset();
+    featureFlagMock.enabled = true;
+  });
+
+  it('MovimentacoesSection.onOpenLaunch abre o MESMO launcher que ContaQuickActions', () => {
+    renderConta();
+
+    // Contrato: a página entrega `onOpenLaunch` ao MovimentacoesSection.
+    act(() => {
+      (lastProps(movimentacoesSectionMock).onOpenLaunch as () => void)();
+    });
+    expect(novaDespesaOpenMock).toHaveBeenCalledTimes(1);
+
+    // E é o mesmo callback que já alimenta o ContaQuickActions.
+    act(() => {
+      (lastProps(contaQuickActionsMock).onOpenLaunch as () => void)();
+    });
+    expect(novaDespesaOpenMock).toHaveBeenCalledTimes(2);
   });
 });
