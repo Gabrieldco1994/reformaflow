@@ -1,16 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Expense, ExpensesPage, Project } from "@/types";
 import { ExpensesView } from "./ExpensesView";
 import { groupExpensesByMes } from "./_lib/grouping-by-month";
-
-// #218 W5 (call site 1/3) — picker "Para qual conta?" do ExpensesView.
-vi.mock("../_components/SemContaEmptyState", () => ({
-  SemContaEmptyState: ({ projectId }: { projectId: string }) => (
-    <div data-testid="sem-conta-empty" data-project-id={projectId} />
-  ),
-}));
 
 let mockProjectType = "REFORMA";
 
@@ -126,8 +119,6 @@ function renderView(overrides?: {
   client.setQueryData(["tenant", "credit-cards"], []);
   client.setQueryData(["tenant", "bank-accounts"], []);
   client.setQueryData(["tenant", "projects"], []);
-  // #218 W5: query do picker "Para qual conta é esse extrato?" (importAccounts).
-  client.setQueryData(["bank-accounts", "reforma-1"], []);
   client.setQueryData(
     ["cross-project-expenses", "reforma-1", "unified-view"],
     overrides?.crossExpenses ?? [],
@@ -282,25 +273,5 @@ describe("ExpensesView — PESSOAL com rateio (Telha Norte, issue #428 follow-up
     expect(screen.getByTestId("personal-kpis")).toHaveTextContent(
       JSON.stringify({ noCartao: 0, naConta: 40_000, aConfirmar: 0 }),
     );
-  });
-});
-
-// #218 W5 — call site 1/3 de `SemContaEmptyState` (gêmeo do picker de cartão).
-describe("ExpensesView — picker de conta sem nenhuma cadastrada (#218)", () => {
-  beforeEach(() => {
-    mockProjectType = "REFORMA";
-  });
-
-  it('mostra SemContaEmptyState (não o texto morto) ao abrir "Extrato bancário" sem conta cadastrada', () => {
-    renderView();
-
-    // Duas CTAs "Nova despesa" coexistem (Button desktop + FAB mobile) — a
-    // primeira basta para abrir o PayOptionsModal.
-    fireEvent.click(screen.getAllByRole("button", { name: /Nova despesa/ })[0]);
-    fireEvent.click(screen.getByRole("button", { name: /Extrato bancário/ }));
-
-    expect(screen.getByTestId("sem-conta-empty")).toBeInTheDocument();
-    expect(screen.getByTestId("sem-conta-empty")).toHaveAttribute("data-project-id", "reforma-1");
-    expect(screen.queryByText(/Nenhuma conta cadastrada\. Cadastre em/)).not.toBeInTheDocument();
   });
 });

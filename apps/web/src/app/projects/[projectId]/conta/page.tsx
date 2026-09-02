@@ -337,7 +337,6 @@ export default function ContaPage() {
                 onViewModeChange={selectContaViewMode}
                 initialTipoFilter={contaTipoFilter}
                 onTipoFilterChange={selectContaTipo}
-                onOpenLaunch={() => openNovaDespesaRef.current()}
               />
             </>
           )}
