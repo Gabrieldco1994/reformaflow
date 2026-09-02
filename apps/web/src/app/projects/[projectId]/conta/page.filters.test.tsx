@@ -60,7 +60,15 @@ vi.mock('./_components/ContaMonthPicker', () => ({ ContaMonthPicker: () => null 
 vi.mock('./_components/BankAccountsSection', () => ({ default: () => null }));
 vi.mock('./_components/ContaAnoView', () => ({ ContaAnoView: () => null }));
 vi.mock('../monthly/_cockpit/PendenciasQueueCard', () => ({ PendenciasQueueCard: () => null }));
-vi.mock('../expenses/_components/NovaDespesaLauncher', () => ({ NovaDespesaLauncher: () => null }));
+// #218 W5 (item D): `onOpenLaunch` da Movimentações deve usar o MESMO
+// callback do launcher de Despesas (não criar cópia local).
+const novaDespesaOpenMock = vi.fn();
+vi.mock('../expenses/_components/NovaDespesaLauncher', () => ({
+  NovaDespesaLauncher: ({ trigger }: { trigger: (open: () => void) => unknown }) => {
+    trigger(novaDespesaOpenMock);
+    return null;
+  },
+}));
 vi.mock('./_components/ContaQuickActions', () => ({ ContaQuickActions: () => null }));
 vi.mock('./_components/PagarFaturaDialog', () => ({ PagarFaturaDialog: () => null }));
 vi.mock('./_components/UndoInvoicePaymentDialog', () => ({ UndoInvoicePaymentDialog: () => null }));
@@ -149,6 +157,7 @@ describe('ContaPage — composição de filtros (#575)', () => {
     resumoCardsMock.mockReset();
     cartoesSectionMock.mockReset();
     movimentacoesSectionMock.mockReset();
+    novaDespesaOpenMock.mockReset();
     navigationMock.searchParams = new URLSearchParams();
     navigationMock.push.mockReset();
     navigationMock.replace.mockReset();
@@ -241,5 +250,17 @@ describe('ContaPage — composição de filtros (#575)', () => {
       '/projects/p1/conta?mes=2026-07&item=expense-1',
       { scroll: false },
     );
+  });
+
+  // #218 W5 (item D): `onOpenLaunch` da Movimentações deve ser o MESMO
+  // callback do launcher usado por `ContaQuickActions` (não uma cópia).
+  it('passa à Movimentações o MESMO callback do launcher usado por ContaQuickActions', () => {
+    renderConta();
+
+    expect(novaDespesaOpenMock).not.toHaveBeenCalled();
+    act(() => {
+      (lastProps(movimentacoesSectionMock).onOpenLaunch as () => void)();
+    });
+    expect(novaDespesaOpenMock).toHaveBeenCalledTimes(1);
   });
 });
