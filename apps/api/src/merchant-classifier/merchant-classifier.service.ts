@@ -634,6 +634,57 @@ export class MerchantClassifierService {
   }
 
   /**
+   * AC#7 (#582): "corrija uma vez". Depois que uma linha de importação com
+   * override EXPLÍCITO de categoria do usuário foi persistida com sucesso,
+   * transforma esse override numa regra MANUAL tenant-scoped — o mês seguinte
+   * já cai como `categoriaFonte: 'regra'` sem nova correção.
+   *
+   * Efeito colateral PÓS-persistência: roda FORA da `$transaction` que cria a
+   * despesa, nunca toca valor/sinal/status/caixa/projeto/vínculo/rateio.
+   * Cada `setManual` tem try/catch próprio — o resultado do aprendizado é
+   * reportado separado do resultado da importação.
+   *
+   * `expenseType` sem `MerchantCategory` equivalente (`toMerchantCategory` →
+   * `null`, ~20 de ~30 tipos) NÃO é no-op silencioso: conta em `skippedNoMapping`
+   * com o mesmo sentido de `'sem-categoria-equivalente'`.
+   *
+   * Dedup por `merchantKey` normalizada (última ocorrência vence, igual ao
+   * `upsert` do `setManual`).
+   */
+  async learnFromImportOverrides(
+    entries: Array<{ merchant: string; expenseType: string }>,
+    tenantId: string,
+  ): Promise<{ learned: number; skippedNoMapping: number; failed: number }> {
+    const byKey = new Map<string, { merchant: string; expenseType: string }>();
+    for (const entry of entries) {
+      const key = MerchantClassifierService.normalizeKey(entry.merchant);
+      if (!key) continue;
+      byKey.set(key, entry);
+    }
+
+    let learned = 0;
+    let skippedNoMapping = 0;
+    let failed = 0;
+    for (const { merchant, expenseType } of byKey.values()) {
+      const mc = MerchantClassifierService.toMerchantCategory(expenseType);
+      if (!mc) {
+        skippedNoMapping++;
+        continue;
+      }
+      try {
+        await this.setManual(merchant, mc, null, tenantId);
+        learned++;
+      } catch (err) {
+        failed++;
+        this.logger.warn(
+          `learnFromImportOverrides falhou para "${merchant}": ${(err as Error).message}`,
+        );
+      }
+    }
+    return { learned, skippedNoMapping, failed };
+  }
+
+  /**
    * Promove uma regra a GLOBAL (`tenantId` null) — visível para todos os tenants
    * como fallback. Só ADMIN chega aqui (gate no controller). Substitui a global
    * anterior da mesma chave (upsert seria inseguro: null em unique composto no

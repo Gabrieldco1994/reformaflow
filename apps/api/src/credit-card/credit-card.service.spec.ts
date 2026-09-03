@@ -109,7 +109,7 @@ function plannedMatcherExpenses(formaPagamento: 'PARCELADO' | 'QUINZENAL') {
 describe('CreditCardService', () => {
   let service: CreditCardService;
   let prisma: ReturnType<typeof makePrismaMock>;
-  let merchantClassifier: { manualExpenseType: jest.Mock; classifyForImport: jest.Mock };
+  let merchantClassifier: { manualExpenseType: jest.Mock; classifyForImport: jest.Mock; learnFromImportOverrides: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
@@ -128,6 +128,7 @@ describe('CreditCardService', () => {
     merchantClassifier = {
       manualExpenseType: jest.fn().mockResolvedValue(null),
       classifyForImport: jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() }),
+      learnFromImportOverrides: jest.fn().mockResolvedValue({ learned: 0, skippedNoMapping: 0, failed: 0 }),
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1020,6 +1021,27 @@ describe('CreditCardService', () => {
       expect(merchantClassifier.classifyForImport).not.toHaveBeenCalled();
       // prova que o caminho de escrita realmente executou (não é um no-op mascarando "zero calls")
       expect(prisma.expense.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('#582 AC#7: override explícito em linha criada aprende regra; skip não', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      merchantClassifier.learnFromImportOverrides.mockClear();
+      const csv = 'date,title,amount\n2026-08-10,PADARIA DOZE,100.00\n2026-08-11,FEIRA LIVRE,40.00';
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
+      const padaria = preview.preview.find((p) => /PADARIA/.test(p.merchant))!;
+      const feira = preview.preview.find((p) => /FEIRA/.test(p.merchant))!;
+      const res = await service.commitImport(
+        't1', 'pessoal1', 'card1', Buffer.from(csv), 'f.csv', 'CSV_GENERIC', undefined, undefined,
+        [
+          { externalId: padaria.externalId, overrides: { category: 'ALIMENTACAO' } },
+          { externalId: feira.externalId, action: 'skip', overrides: { category: 'ALIMENTACAO' } },
+        ],
+        null, TEST_OWNER_REQUESTER,
+      );
+      expect(merchantClassifier.learnFromImportOverrides).toHaveBeenCalledTimes(1);
+      const [entries] = merchantClassifier.learnFromImportOverrides.mock.calls[0];
+      expect(entries).toEqual([{ merchant: 'PADARIA DOZE', expenseType: 'ALIMENTACAO' }]);
+      expect(res).toMatchObject({ rulesLearned: 0, rulesSkippedNoMapping: 0, rulesLearnFailed: 0 });
     });
 
     it('#582 F3: sem hit e sem match do heurístico local → categoriaFonte null (não "regex")', async () => {

@@ -93,6 +93,7 @@ function makeClassifierMock() {
     // classifyForImport — sem isto, toda a suíte de previewImport quebra assim
     // que a implementação real passar a chamá-lo incondicionalmente.
     classifyForImport: jest.fn().mockResolvedValue({ status: 'ok', classifications: new Map() }),
+    learnFromImportOverrides: jest.fn().mockResolvedValue({ learned: 0, skippedNoMapping: 0, failed: 0 }),
   } as any;
 }
 
@@ -518,6 +519,30 @@ describe('BankAccountService', () => {
       const createdCalls = prisma.expense.create.mock.calls;
       expect(createdCalls.length).toBe(1);
       expect(createdCalls[0][0].data.fornecedor).toContain('LOJA OK');
+    });
+
+    it('#582 AC#7: override explícito em linha criada aprende regra; skip não', async () => {
+      const ofx = buildBankOfx(
+        ofxBankFor('20260401', 10000, 'PADARIA DOZE', 'LRN1'),
+        ofxBankFor('20260402', 5000, 'FEIRA LIVRE', 'LRN2'),
+      );
+      const preview = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      const padaria = preview.preview.find((t: any) => /PADARIA/.test(t.merchant))!;
+      const feira = preview.preview.find((t: any) => /FEIRA/.test(t.merchant))!;
+      classifier.learnFromImportOverrides.mockClear();
+      const res = await service.commitImport(
+        't1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX',
+        undefined, undefined,
+        [
+          { externalId: padaria.externalId, overrides: { category: 'ALIMENTACAO' } },
+          { externalId: feira.externalId, action: 'skip', overrides: { category: 'ALIMENTACAO' } },
+        ],
+        null, TEST_OWNER_REQUESTER,
+      );
+      expect(classifier.learnFromImportOverrides).toHaveBeenCalledTimes(1);
+      const [entries] = classifier.learnFromImportOverrides.mock.calls[0];
+      expect(entries).toEqual([{ merchant: 'PADARIA DOZE', expenseType: 'ALIMENTACAO' }]);
+      expect(res).toMatchObject({ rulesLearned: 0, rulesSkippedNoMapping: 0, rulesLearnFailed: 0 });
     });
 
     it('decision.overrides aplica titulo, valor e categoria', async () => {

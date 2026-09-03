@@ -1068,6 +1068,28 @@ export class BankAccountService {
     // consistência sem mexer em valor/caixa.
     const aiReclassified = await this.reclassifyImportedExpenses(tenantId, projectId, importRecord.id);
 
+    // AC#7 (#582): override EXPLÍCITO de categoria numa linha efetivamente
+    // importada (despesa criada, não duplicada/skip/erro) vira regra MANUAL
+    // tenant-scoped. Efeito pós-persistência, fora da $transaction acima;
+    // aprendizado reportado separado do resultado da importação.
+    const learnEntries = createdRows
+      .filter(
+        ({ row, result }) =>
+          Boolean(result.expenseId) &&
+          Boolean(row.categoryOverride) &&
+          row.categoryOverride !== 'MOVIMENTACAO_INTERNA' &&
+          row.categoryOverride !== 'PAGAMENTO_FATURA_CARTAO',
+      )
+      .map(({ row }) => ({
+        merchant: row.transaction.merchant,
+        expenseType: row.categoryOverride as string,
+      }));
+    const {
+      learned: rulesLearned,
+      skippedNoMapping: rulesSkippedNoMapping,
+      failed: rulesLearnFailed,
+    } = await this.merchantClassifier.learnFromImportOverrides(learnEntries, tenantId);
+
     // ─── Propagação de recorrências p/ projetos CASA/CARRO ───
     // Utilities (Enel/Sabesp/Comgas/...) viram RecurringBill no projeto CASA do tenant.
     // IPVA vira RecurringBill no projeto CARRO.
@@ -1115,6 +1137,9 @@ export class BankAccountService {
       recurrencesCreated,
       skipped: skipped + userSkipped,
       linked,
+      rulesLearned,
+      rulesSkippedNoMapping,
+      rulesLearnFailed,
     };
   }
 
