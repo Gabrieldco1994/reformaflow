@@ -27,7 +27,7 @@ export default function PlanningScenarioToolbar({
   return (
     <section className="rounded-2xl border border-darc-linen bg-white p-4 md:p-5 space-y-3">
       <div>
-        <h2 className="text-base font-semibold text-darc-velvet">Plannings</h2>
+        <h2 className="text-base font-semibold text-darc-velvet">Cenários</h2>
         <p className="text-xs text-darc-velvet/60">
           Crie cenários alternativos e compare diferentes estratégias de orçamento.
         </p>
@@ -49,7 +49,7 @@ export default function PlanningScenarioToolbar({
         <button
           type="button"
           onClick={() => {
-            const name = window.prompt('Nome do novo planning:');
+            const name = window.prompt('Nome do novo cenário:');
             if (name === null) return;
             onCreateScenario(name);
           }}
@@ -61,7 +61,7 @@ export default function PlanningScenarioToolbar({
         <button
           type="button"
           onClick={() => {
-            const suggested = active ? `${active.name} (cópia)` : 'Planning cópia';
+            const suggested = active ? `${active.name} (cópia)` : 'Cenário cópia';
             const name = window.prompt('Nome da cópia:', suggested);
             if (name === null) return;
             onDuplicateScenario(name);

@@ -247,3 +247,157 @@ test.describe("Compras e cenários", () => {
     await expect(page.getByLabel("Valor (R$)")).toHaveValue("2.800,00");
   });
 });
+
+// U5 / #454 — "Orçamento futuro" (Planning local, localStorage
+// `personal-planning:${id}`) e "Compras e cenários" (Planejador server,
+// PurchaseScenario) são dois stores independentes. Navegar entre eles não
+// pode: (a) disparar nenhuma mutation de rede, (b) alterar 1 byte do
+// localStorage do outro store. Rodado nos 3 projects (desktop + mobile), sem
+// skip — a regressão de contaminação de store não é owned por um viewport.
+const PLANNING_STORAGE_KEY = `personal-planning:${projectId}`;
+const SEEDED_PLANNING_STATE = JSON.stringify({
+  version: 2,
+  activeScenarioId: "sc-rf454",
+  scenarios: [
+    {
+      id: "sc-rf454",
+      name: "Cenário QA rf454",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+  ],
+});
+
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+async function setupUnifiedStores(page: Page) {
+  const mutations: string[] = [];
+  await page
+    .context()
+    .addCookies([
+      { name: "rf_token", value: "test", url: "http://localhost:3013" },
+    ]);
+  await page.addInitScript(
+    ([key, value]) => {
+      window.localStorage.setItem(key, value);
+    },
+    [PLANNING_STORAGE_KEY, SEEDED_PLANNING_STATE],
+  );
+  await page.route("http://localhost:3001/**", async (route) => {
+    const request = route.request();
+    const method = request.method();
+    const path = new URL(request.url()).pathname;
+    if (method !== "GET") mutations.push(`${method} ${path}`);
+
+    if (path === "/auth/me") {
+      return route.fulfill(
+        json({
+          id: "user-test",
+          username: "test",
+          name: "Usuário Teste",
+          role: "ADMIN",
+          tenantId: "tenant-test",
+          allowedModules: [],
+          allowedProjects: [],
+          allowedProjectTypes: [],
+        }),
+      );
+    }
+    if (path === "/projects") {
+      return route.fulfill(
+        json([{ id: projectId, name: "Pessoal Teste", type: "PESSOAL" }]),
+      );
+    }
+    if (path === `/projects/${projectId}`) {
+      return route.fulfill(
+        json({
+          id: projectId,
+          name: "Pessoal Teste",
+          type: "PESSOAL",
+          onboardedAt: "2026-01-01T00:00:00.000Z",
+          rooms: [],
+        }),
+      );
+    }
+    if (path === `/projects/${projectId}/monthly-overview`) {
+      const mes = currentMonthKey();
+      return route.fulfill(
+        json({
+          mesAtual: mes,
+          meses: [
+            { mes, totalRecebimentos: 500_000, totalDespesas: 200_000 },
+          ],
+          entries: [],
+        }),
+      );
+    }
+    if (path === `/projects/${projectId}/monthly-overview/dre-overview`) {
+      return route.fulfill(
+        json({ anual: { saldoAcumuladoSerie: baselineSerie() } }),
+      );
+    }
+    if (path === `/projects/${projectId}/planejador`) {
+      return route.fulfill(json([]));
+    }
+    return route.fulfill(json([]));
+  });
+  return mutations;
+}
+
+async function readPlanningStore(page: Page) {
+  return page.evaluate(
+    (key) => window.localStorage.getItem(key),
+    PLANNING_STORAGE_KEY,
+  );
+}
+
+test.describe("Orçamento futuro × Compras e cenários — stores isolados", () => {
+  test("navegar entre os dois stores não dispara mutation nem altera o localStorage do outro", async ({
+    page,
+  }) => {
+    const mutations = await setupUnifiedStores(page);
+
+    // 1. Orçamento futuro (localStorage) — semeado via addInitScript.
+    await page.goto(`/projects/${projectId}/planning`);
+    await expect(
+      page.getByRole("heading", { name: /Orçamento futuro/i }),
+    ).toBeVisible();
+    const before = await readPlanningStore(page);
+    expect(before).toContain("Cenário QA rf454");
+    expect(before).toContain("sc-rf454");
+
+    // 2. Compras e cenários (server store).
+    await page.goto(`/projects/${projectId}/planejador`);
+    await expect(
+      page.getByRole("heading", { name: "Compras e cenários" }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Compras e cenários" }),
+    ).toBeVisible();
+
+    // 3. Volta para o Orçamento futuro + reload.
+    await page.goto(`/projects/${projectId}/planning`);
+    await expect(
+      page.getByRole("heading", { name: /Orçamento futuro/i }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: /Orçamento futuro/i }),
+    ).toBeVisible();
+    const after = await readPlanningStore(page);
+
+    // 4. localStorage do Orçamento futuro intacto byte a byte.
+    expect(after).toBe(before);
+
+    // 5. Nenhuma mutation de rede durante a navegação — e em especial nada
+    // que toque o store de Compras e cenários.
+    expect(
+      mutations.filter((m) => /planejador|purchase-scenario|scenario/i.test(m)),
+    ).toEqual([]);
+    expect(mutations).toEqual([]);
+  });
+});
