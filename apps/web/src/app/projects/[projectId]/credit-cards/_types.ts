@@ -81,6 +81,12 @@ export interface CommitResult {
   importId: string;
   linked?: number;
   skipped?: number;
+  /** AC#7 (#582): correções de categoria no import que viraram regra MANUAL tenant-scoped. */
+  rulesLearned?: number;
+  /** Correções aplicadas à linha mas sem categoria equivalente para virar regra. */
+  rulesSkippedNoMapping?: number;
+  /** Regras que falharam ao persistir (import em si não falhou). */
+  rulesLearnFailed?: number;
 }
 
 /** Uma linha do arquivo que a importação ignorou por já existir (dedup). */

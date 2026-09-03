@@ -107,6 +107,12 @@ export interface BankCommitResult {
   /** Pagamentos de fatura que entraram SEM cartão identificado (saem do caixa, não quitam fatura). */
   unlinkedCardPayments?: number;
   aiReclassified: number;
+  /** AC#7 (#582): correções de categoria no import que viraram regra MANUAL tenant-scoped. */
+  rulesLearned?: number;
+  /** Correções aplicadas à linha mas sem categoria equivalente para virar regra. */
+  rulesSkippedNoMapping?: number;
+  /** Regras que falharam ao persistir (import em si não falhou). */
+  rulesLearnFailed?: number;
   recurrencesCreated: number;
   skipped: number;
 }

@@ -400,6 +400,19 @@ function CommittedView({ result, onClose }: { result: CommitResult; onClose: () 
         )}
         <p><strong>{result.settled}</strong> parcelas planejadas marcadas como pagas</p>
         {!!result.linked && <p><strong>{result.linked}</strong> vinculadas a despesas planejadas em outros projetos</p>}
+        {!!result.rulesLearned && (
+          <p><strong>{result.rulesLearned}</strong> correção(ões) viraram regra para o futuro</p>
+        )}
+        {!!result.rulesSkippedNoMapping && (
+          <p className="text-gray-500">
+            <strong>{result.rulesSkippedNoMapping}</strong> correção(ões) foram aplicadas à linha, mas não viraram regra: esse tipo não tem categoria equivalente.
+          </p>
+        )}
+        {!!result.rulesLearnFailed && (
+          <p className="text-amber-700">
+            A importação foi concluída, mas não foi possível salvar <strong>{result.rulesLearnFailed}</strong> regra(s). Recategorize essas linhas para tentar de novo — a importação em si não falhou.
+          </p>
+        )}
         <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>
       </div>
       <Button onClick={onClose} className="mt-6">Fechar</Button>

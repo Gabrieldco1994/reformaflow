@@ -59,9 +59,14 @@ describe('AC#7 — override de importação cria regra MANUAL tenant-scoped', ()
     new CardInvoiceSettlementService(prisma),
   );
 
+  // Provider HABILITADO (apiKey presente) mas o cliente HTTP é stubado — assim a
+  // asserção "zero Gemini" é significativa (provider desabilitado seria zero
+  // trivialmente).
+  (classifier as any).apiKey = 'test-gemini-key';
   const geminiSpy = jest
     .spyOn(MerchantClassifierService.prototype as any, 'callGemini')
     .mockResolvedValue([]);
+  const warnSpy = jest.spyOn((classifier as any).logger, 'warn');
 
   async function cleanup() {
     await setup.merchantCategory.deleteMany({ where: { merchantKey: KEY } });
@@ -144,7 +149,9 @@ describe('AC#7 — override de importação cria regra MANUAL tenant-scoped', ()
     const seguroKey = MerchantClassifierService.normalizeKey('SEGURO VIDA PORTO');
     expect(await setup.merchantCategory.count({ where: { merchantKey: seguroKey } })).toBe(0);
 
-    // 3) preview B — mesmo merchant, outro externalId → sugestão pela regra
+    // 3) preview B — mesmo merchant, outro externalId → sugestão pela regra.
+    // Zera o spy AGORA para chamadas do import A não mascararem uma regressão.
+    geminiSpy.mockClear();
     const csvB = csvFor([['2026-06-12', MERCHANT, '-51.00']]);
     const previewB = await service.previewImport(
       IDS.tenantA, IDS.projectA, IDS.accountA, csvB, 'b.csv', 'CSV_GENERIC' as any, undefined, requester,
@@ -189,5 +196,50 @@ describe('AC#7 — override de importação cria regra MANUAL tenant-scoped', ()
         where: { merchantKey: MerchantClassifierService.normalizeKey('FEIRA DA LUA') },
       }),
     ).toBe(0);
+  });
+
+  it('setManual falhando: import segue com sucesso, failed>=1, logger sem merchant cru', async () => {
+    warnSpy.mockClear();
+    const MERCHANT2 = 'MERCEARIA DoBairro';
+    const KEY2 = MerchantClassifierService.normalizeKey(MERCHANT2);
+    await setup.merchantCategory.deleteMany({ where: { merchantKey: KEY2 } });
+
+    const setManualSpy = jest
+      .spyOn(classifier, 'setManual')
+      .mockRejectedValueOnce(new Error('db indisponível'));
+
+    const csv = csvFor([
+      ['2026-08-14', MERCHANT2, '-18.00'],
+      ['2026-08-14', 'HORTIFRUTI CENTRAL', '-25.00'],
+    ]);
+    const preview = await service.previewImport(
+      IDS.tenantA, IDS.projectA, IDS.accountA, csv, 'f.csv', 'CSV_GENERIC' as any, undefined, requester,
+    );
+    const r1 = preview.preview.find((p: any) => p.merchant === MERCHANT2)!;
+    const r2 = preview.preview.find((p: any) => /HORTIFRUTI/.test(p.merchant))!;
+
+    const commit: any = await service.commitImport(
+      IDS.tenantA, IDS.projectA, IDS.accountA, csv, 'f.csv', 'CSV_GENERIC' as any,
+      undefined, undefined,
+      [
+        { externalId: r1.externalId, overrides: { category: 'ALIMENTACAO' } },
+        { externalId: r2.externalId, overrides: { category: 'ALIMENTACAO' } },
+      ],
+      null, requester,
+    );
+
+    expect(commit.inserted).toBe(2); // import não propaga exceção
+    expect(commit.rulesLearnFailed).toBe(1);
+    expect(commit.rulesLearned).toBe(1); // só o sucesso conta
+
+    for (const call of warnSpy.mock.calls) {
+      expect(String(call[0])).not.toContain(MERCHANT2);
+      expect(String(call[0])).not.toContain('MERCEARIA');
+    }
+
+    setManualSpy.mockRestore();
+    await setup.merchantCategory.deleteMany({
+      where: { merchantKey: { in: [KEY2, MerchantClassifierService.normalizeKey('HORTIFRUTI CENTRAL')] } },
+    });
   });
 });

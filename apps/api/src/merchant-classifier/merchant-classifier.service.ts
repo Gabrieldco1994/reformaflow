@@ -665,7 +665,9 @@ export class MerchantClassifierService {
     let learned = 0;
     let skippedNoMapping = 0;
     let failed = 0;
+    let index = -1;
     for (const { merchant, expenseType } of byKey.values()) {
+      index++;
       const mc = MerchantClassifierService.toMerchantCategory(expenseType);
       if (!mc) {
         skippedNoMapping++;
@@ -677,7 +679,7 @@ export class MerchantClassifierService {
       } catch (err) {
         failed++;
         this.logger.warn(
-          `learnFromImportOverrides falhou para "${merchant}": ${(err as Error).message}`,
+          `learnFromImportOverrides: setManual falhou na entrada #${index}: ${(err as Error).message}`,
         );
       }
     }

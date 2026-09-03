@@ -169,4 +169,19 @@ describe('ImportStatementModal (fatura) — aviso de classificação + chip de o
     }>;
     expect(decisions.find((d) => d.externalId === 't-ia')?.overrides?.category).toBe('LAZER');
   });
+
+  it('painel de resultado reporta rulesLearned / skippedNoMapping / learnFailed', async () => {
+    await loadPreview('ok');
+    apiUploadMock.mockResolvedValueOnce({
+      ...COMMIT,
+      rulesLearned: 2,
+      rulesSkippedNoMapping: 1,
+      rulesLearnFailed: 3,
+    });
+    fireEvent.click(screen.getByRole('button', { name: /confirmar importação/i }));
+    await screen.findByText('Importação concluída');
+    expect(screen.getByText(/viraram regra para o futuro/i)).toBeInTheDocument();
+    expect(screen.getByText(/não tem categoria equivalente/i)).toBeInTheDocument();
+    expect(screen.getByText(/não foi possível salvar/i)).toBeInTheDocument();
+  });
 });
