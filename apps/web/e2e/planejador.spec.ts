@@ -268,24 +268,23 @@ const SEEDED_PLANNING_STATE = JSON.stringify({
   ],
 });
 
+// Alinhado ao relógio congelado em setupUnifiedStores (2026-09-03).
+const FROZEN_MONTH_KEY = "2026-09";
 function currentMonthKey() {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  return FROZEN_MONTH_KEY;
 }
 
 async function setupUnifiedStores(page: Page) {
   const mutations: string[] = [];
+  // Relógio congelado: `/planning` e `/planejador` filtram série pelo mês
+  // corrente (`new Date()`); sem congelar, o CI em UTC vira o mês antes do
+  // Brasil e a página fica vazia (regra #22).
+  await page.clock.setFixedTime(new Date("2026-09-03T12:00:00.000Z"));
   await page
     .context()
     .addCookies([
       { name: "rf_token", value: "test", url: "http://localhost:3013" },
     ]);
-  await page.addInitScript(
-    ([key, value]) => {
-      window.localStorage.setItem(key, value);
-    },
-    [PLANNING_STORAGE_KEY, SEEDED_PLANNING_STATE],
-  );
   await page.route("http://localhost:3001/**", async (route) => {
     const request = route.request();
     const method = request.method();
@@ -354,22 +353,37 @@ async function readPlanningStore(page: Page) {
   );
 }
 
+// Semeia o store do "Orçamento futuro" UMA ÚNICA VEZ. A origem precisa existir
+// antes do `localStorage.setItem`, então navega primeiro, escreve via
+// `page.evaluate` e recarrega uma vez para o app hidratar. NENHUM
+// `addInitScript` — se ele ressemeasse a cada navegação/reload, a comparação
+// byte a byte seria falso-verde (todo reload sobrescreveria de volta o seed).
+async function seedPlanningStoreOnce(page: Page) {
+  await page.goto(`/projects/${projectId}/planning`);
+  await page.evaluate(
+    ([key, value]) => window.localStorage.setItem(key, value),
+    [PLANNING_STORAGE_KEY, SEEDED_PLANNING_STATE] as const,
+  );
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: /Orçamento futuro/i }),
+  ).toBeVisible();
+  const seeded = await readPlanningStore(page);
+  expect(seeded).toContain("Cenário QA rf454");
+  expect(seeded).toContain("sc-rf454");
+  return seeded as string;
+}
+
 test.describe("Orçamento futuro × Compras e cenários — stores isolados", () => {
   test("navegar entre os dois stores não dispara mutation nem altera o localStorage do outro", async ({
     page,
   }) => {
     const mutations = await setupUnifiedStores(page);
 
-    // 1. Orçamento futuro (localStorage) — semeado via addInitScript.
-    await page.goto(`/projects/${projectId}/planning`);
-    await expect(
-      page.getByRole("heading", { name: /Orçamento futuro/i }),
-    ).toBeVisible();
-    const before = await readPlanningStore(page);
-    expect(before).toContain("Cenário QA rf454");
-    expect(before).toContain("sc-rf454");
+    // 1. Seed único do Orçamento futuro (localStorage).
+    const before = await seedPlanningStoreOnce(page);
 
-    // 2. Compras e cenários (server store).
+    // 2. Compras e cenários (server store) — sem reseed.
     await page.goto(`/projects/${projectId}/planejador`);
     await expect(
       page.getByRole("heading", { name: "Compras e cenários" }),
@@ -379,7 +393,7 @@ test.describe("Orçamento futuro × Compras e cenários — stores isolados", ()
       page.getByRole("heading", { name: "Compras e cenários" }),
     ).toBeVisible();
 
-    // 3. Volta para o Orçamento futuro + reload.
+    // 3. Volta para o Orçamento futuro + reload — sem reseed.
     await page.goto(`/projects/${projectId}/planning`);
     await expect(
       page.getByRole("heading", { name: /Orçamento futuro/i }),
@@ -392,6 +406,7 @@ test.describe("Orçamento futuro × Compras e cenários — stores isolados", ()
 
     // 4. localStorage do Orçamento futuro intacto byte a byte.
     expect(after).toBe(before);
+    expect(JSON.parse(after as string)).toEqual(JSON.parse(before));
 
     // 5. Nenhuma mutation de rede durante a navegação — e em especial nada
     // que toque o store de Compras e cenários.
@@ -399,5 +414,41 @@ test.describe("Orçamento futuro × Compras e cenários — stores isolados", ()
       mutations.filter((m) => /planejador|purchase-scenario|scenario/i.test(m)),
     ).toEqual([]);
     expect(mutations).toEqual([]);
+  });
+
+  test("CONTROLE: escrita indevida no store quebra a comparação (prova que o assert tem dente)", async ({
+    page,
+  }) => {
+    await setupUnifiedStores(page);
+
+    // Mesmo seed único do teste acima.
+    const before = await seedPlanningStoreOnce(page);
+
+    // Navega para Compras e cenários e, já lá, simula EXATAMENTE o que um
+    // vazamento de store faria: uma escrita cruzada na chave do outro store.
+    await page.goto(`/projects/${projectId}/planejador`);
+    await expect(
+      page.getByRole("heading", { name: "Compras e cenários" }),
+    ).toBeVisible();
+    await page.evaluate(
+      (key) =>
+        window.localStorage.setItem(key, JSON.stringify({ tampered: true })),
+      PLANNING_STORAGE_KEY,
+    );
+
+    // Volta para o Orçamento futuro + reload, sem reseed.
+    await page.goto(`/projects/${projectId}/planning`);
+    await expect(
+      page.getByRole("heading", { name: /Orçamento futuro/i }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: /Orçamento futuro/i }),
+    ).toBeVisible();
+    const after = await readPlanningStore(page);
+
+    // A MESMA asserção do teste 1 agora DEVE falhar — logo, ela tem dente:
+    // uma regressão real de contaminação de store deixa o teste vermelho.
+    expect(after).not.toBe(before);
   });
 });
