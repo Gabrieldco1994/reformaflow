@@ -563,6 +563,9 @@ export class CreditCardService {
     let settled = 0;
     let skipped = 0;
     let linked = 0;
+    // AC#7 (#582): overrides explícitos de linhas efetivamente criadas — viram
+    // regra MANUAL tenant-scoped depois do loop (fora de qualquer tx).
+    const learnEntries: Array<{ merchant: string; expenseType: string }> = [];
     for (const tx of toProcess) {
       const d = decisionByExt.get(tx.externalId);
       // Aplica overrides antes de criar
@@ -585,6 +588,17 @@ export class CreditCardService {
         if (result.settled) settled++;
         if (result.inserted) inserted++;
 
+        const catOverride = d?.overrides?.category;
+        if (
+          result.inserted &&
+          result.expenseId &&
+          catOverride &&
+          catOverride !== 'MOVIMENTACAO_INTERNA' &&
+          catOverride !== 'PAGAMENTO_FATURA_CARTAO'
+        ) {
+          learnEntries.push({ merchant: adjustedTx.merchant, expenseType: catOverride });
+        }
+
         // Aplica link cross-project se solicitado — liquida a parcela da fatura
         // (current) sobre a parcela correspondente do alvo, com o valor real.
         if (d?.action === 'link' && d.linkToExpenseId && result.expenseId) {
@@ -604,6 +618,12 @@ export class CreditCardService {
         console.warn(`[credit-card-import] tx skipped (${tx.externalId.slice(0, 8)}):`, (err as Error).message);
       }
     }
+
+    const {
+      learned: rulesLearned,
+      skippedNoMapping: rulesSkippedNoMapping,
+      failed: rulesLearnFailed,
+    } = await this.merchantClassifier.learnFromImportOverrides(learnEntries, tenantId);
 
     await this.prisma.creditCardStatementImport.update({
       where: { id: importRecord.id },
@@ -630,6 +650,9 @@ export class CreditCardService {
       settled,
       skipped: skipped + userSkipped,
       linked,
+      rulesLearned,
+      rulesSkippedNoMapping,
+      rulesLearnFailed,
     };
   }
 

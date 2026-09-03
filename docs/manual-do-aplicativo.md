@@ -899,6 +899,14 @@ Gestão dos cartões de crédito.
   lote não roda (**indisponível**) ou não termina (**não concluída**), a prévia
   mostra um aviso âmbar pedindo para revisar as categorias antes de confirmar —
   a importação não é bloqueada, as linhas caem na sugestão por palavra-chave.
+- **"Corrija uma vez":** quando você troca a categoria de uma linha durante a
+  importação de fatura ou extrato, essa correção vira uma **regra** para aquele
+  estabelecimento — na próxima importação ele já cai categorizado sozinho (chip
+  "Regra"). Se o tipo de projeto não tem uma categoria equivalente, a correção
+  ainda é aplicada àquela linha, mas não vira regra. O painel de resultado da
+  importação informa quantas correções viraram regra, quantas não puderam virar
+  (sem categoria equivalente) e, se alguma regra falhou ao salvar, quantas — a
+  importação em si não falha por isso, basta recategorizar para tentar de novo.
 - **Valor editável na prévia aceita estorno/crédito negativo** (ex.: `-45,00`):
   o campo de valor da linha da fatura preserva o sinal de menos ao editar —
   diferente da prévia de extrato de conta, que sempre trata o valor como

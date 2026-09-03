@@ -371,6 +371,19 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
           </p>
         )}
         {!!result.aiReclassified && <p><strong>{result.aiReclassified}</strong> reclassificadas pela IA</p>}
+        {!!result.rulesLearned && (
+          <p><strong>{result.rulesLearned}</strong> correção(ões) viraram regra para o futuro</p>
+        )}
+        {!!result.rulesSkippedNoMapping && (
+          <p className="text-gray-500">
+            <strong>{result.rulesSkippedNoMapping}</strong> correção(ões) foram aplicadas à linha, mas não viraram regra: esse tipo não tem categoria equivalente.
+          </p>
+        )}
+        {!!result.rulesLearnFailed && (
+          <p className="text-amber-700">
+            A importação foi concluída, mas não foi possível salvar <strong>{result.rulesLearnFailed}</strong> regra(s). Recategorize essas linhas para tentar de novo — a importação em si não falhou.
+          </p>
+        )}
         {!!result.unparsedItems?.length && (
           <div className="text-left mt-2 mx-auto max-w-md rounded-lg border border-amber-200 bg-amber-50 p-3">
             <p className="text-sm font-medium text-amber-800">

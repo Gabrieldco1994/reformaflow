@@ -156,4 +156,19 @@ describe('ImportBankStatementModal — aviso de classificação + chip de origem
     const changed = decisions.find((d) => d.externalId === 't-ia');
     expect(changed?.overrides?.category).toBe('TRANSPORTE');
   });
+
+  it('painel de resultado reporta rulesLearned / skippedNoMapping / learnFailed', async () => {
+    await loadPreview('ok');
+    apiUploadMock.mockResolvedValueOnce({
+      ...COMMIT,
+      rulesLearned: 2,
+      rulesSkippedNoMapping: 1,
+      rulesLearnFailed: 3,
+    });
+    fireEvent.click(screen.getByRole('button', { name: /confirmar importação/i }));
+    await screen.findByText('Importação concluída');
+    expect(screen.getByText(/viraram regra para o futuro/i)).toBeInTheDocument();
+    expect(screen.getByText(/não tem categoria equivalente/i)).toBeInTheDocument();
+    expect(screen.getByText(/não foi possível salvar/i)).toBeInTheDocument();
+  });
 });
