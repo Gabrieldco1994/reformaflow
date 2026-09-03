@@ -137,10 +137,19 @@ test.describe('U4 AC3: query preservada e deep-links de cartão acionáveis', ()
     await page.clock.setFixedTime(new Date('2026-08-21T12:00:00.000Z'));
     await mockApi(page, baseURL!);
     let cardsGetCount = 0;
+    let cardPatched = false;
     await page.route('http://localhost:3001/**', async (route) => {
-      const path = new URL(route.request().url()).pathname;
+      const req = route.request();
+      const path = new URL(req.url()).pathname;
       if (
-        route.request().method() === 'GET' &&
+        req.method() === 'PATCH' &&
+        path === `/projects/${PESSOAL_ID}/credit-cards/c-4242`
+      ) {
+        cardPatched = true;
+        return route.fallback();
+      }
+      if (
+        req.method() === 'GET' &&
         (path === `/projects/${PESSOAL_ID}/credit-cards` || path === '/tenant/credit-cards')
       ) {
         cardsGetCount += 1;
@@ -155,9 +164,21 @@ test.describe('U4 AC3: query preservada e deep-links de cartão acionáveis', ()
     await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/credit-cards`), { timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Editar cartão' })).toBeVisible();
     await expect(page.locator('input.font-mono')).toHaveValue('4242');
+    // Deixa a carga inicial da lista assentar antes de medir. Sob React
+    // StrictMode (dev) o efeito de mount roda duas vezes → 1 ou 2 GETs aqui;
+    // em produção, 1. Não fixamos o número: só exigimos que a lista carregou.
+    await expect.poll(() => cardsGetCount).toBeGreaterThanOrEqual(1);
+    const before = cardsGetCount;
+
     await page.getByRole('button', { name: 'Salvar', exact: true }).click();
-    await expect.poll(() => cardsGetCount).toBe(2);
+
+    // O save disparou o PATCH do cartão certo...
+    await expect.poll(() => cardPatched).toBe(true);
+    // ...e ao menos um refresh da lista depois dele (invalidação legítima pós-save).
+    await expect.poll(() => cardsGetCount).toBeGreaterThan(before);
+
     await page.waitForTimeout(100);
+    // Query preservada e modal fechado.
     await expect(page).toHaveURL(
       `/projects/${PESSOAL_ID}/credit-cards?focus=closingDay&last4=4242`,
     );
