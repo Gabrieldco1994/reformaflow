@@ -3,15 +3,29 @@ import { MerchantClassifierService } from './merchant-classifier.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
- * RED — issue #582 REOPENED, defect #4: `callGemini` zips the provider response by
- * ARRAY POSITION with no per-element schema check, no echo-back merchant check, and
- * never inspects `candidates[0].finishReason`.
+ * RED — issue #582 REOPENED, revision 2 (PO review): the Gemini-response trust
+ * model is INDEX-BASED (1-based `i`) with a SPLIT GATE, replacing echo-by-name.
  *
- * Target (INV-3 / INV-4): a chunk's response is applied (Map + DB) only if it is
- * WHOLLY trustworthy — same length, every element schema-valid, every element's
- * echoed `merchant` aligned by normalized key to the sent merchant at that index,
- * and `finishReason === 'STOP'`. Otherwise: `status: 'error'` and PERSIST NOTHING
- * for that chunk (no correct rows, no incorrect rows).
+ *   STRUCTURAL failure  -> reject the whole chunk, persist nothing ($transaction
+ *                          never opens), status 'error', subsequent chunks still run.
+ *     - finishReason !== 'STOP' (exact; 'stop', 'MAX_TOKENS', undefined all reject)
+ *     - parsed not an array
+ *     - the multiset of `i` is not exactly {1..N}: missing / duplicate / out-of-range
+ *       `i`, non-integer `i`, or length != N
+ *   ELEMENT softness    -> drop only that line, keep the rest aligned by `i`; batch
+ *                          marked incomplete (status 'error'), surviving lines persist.
+ *     - element not an object / no usable `category`
+ *     - `category` still off-taxonomy AFTER normalization (trim + casefold + NFD)
+ *   NOT a failure at all:
+ *     - `category` with casing/accents/whitespace -> normalized, matched, canonicalized
+ *     - `confidence` as a numeric string "0.95" -> sanitizeConfidence parses it
+ *     - response reordered but with a complete, correct `i` set -> accepted, remapped
+ *
+ * `callGemini` no longer requests / requires a `merchant` field. Alignment to the
+ * sent merchant is `slice[i - 1]`.
+ *
+ * These assertions FAIL against 8603bde0 (echo-by-name model: every element needs a
+ * `merchant` string, any off-taxonomy element rejects the whole chunk, no `i`).
  */
 interface Row {
   merchantKey: string;
@@ -45,207 +59,165 @@ async function buildService(prisma: ReturnType<typeof buildPrismaMock>) {
   return svc;
 }
 
-function geminiResponse(items: unknown, ...finishReasonArg: [] | [string | undefined]) {
-  // Sem 2º argumento → default 'STOP'. Com 2º argumento explícito `undefined` →
-  // `finishReason` OMITIDO do candidate (era mascarado pelo default de parâmetro,
-  // que transforma `f(x, undefined)` no default — o caso "missing finishReason"
-  // ficava impossível de exercer).
-  const finishReason = finishReasonArg.length === 0 ? 'STOP' : finishReasonArg[0];
+function geminiResponse(items: unknown, finishReason: string | null = 'STOP') {
   const candidate: Record<string, unknown> = {
     content: { parts: [{ text: typeof items === 'string' ? items : JSON.stringify(items) }] },
   };
-  if (finishReason !== undefined) candidate.finishReason = finishReason;
+  if (finishReason !== null) candidate.finishReason = finishReason;
   return { ok: true, json: async () => ({ candidates: [candidate] }) } as unknown as Response;
 }
 
-function expectNothingPersisted(prisma: ReturnType<typeof buildPrismaMock>) {
-  expect(prisma.merchantCategory.createMany).not.toHaveBeenCalled();
-  expect(prisma.merchantCategory.update).not.toHaveBeenCalled();
+function createdRows(prisma: ReturnType<typeof buildPrismaMock>) {
+  return prisma.merchantCategory.createMany.mock.calls.flatMap(
+    (c) => (c[0] as { data: Array<{ merchantKey: string; category: string; confidence: number }> }).data,
+  );
 }
 
-describe('classifyForImport — Gemini response must be trustworthy or the chunk is dropped (#582 reopen)', () => {
+describe('classifyForImport — index-based Gemini trust, split gate (#582 reopen rev2)', () => {
   const originalFetch = global.fetch;
   afterEach(() => {
     global.fetch = originalFetch;
     jest.restoreAllMocks();
   });
 
-  it('DEFECT #4 reorder: same items in shuffled order → status error, no row written to the wrong merchant', async () => {
+  it('accepts an in-order indexed response with NO merchant field; persists the right keys', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       geminiResponse([
-        { merchant: 'Beta Shop', category: 'saúde', subcategory: 'farmacia', confidence: 0.95 },
-        { merchant: 'Alpha Store', category: 'transporte', subcategory: 'app', confidence: 0.95 },
+        { i: 1, category: 'transporte', subcategory: 'app', confidence: 0.95 },
+        { i: 2, category: 'saúde', subcategory: 'farmacia', confidence: 0.9 },
       ]),
     ) as typeof fetch;
     const prisma = buildPrismaMock([]);
     const svc = await buildService(prisma);
 
-    const { classifications, status } = await svc.classifyForImport(
-      ['Alpha Store', 'Beta Shop'],
-      'tenant-1',
-    );
-
-    expect(status).toBe('error');
-    // today the code zips by position: 'alpha store' would be persisted as 'saúde'
-    // and 'beta shop' as 'transporte' — both WRONG — and status would be 'ok'.
-    expect(classifications.has('alpha store')).toBe(false);
-    expect(classifications.has('beta shop')).toBe(false);
-    expectNothingPersisted(prisma);
-    // whole chunk rejected before any write is attempted
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('DEFECT #4 short response: 4 items for 5 pending → status error, zero AI rows for the chunk', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      geminiResponse([
-        { merchant: 'Um', category: 'transporte', confidence: 0.9 },
-        { merchant: 'Dois', category: 'transporte', confidence: 0.9 },
-        { merchant: 'Tres', category: 'transporte', confidence: 0.9 },
-        { merchant: 'Quatro', category: 'transporte', confidence: 0.9 },
-      ]),
-    ) as typeof fetch;
-    const prisma = buildPrismaMock([]);
-    const svc = await buildService(prisma);
-
-    const { classifications, status } = await svc.classifyForImport(
-      ['Um', 'Dois', 'Tres', 'Quatro', 'Cinco'],
-      'tenant-1',
-    );
-
-    expect(status).toBe('error');
-    for (const k of ['um', 'dois', 'tres', 'quatro', 'cinco']) {
-      expect(classifications.has(k)).toBe(false);
-    }
-    expectNothingPersisted(prisma);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('DEFECT #4 schema garbage: element missing `category` → status error, nothing persisted', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      geminiResponse([
-        { merchant: 'Alpha Store', category: 'transporte', confidence: 0.9 },
-        { foo: 1 },
-      ]),
-    ) as typeof fetch;
-    const prisma = buildPrismaMock([]);
-    const svc = await buildService(prisma);
-
-    const { classifications, status } = await svc.classifyForImport(
-      ['Alpha Store', 'Beta Shop'],
-      'tenant-1',
-    );
-
-    expect(status).toBe('error');
-    expect(classifications.has('alpha store')).toBe(false);
-    expect(classifications.has('beta shop')).toBe(false);
-    expectNothingPersisted(prisma);
-  });
-
-  it('DEFECT #4 off-taxonomy category is a schema violation (not silently coerced to "outros")', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      geminiResponse([
-        { merchant: 'Alpha Store', category: 'transporte', confidence: 0.9 },
-        { merchant: 'Beta Shop', category: 'not-a-real-category', confidence: 0.9 },
-      ]),
-    ) as typeof fetch;
-    const prisma = buildPrismaMock([]);
-    const svc = await buildService(prisma);
-
-    const { classifications, status } = await svc.classifyForImport(
-      ['Alpha Store', 'Beta Shop'],
-      'tenant-1',
-    );
-
-    expect(status).toBe('error');
-    expect(classifications.has('alpha store')).toBe(false);
-    expect(classifications.has('beta shop')).toBe(false);
-    expectNothingPersisted(prisma);
-  });
-
-  it('DEFECT #4 finishReason MAX_TOKENS with parseable, aligned JSON → untrustworthy, status error, nothing persisted', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      geminiResponse(
-        [
-          { merchant: 'Alpha Store', category: 'transporte', confidence: 0.95 },
-          { merchant: 'Beta Shop', category: 'saúde', confidence: 0.95 },
-        ],
-        'MAX_TOKENS',
-      ),
-    ) as typeof fetch;
-    const prisma = buildPrismaMock([]);
-    const svc = await buildService(prisma);
-
-    const { classifications, status } = await svc.classifyForImport(
-      ['Alpha Store', 'Beta Shop'],
-      'tenant-1',
-    );
-
-    expect(status).toBe('error');
-    expect(classifications.has('alpha store')).toBe(false);
-    expect(classifications.has('beta shop')).toBe(false);
-    expectNothingPersisted(prisma);
-  });
-
-  it('DEFECT #4 missing finishReason is treated as untrustworthy', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      geminiResponse(
-        [
-          { merchant: 'Alpha Store', category: 'transporte', confidence: 0.95 },
-          { merchant: 'Beta Shop', category: 'saúde', confidence: 0.95 },
-        ],
-        undefined,
-      ),
-    ) as typeof fetch;
-    const prisma = buildPrismaMock([]);
-    const svc = await buildService(prisma);
-
-    const { status } = await svc.classifyForImport(['Alpha Store', 'Beta Shop'], 'tenant-1');
-
-    expect(status).toBe('error');
-    expectNothingPersisted(prisma);
-  });
-
-  it('regression: a clean, in-order, finishReason:STOP response persists AI rows and returns status ok', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      geminiResponse(
-        [
-          { merchant: 'Alpha Store', category: 'transporte', subcategory: 'app', confidence: 0.95 },
-          { merchant: 'Beta Shop', category: 'saúde', subcategory: 'farmacia', confidence: 0.91 },
-        ],
-        'STOP',
-      ),
-    ) as typeof fetch;
-    const prisma = buildPrismaMock([]);
-    const svc = await buildService(prisma);
-
-    const { classifications, status } = await svc.classifyForImport(
-      ['Alpha Store', 'Beta Shop'],
-      'tenant-1',
-    );
+    const { classifications, status } = await svc.classifyForImport(['Alpha Store', 'Beta Shop'], 'tenant-1');
 
     expect(status).toBe('ok');
-    expect(classifications.get('alpha store')).toEqual({
-      category: 'transporte',
-      source: 'ia',
-      confidence: 0.95,
-    });
-    expect(classifications.get('beta shop')).toEqual({
-      category: 'saúde',
-      source: 'ia',
-      confidence: 0.91,
-    });
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.merchantCategory.createMany).toHaveBeenCalledTimes(1);
-    const created = prisma.merchantCategory.createMany.mock.calls[0][0].data as Array<{
-      merchantKey: string;
-      category: string;
-      source: string;
-    }>;
-    expect(created).toEqual(
+    expect(classifications.get('alpha store')).toEqual({ category: 'transporte', source: 'ia', confidence: 0.95 });
+    expect(classifications.get('beta shop')).toEqual({ category: 'saúde', source: 'ia', confidence: 0.9 });
+    expect(createdRows(prisma)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ merchantKey: 'alpha store', category: 'transporte', source: 'AI' }),
-        expect.objectContaining({ merchantKey: 'beta shop', category: 'saúde', source: 'AI' }),
+        expect.objectContaining({ merchantKey: 'alpha store', category: 'transporte' }),
+        expect.objectContaining({ merchantKey: 'beta shop', category: 'saúde' }),
       ]),
     );
+  });
+
+  it('reorder WITH a complete correct `i` set is accepted and remapped by `i` (not by position)', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      geminiResponse([
+        { i: 2, category: 'saúde', confidence: 0.9 },
+        { i: 1, category: 'transporte', confidence: 0.95 },
+      ]),
+    ) as typeof fetch;
+    const prisma = buildPrismaMock([]);
+    const svc = await buildService(prisma);
+
+    const { classifications, status } = await svc.classifyForImport(['Alpha Store', 'Beta Shop'], 'tenant-1');
+
+    expect(status).toBe('ok');
+    expect(classifications.get('alpha store')).toEqual({ category: 'transporte', source: 'ia', confidence: 0.95 });
+    expect(classifications.get('beta shop')).toEqual({ category: 'saúde', source: 'ia', confidence: 0.9 });
+  });
+
+  describe('structural gate — reject the whole chunk, persist nothing', () => {
+    const cases: Array<[string, unknown, string | null]> = [
+      ['missing `i` on one element', [{ i: 1, category: 'transporte', confidence: 0.9 }, { category: 'saúde', confidence: 0.9 }], 'STOP'],
+      ['duplicate `i`', [{ i: 1, category: 'transporte', confidence: 0.9 }, { i: 1, category: 'saúde', confidence: 0.9 }], 'STOP'],
+      ['`i` out of range', [{ i: 1, category: 'transporte', confidence: 0.9 }, { i: 5, category: 'saúde', confidence: 0.9 }], 'STOP'],
+      ['non-integer `i`', [{ i: 1, category: 'transporte', confidence: 0.9 }, { i: 1.5, category: 'saúde', confidence: 0.9 }], 'STOP'],
+      ['length != N (short)', [{ i: 1, category: 'transporte', confidence: 0.9 }], 'STOP'],
+      ['length != N (long)', [{ i: 1, category: 'transporte', confidence: 0.9 }, { i: 2, category: 'saúde', confidence: 0.9 }, { i: 3, category: 'lazer', confidence: 0.9 }], 'STOP'],
+      ['finishReason MAX_TOKENS', [{ i: 1, category: 'transporte', confidence: 0.9 }, { i: 2, category: 'saúde', confidence: 0.9 }], 'MAX_TOKENS'],
+      ['finishReason wrong casing "stop"', [{ i: 1, category: 'transporte', confidence: 0.9 }, { i: 2, category: 'saúde', confidence: 0.9 }], 'stop'],
+      ['finishReason missing', [{ i: 1, category: 'transporte', confidence: 0.9 }, { i: 2, category: 'saúde', confidence: 0.9 }], null],
+      ['parsed not an array', '{}', 'STOP'],
+    ];
+    for (const [name, items, finishReason] of cases) {
+      it(name, async () => {
+        global.fetch = jest.fn().mockResolvedValue(geminiResponse(items, finishReason)) as typeof fetch;
+        const prisma = buildPrismaMock([]);
+        const svc = await buildService(prisma);
+
+        const { classifications, status } = await svc.classifyForImport(['Alpha Store', 'Beta Shop'], 'tenant-1');
+
+        expect(status).toBe('error');
+        expect(classifications.has('alpha store')).toBe(false);
+        expect(classifications.has('beta shop')).toBe(false);
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(prisma.merchantCategory.createMany).not.toHaveBeenCalled();
+      });
+    }
+  });
+
+  it('element softness: an off-taxonomy category (even after normalization) drops ONLY that line', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      geminiResponse([
+        { i: 1, category: 'transporte', confidence: 0.9 },
+        { i: 2, category: 'crypto-bananas', confidence: 0.9 },
+      ]),
+    ) as typeof fetch;
+    const prisma = buildPrismaMock([]);
+    const svc = await buildService(prisma);
+
+    const { classifications, status } = await svc.classifyForImport(['Alpha Store', 'Beta Shop'], 'tenant-1');
+
+    // dropped line -> batch incomplete -> status error, but line 1 survives and persists
+    expect(status).toBe('error');
+    expect(classifications.get('alpha store')).toEqual({ category: 'transporte', source: 'ia', confidence: 0.9 });
+    expect(classifications.has('beta shop')).toBe(false);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(createdRows(prisma)).toEqual([expect.objectContaining({ merchantKey: 'alpha store', category: 'transporte' })]);
+  });
+
+  it('element softness: a malformed element (no category) drops only that line', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      geminiResponse([
+        { i: 1, category: 'transporte', confidence: 0.9 },
+        { i: 2, foo: 1 },
+      ]),
+    ) as typeof fetch;
+    const prisma = buildPrismaMock([]);
+    const svc = await buildService(prisma);
+
+    const { classifications, status } = await svc.classifyForImport(['Alpha Store', 'Beta Shop'], 'tenant-1');
+
+    expect(status).toBe('error');
+    expect(classifications.get('alpha store')).toEqual({ category: 'transporte', source: 'ia', confidence: 0.9 });
+    expect(classifications.has('beta shop')).toBe(false);
+  });
+
+  it('G3: category with casing / accent / trailing space is normalized and canonicalized, not dropped', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      geminiResponse([
+        { i: 1, category: 'Transporte', confidence: 0.9 },
+        { i: 2, category: 'Saúde ', confidence: 0.9 },
+      ]),
+    ) as typeof fetch;
+    const prisma = buildPrismaMock([]);
+    const svc = await buildService(prisma);
+
+    const { classifications, status } = await svc.classifyForImport(['Alpha Store', 'Beta Shop'], 'tenant-1');
+
+    expect(status).toBe('ok');
+    expect(classifications.get('alpha store')).toEqual({ category: 'transporte', source: 'ia', confidence: 0.9 });
+    expect(classifications.get('beta shop')).toEqual({ category: 'saúde', source: 'ia', confidence: 0.9 });
+  });
+
+  it('G2: confidence as a numeric string "0.95" is sanitized, the line survives with the parsed value', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      geminiResponse([
+        { i: 1, category: 'transporte', confidence: '0.95' },
+        { i: 2, category: 'saúde', confidence: 0.9 },
+      ]),
+    ) as typeof fetch;
+    const prisma = buildPrismaMock([]);
+    const svc = await buildService(prisma);
+
+    const { classifications, status } = await svc.classifyForImport(['Alpha Store', 'Beta Shop'], 'tenant-1');
+
+    expect(status).toBe('ok');
+    expect(classifications.get('alpha store')).toEqual({ category: 'transporte', source: 'ia', confidence: 0.95 });
+    expect(classifications.get('beta shop')).toEqual({ category: 'saúde', source: 'ia', confidence: 0.9 });
   });
 });
