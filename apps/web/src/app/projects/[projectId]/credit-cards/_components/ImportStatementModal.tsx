@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import type { CardRow, PreviewResult, CommitResult, PreviewTx } from '../_types';
 import { PreviewTxRow } from './PreviewTxRow';
+import { ImportClassificationNotice } from '@/components/import/ImportClassificationNotice';
 
 interface Props {
   projectId: string;
@@ -189,6 +190,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
 
           {preview && (
             <div className="mt-4">
+              <ImportClassificationNotice status={preview.classificationStatus} />
               <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-3 text-sm">
                 <div>
                   <strong>{preview.total}</strong> transações ·

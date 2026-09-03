@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import type { BankAccountRow, BankPreviewResult, BankCommitResult } from '../_types';
 import { BankPreviewTxRow } from './BankPreviewTxRow';
+import { ImportClassificationNotice } from '@/components/import/ImportClassificationNotice';
 
 interface Props {
   projectId: string;
@@ -275,6 +276,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                     <span>{preview.warning.message}</span>
                   </div>
                 )}
+                <ImportClassificationNotice status={preview.classificationStatus} />
                 <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-3 text-sm">
                   <div>
                     <strong>{preview.total}</strong> transações ·
