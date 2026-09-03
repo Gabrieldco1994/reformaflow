@@ -3,21 +3,10 @@
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { Trash2, Link2, RotateCcw, Check, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
-import { tipoLabel } from '@/lib/expense-options';
 import type { BankPreviewTx, BankCrossProjectMatch, BankCardCandidate } from '../_types';
 import type { BankImportDecision, BankTxState } from './ImportBankStatementModal';
 import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
-
-/**
- * Sentinelas de crédito do preview de extrato que não são `ExpenseType`
- * (`fastClassify` devolve uma delas para toda entrada). Só o rótulo — não é
- * taxonomia nova; `MOVIMENTACAO_INTERNA` já tem label em `ExpenseTypeLabels`.
- */
-const LEGACY_CATEGORY_LABEL: Record<string, string> = { RECEITA: 'Receita' };
-
-function categoryLabel(value: string): string {
-  return LEGACY_CATEGORY_LABEL[value] ?? tipoLabel(value);
-}
+import { CREDIT_CATEGORIES, DEBIT_CATEGORIES, categoryLabel } from '../_lib/import-categories';
 
 /** "2026-08" → "ago/2026". */
 function formatDueMonth(dueMonth: string): string {
@@ -54,38 +43,6 @@ function dedupeByCard(
   }
   return out;
 }
-
-const DEBIT_CATEGORIES = [
-  { value: 'MORADIA', label: 'Moradia' },
-  { value: 'ALIMENTACAO', label: 'Alimentação' },
-  { value: 'TRANSPORTE', label: 'Transporte' },
-  { value: 'SAUDE', label: 'Saúde' },
-  { value: 'EDUCACAO', label: 'Educação' },
-  { value: 'LAZER', label: 'Lazer' },
-  { value: 'BELEZA', label: 'Beleza' },
-  { value: 'PETS', label: 'Pets' },
-  { value: 'SUPERMERCADO', label: 'Supermercado' },
-  { value: 'FAXINEIRA', label: 'Faxineira' },
-  { value: 'AJUDA', label: 'Ajuda' },
-  { value: 'REEMBOLSO_MEDICO', label: 'Reembolso Médico' },
-  { value: 'ACADEMIA', label: 'Academia' },
-  { value: 'ASSINATURAS', label: 'Assinaturas' },
-  { value: 'INVESTIMENTOS', label: 'Investimentos' },
-  { value: 'SEGUROS_PESSOAIS', label: 'Seguros' },
-  { value: 'IMPREVISTOS', label: 'Imprevistos' },
-  { value: 'PAGAMENTO_FATURA_CARTAO', label: 'Pagamento de fatura' },
-  { value: 'OUTROS', label: 'Outros' },
-];
-
-const CREDIT_CATEGORIES = [
-  { value: 'SALARIO', label: 'Salário' },
-  { value: 'BONUS', label: 'Bônus / 13º' },
-  { value: 'FREELANCE', label: 'Freelance / PJ' },
-  { value: 'RENDIMENTO_INVESTIMENTO', label: 'Rendimento' },
-  { value: 'REEMBOLSO', label: 'Reembolso' },
-  { value: 'TRANSFERENCIA', label: 'Transferência' },
-  { value: 'OUTROS', label: 'Outros' },
-];
 
 interface RowProps {
   tx: BankPreviewTx;

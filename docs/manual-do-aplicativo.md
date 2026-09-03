@@ -977,10 +977,17 @@ Permite importar um extrato ou fatura sem associar a uma conta cadastrada. O flu
    carregada, o botão "Pré-visualizar" fica desabilitado (reprocessar exige
    escolher o(s) arquivo(s) de novo) e "Restaurar" numa linha excluída volta à
    sugestão automática do sistema, não a um estado vazio — mesmo mecanismo da
-   importação de fatura (§4.7).
+   importação de fatura (§4.7). Cada linha de **despesa** também traz uma
+   categoria pré-selecionada com o mesmo chip de origem — **"Regra"**, **"IA"**
+   ou **"Sugestão automática"** — que some ao trocar a categoria da linha; se a
+   categorização automática do lote estiver **indisponível** ou **não
+   concluída**, aparece o mesmo aviso âmbar de §4.7/§4.8 pedindo revisão antes de
+   confirmar. Recebimentos (crédito de extrato) não recebem categoria.
 4. **Confirmação explícita** — somente ao clicar em **Confirmar importação** os
-   lançamentos são criados. Os registros vão para **Carteira / Sem conta** com os
-   seguintes valores-padrão por origem:
+   lançamentos são criados. Corrigir a categoria de uma linha uma vez a
+   transforma em regra para o futuro (mesmo "corrija uma vez" de §4.7/§4.8), e o
+   resultado informa quantas correções viraram regra. Os registros vão para
+   **Carteira / Sem conta** com os seguintes valores-padrão por origem:
 
    | Origem | Tipo | Status |
    |---|---|---|
