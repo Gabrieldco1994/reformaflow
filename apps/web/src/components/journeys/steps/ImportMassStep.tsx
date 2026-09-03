@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { hasFeature, type ProjectType } from '@reformaflow/domain';
 import { SkipForward, CreditCard, Landmark, Wallet, ArrowRight, ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/contexts/auth-context';
 import ImportStatementModal from '@/app/projects/[projectId]/credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '@/app/projects/[projectId]/bank-accounts/_components/ImportBankStatementModal';
 import ImportWithoutAccountModal from '@/app/projects/[projectId]/bank-accounts/_components/ImportWithoutAccountModal';
@@ -45,7 +47,12 @@ function OptionButton({ icon: Icon, label, onClick }: OptionButtonProps) {
  * ID stale/removido: descarta e volta ao seletor.
  * Fechar modal não reabre em loop.
  */
-export function ImportMassStep({ projectId, onDone, onSkip, onBack, subtitle, canSkip = true, funding }: OnboardingStepProps) {
+export function ImportMassStep({ projectId, projectType, onDone, onSkip, onBack, subtitle, canSkip = true, funding }: OnboardingStepProps) {
+  const { hasModule } = useAuth();
+  // Sem este gate, tipos sem `bankAccounts` (REFORMA/COMPRA/CASA/CARRO/PLANTAS)
+  // disparam GET /tenant/bank-accounts → 403 silencioso (@RequireModule).
+  const canUseBankAccounts =
+    hasFeature(projectType as ProjectType, 'bankAccounts') && hasModule('bankAccounts');
   const { data: cards = [], isLoading: cardsLoading } = useQuery<TenantCard[]>({
     queryKey: ['tenant', 'credit-cards'],
     queryFn: () => api.get('/tenant/credit-cards'),
@@ -55,9 +62,11 @@ export function ImportMassStep({ projectId, onDone, onSkip, onBack, subtitle, ca
     queryKey: ['tenant', 'bank-accounts'],
     queryFn: () => api.get('/tenant/bank-accounts'),
     staleTime: 60_000,
+    enabled: canUseBankAccounts,
   });
 
-  const isLoading = cardsLoading || accountsLoading;
+  // Query desabilitada nunca sai de "loading" (fica pending) — não pode travar o passo.
+  const isLoading = cardsLoading || (canUseBankAccounts && accountsLoading);
 
   const [importType, setImportType] = useState<'fatura' | 'extrato' | 'sem-conta' | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);

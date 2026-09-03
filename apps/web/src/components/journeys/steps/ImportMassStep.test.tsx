@@ -8,6 +8,11 @@ import type { OnboardingFunding } from '../_types';
 const apiGetMock = vi.fn();
 const mockPush = vi.fn();
 
+let mockHasModule = (_slug: string) => true;
+vi.mock('@/contexts/auth-context', () => ({
+  useAuth: () => ({ hasModule: (slug: string) => mockHasModule(slug) }),
+}));
+
 vi.mock('@/lib/api', () => ({
   api: { get: (...args: unknown[]) => apiGetMock(...args) },
 }));
@@ -84,6 +89,7 @@ function defaultProps(overrides = {}) {
 }
 
 beforeEach(() => {
+  mockHasModule = () => true;
   apiGetMock.mockReset();
   apiGetMock.mockImplementation((path: string) => {
     if (path === '/tenant/credit-cards') return Promise.resolve([CARD]);
@@ -208,6 +214,34 @@ describe('ImportMassStep — sem fonte', () => {
     wrap(<ImportMassStep {...defaultProps({ funding: accountFunding })} />);
     await waitFor(() =>
       expect(screen.getByText('Importar sem vincular')).toBeInTheDocument(),
+    );
+  });
+});
+
+describe('ImportMassStep — gate de /tenant/bank-accounts (issue #658)', () => {
+  it('REFORMA: não chama GET /tenant/bank-accounts (403 silencioso), mas ainda renderiza o passo', async () => {
+    apiGetMock.mockResolvedValue([]);
+    wrap(<ImportMassStep {...defaultProps({ projectType: ProjectType.REFORMA })} />);
+    await waitFor(() =>
+      expect(screen.getByText('Importar sem vincular')).toBeInTheDocument(),
+    );
+    expect(apiGetMock).not.toHaveBeenCalledWith('/tenant/bank-accounts');
+  });
+
+  it('PESSOAL sem o módulo bankAccounts liberado: não chama GET /tenant/bank-accounts', async () => {
+    mockHasModule = (slug) => slug !== 'bankAccounts';
+    apiGetMock.mockResolvedValue([]);
+    wrap(<ImportMassStep {...defaultProps()} />);
+    await waitFor(() =>
+      expect(screen.getByText('Importar sem vincular')).toBeInTheDocument(),
+    );
+    expect(apiGetMock).not.toHaveBeenCalledWith('/tenant/bank-accounts');
+  });
+
+  it('PESSOAL com o módulo liberado: chama GET /tenant/bank-accounts', async () => {
+    wrap(<ImportMassStep {...defaultProps({ funding: accountFunding })} />);
+    await waitFor(() =>
+      expect(apiGetMock).toHaveBeenCalledWith('/tenant/bank-accounts'),
     );
   });
 });
