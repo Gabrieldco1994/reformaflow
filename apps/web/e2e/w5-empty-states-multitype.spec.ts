@@ -290,3 +290,97 @@ test.describe('W5 #218 · onboarding REFORMA — passo de despesa não dispara 4
     expect(hits, `403 de /tenant/bank-accounts no onboarding REFORMA: ${hits.join(', ')}`).toEqual([]);
   });
 });
+
+// ─── Cenário 5: ImportMassStep (stepKey `import`) SUMMARY em tipo != PESSOAL ──
+// Exigência do review de #658: o passo de import em massa forçado em SUMMARY
+// para um tipo NÃO-PESSOAL não pode disparar NENHUM GET /tenant/bank-accounts
+// (a query é `enabled: canUseBankAccounts`, e `bankAccounts` é PESSOAL-only nos
+// três mapas). Diferente do cenário 4 (stepKey `expense` → QuickExpenseStep),
+// aqui o componente montado é o próprio `ImportMassStep`, com captura de rede
+// real: zero requisição ao path e zero 403 observado.
+function importJourney(screenKey: string) {
+  return {
+    key: 'w5:onboarding-import',
+    name: 'Onboarding import em massa',
+    active: true,
+    targetScope: 'ALL_PROJECTS',
+    targetProjectType: null,
+    targetProjectId: null,
+    repeatPolicy: 'ALWAYS',
+    allowCrossProjectNavigation: false,
+    steps: [
+      {
+        stepKey: 'import',
+        order: 0,
+        enabled: true,
+        skippable: true,
+        experience: 'SUMMARY',
+        label: 'Importe seus lançamentos de uma vez',
+        subtitle: null,
+        conditionKey: null,
+        conditionUnmetBehavior: 'SKIP',
+        targetProjectType: null,
+      },
+    ],
+    triggers: [
+      { triggerType: 'SCREEN_VISIT', screenKey, actionKey: null, device: 'any', active: true },
+    ],
+  };
+}
+
+test.describe('W5 #658 · ImportMassStep SUMMARY em REFORMA — zero GET /tenant/bank-accounts, zero 403', () => {
+  test('passo `import` renderiza (import de cartão funciona) sem tocar /tenant/bank-accounts', async ({ page, baseURL }) => {
+    const hits: string[] = [];
+    const requests: string[] = [];
+    trap403(page, /\/bank-accounts/, hits);
+    page.on('request', (r) => requests.push(r.url()));
+
+    await mockApi(page, baseURL!, { modules: REFORMA_MODULES });
+    // Cartão presente: a query de credit-cards (NÃO gateada) deve funcionar e o
+    // botão "Fatura do cartão" aparecer, provando que o passo está vivo.
+    await page.route('**/tenant/credit-cards', (route) =>
+      route.fulfill(json([{ id: 'cc1', brand: 'Visa', last4: '4242', nickname: 'Cartão principal' }])),
+    );
+    await page.route('**/journeys/eligible*', (route) => route.fulfill(json([importJourney('expenses')])));
+    await page.route('**/journeys/*/complete', (route) => route.fulfill({ status: 204, body: '' }));
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/projects/${REFORMA_ID}/expenses`);
+
+    const stepPanel = page.locator('[data-journey-step="import"]');
+    await expect(stepPanel).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Fatura do cartão' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Importar sem vincular' })).toBeVisible();
+
+    // Dá tempo de qualquer query do passo disparar.
+    await page.waitForTimeout(600);
+
+    const bankAccountCalls = requests.filter((u) => /tenant\/bank-accounts/.test(u));
+    expect(bankAccountCalls, `GET /tenant/bank-accounts no import REFORMA: ${bankAccountCalls.join(', ')}`).toEqual([]);
+    expect(hits, `403 de bank-accounts no import REFORMA: ${hits.join(', ')}`).toEqual([]);
+  });
+
+  // Espelho: em PESSOAL com o módulo liberado a query DISPARA (200), garantindo
+  // que o gate não desligou o caminho legítimo.
+  test('PESSOAL com bankAccounts liberado: o passo `import` chama GET /tenant/bank-accounts (200, sem 403)', async ({ page, baseURL }) => {
+    const hits: string[] = [];
+    const requests: string[] = [];
+    trap403(page, /\/bank-accounts/, hits);
+    page.on('request', (r) => requests.push(r.url()));
+
+    await mockApi(page, baseURL!); // ALL_MODULES → canBank
+    // PESSOAL: /expenses redireciona ao hub /conta (screenKey `conta`).
+    await page.route('**/journeys/eligible*', (route) => route.fulfill(json([importJourney('conta')])));
+    await page.route('**/journeys/*/complete', (route) => route.fulfill({ status: 204, body: '' }));
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/projects/${PESSOAL_ID}/conta`);
+
+    await expect(page.locator('[data-journey-step="import"]')).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(600);
+
+    const bankAccountCalls = requests.filter((u) => /tenant\/bank-accounts/.test(u));
+    expect(bankAccountCalls.length, 'PESSOAL deveria chamar /tenant/bank-accounts').toBeGreaterThan(0);
+    expect(hits, `403 inesperado em PESSOAL: ${hits.join(', ')}`).toEqual([]);
+  });
+});
