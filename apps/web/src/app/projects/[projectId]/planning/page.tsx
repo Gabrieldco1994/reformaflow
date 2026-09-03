@@ -44,8 +44,8 @@ export default function PlanningPage() {
       <div className="mx-auto w-full max-w-3xl">
         <EmptyState
           icon={CalendarClock}
-          title="Planning indisponível"
-          description="O planning financeiro está disponível apenas para projetos do tipo PESSOAL."
+          title="Orçamento futuro indisponível"
+          description="O Orçamento futuro está disponível apenas para projetos do tipo PESSOAL."
         />
       </div>
     );
@@ -54,13 +54,13 @@ export default function PlanningPage() {
   if (error) {
     return (
       <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        Não foi possível carregar o planning: {error.message}
+        Não foi possível carregar o Orçamento futuro: {error.message}
       </div>
     );
   }
 
   if (isLoading || !assumptions || !summary) {
-    return <div className="text-sm text-darc-velvet/70">Carregando planning...</div>;
+    return <div className="text-sm text-darc-velvet/70">Carregando Orçamento futuro...</div>;
   }
 
   return (

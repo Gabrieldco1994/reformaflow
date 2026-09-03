@@ -75,7 +75,7 @@ export default function PlanningMatrix({
             onClick={() => {
               if (
                 window.confirm(
-                  'Limpar tudo? Isso zera as entradas e todas as despesas de todos os meses deste planning.',
+                  'Limpar tudo? Isso zera as entradas e todas as despesas de todos os meses deste cenário.',
                 )
               ) {
                 onClearAll();

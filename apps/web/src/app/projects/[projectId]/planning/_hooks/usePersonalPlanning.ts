@@ -675,7 +675,7 @@ export function usePersonalPlanning(): UsePersonalPlanningResult {
 
   const createScenario = useCallback(
     (name?: string) => {
-      const scenarioName = name?.trim() || `Planning ${scenarios.length + 1}`;
+      const scenarioName = name?.trim() || `Cenário ${scenarios.length + 1}`;
       // "Novo" nasce ZERADO (nada de herdar os valores do plano ativo — isso é o
       // que "Duplicar" faz). Reaproveita só a grade de meses (mês inicial +
       // quantidade) para o planning aparecer alinhado aos demais.
