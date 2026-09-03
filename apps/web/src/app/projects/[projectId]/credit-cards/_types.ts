@@ -1,3 +1,10 @@
+import type {
+  CategoriaFonte,
+  ImportClassificationStatus,
+} from '@/components/import/ImportClassificationNotice';
+
+export type { CategoriaFonte, ImportClassificationStatus };
+
 export interface CardRow {
   id: string;
   projectId?: string;
@@ -44,6 +51,8 @@ export interface PreviewTx {
   installmentTotal: number | null;
   duplicate: boolean;
   suggestedCategory?: string;
+  /** Origem da categoria sugerida nesta linha (#582 PR-5). `null` = heurístico não casou. */
+  categoriaFonte?: CategoriaFonte | null;
   crossProjectMatches?: CrossProjectMatch[];
   isFuture?: boolean;
 }
@@ -57,6 +66,8 @@ export interface PreviewResult {
   duplicated: number;
   totalAmountCents: number;
   inserted?: number;
+  /** Estado da categorização automática em lote do preview (#582 PR-5). Não bloqueia. */
+  classificationStatus?: ImportClassificationStatus;
 }
 
 export interface CommitResult {

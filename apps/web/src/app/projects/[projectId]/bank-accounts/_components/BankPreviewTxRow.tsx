@@ -3,8 +3,21 @@
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { Trash2, Link2, RotateCcw, Check, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { tipoLabel } from '@/lib/expense-options';
 import type { BankPreviewTx, BankCrossProjectMatch, BankCardCandidate } from '../_types';
 import type { BankImportDecision, BankTxState } from './ImportBankStatementModal';
+import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
+
+/**
+ * Sentinelas de crédito do preview de extrato que não são `ExpenseType`
+ * (`fastClassify` devolve uma delas para toda entrada). Só o rótulo — não é
+ * taxonomia nova; `MOVIMENTACAO_INTERNA` já tem label em `ExpenseTypeLabels`.
+ */
+const LEGACY_CATEGORY_LABEL: Record<string, string> = { RECEITA: 'Receita' };
+
+function categoryLabel(value: string): string {
+  return LEGACY_CATEGORY_LABEL[value] ?? tipoLabel(value);
+}
 
 /** "2026-08" → "ago/2026". */
 function formatDueMonth(dueMonth: string): string {
@@ -89,7 +102,13 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
   const valorCents = state.decision?.overrides?.valorCents ?? Math.abs(tx.amountCents);
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
   const categories = isCredit ? CREDIT_CATEGORIES : DEBIT_CATEGORIES;
+  const categoryOverridden = state.decision?.overrides?.category != null;
   const category = state.decision?.overrides?.category ?? tx.suggestedCategory ?? (isCredit ? 'OUTROS' : 'OUTROS');
+  // O <select> tem lista fixa; um `suggestedCategory` fora dela (ex.: TRANSFERENCIA_TED
+  // vindo de uma regra, RECEITA numa entrada) deixaria o campo em branco — injeta a
+  // opção correspondente para o valor selecionado ficar sempre visível.
+  const knownCategoryValues = new Set(categories.map((c) => c.value));
+  const showDynamicCategoryOption = !!category && !knownCategoryValues.has(category);
   const cardLast4 = state.decision?.overrides?.cardLast4 ?? null;
   // Mostra o seletor sempre que a linha for tratada como pagamento de fatura —
   // seja por detecção do backend (que já sugere a categoria) ou por escolha
@@ -169,10 +188,14 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
             onChange={(e) => setOverride({ category: e.target.value })}
             className="w-full px-2 py-1 border rounded text-sm"
           >
+            {showDynamicCategoryOption && (
+              <option value={category}>{categoryLabel(category)}</option>
+            )}
             {categories.map((c) => (
               <option key={c.value} value={c.value}>{c.label}</option>
             ))}
           </select>
+          {!categoryOverridden && <CategoriaFonteChip fonte={tx.categoriaFonte} />}
         </div>
 
         <div className="flex gap-1">

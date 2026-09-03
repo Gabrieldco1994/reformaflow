@@ -1,3 +1,10 @@
+import type {
+  CategoriaFonte,
+  ImportClassificationStatus,
+} from '@/components/import/ImportClassificationNotice';
+
+export type { CategoriaFonte, ImportClassificationStatus };
+
 export interface BankAccountRow {
   id: string;
   institution: string;
@@ -58,6 +65,8 @@ export interface BankPreviewTx {
   isCredit?: boolean;
   isCardPayment?: boolean;
   suggestedCategory?: string;
+  /** Origem da categoria sugerida nesta linha (#582 PR-4). `null` = heurístico não casou. */
+  categoriaFonte?: CategoriaFonte | null;
   /** Faturas em aberto que este pagamento pode estar quitando (mais provável primeiro). */
   cardCandidates?: BankCardCandidate[];
   /** Cartão detectado sem ambiguidade, quando houve. */
@@ -75,6 +84,8 @@ export interface BankPreviewResult {
   totalDebits?: number;
   totalCredits?: number;
   inserted?: number;
+  /** Estado da categorização automática em lote do preview (#582 PR-4). Não bloqueia. */
+  classificationStatus?: ImportClassificationStatus;
   /** Sinal de que o arquivo parece uma fatura de cartão, não um extrato (Bug A). Não bloqueia. */
   warning?: { code: 'looks_like_card_invoice'; message: string };
 }

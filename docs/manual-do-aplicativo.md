@@ -889,6 +889,16 @@ Gestão dos cartões de crédito.
   **Editar**, **Excluir** (com confirmação).
 - **Importação de fatura:** ao importar, é possível **marcar a despesa planejada
   como paga** (vinculando a importação a ela) ou **excluir itens** da importação.
+- **Categoria sugerida na prévia:** cada linha já vem com uma categoria
+  pré-selecionada e um chip discreto indicando a origem da sugestão — **"Regra"**
+  (regra de categoria já cadastrada), **"IA"** (classificação automática) ou
+  **"Sugestão automática"** (heurística por palavra-chave). O chip some quando
+  você troca a categoria daquela linha. Categorias sugeridas que não estão na
+  lista curta (ex.: *Transferência (TED)*) aparecem mesmo assim, já selecionadas.
+- **Aviso de categorização automática:** quando a classificação automática do
+  lote não roda (**indisponível**) ou não termina (**não concluída**), a prévia
+  mostra um aviso âmbar pedindo para revisar as categorias antes de confirmar —
+  a importação não é bloqueada, as linhas caem na sugestão por palavra-chave.
 - **Valor editável na prévia aceita estorno/crédito negativo** (ex.: `-45,00`):
   o campo de valor da linha da fatura preserva o sinal de menos ao editar —
   diferente da prévia de extrato de conta, que sempre trata o valor como
@@ -934,6 +944,13 @@ visões de Mês/Ano.
     revertido pelo desfazer.
 - Quando há mais de uma conta, o deep-link sem uma conta específica pede uma
   escolha explícita. Um `accountId` inválido mostra erro em vez de editar outra.
+- **Prévia do extrato — categoria e origem da sugestão:** cada lançamento de
+  saída já vem com uma categoria pré-selecionada e um chip de origem — **"Regra"**,
+  **"IA"** ou **"Sugestão automática"** — que some quando você troca a categoria
+  da linha (mesmo comportamento da importação de fatura, §4.7). Se a
+  categorização automática do lote estiver **indisponível** ou **não concluída**,
+  um aviso âmbar pede para revisar as categorias antes de confirmar; a
+  importação segue normalmente com a sugestão por palavra-chave.
 - **Deep-link do cockpit:** o banner de estado degradado leva a
   `/conta?focus=openingBalance`, abrindo a criação, a conta única ou o seletor.
 - Links antigos para `/bank-accounts` continuam compatíveis: redirecionam para

@@ -3,8 +3,10 @@
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import { Trash2, Link2, RotateCcw, Check } from 'lucide-react';
+import { tipoLabel } from '@/lib/expense-options';
 import type { PreviewTx, CrossProjectMatch } from '../_types';
 import type { ImportDecision, TxState } from './ImportStatementModal';
+import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
 
 const PESSOAL_CATEGORIES = [
   { value: 'MORADIA', label: 'Moradia' },
@@ -40,7 +42,12 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
   const matches = tx.crossProjectMatches ?? [];
   const valorCents = state.decision?.overrides?.valorCents ?? tx.amountCents;
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
+  const categoryOverridden = state.decision?.overrides?.category != null;
   const category = state.decision?.overrides?.category ?? tx.suggestedCategory ?? 'OUTROS';
+  // Lista fixa; um `suggestedCategory` fora dela (ex.: TRANSFERENCIA_TED vindo de
+  // uma regra) deixaria o campo em branco — injeta a opção do valor selecionado.
+  const knownCategoryValues = new Set(PESSOAL_CATEGORIES.map((c) => c.value));
+  const showDynamicCategoryOption = !!category && !knownCategoryValues.has(category);
 
   function setOverride(patch: Partial<NonNullable<ImportDecision['overrides']>>) {
     onChange({
@@ -112,10 +119,14 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
             onChange={(e) => setOverride({ category: e.target.value })}
             className="w-full px-2 py-1 border rounded text-sm"
           >
+            {showDynamicCategoryOption && (
+              <option value={category}>{tipoLabel(category)}</option>
+            )}
             {PESSOAL_CATEGORIES.map((c) => (
               <option key={c.value} value={c.value}>{c.label}</option>
             ))}
           </select>
+          {!categoryOverridden && <CategoriaFonteChip fonte={tx.categoriaFonte} />}
         </div>
 
         <div className="flex gap-1">
