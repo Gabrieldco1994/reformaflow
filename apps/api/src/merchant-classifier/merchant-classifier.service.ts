@@ -580,7 +580,7 @@ export class MerchantClassifierService {
       if (!v.ok) {
         // INV-3 gate estrutural: chunk inteiro não-confiável — persiste nada, não
         // abre tx, mas os chunks seguintes ainda rodam.
-        this.logger.warn(`Gemini chunk rejeitado (${v.reason}) — nada persistido`);
+        this.logger.warn(`Gemini chunk rejeitado (${v.reason ?? 'malformed'}) — nada persistido`);
         providerIncomplete = true;
         continue;
       }

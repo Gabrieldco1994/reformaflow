@@ -304,7 +304,10 @@ describe('MerchantClassifierService.classifyForImport — #582 PR-4/5 contract',
       ]);
       service = await buildService(prisma);
       (service as unknown as { apiKey: string }).apiKey = 'test-key-582';
-      jest.spyOn(service as unknown as { callGemini: () => Promise<unknown[]> }, 'callGemini').mockResolvedValue([]);
+      // rev2: callGemini nunca devolve `[]` — resposta não-array é rejeição estrutural.
+      jest
+        .spyOn(service as unknown as { callGemini: () => Promise<unknown> }, 'callGemini')
+        .mockResolvedValue({ ok: false, reason: 'not-array' });
 
       const result = await service.classifyForImport(['Cached Trusted', 'New Unknown'], 'tenant-1');
 
