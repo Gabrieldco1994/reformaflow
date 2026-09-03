@@ -45,7 +45,12 @@ async function buildService(prisma: ReturnType<typeof buildPrismaMock>) {
   return svc;
 }
 
-function geminiResponse(items: unknown, finishReason: string | undefined = 'STOP') {
+function geminiResponse(items: unknown, ...finishReasonArg: [] | [string | undefined]) {
+  // Sem 2º argumento → default 'STOP'. Com 2º argumento explícito `undefined` →
+  // `finishReason` OMITIDO do candidate (era mascarado pelo default de parâmetro,
+  // que transforma `f(x, undefined)` no default — o caso "missing finishReason"
+  // ficava impossível de exercer).
+  const finishReason = finishReasonArg.length === 0 ? 'STOP' : finishReasonArg[0];
   const candidate: Record<string, unknown> = {
     content: { parts: [{ text: typeof items === 'string' ? items : JSON.stringify(items) }] },
   };

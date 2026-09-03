@@ -136,30 +136,65 @@ export interface ClassifyForImportResponse {
  * outros deixando o Gemini "aprender" uma categoria e ela virar global de fato.
  * SEC-6: qualquer `source` fora de {MANUAL, AI} é tratado como não-confiável.
  */
-export function resolveLearnedTypeFromRows(
+export type LearnedTier = LearnedTypeSource;
+
+/**
+ * ÚNICA codificação da ordem de tiers de precedência (#582 reopen). Puro, sem
+ * Prisma. Devolve a linha vencedora + seu tier, ou `null` quando nenhuma linha é
+ * confiável (INV-1/INV-2):
+ *   1. MANUAL do tenant
+ *   2. AI do tenant com `confidence >= threshold`  (pulado quando `manualOnly`)
+ *   3. MANUAL global (`tenantId` null) — SEC-1: só MANUAL; AI global é
+ *      estruturalmente inalcançável (o tier 3 exige `source === 'MANUAL'`).
+ * `sawSubThreshold`: houve uma linha AI-tenant abaixo do limiar que NÃO venceu —
+ * usado só para o `reason: 'sub-limiar'` de `resolveLearnedTypeFromRows`.
+ */
+export function pickLearnedRow(
   rows: MerchantRuleRow[],
   opts: { tenantId: string; threshold: number; manualOnly?: boolean },
-): LearnedTypeResolution {
+): { row: MerchantRuleRow; tier: LearnedTier; sawSubThreshold: boolean } | null {
   const tenantRow = rows.find((r) => r.tenantId === opts.tenantId);
-  const globalRow = rows.find((r) => r.tenantId === null);
+  // Global pode ter mais de uma linha para a mesma chave (unique composto com
+  // `NULL` não casa no SQLite): o tier 3 é MANUAL global, então escolhe a MANUAL.
+  const globalManual = rows.find((r) => r.tenantId === null && r.source === 'MANUAL');
   let sawSubThreshold = false;
 
   // Tier 1 — MANUAL do tenant
-  if (tenantRow?.source === 'MANUAL') return classifyLearnedRow(tenantRow, 'MANUAL_TENANT');
+  if (tenantRow?.source === 'MANUAL') {
+    return { row: tenantRow, tier: 'MANUAL_TENANT', sawSubThreshold };
+  }
 
   // Tier 2 — AI do tenant >= threshold  (pulado quando manualOnly)
   if (!opts.manualOnly && tenantRow?.source === 'AI') {
     const c = tenantRow.confidence;
     if (typeof c === 'number' && c >= opts.threshold) {
-      return classifyLearnedRow(tenantRow, 'AI_TENANT');
+      return { row: tenantRow, tier: 'AI_TENANT', sawSubThreshold };
     }
     sawSubThreshold = true;
   }
 
   // Tier 3 — MANUAL global (SEC-1: só MANUAL)
-  if (globalRow?.source === 'MANUAL') return classifyLearnedRow(globalRow, 'MANUAL_GLOBAL');
+  if (globalManual) {
+    return { row: globalManual, tier: 'MANUAL_GLOBAL', sawSubThreshold };
+  }
 
   // Tier 4 — nada confiável
+  return null;
+}
+
+export function resolveLearnedTypeFromRows(
+  rows: MerchantRuleRow[],
+  opts: { tenantId: string; threshold: number; manualOnly?: boolean },
+): LearnedTypeResolution {
+  const hit = pickLearnedRow(rows, opts);
+  if (hit) return classifyLearnedRow(hit.row, hit.tier);
+
+  const tenantRow = rows.find((r) => r.tenantId === opts.tenantId);
+  const sawSubThreshold =
+    !opts.manualOnly &&
+    tenantRow?.source === 'AI' &&
+    !(typeof tenantRow.confidence === 'number' && tenantRow.confidence >= opts.threshold);
+
   return {
     expenseType: null,
     source: null,
@@ -192,6 +227,83 @@ export function sanitizeConfidence(raw: unknown): number {
   if (typeof raw === 'number' && !Number.isNaN(raw)) return Math.min(1, Math.max(0, raw));
   if (raw === undefined || raw === null) return UNKNOWN_CONFIDENCE;
   return 0;
+}
+
+export interface GeminiChunkItem {
+  merchant: string;
+  category: MerchantCategory;
+  subcategory: string | null;
+  confidence: number;
+}
+
+export type GeminiChunkValidation =
+  | { ok: true; items: GeminiChunkItem[] }
+  | { ok: false; reason: 'finish-reason' | 'not-array' | 'length' | 'schema' | 'misaligned' };
+
+/**
+ * INV-3 / INV-4 (#582 reopen): a resposta de um chunk do Gemini só é aplicada
+ * (Map + DB) se for INTEIRAMENTE confiável. Puro.
+ *   - `finishReason` deve ser exatamente `'STOP'`.
+ *   - `parsed` deve ser array com `length === sentMerchants.length` (rejeita a
+ *     resposta curta "4 de 5" E qualquer resposta longa demais).
+ *   - cada elemento: objeto não-nulo; `merchant` string não-vazia; `category`
+ *     membro de `MERCHANT_CATEGORIES` (off-taxonomy agora é REJEIÇÃO, não mais
+ *     coerção para `'outros'`); `subcategory` string|null|undefined;
+ *     `confidence` number|null|undefined.
+ *   - alinhamento: para todo `j`, `normalizeKey(parsed[j].merchant) ===
+ *     normalizeKey(sentMerchants[j])` — uma resposta reordenada de mesmo tamanho
+ *     falha aqui; nada de re-sort, um modelo que reordena é não-confiável no
+ *     chunk inteiro.
+ */
+export function validateGeminiChunk(
+  sentMerchants: string[],
+  parsed: unknown,
+  finishReason: string | undefined,
+): GeminiChunkValidation {
+  if (finishReason !== 'STOP') return { ok: false, reason: 'finish-reason' };
+  if (!Array.isArray(parsed)) return { ok: false, reason: 'not-array' };
+  if (parsed.length !== sentMerchants.length) return { ok: false, reason: 'length' };
+
+  const taxonomy = MERCHANT_CATEGORIES as readonly string[];
+  const items: GeminiChunkItem[] = [];
+  for (let j = 0; j < parsed.length; j++) {
+    const el = parsed[j];
+    if (!el || typeof el !== 'object') return { ok: false, reason: 'schema' };
+    const e = el as Record<string, unknown>;
+
+    const merchant = e['merchant'];
+    if (typeof merchant !== 'string' || merchant.trim() === '') return { ok: false, reason: 'schema' };
+
+    const category = e['category'];
+    if (typeof category !== 'string' || !taxonomy.includes(category)) {
+      return { ok: false, reason: 'schema' };
+    }
+
+    const subcategory = e['subcategory'];
+    if (!(subcategory === undefined || subcategory === null || typeof subcategory === 'string')) {
+      return { ok: false, reason: 'schema' };
+    }
+
+    const confidence = e['confidence'];
+    if (!(confidence === undefined || confidence === null || typeof confidence === 'number')) {
+      return { ok: false, reason: 'schema' };
+    }
+
+    if (
+      MerchantClassifierService.normalizeKey(merchant) !==
+      MerchantClassifierService.normalizeKey(sentMerchants[j])
+    ) {
+      return { ok: false, reason: 'misaligned' };
+    }
+
+    items.push({
+      merchant,
+      category: category as MerchantCategory,
+      subcategory: typeof subcategory === 'string' ? subcategory : null,
+      confidence: sanitizeConfidence(confidence),
+    });
+  }
+  return { ok: true, items };
 }
 
 @Injectable()
@@ -368,29 +480,41 @@ export class MerchantClassifierService {
     const cachedRows = await this.prisma.merchantCategory.findMany({
       where: { merchantKey: { in: keys }, OR: [{ tenantId }, { tenantId: null }] },
     });
-    // tenant-first, global fallback por chave
-    const cachedMap = new Map<string, (typeof cachedRows)[number]>();
+    // #582 reopen: resolução por TIER (pickLearnedRow), não por tenantId. Agrupa
+    // todas as linhas (tenant + global) de cada chave.
+    const rowsByKey = new Map<string, (typeof cachedRows)[number][]>();
     for (const row of cachedRows) {
-      const cur = cachedMap.get(row.merchantKey);
-      if (!cur || (cur.tenantId === null && row.tenantId === tenantId)) {
-        cachedMap.set(row.merchantKey, row);
-      }
+      // Renormaliza a chave persistida — em produção já vem normalizada
+      // (idempotente); protege contra uma linha legada gravada sem normalizar.
+      const rk = MerchantClassifierService.normalizeKey(row.merchantKey);
+      const arr = rowsByKey.get(rk);
+      if (arr) arr.push(row);
+      else rowsByKey.set(rk, [row]);
     }
 
     const pending: { key: string; sample: string }[] = [];
     for (const [key, sample] of uniqueByKey) {
-      const c = cachedMap.get(key);
-      if (c) {
-        classifications.set(key, {
-          merchant: sample,
-          category: c.category as MerchantCategory,
-          subcategory: c.subcategory,
-          source: (c.source as ClassifyResult['source']) ?? 'CACHE',
-          confidence: c.confidence,
-        });
-      } else {
+      const rowsForKey = rowsByKey.get(key);
+      if (!rowsForKey || !rowsForKey.length) {
         pending.push({ key, sample });
+        continue;
       }
+      const hit = pickLearnedRow(rowsForKey, { tenantId, threshold: AI_RULE_MIN_CONFIDENCE });
+      if (!hit) {
+        // Linha(s) presente(s) mas nenhum tier bateu (AI-tenant sub-τ, AI-global
+        // em qualquer confidence, CACHE/fonte desconhecida) → resolvido-como-
+        // não-classificado: NÃO entra no Map e NÃO volta pro Gemini (o volume de
+        // chamadas ao provider fica idêntico ao de hoje).
+        continue;
+      }
+      const row = hit.row as (typeof cachedRows)[number];
+      classifications.set(key, {
+        merchant: sample,
+        category: row.category as MerchantCategory,
+        subcategory: row.subcategory,
+        source: hit.tier === 'AI_TENANT' ? 'AI' : 'MANUAL',
+        confidence: row.confidence,
+      });
     }
 
     if (!pending.length) {
@@ -429,12 +553,16 @@ export class MerchantClassifierService {
         // modelsWithoutSoftDelete → $use é inerte aqui; sem findById pós-tx.
         const aiResults = await this.callGemini(slice.map((p) => p.sample));
 
-        // F2 (#582): resposta mais curta que o enviado — truncação num chunk de
-        // 60 ou JSON malformado que `callGemini` degradou para `[]`. Os merchants
-        // além de `aiResults.length` nunca entram no `chunkResult` (o `for` de
-        // merge para em `j < aiResults.length`). Marca incompleto para o status,
-        // mas segue com os próximos chunks (um chunk curto não aborta o lote).
-        if (aiResults.length < slice.length) providerIncomplete = true;
+        // #582 reopen / INV-3: `callGemini` só devolve itens validados+alinhados
+        // (mesmo tamanho, schema ok, echo-back alinhado, finishReason STOP) — ou
+        // lança. Um `aiResults` de tamanho diferente do chunk só é possível se
+        // alguém mockar `callGemini` direto; ainda assim é FALHA — não mescla
+        // nada e não abre a tx (persiste zero para o chunk).
+        if (aiResults.length !== slice.length) {
+          providerIncomplete = true;
+          providerError = true;
+          continue;
+        }
 
         await this.prisma.$transaction(
           async (tx) => {
@@ -724,9 +852,7 @@ export class MerchantClassifierService {
     return { merchantKey: key, deleted: deleted.count > 0 };
   }
 
-  private async callGemini(merchants: string[]): Promise<
-    Array<{ merchant: string; category: string; subcategory?: string; confidence?: number }>
-  > {
+  private async callGemini(merchants: string[]): Promise<GeminiChunkItem[]> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
     const taxonomy = MERCHANT_CATEGORIES.join(', ');
     const prompt = `Você é um classificador de estabelecimentos brasileiros (extratos bancários e faturas de cartão).
@@ -789,8 +915,12 @@ ${merchants.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
       throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 200)}`);
     }
     const json = (await res.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      candidates?: Array<{
+        finishReason?: string;
+        content?: { parts?: Array<{ text?: string }> };
+      }>;
     };
+    const finishReason = json.candidates?.[0]?.finishReason;
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
 
     let parsed: unknown;
@@ -798,9 +928,14 @@ ${merchants.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
     catch {
       const lastClose = Math.max(text.lastIndexOf(']'), text.lastIndexOf('}'));
       const fixed = lastClose > 0 ? text.slice(0, lastClose + 1) : '[]';
-      try { parsed = JSON.parse(fixed); } catch { parsed = []; }
+      try { parsed = JSON.parse(fixed); } catch { parsed = null; }
     }
-    if (!Array.isArray(parsed)) parsed = [];
-    return parsed as Array<{ merchant: string; category: string; subcategory?: string; confidence?: number }>;
+
+    // #582 reopen / INV-3+INV-4: aplica o chunk só se INTEIRAMENTE confiável.
+    const validated = validateGeminiChunk(merchants, parsed, finishReason);
+    if (!validated.ok) {
+      throw new Error(`Gemini untrusted response: ${validated.reason}`);
+    }
+    return validated.items;
   }
 }

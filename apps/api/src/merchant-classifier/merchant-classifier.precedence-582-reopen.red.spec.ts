@@ -128,14 +128,16 @@ describe('classifyForImport — precedence on the live path (#582 reopen)', () =
 
   it('DEFECT #1: unknown-source tenant row does not shadow a MANUAL global', async () => {
     const prisma = buildPrismaMock([
-      { merchantKey: 'loja centro', category: 'alimentação', source: 'CACHE', confidence: 0.9, tenantId: 'tenant-1' },
-      { merchantKey: 'loja centro', category: 'saúde', source: 'MANUAL', confidence: 1.0, tenantId: null },
+      // 'mercado centro' (não 'loja centro': normalizeKey remove a stopword
+      // 'loja', então a chave persistida não casaria com o sample normalizado).
+      { merchantKey: 'mercado centro', category: 'alimentação', source: 'CACHE', confidence: 0.9, tenantId: 'tenant-1' },
+      { merchantKey: 'mercado centro', category: 'saúde', source: 'MANUAL', confidence: 1.0, tenantId: null },
     ]);
     const svc = await buildService(prisma);
 
-    const { classifications } = await svc.classifyForImport(['Loja Centro'], 'tenant-1');
+    const { classifications } = await svc.classifyForImport(['Mercado Centro'], 'tenant-1');
 
-    expect(classifications.get('loja centro')).toEqual({
+    expect(classifications.get('mercado centro')).toEqual({
       category: 'saúde',
       source: 'regra',
       confidence: 1.0,
