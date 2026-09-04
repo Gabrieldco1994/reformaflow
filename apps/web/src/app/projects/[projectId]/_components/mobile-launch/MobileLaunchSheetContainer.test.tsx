@@ -122,14 +122,14 @@ describe('MobileLaunchSheetContainer — gate de import de extrato (#218)', () =
     expect(screen.queryByTestId('sem-conta-empty')).not.toBeInTheDocument();
   });
 
-  it('PESSOAL + hasModule true, sem conta: picker monta com SemContaEmptyState escopado, sem texto morto', () => {
+  it('PESSOAL + hasModule true, sem conta: picker monta com SemContaEmptyState escopado, sem texto morto', async () => {
     mockProjectType = 'PESSOAL';
     mockHasModule = () => true;
     renderContainer();
     irParaExtrato();
 
     expect(chamouExtratoDoProjeto()).toBe(true);
-    expect(screen.getByTestId('sem-conta-empty')).toHaveAttribute('data-pid', 'p1');
+    expect(await screen.findByTestId('sem-conta-empty')).toHaveAttribute('data-pid', 'p1');
     expect(
       screen.queryByText(/Nenhuma conta cadastrada\. Cadastre em/),
     ).not.toBeInTheDocument();

@@ -17,6 +17,7 @@ import { SemCartaoEmptyState } from '../SemCartaoEmptyState';
 import { SemContaEmptyState } from '../SemContaEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
+import ImportWithoutAccountModal from '../../bank-accounts/_components/ImportWithoutAccountModal';
 import { currentMonthKey } from '../../conta/_lib';
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
 import type { AccountViewResponse, OriginItemsYearlyResponse } from '../../conta/_types';
@@ -48,12 +49,19 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   // explícito/defensivo — sem ele "Extrato bancário" dispara GET /bank-accounts → 403.
   const canImportBankStatement =
     hasFeature(projectType as ProjectType, 'bankAccounts') && hasModule('bankAccounts');
+  // #659: "Importar para Carteira" (sem conta) — mesmo gate do launcher desktop.
+  const canImportToCarteira =
+    hasFeature(projectType as ProjectType, 'monthlyOverview') &&
+    canImportBankStatement &&
+    hasFeature(projectType as ProjectType, 'receipts') &&
+    hasModule('receipts');
   const month = currentMonthKey();
   const year = month.slice(0, 4);
 
   const [screen, setScreen] = useState<LaunchScreen>('choose');
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [carteiraImportOpen, setCarteiraImportOpen] = useState(false);
 
   // Cada abertura do "+" recomeça na escolha de modo (critério de aceite).
   useEffect(() => {
@@ -61,6 +69,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
       setScreen('choose');
       setSelectedCardId(null);
       setSelectedAccountId(null);
+      setCarteiraImportOpen(false);
     }
   }, [open]);
 
@@ -68,7 +77,12 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   // então os endpoints /tenant/* (tenant-wide) traziam cartões/contas de outros
   // projetos. Os project-scoped retornam a entidade completa (id, nickname, last4,
   // closingDay, dueDay) — cada label vem do nickname da própria entidade.
-  const { data: accounts = [] } = useQuery<LaunchAccountOption[]>({
+  const {
+    data: accounts = [],
+    isLoading: accountsLoading,
+    isError: accountsError,
+    refetch: refetchAccounts,
+  } = useQuery<LaunchAccountOption[]>({
     queryKey: ['project', projectId, 'bank-accounts'],
     queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
     enabled: open && canImportBankStatement,
@@ -156,6 +170,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
     setScreen('choose');
     setSelectedCardId(null);
     setSelectedAccountId(null);
+    setCarteiraImportOpen(false);
     onClose();
   }, [onClose]);
 
@@ -327,9 +342,38 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
 
       {open && screen === 'extrato' && canImportBankStatement && !selectedAccountId && (
         <Modal open onClose={handleClose} title="Para qual conta é esse extrato?">
-          {accounts.length === 0 ? (
-            <SemContaEmptyState projectId={projectId} />
-          ) : (
+          {accountsLoading && <p className="text-sm text-gray-500">Carregando contas…</p>}
+          {!accountsLoading && accountsError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#EAD9C0] bg-[#FBEBDC] p-3 text-sm text-[#8A5A20]"
+            >
+              <span>Não foi possível carregar as contas bancárias.</span>
+              <button
+                type="button"
+                onClick={() => void refetchAccounts()}
+                className="min-h-11 rounded-lg border border-[#D5B98C] px-3 font-semibold"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          )}
+          {!accountsLoading && !accountsError && accounts.length === 0 && (
+            <div className="space-y-2">
+              {canImportToCarteira && (
+                <button
+                  type="button"
+                  onClick={() => setCarteiraImportOpen(true)}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left hover:border-teal-300 hover:bg-teal-50"
+                >
+                  <Landmark className="h-4 w-4 text-teal-500" />
+                  <span className="text-sm font-medium">Importar para Carteira</span>
+                </button>
+              )}
+              <SemContaEmptyState projectId={projectId} />
+            </div>
+          )}
+          {!accountsLoading && !accountsError && accounts.length > 0 && (
             <div className="space-y-2">
               {accounts.map((a) => (
                 <button
@@ -350,6 +394,14 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
           projectId={projectId}
           account={(accounts.find((a) => a.id === selectedAccountId) ?? { id: selectedAccountId }) as never}
           onClose={handleClose}
+          onCommitted={handleImported}
+        />
+      )}
+
+      {open && screen === 'extrato' && carteiraImportOpen && (
+        <ImportWithoutAccountModal
+          projectId={projectId}
+          onClose={() => setCarteiraImportOpen(false)}
           onCommitted={handleImported}
         />
       )}

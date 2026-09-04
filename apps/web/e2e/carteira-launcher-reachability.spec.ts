@@ -91,8 +91,8 @@ function trap403(page: Page, hits: string[]) {
   });
 }
 
-async function assertTouchTarget44(page: Page, name: string | RegExp) {
-  const box = await page.getByRole('button', { name }).boundingBox();
+async function assertTouchTarget44(locator: import('@playwright/test').Locator, name: string | RegExp) {
+  const box = await locator.boundingBox();
   expect(box, `sem bounding box para "${name}"`).not.toBeNull();
   expect(box!.height).toBeGreaterThanOrEqual(44);
 }
@@ -112,11 +112,12 @@ test.describe('#659 · Desktop 1280 — Carteira alcançável via NovaDespesaLau
     await page.getByRole('button', { name: 'Lançar', exact: true }).first().click();
     await page.getByRole('button', { name: /Extrato bancário/i }).click();
 
-    const importarBtn = page.getByRole('button', { name: 'Importar para Carteira' });
-    const novaContaBtn = page.getByRole('button', { name: 'Nova conta' });
+    const picker = page.locator('[data-mobile-sheet="modal"]', { hasText: 'Para qual conta é esse extrato?' });
+    const importarBtn = picker.getByRole('button', { name: 'Importar para Carteira' });
+    const novaContaBtn = picker.getByRole('button', { name: 'Nova conta' });
     await expect(importarBtn).toBeVisible();
     await expect(novaContaBtn).toBeVisible();
-    await assertTouchTarget44(page, 'Importar para Carteira');
+    await assertTouchTarget44(importarBtn, 'Importar para Carteira');
 
     await importarBtn.click();
     const dialog = page.getByRole('dialog', { name: 'Importar sem conta' });
@@ -130,13 +131,16 @@ test.describe('#659 · Desktop 1280 — Carteira alcançável via NovaDespesaLau
 
     // reabrir e comitar um fixture mínimo
     await importarBtn.click();
-    const dialog2 = page.getByRole('dialog', { name: 'Importar sem conta' });
+    const dialog2 = page.getByRole('dialog');
     await dialog2.locator('input[type="file"]').setInputFiles({
       name: 'extrato.csv', mimeType: 'text/csv', buffer: Buffer.from('data,desc,valor\n2026-09-01,Mercado,50.00'),
     });
     await dialog2.getByRole('button', { name: 'Conferir arquivos' }).click();
     await expect(dialog2.getByText(/Conferência:/)).toBeVisible();
     await dialog2.getByRole('button', { name: 'Confirmar importação' }).click();
+    // O título do dialog muda para "Importação concluída!" na tela de sucesso
+    // (mesmo h2/titleId), então a busca do dialog não pode mais filtrar por
+    // name — só o conteúdo interno é reafirmado a partir daqui.
     await expect(dialog2.getByText('Importação concluída!')).toBeVisible();
 
     // sucesso NÃO deve auto-fechar — segue visível
@@ -162,12 +166,13 @@ for (const width of [375, 390]) {
       await page.getByRole('button', { name: /Fatura \/ Extrato/i }).click();
       await page.getByRole('button', { name: /Extrato bancário/i }).click();
 
-      const importarBtn = page.getByRole('button', { name: 'Importar para Carteira' });
-      const novaContaBtn = page.getByRole('button', { name: 'Nova conta' });
+      const picker = page.locator('[data-mobile-sheet="modal"]', { hasText: 'Para qual conta é esse extrato?' });
+      const importarBtn = picker.getByRole('button', { name: 'Importar para Carteira' });
+      const novaContaBtn = picker.getByRole('button', { name: 'Nova conta' });
       await expect(importarBtn).toBeVisible();
       await expect(novaContaBtn).toBeVisible();
-      await assertTouchTarget44(page, 'Importar para Carteira');
-      await assertTouchTarget44(page, 'Nova conta');
+      await assertTouchTarget44(importarBtn, 'Importar para Carteira');
+      await assertTouchTarget44(novaContaBtn, 'Nova conta');
 
       expect(hits, `403 inesperado: ${hits.join(', ')}`).toEqual([]);
     });

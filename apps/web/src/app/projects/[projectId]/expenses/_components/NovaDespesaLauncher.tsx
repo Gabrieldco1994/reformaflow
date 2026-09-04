@@ -17,6 +17,7 @@ import { SemCartaoEmptyState } from '../../_components/SemCartaoEmptyState';
 import { SemContaEmptyState } from '../../_components/SemContaEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
+import ImportWithoutAccountModal from '../../bank-accounts/_components/ImportWithoutAccountModal';
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
 import { Modal } from '@/components/ui/modal';
 import { useVoiceExpense } from '../_hooks/useVoiceExpense';
@@ -45,6 +46,13 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
   // usuário tem o módulo autorizado — mesmo padrão de `BankAccountsSection.tsx`.
   const canImportBankStatement =
     hasFeature(projectType as ProjectType, 'bankAccounts') && hasModule('bankAccounts');
+  // #659: "Importar para Carteira" (sem conta) — só onde PESSOAL + módulos de
+  // contas E recebimentos, mesmo padrão de `canImportBankStatement`.
+  const canImportToCarteira =
+    hasFeature(projectType as ProjectType, 'monthlyOverview') &&
+    canImportBankStatement &&
+    hasFeature(projectType as ProjectType, 'receipts') &&
+    hasModule('receipts');
 
   const tipoOptions = useMemo(() => getExpenseOptions(projectType), [projectType]);
   const allowedExpenseTypes = useMemo(
@@ -61,6 +69,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
   const [importStep, setImportStep] = useState<null | 'pick-card' | 'pick-account'>(null);
   const [selectedCard, setSelectedCard] = useState<{ id: string; last4: string; nickname?: string | null } | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null } | null>(null);
+  const [carteiraImportOpen, setCarteiraImportOpen] = useState(false);
 
   const invalidate = () => {
     for (const key of ['expenses', 'cash-flow', 'account-view', 'monthly-overview', 'dashboard', 'cross-project-expenses']) {
@@ -102,7 +111,12 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
     enabled: importStep === 'pick-card',
     staleTime: 30_000,
   });
-  const { data: importAccounts = [], isFetching: loadingAccounts } = useQuery<Array<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null }>>({
+  const {
+    data: importAccounts = [],
+    isFetching: loadingAccounts,
+    isError: accountsError,
+    refetch: refetchAccounts,
+  } = useQuery<Array<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null }>>({
     queryKey: ['bank-accounts', projectId],
     queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
     enabled: importStep === 'pick-account' && canImportBankStatement,
@@ -259,10 +273,37 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
       {importStep === 'pick-account' && !selectedAccount && (
         <Modal open onClose={() => setImportStep(null)} title="Para qual conta é esse extrato?">
           {loadingAccounts && <p className="text-sm text-gray-500">Carregando contas…</p>}
-          {!loadingAccounts && importAccounts.length === 0 && (
-            <SemContaEmptyState projectId={projectId} />
+          {!loadingAccounts && accountsError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#EAD9C0] bg-[#FBEBDC] p-3 text-sm text-[#8A5A20]"
+            >
+              <span>Não foi possível carregar as contas bancárias.</span>
+              <button
+                type="button"
+                onClick={() => void refetchAccounts()}
+                className="min-h-11 rounded-lg border border-[#D5B98C] px-3 font-semibold"
+              >
+                Tentar novamente
+              </button>
+            </div>
           )}
-          {!loadingAccounts && importAccounts.length > 0 && (
+          {!loadingAccounts && !accountsError && importAccounts.length === 0 && (
+            <div className="space-y-2">
+              {canImportToCarteira && (
+                <button
+                  type="button"
+                  onClick={() => setCarteiraImportOpen(true)}
+                  className="min-h-11 w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-teal-300 hover:bg-teal-50 text-left"
+                >
+                  <span className="text-sm font-medium">Importar para Carteira</span>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                </button>
+              )}
+              <SemContaEmptyState projectId={projectId} />
+            </div>
+          )}
+          {!loadingAccounts && !accountsError && importAccounts.length > 0 && (
             <div className="space-y-2">
               {importAccounts.map((a) => (
                 <button
@@ -297,6 +338,19 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
           account={selectedAccount as any}
           onClose={() => { setSelectedAccount(null); setImportStep(null); }}
           onCommitted={() => { setSelectedAccount(null); setImportStep(null); invalidate(); invalidateImportQueries(queryClient, projectId); }}
+        />
+      )}
+
+      {carteiraImportOpen && (
+        <ImportWithoutAccountModal
+          projectId={projectId}
+          onClose={() => setCarteiraImportOpen(false)}
+          onCommitted={() => {
+            setCarteiraImportOpen(false);
+            setImportStep(null);
+            invalidate();
+            invalidateImportQueries(queryClient, projectId);
+          }}
         />
       )}
     </>

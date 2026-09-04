@@ -53,7 +53,9 @@ vi.mock('../SemCartaoEmptyState', () => ({
 }));
 vi.mock('../SemContaEmptyState', () => {
   const SemContaEmptyState = ({ projectId }: { projectId: string }) => (
-    <div data-testid="sem-conta-empty" data-pid={projectId} />
+    <div data-testid="sem-conta-empty" data-pid={projectId}>
+      <button type="button">Nova conta</button>
+    </div>
   );
   return { SemContaEmptyState, default: SemContaEmptyState };
 });

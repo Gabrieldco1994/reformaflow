@@ -47,7 +47,9 @@ vi.mock('../../_components/SemCartaoEmptyState', () => ({
 }));
 vi.mock('../../_components/SemContaEmptyState', () => {
   const SemContaEmptyState = ({ projectId }: { projectId: string }) => (
-    <div data-testid="sem-conta-empty" data-pid={projectId} />
+    <div data-testid="sem-conta-empty" data-pid={projectId}>
+      <button type="button">Nova conta</button>
+    </div>
   );
   return { SemContaEmptyState, default: SemContaEmptyState };
 });
@@ -156,7 +158,7 @@ describe('#659 NovaDespesaLauncher — Carteira reachability (RED)', () => {
       expect(screen.queryByTestId('import-without-account')).not.toBeInTheDocument();
     });
     expect(await screen.findByRole('button', { name: 'Importar para Carteira' })).toBeInTheDocument();
-    expect(screen.getAllByTestId('import-without-account')).toHaveLength(0);
+    expect(screen.queryAllByTestId('import-without-account')).toHaveLength(0);
   });
 
   it('onCommitted/invalidate/close disparam exatamente uma vez por commit', async () => {
