@@ -60,6 +60,8 @@ export function parseOfx(content: string, cardId: string): ParseResult {
       amountCents,
       installmentCurrent: current,
       installmentTotal: total,
+      // (#659) id durável do banco — mantido além do `bankRef` já embutido no hash.
+      fitId: fitId ?? undefined,
     });
     totalAmountCents += amountCents;
   }

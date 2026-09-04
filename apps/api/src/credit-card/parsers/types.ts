@@ -9,6 +9,20 @@ export interface NormalizedTx {
   installmentCurrent?: number;
   installmentTotal?: number;
   isFuture?: boolean;        // true = parcela/lançamento futuro (entrará como PLANEJADO)
+  /**
+   * (#659) FITID do OFX — id durável do banco para a transação. Alimenta
+   * `bankRef` no `makeExternalId` (compat) E a `dedupeKeyStrong` cross-origin.
+   * Só o parser OFX preenche; CSV/XLSX/PDF/foto não têm.
+   */
+  fitId?: string;
+  /**
+   * (#659) Chaves de dedupe cross-origin, computadas pelo SERVIÇO após o parse
+   * (`import-dedupe/cross-origin-dedupe.ts` → `attachDedupeKeys`), nunca pelo
+   * parser. `dedupeKeyStrong` = null só em linha histórica (sem fitId nem
+   * fileContentHash). Independem do `seed` do canal — é o fix de #659.
+   */
+  dedupeKeyStrong?: string | null;
+  dedupeKeyNatural?: string;
 }
 
 export interface ParseResult {

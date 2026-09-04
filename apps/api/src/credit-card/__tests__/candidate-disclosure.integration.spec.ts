@@ -513,6 +513,7 @@ describe("credit-card candidate disclosure integration (#480)", () => {
       total: 1,
       duplicated: 0,
       inserted: 0,
+      possibleDuplicates: [],
       classificationStatus: 'unavailable',
       preview: [
         expect.objectContaining({
