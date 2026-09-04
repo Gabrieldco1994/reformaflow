@@ -86,6 +86,13 @@ O v1 resolveu a **arquitetura de informação** (Conta = linha do tempo única; 
 - [x] Gestão de regras (listar/excluir) atrás de engrenagem em Análises (não na navegação primária).
 - [ ] Retroativo em lote ("aplicar a N semelhantes deste mês") — opcional, não implementado nesta rodada.
 
+**2026-09-03 — ✅ loop fechado na importação + precedência endurecida:** sobrescrever categoria
+no preview de extrato/fatura cria regra MANUAL tenant-scoped ("corrija uma vez", #665 / #582 AC7);
+classificação por IA em lote no preview (#660) com banner de degradação + chip de fonte (#661);
+`classifyForImport` com precedência em tier único `MANUAL tenant > AI tenant ≥ 0.8 > MANUAL global`,
+AI-global nunca aplicada, resposta do Gemini validada contra reordenação/incompletude (#669).
+**Issue #582 FECHADA.** Detalhe e pendências em `estado-atual-cockpit-pessoal.md §6`.
+
 ---
 
 ## W3 — Dieta da tela da Conta — PR-C
@@ -178,6 +185,20 @@ O v1 resolveu a **arquitetura de informação** (Conta = linha do tempo única; 
   Movimentações ("Novo lançamento" → launcher do topo) são **type-agnostic** —
   não dependem de `bankAccounts`, que foi a dependência que quebrou a #655.
   Vazio por filtro/aba preserva "Nenhuma movimentação com esses filtros."
+
+**2026-09-03 — ✅ gating `hasFeature && hasModule` publicado:** #657/#658/#663 aplicam o gate
+`hasFeature(type,'bankAccounts') && hasModule('bankAccounts')` ao `ImportMassStep` (que passa a
+gatear `GET /tenant/bank-accounts`, #663) e aos pickers de extrato — fim do loop de 403 em
+REFORMA/COMPRA. Restam abertas: alcançabilidade do `ImportWithoutAccountModal` no onboarding
+`FULL` (#659, decisão de produto) e polimento de toque/`<select>` (#670). Ver
+`estado-atual-cockpit-pessoal.md §6`.
+
+---
+
+## U5 — Copy unificada de planejamento (#454) ✅ ENTREGUE (PR #664)
+
+**2026-09-03:** copy de planejamento unificada para "Orçamento futuro" / "Compras e cenários",
+com prova E2E de zero mutação.
 
 ---
 
