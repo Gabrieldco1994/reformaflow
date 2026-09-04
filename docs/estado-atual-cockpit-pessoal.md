@@ -6,6 +6,8 @@ Nota de planejamento #436 adicionada em: **2026-08-17**.
 
 **Atualizado em 2026-08-18:** B0 (#447) entregue via PR #476 (produção). B1a (#448) implementado nesta PR, pendente de merge.
 
+**Atualizado em 2026-09-03:** loop de aprendizado da categorização na importação fechado ponta a ponta (extrato + fatura); banner de degradação + chip de fonte no preview; precedência do `classifyForImport` e confiança na resposta do Gemini corrigidas; **issue #582 FECHADA**. Ver §6.
+
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
@@ -41,7 +43,7 @@ refletido aqui pelo D0 somente quando uma mudança de runtime for entregue.
 ## 0) Placar das trilhas (snapshot anterior ao programa #436)
 
 - ✅ UX v2 W1 estabilizado (`feat/ux-v2-w1-pendencias` / PR #220): fila "Precisa de você" com roteamento correto (vincular/quitar/pagar/editar), sem 404.
-- ✅ UX v2 W2 estabilizado (`feat/ux-v2-w2-categorias` / PR #234): confirmar categoria com aprendizado de regra manual, proteção PIX PF, auto-aplicação no ingest para regra manual e gestão de regras atrás de engrenagem em Análises.
+- ✅ UX v2 W2 estabilizado (`feat/ux-v2-w2-categorias` / PR #234): confirmar categoria com aprendizado de regra manual, proteção PIX PF, auto-aplicação no ingest para regra manual e gestão de regras atrás de engrenagem em Análises. **Loop fechado na importação (2026-09-03):** ver §6.
 - ✅ UX v2 W3 estabilizado (`feat/ux-v2-w3-dieta-conta` / PR #235): dieta da Conta (carrossel compacto de cartões, ticket médio movido para Análises, piso tipográfico ≥11px corrigido).
 - 🚧 UX v2 W4 em execução (`feat/ux-v2-w4-runway-prescritivo`): runway prescritivo — botão "Como fechar no azul?" no Cockpit quando tom negativo; sheet com candidatos (até 5 maiores planejados até o crossover) e ações adiar/reduzir/remover.
 - ✅ Fases A–D + F/G (redesign UX + cockpit/mobile/web) concluídas em `main`.
@@ -167,3 +169,38 @@ Se houver divergência entre handoff/plano antigo e git, **o git é a verdade**.
 ## 5) Regra operacional
 
 Se uma próxima sessão alterar status/escopo desta área, atualizar este arquivo no mesmo PR.
+
+## 6) Categorização na importação — learning loop (estado 2026-09-03)
+
+**Histórico:** o diagnóstico anterior de "zero linhas categorizadas em produção / motor
+emperrado" (ver `docs/archive/estado-atual-historico-2026.md`) está **RESOLVIDO** pelos PRs
+abaixo — não é mais estado atual.
+
+- ✅ **Loop de aprendizado ponta a ponta na importação de extrato + fatura** (#665, #582 AC7):
+  sobrescrever a categoria de uma linha durante o preview de extrato/fatura cria uma regra
+  `MerchantCategory` **MANUAL, tenant-scoped** ("corrija uma vez") — a mesma disciplina da
+  regra 16.
+- ✅ **Categorização em lote por IA no preview** (#660): `classifyForImport` classifica as
+  linhas do preview de extrato/fatura em batch.
+- ✅ **Sinalização no preview** (#661): banner de degradação (`classificationStatus`) quando a
+  classificação falha/parcial + chip de fonte por linha (`categoriaFonte`).
+- ✅ **Precedência e confiança corrigidas** (#669, reabertura de #582): `pickLearnedRow` com
+  encoding de tier único — `MANUAL tenant > AI tenant ≥ 0.8 > MANUAL global`; **AI global
+  nunca é aplicada**; `validateGeminiChunk` rejeita resposta do Gemini reordenada/incompleta/
+  inválida (índice `i` 1-based + split gate).
+- ✅ **#582 FECHADA.**
+
+### Pendências (não confundir com regressão)
+
+- 🚧 **#659 (UI do importador de recibo/Carteira sem vínculo) — AINDA ABERTA.** A **paridade
+  de classificação na API** já entrou (`cf511f7d`: banner + chip + `<select>` de categoria +
+  "corrija uma vez"), mas o QA de jornada achou que `ImportWithoutAccountModal` só monta via
+  `ImportMassStep` quando o passo da jornada tem `experience:'SUMMARY'`; o onboarding padrão do
+  PESSOAL usa `FULL`, então **o modal não é alcançável pelo usuário no build publicado**. PR
+  #670 corrige o alvo de toque de 44px e esconde o `<select>` nas linhas que não estão sendo
+  importadas, mas a **alcançabilidade (Gap 1) é decisão de produto em aberto**.
+- ⏸️ **`AI_RULE_MIN_CONFIDENCE = 0.8` é hipótese operacional.** Recalibrar exige dados reais
+  rotulados de correção do usuário — follow-up parado, bloqueado em coleta de dados, issue
+  ainda não aberta. Não é opção C / U6b.
+- ⏸️ **`expenseTypeOverride`** (aprendizado para os ~20 ExpenseTypes sem equivalente em
+  `MerchantCategory`) — melhoria opcional parada. Não é opção C / U6b.
