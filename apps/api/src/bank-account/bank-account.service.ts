@@ -83,8 +83,9 @@ import {
   dedupeColumns,
   fileContentHash,
   findDedupeMatches,
-  isDedupeUniqueViolation,
+  isDedupeStrongUniqueViolation,
   keysFromTransactions,
+  strongDupExists,
   type PossibleDuplicate,
 } from '../import-dedupe/cross-origin-dedupe';
 
@@ -1008,6 +1009,14 @@ export class BankAccountService {
         if (!preparedCardPayment) {
           throw new Error(CARD_PAYMENT_PREFLIGHT_MISSING_MESSAGE);
         }
+        // (SEC-2 #659) recheck in-tx contra AS DUAS tabelas ANTES do create — os
+        // índices únicos parciais de dedupe_key_strong são por-tabela, então a
+        // corrida bank(→Expense) × Carteira dos mesmos bytes(→Receipt) não tem
+        // constraint compartilhada. Fecha a janela sem depender do P2002.
+        if (await strongDupExists(client, tenantId, projectId, adjustedTx)) {
+          raceDuplicated++;
+          continue;
+        }
         try {
           const result = await this.createExpenseFromTransaction(
             client,
@@ -1028,16 +1037,19 @@ export class BankAccountService {
           if (result.unlinkedCardPayment) unlinkedCardPayments++;
           createdRows.push({ row, decision, result });
         } catch (err) {
-          // (#659) corrida cross-canal: mesma transação criada por outro canal
-          // entre o pré-check e o INSERT → índice único parcial de
-          // dedupe_key_strong. Conta como duplicata, não como falha.
-          if (isDedupeUniqueViolation(err)) {
+          // Preparação/aplicação de cartão nunca é best-effort: propaga para o
+          // callback e desfaz o lote inteiro (inclusive pagamentos anteriores).
+          // Vem ANTES do handler de dedupe (SEC-3): um P2002 no compound
+          // external_id de uma linha de pagamento de fatura NÃO pode virar
+          // `raceDuplicated` silencioso.
+          if (preparedCardPayment.matchedCard) throw err;
+          // (SEC-3 #659) corrida cross-canal que escapou do recheck acima e bateu
+          // no índice único PARCIAL de dedupe_key_strong (backstop dentro da
+          // mesma tabela). Conta como duplicata, não como falha.
+          if (isDedupeStrongUniqueViolation(err)) {
             raceDuplicated++;
             continue;
           }
-          // Preparação/aplicação de cartão nunca é best-effort: propaga para o
-          // callback e desfaz o lote inteiro, inclusive pagamentos anteriores.
-          if (preparedCardPayment.matchedCard) throw err;
 
           skipped++;
           failedItems.push({

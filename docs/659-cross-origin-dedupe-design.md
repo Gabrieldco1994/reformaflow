@@ -181,9 +181,17 @@ fileContentHash(buffers: Buffer[]) =
 
 dedupeKeyStrong(p) =
   p.fitId
-    ? h(`dk-strong-fit-v1|${p.tenantId}|${p.projectId}|${p.fitId}`)
+    ? h(`dk-strong-fit-v1|${p.tenantId}|${p.projectId}|${p.fitId}|${iso(p.date)}|${p.amountCents}|${norm(p.merchant)}`)
     : h(`dk-strong-file-v1|${p.tenantId}|${p.projectId}|${p.fileContentHash}|${iso(p.date)}|${p.amountCents}|${norm(p.merchant)}|${p.ordinal}`);
 // null só quando nem fitId nem fileContentHash (linha de backfill)
+//
+// SEC-1 (revisão): o branch FITID DOBRA `iso(date)|amountCents|norm(merchant)`.
+// FITID de OFX só é único DENTRO DE UMA CONTA — BB/Itaú/emissores de cartão
+// emitem FITIDs sequenciais curtos por extrato. Sem o `seed` (que protegia no
+// `makeExternalId` antigo: `sha256(accountId|fitId)`), FITID 1001/R$200 da conta
+// A colidiria com FITID 1001/R$54 da conta B no mesmo projeto → a linha da conta
+// B sumiria do Caixa para sempre (Tier A não é forçável). Cross-origin continua
+// deduplicando: o MESMO arquivo pelos 2 canais ⇒ mesma assinatura completa.
 
 dedupeKeyNatural(p) =
   h(`dk-nat-v1|${p.tenantId}|${p.projectId}|${iso(p.date)}|${p.amountCents}|${norm(p.merchant)}|${p.ordinal}`);
@@ -241,7 +249,7 @@ Ambos os modelos JÁ têm `deletedAt` → **não** entram em `modelsWithoutSoftD
 
 ## 7. Backfill — contrato transacional + idempotente
 
-Script: `apps/api/scripts/backfill-dedupe-keys.mjs` (mesmo PR).
+Script: `apps/api/scripts/backfill-dedupe-keys.cjs` (mesmo PR).
 
 - **Escopo:** só linhas importadas — `WHERE import_id IS NOT NULL AND external_id IS NOT NULL AND dedupe_key_natural IS NULL`, em `expenses` e `receipts`.
 - **Só `dedupeKeyNatural`.** FITID e bytes de arquivo não foram persistidos →
@@ -294,6 +302,32 @@ anexar `possibleDuplicate` nas (agora) duas linhas. Não serializamos Tier B.
 entre processos/workers, ao contrário do guard 409 de cartão/conta (§15.4 do
 visao-conta) que é intra-processo. Aqui a rede é robusta.
 
+### 8.1 Correções da revisão
+
+- **SEC-2 (corrida cross-table):** os índices únicos parciais de
+  `dedupe_key_strong` são **por-tabela** (`expenses_dedupe_key_strong_key`,
+  `receipts_dedupe_key_strong_key`). Bank import (→`Expense`) concorrente com
+  Carteira dos mesmos bytes (→`Receipt`) não tem constraint compartilhada → o
+  P2002 não dispara cross-table. **Correção:** `strongDupExists(db, …)` — recheck
+  in-tx que consulta **as duas tabelas** — roda imediatamente antes do `create`
+  nos 3 loops de commit (receipt já tinha via `strongDupInTx`; bank e card
+  ganharam). O P2002 continua como backstop dentro da mesma tabela.
+- **SEC-3 (handler P2002 largo demais):** `isDedupeStrongUniqueViolation` casa
+  **só** os nomes exatos dos índices strong (`*_dedupe_key_strong_key` /
+  `dedupe_key_strong`). P2002 no compound pré-existente
+  `@@unique([tenantId, projectId, externalId])` **não** passa pelo handler novo —
+  mantém o tratamento anterior ao PR (não vira `duplicated++`/`raceDuplicated`
+  silencioso). Em `bank-account.service.ts` o `if (preparedCardPayment.matchedCard) throw err`
+  agora vem **antes** do handler de dedupe: aplicação de cartão nunca é
+  best-effort.
+- **SEC-5 (INFO, aceito):** `assignHistoricalOrdinals` no backfill ordena por
+  `(created_at, id)` e usa `COALESCE(titulo, fornecedor)`; o caminho vivo
+  (`computeImportOrdinals`) usa a ordem do array do parser e `NormalizedTx.merchant`.
+  Convergem no volume esperado; num caso patológico de reordenação um re-import
+  futuro de linha histórica pode não casar `dedupeKeyNatural` → Tier B miss
+  (nunca perda de dinheiro — a linha reaparece como não-duplicada e o usuário
+  decide). Registrado; sem ação.
+
 ---
 
 ## 9. Lista de mudanças de produção (para `backend-expert`)
@@ -311,7 +345,7 @@ visao-conta) que é intra-processo. Aqui a rede é robusta.
 **Schema / migration / backfill**
 5. `prisma/schema.prisma` — 4 colunas + 2 `@@index([dedupeKeyNatural])`.
 6. `prisma/migrations/<ts>_add_dedupe_keys/migration.sql` — DDL do §6 (índice parcial à mão).
-7. `apps/api/scripts/backfill-dedupe-keys.mjs` **(novo)** — §7.
+7. `apps/api/scripts/backfill-dedupe-keys.cjs` **(novo)** — §7.
 
 **Serviços (E1–E9)**
 8. `apps/api/src/receipt/receipt.service.ts` — `findDedupeMatches` (substitui/entende

@@ -95,6 +95,35 @@ describe('#659 dedupeKeyStrong', () => {
     const fileOnly = dedupeKeyStrong({ ...base, fileContentHash: 'AAA' });
     expect(withFit).not.toBe(fileOnly);
   });
+
+  it('SEC-1: MESMO fitId + data/valor/merchant diferentes → chaves diferentes (FITID sequencial entre contas)', () => {
+    const contaA = dedupeKeyStrong({
+      ...base,
+      fitId: '1001',
+      date: new Date('2026-04-10T00:00:00.000Z'),
+      amountCents: 20000,
+      merchant: 'Loja A',
+    });
+    const contaB = dedupeKeyStrong({
+      ...base,
+      fitId: '1001',
+      date: new Date('2026-05-22T00:00:00.000Z'),
+      amountCents: 5400,
+      merchant: 'Loja B',
+    });
+    expect(contaA).not.toBe(contaB);
+  });
+
+  it('SEC-1: MESMO fitId + MESMA assinatura (mesmo arquivo por 2 canais) → chave idêntica', () => {
+    const sig = {
+      ...base,
+      fitId: '1001',
+      date: new Date('2026-04-10T00:00:00.000Z'),
+      amountCents: 20000,
+      merchant: 'Loja A',
+    };
+    expect(dedupeKeyStrong(sig)).toBe(dedupeKeyStrong({ ...sig }));
+  });
 });
 
 describe('#659 equivalência cross-canal (o ponto do fix)', () => {

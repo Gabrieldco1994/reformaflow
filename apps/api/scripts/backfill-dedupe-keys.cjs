@@ -11,22 +11,34 @@
  * importação — aceitável e documentado no design §7.
  *
  * - Idempotente: recompute é determinístico + guard `dedupe_key_natural IS NULL`;
- *   2ª execução = 0 updates, sem P2002 (natural não tem unique).
- * - Transacional: lotes de 500, cada lote num `$transaction`.
+ *   2ª execução = 0 updates, sem P2002 (natural não tem unique). Ctrl-C no meio +
+ *   rerun retoma de onde parou (o guard IS NULL cobre as já feitas).
+ * - Transacional: lotes de 500, cada lote num `$transaction` atômico.
  * - Ordinal histórico: recomputado por bucket
  *   `(tenant_id, project_id, iso(data), norm(merchant), amount)` ordenado por
- *   `(created_at, id)` — MESMA regra de `assignOrdinals` / `computeImportOrdinals`.
+ *   `(created_at, id)`.
+ *
+ * SEC-5 (INFO, aceito e registrado — design §7): a reconstrução do ordinal aqui
+ * usa ordenação `(created_at, id)` e `COALESCE(titulo, fornecedor)` como merchant,
+ * enquanto o caminho VIVO (`computeImportOrdinals`) usa a ordem do array do parser
+ * e `NormalizedTx.merchant`. Para o volume esperado (linhas de um mesmo lote,
+ * mesmo dia/merchant/valor) as duas convergem; num caso patológico de reordenação
+ * um re-import futuro de linha histórica pode não casar `dedupe_key_natural` →
+ * Tier B miss (nunca dinheiro perdido — no pior caso a linha reaparece como não
+ * duplicada e o usuário decide). Aceito pelo PO.
+ *
+ * CommonJS (.cjs) de propósito: roda com `node` puro em prod/CI (sem ts-node) E é
+ * `require()`-ável pelo jest (ver src/import-dedupe/backfill-dedupe-keys.spec.ts).
  *
  * PRODUÇÃO (passo humano):
  *   cp prisma/dev.db prisma/dev.db.bak-659-$(date +%Y%m%d-%H%M%S)
- *   DATABASE_URL="file:./prisma/dev.db" node apps/api/scripts/backfill-dedupe-keys.mjs
- *   # conferir: contagem de (import_id NOT NULL AND dedupe_key_natural IS NULL) == 0
+ *   DATABASE_URL="file:./prisma/dev.db" node apps/api/scripts/backfill-dedupe-keys.cjs
+ *   # conferir: (import_id NOT NULL AND external_id NOT NULL AND dedupe_key_natural IS NULL) == 0
  *
- * CI: roda contra prisma/test.db via `test-db-env.cjs` (ver
- * apps/api/src/import-dedupe/backfill-dedupe-keys.spec.ts, que importa este módulo).
+ * CI: rodar contra prisma/test.db logo após `prisma migrate deploy`.
  */
-import { createHash } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
+const { createHash } = require('node:crypto');
+const { PrismaClient } = require('@prisma/client');
 
 const BATCH = 500;
 
@@ -41,24 +53,19 @@ const iso = (d) => {
 };
 const h = (s) => createHash('sha256').update(s).digest('hex').slice(0, 32);
 
-export function dedupeKeyNatural({
-  tenantId,
-  projectId,
-  date,
-  merchant,
-  amountCents,
-  ordinal,
-}) {
+/** MESMA fórmula de `dedupeKeyNatural` em src/credit-card/parsers/dedupe-key.ts. */
+function dedupeKeyNatural({ tenantId, projectId, date, merchant, amountCents, ordinal }) {
   return h(
     `dk-nat-v1|${tenantId}|${projectId}|${iso(date)}|${amountCents}|${norm(merchant)}|${ordinal}`,
   );
 }
 
 /**
- * Recomputa ordinais por bucket para um conjunto de linhas já ORDENADO por
- * (created_at, id). Retorna Map<id, ordinal>.
+ * Ordinal por bucket para um conjunto de linhas JÁ ORDENADO (created_at, id).
+ * Mesma regra de bucket de `computeImportOrdinals` (`iso(date)|norm(merchant)|amount`).
+ * Retorna Map<id, ordinal>.
  */
-export function assignHistoricalOrdinals(rows) {
+function assignHistoricalOrdinals(rows) {
   const counts = new Map();
   const out = new Map();
   for (const r of rows) {
@@ -121,7 +128,7 @@ async function backfillTable(prisma, table) {
   return totalUpdated;
 }
 
-export async function runBackfill(prisma) {
+async function runBackfill(prisma) {
   const expenses = await backfillTable(prisma, 'expenses');
   const receipts = await backfillTable(prisma, 'receipts');
   return { expenses, receipts };
@@ -140,8 +147,9 @@ async function main() {
   }
 }
 
-// Só executa quando chamado como script (não quando importado pelo spec).
-if (import.meta.url === `file://${process.argv[1]}`) {
+module.exports = { dedupeKeyNatural, assignHistoricalOrdinals, runBackfill };
+
+if (require.main === module) {
   main().catch((err) => {
     console.error('[backfill-659] FALHOU:', err);
     process.exit(1);

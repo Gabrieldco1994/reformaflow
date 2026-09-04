@@ -46,7 +46,15 @@ export interface DedupeKeyStrongParams {
 
 export function dedupeKeyStrong(p: DedupeKeyStrongParams): string | null {
   if (p.fitId) {
-    return h(`dk-strong-fit-v1|${p.tenantId}|${p.projectId}|${p.fitId}`);
+    // SEC-1 (#659): FITID só é único DENTRO DE UMA CONTA — BB/Itaú e emissores de
+    // cartão emitem FITIDs sequenciais curtos por extrato. Sem `seed` (era o que
+    // protegia no `makeExternalId`) é obrigatório dobrar data+valor+merchant,
+    // senão FITID 1001/R$200 da conta A colide com FITID 1001/R$54 da conta B no
+    // mesmo projeto e a linha da conta B some do Caixa para sempre (Tier A não
+    // é forçável). Cross-origin ainda dedupa: mesmo arquivo ⇒ mesma assinatura.
+    return h(
+      `dk-strong-fit-v1|${p.tenantId}|${p.projectId}|${p.fitId}|${iso(p.date)}|${p.amountCents}|${norm(p.merchant)}`,
+    );
   }
   if (p.fileContentHash) {
     return h(

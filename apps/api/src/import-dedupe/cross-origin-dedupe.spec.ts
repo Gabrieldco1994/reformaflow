@@ -28,6 +28,7 @@ import { CreditCardService } from '../credit-card/credit-card.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
+import { dedupeKeyStrong } from '../credit-card/parsers/dedupe-key';
 import type { RateioRequester } from '../expense/rateio.types';
 
 const setupPrisma = new PrismaClient();
@@ -38,7 +39,9 @@ const OTHER_TENANT = 'dedupe-659-other-tenant';
 const PROJ_A = 'dedupe-659-proj-a';
 const PROJ_B = 'dedupe-659-proj-b';
 const ACCOUNT_A = 'dedupe-659-account-a';
+const ACCOUNT_A2 = 'dedupe-659-account-a2'; // 2ª conta do MESMO projeto (SEC-1)
 const CARD_A = 'dedupe-659-card-a';
+const CARD_A2 = 'dedupe-659-card-a2';
 const ACCOUNT_B = 'dedupe-659-account-b';
 
 const REQ: RateioRequester = {
@@ -136,11 +139,15 @@ beforeAll(async () => {
   await setupPrisma.bankAccount.createMany({
     data: [
       { id: ACCOUNT_A, tenantId: TENANT, projectId: PROJ_A, institution: 'ITAU', nickname: 'Conta A', last4: '1111' },
+      { id: ACCOUNT_A2, tenantId: TENANT, projectId: PROJ_A, institution: 'BB', nickname: 'Conta A2', last4: '4444' },
       { id: ACCOUNT_B, tenantId: TENANT, projectId: PROJ_B, institution: 'ITAU', nickname: 'Conta B', last4: '2222' },
     ],
   });
-  await setupPrisma.creditCard.create({
-    data: { id: CARD_A, tenantId: TENANT, projectId: PROJ_A, institution: 'ITAU', nickname: 'Card A', last4: '3333', brand: 'VISA', closingDay: 3, dueDay: 10 },
+  await setupPrisma.creditCard.createMany({
+    data: [
+      { id: CARD_A, tenantId: TENANT, projectId: PROJ_A, institution: 'ITAU', nickname: 'Card A', last4: '3333', brand: 'VISA', closingDay: 3, dueDay: 10 },
+      { id: CARD_A2, tenantId: TENANT, projectId: PROJ_A, institution: 'BB', nickname: 'Card A2', last4: '5555', brand: 'VISA', closingDay: 3, dueDay: 10 },
+    ],
   });
   svc = buildServices();
 });
@@ -382,5 +389,146 @@ describe('#659 contrato #7 — re-import do MESMO canal continua idempotente', (
     const after = await moneySnapshot(PROJ_A);
     expect(after.rowCount).toBe(before.rowCount);
     expect(after.consolidatedTotal).toBe(before.consolidatedTotal);
+  });
+});
+
+// FITID sequencial curto (BB/Itaú) — DUAS contas do MESMO projeto reusam "1001".
+const OFX_ACC_1 = [
+  '<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>',
+  '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260410120000<TRNAMT>-200.00<FITID>1001<MEMO>LOJA A</STMTTRN>',
+  '</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>',
+].join('\n');
+const OFX_ACC_2 = [
+  '<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>',
+  '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260522120000<TRNAMT>-54.00<FITID>1001<MEMO>MERCADO B</STMTTRN>',
+  '</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>',
+].join('\n');
+
+describe('#659 SEC-1 — FITID sequencial não colide entre contas do mesmo projeto', () => {
+  it('mesmo tenant+projeto, 2 contas, MESMO fitId, data/valor diferentes → AMBAS criadas', async () => {
+    const r1 = (await svc.bank.commitImport(
+      TENANT, PROJ_A, ACCOUNT_A, [buf(OFX_ACC_1)], 'conta-a.ofx', 'OFX', undefined, undefined, undefined, null, REQ,
+    )) as any;
+    expect(r1.error).toBeUndefined();
+    const mid = await moneySnapshot(PROJ_A);
+    expect(mid.rowCount).toBe(1);
+
+    // baseline (fórmula FITID-only): dedupeKeyStrong idêntico → linha da conta B
+    // some do Caixa para sempre (Tier A não forçável). Com data/valor/merchant na
+    // chave → chaves distintas → ambas persistem.
+    const r2 = (await svc.bank.commitImport(
+      TENANT, PROJ_A, ACCOUNT_A2, [buf(OFX_ACC_2)], 'conta-a2.ofx', 'OFX', undefined, undefined, undefined, null, REQ,
+    )) as any;
+    expect(r2.error).toBeUndefined();
+    expect(r2.duplicated).toBe(0);
+
+    const after = await moneySnapshot(PROJ_A);
+    expect(after.rowCount).toBe(2);
+    // R$200,00 (conta A) + R$54,00 (conta B) = R$254,00
+    expect(after.consolidatedTotal).toBe(25400);
+    expect(after.cashSum).toBe(25400);
+  });
+});
+
+// Fatura de cartão com COMPRA PARCELADA — mesmo arquivo pelos 2 canais de cartão.
+const CSV_PARCELA =
+  'date,title,amount\n2026-03-20,MOVEIS PARC 2/6,300.00\n2026-03-15,Padaria,18.00\n';
+
+describe('#659 preocupação de base — parcela importada por Carteira-como-cartão e depois pelo canal cartão', () => {
+  it('mesmo arquivo, 2 canais de cartão → Tier A dedupa a parcela, sem dobrar dinheiro', async () => {
+    const r1 = (await svc.receipt.commitImport(
+      TENANT, PROJ_A, [buf(CSV_PARCELA)], 'card', 'CSV_NUBANK', undefined, undefined, undefined, null, 'fatura.csv',
+    )) as any;
+    expect(r1.error).toBeUndefined();
+    const before = await moneySnapshot(PROJ_A);
+    expect(before.rowCount).toBe(2);
+
+    const r2 = (await svc.card.commitImport(
+      TENANT, PROJ_A, CARD_A, [buf(CSV_PARCELA)], 'fatura.csv', 'CSV_NUBANK', undefined, undefined, undefined, null, REQ,
+    )) as any;
+    expect(r2.error).toBeUndefined();
+    expect(r2.duplicated).toBe(2);
+
+    const after = await moneySnapshot(PROJ_A);
+    expect(after.rowCount).toBe(before.rowCount);
+    expect(after.consolidatedTotal).toBe(before.consolidatedTotal);
+    expect(after.cashSum).toBe(before.cashSum);
+  });
+});
+
+describe('#659 SEC-2/backstop — strong-key pré-existente de OUTRA origem → duplicated, sem throw, sem 2ª linha', () => {
+  const seedStrong = (extra: Record<string, unknown>) =>
+    setupPrisma.expense.create({
+      data: {
+        tenantId: TENANT,
+        projectId: PROJ_A,
+        tipoDespesa: 'OUTROS',
+        titulo: 'seed origem X',
+        valor: 20000,
+        quantidade: 1,
+        valorTotal: 20000,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+        externalId: 'seed-outra-origem-x',
+        ...extra,
+      },
+    });
+
+  it('bank: linha semeada com dedupeKeyStrong → import do OFX conta como duplicated', async () => {
+    const strong = dedupeKeyStrong({
+      tenantId: TENANT, projectId: PROJ_A,
+      date: new Date(Date.UTC(2026, 3, 10)),
+      merchant: 'LOJA A', amountCents: 20000, ordinal: 0, fitId: '1001',
+    });
+    await seedStrong({ dedupeKeyStrong: strong });
+
+    const r = (await svc.bank.commitImport(
+      TENANT, PROJ_A, ACCOUNT_A, [buf(OFX_ACC_1)], 'a.ofx', 'OFX', undefined, undefined, undefined, null, REQ,
+    )) as any;
+    expect(r.error).toBeUndefined();
+    expect(r.duplicated).toBe(1);
+
+    const snap = await moneySnapshot(PROJ_A);
+    expect(snap.rowCount).toBe(1); // só a semeada
+    expect(snap.consolidatedTotal).toBe(20000);
+  });
+
+  it('receipt (Carteira): idem — não recria a linha e não lança', async () => {
+    const strong = dedupeKeyStrong({
+      tenantId: TENANT, projectId: PROJ_A,
+      date: new Date(Date.UTC(2026, 3, 10)),
+      merchant: 'LOJA A', amountCents: 20000, ordinal: 0, fitId: '1001',
+    });
+    await seedStrong({ dedupeKeyStrong: strong });
+
+    const r = (await svc.receipt.commitImport(
+      TENANT, PROJ_A, [buf(OFX_ACC_1)], 'bank', 'OFX', undefined, undefined, undefined, null, 'a.ofx',
+    )) as any;
+    expect(r.error).toBeUndefined();
+    expect(r.duplicated).toBe(1);
+    const snap = await moneySnapshot(PROJ_A);
+    expect(snap.rowCount).toBe(1);
+  });
+
+  it('card (fatura): linha semeada com dedupeKeyStrong de file-hash → import conta como duplicated', async () => {
+    // sem fitId → strong = variante file-hash; precisa do fileContentHash real.
+    const { fileContentHash } = require('../import-dedupe/cross-origin-dedupe');
+    const fh = fileContentHash([buf(CSV_CARD_FILE_1)]);
+    const strong = dedupeKeyStrong({
+      tenantId: TENANT, projectId: PROJ_A,
+      date: new Date(Date.UTC(2026, 3, 10)),
+      merchant: 'Cafeteria Bourbon', amountCents: 1200, ordinal: 0,
+      fileContentHash: fh,
+    });
+    await seedStrong({ dedupeKeyStrong: strong, valor: 1200, valorTotal: 1200 });
+
+    const r = (await svc.card.commitImport(
+      TENANT, PROJ_A, CARD_A, [buf(CSV_CARD_FILE_1)], 'fatura.csv', 'CSV_NUBANK', undefined, undefined, undefined, null, REQ,
+    )) as any;
+    expect(r.error).toBeUndefined();
+    // Cafeteria (1200) casa a semeada → duplicated; Posto Shell (5000) entra.
+    expect(r.duplicated).toBe(1);
+    const snap = await moneySnapshot(PROJ_A);
+    expect(snap.rowCount).toBe(2); // semeada + Posto Shell
   });
 });

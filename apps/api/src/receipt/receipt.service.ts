@@ -27,8 +27,6 @@ import {
   MERCHANT_TO_EXPENSE_TYPE,
 } from '../merchant-classifier/merchant-classifier.service';
 import {
-  RECEIPT_IMPORT_ACTION_IMPORT,
-  RECEIPT_IMPORT_ACTION_SKIP,
   RECEIPT_IMPORT_DOCUMENT_TYPE_BANK,
   RECEIPT_IMPORT_DOCUMENT_TYPE_CARD,
   validateReceiptImportDecisions,
@@ -41,9 +39,10 @@ import {
   dedupeColumns,
   fileContentHash,
   findDedupeMatches,
-  isDedupeUniqueViolation,
+  isDedupeStrongUniqueViolation,
   keysFromTransactions,
-  type DedupeMatches,
+  resolveRowAction,
+  strongDupExists,
   type PossibleDuplicate,
 } from '../import-dedupe/cross-origin-dedupe';
 
@@ -367,25 +366,6 @@ export class ReceiptService {
     });
   }
 
-  /**
-   * (#659) Recheck de duplicata-forte DENTRO da $transaction de criação — o
-   * pré-check externo não fecha a corrida entre canais. O índice único parcial
-   * de `dedupe_key_strong` é o guard final (P2002 tratado no chamador).
-   */
-  private async strongDupInTx(
-    db: ExternalIdLookupClient,
-    tenantId: string,
-    projectId: string,
-    transaction: NormalizedTx,
-  ): Promise<boolean> {
-    const { strongDuplicates } = await findDedupeMatches(
-      db,
-      tenantId,
-      projectId,
-      keysFromTransactions([transaction]),
-    );
-    return strongDuplicates.has(transaction.externalId);
-  }
 
   private async parseImport(
     buffers: Buffer[],
@@ -602,29 +582,27 @@ export class ReceiptService {
     const learnEntries: Array<{ merchant: string; expenseType: string }> = [];
 
     for (const transaction of parsed.transactions) {
-      if (strongExisting.has(transaction.externalId)) {
+      const decision = decisionByExternalId.get(transaction.externalId);
+      // (#659) strong-dup → auto-skip (não forçável); user-skip / linha ignorada
+      // → skipped; possibleDuplicate Tier B sem `action:'import'` → não cria.
+      const action = resolveRowAction(
+        transaction.externalId,
+        { strongDuplicates: strongExisting, possibleDuplicates: dedupe.possibleDuplicates },
+        decision?.action,
+      );
+      if (action.kind === 'strong-duplicate') {
         duplicated++;
         continue;
       }
-
-      const decision = decisionByExternalId.get(transaction.externalId);
       if (
-        decision?.action === RECEIPT_IMPORT_ACTION_SKIP ||
+        action.kind === 'user-skip' ||
         this.isIgnoredImportRow(transaction, documentType)
       ) {
         skipped++;
         continue;
       }
-
-      // (#659 Tier B) natural-key casou outra origem: só cria com action:'import'.
-      const possibleDuplicate = dedupe.possibleDuplicates.get(
-        transaction.externalId,
-      );
-      if (
-        possibleDuplicate &&
-        decision?.action !== RECEIPT_IMPORT_ACTION_IMPORT
-      ) {
-        possibleDuplicates.push(possibleDuplicate);
+      if (action.kind === 'possible-duplicate') {
+        possibleDuplicates.push(action.info);
         skipped++;
         continue;
       }
@@ -667,7 +645,7 @@ export class ReceiptService {
           receiptsInserted++;
         }
       } catch (err) {
-        if (isDedupeUniqueViolation(err)) {
+        if (isDedupeStrongUniqueViolation(err)) {
           duplicated++;
           continue;
         }
@@ -755,7 +733,7 @@ export class ReceiptService {
     ).slice(0, MAX_IMPORT_TEXT_LENGTH);
 
     return this.prisma.$transaction(async (db) => {
-      if (await this.strongDupInTx(db, tenantId, projectId, transaction)) {
+      if (await strongDupExists(db, tenantId, projectId, transaction)) {
         return IMPORT_OUTCOME_DUPLICATE;
       }
 
@@ -813,7 +791,7 @@ export class ReceiptService {
     ).slice(0, MAX_IMPORT_TEXT_LENGTH);
 
     return this.prisma.$transaction(async (db) => {
-      if (await this.strongDupInTx(db, tenantId, projectId, transaction)) {
+      if (await strongDupExists(db, tenantId, projectId, transaction)) {
         return IMPORT_OUTCOME_DUPLICATE;
       }
 

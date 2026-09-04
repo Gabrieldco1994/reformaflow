@@ -16,8 +16,9 @@ import {
   dedupeColumns,
   fileContentHash,
   findDedupeMatches,
-  isDedupeUniqueViolation,
+  isDedupeStrongUniqueViolation,
   keysFromTransactions,
+  strongDupExists,
   type PossibleDuplicate,
 } from '../import-dedupe/cross-origin-dedupe';
 
@@ -630,6 +631,13 @@ export class CreditCardService {
         merchant: d?.overrides?.titulo ?? tx.merchant,
         amountCents: d?.overrides?.valorCents ?? tx.amountCents,
       };
+      // (SEC-2 #659) recheck imediatamente antes do create — fecha a janela da
+      // corrida cross-canal (Carteira-como-cartão dos mesmos bytes) sem depender
+      // só do P2002. Confere expenses + receipts.
+      if (await strongDupExists(this.prisma, tenantId, projectId, tx)) {
+        raceDuplicated++;
+        continue;
+      }
       try {
         const result = await this.createExpenseFromTransaction(
           tenantId,
@@ -670,7 +678,7 @@ export class CreditCardService {
           }
         }
       } catch (err) {
-        if (isDedupeUniqueViolation(err)) {
+        if (isDedupeStrongUniqueViolation(err)) {
           raceDuplicated++;
           continue;
         }
