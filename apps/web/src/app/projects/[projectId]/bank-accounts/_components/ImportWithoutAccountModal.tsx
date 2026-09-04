@@ -4,6 +4,16 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
+import {
+  CategoriaFonteChip,
+  ImportClassificationNotice,
+  type CategoriaFonte,
+  type ImportClassificationStatus,
+} from "@/components/import/ImportClassificationNotice";
+import {
+  DEBIT_CATEGORIES,
+  categoryLabel,
+} from "../_lib/import-categories";
 
 interface Props {
   projectId: string;
@@ -29,6 +39,8 @@ interface ApiPreviewRow {
   duplicate?: boolean;
   ignored?: boolean;
   willImport?: boolean;
+  categoriaFonte?: CategoriaFonte | null;
+  suggestedCategory?: string | null;
 }
 
 interface ApiPreviewResult {
@@ -38,6 +50,7 @@ interface ApiPreviewResult {
   duplicated?: number;
   rows?: ApiPreviewRow[];
   preview?: ApiPreviewRow[];
+  classificationStatus?: ImportClassificationStatus;
 }
 
 interface PreviewRow {
@@ -49,6 +62,8 @@ interface PreviewRow {
   status: RowStatus;
   duplicate: boolean;
   ignored: boolean;
+  categoriaFonte: CategoriaFonte | null;
+  suggestedCategory: string | null;
 }
 
 interface PreviewResult {
@@ -56,6 +71,7 @@ interface PreviewResult {
   totalAmountCents: number;
   duplicated: number;
   rows: PreviewRow[];
+  classificationStatus?: ImportClassificationStatus;
 }
 
 interface ApiCommitResult {
@@ -67,6 +83,14 @@ interface ApiCommitResult {
   failed?: number;
   skipped?: number;
   duplicated?: number;
+  rulesLearned?: number;
+  rulesSkippedNoMapping?: number;
+  rulesLearnFailed?: number;
+}
+
+interface ImportDecision {
+  externalId: string;
+  overrides?: { category?: string };
 }
 
 const MAX_FILES = 5;
@@ -148,6 +172,8 @@ function normalizePreview(
       status: rowStatus(row.status, documentType, amount),
       duplicate: row.duplicate === true,
       ignored: row.ignored === true || row.willImport === false,
+      categoriaFonte: row.categoriaFonte ?? null,
+      suggestedCategory: row.suggestedCategory ?? null,
     };
   });
 
@@ -163,6 +189,7 @@ function normalizePreview(
       rows.reduce((sum, row) => sum + row.amountCents, 0),
     duplicated: result.duplicated ?? rows.filter((row) => row.duplicate).length,
     rows,
+    classificationStatus: result.classificationStatus,
   };
 }
 
@@ -192,6 +219,10 @@ export default function ImportWithoutAccountModal({
   const [password, setPassword] = useState("");
   const [needsPassword, setNeedsPassword] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
+  const [categoryOverrides, setCategoryOverrides] = useState<
+    Record<string, string>
+  >({});
+  const [commitResult, setCommitResult] = useState<ApiCommitResult | null>(null);
   const [committedCount, setCommittedCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -240,6 +271,15 @@ export default function ImportWithoutAccountModal({
       successHeadingRef.current?.focus();
     }
   }, [committedCount]);
+
+  // Sempre que a prévia é descartada (novo arquivo, troca de tipo, senha),
+  // zera as correções de categoria e o último resultado de commit.
+  useEffect(() => {
+    if (preview === null) {
+      setCategoryOverrides({});
+      setCommitResult(null);
+    }
+  }, [preview]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -312,6 +352,20 @@ export default function ImportWithoutAccountModal({
     return data;
   }
 
+  function commitFormData() {
+    const data = formData();
+    const decisions: ImportDecision[] = Object.entries(categoryOverrides)
+      .filter(([, category]) => !!category)
+      .map(([externalId, category]) => ({
+        externalId,
+        overrides: { category },
+      }));
+    if (decisions.length > 0) {
+      data.append("decisions", JSON.stringify(decisions));
+    }
+    return data;
+  }
+
   function showImportError(caught: unknown, fallback: string) {
     const message = caught instanceof Error ? caught.message : fallback;
     if (
@@ -368,9 +422,10 @@ export default function ImportWithoutAccountModal({
     try {
       const result = await api.upload<ApiCommitResult>(
         url("commit"),
-        formData(),
+        commitFormData(),
       );
       if (result.error) throw new Error(result.error);
+      setCommitResult(result);
       const inserted =
         result.inserted ??
         result.count ??
@@ -462,6 +517,27 @@ export default function ImportWithoutAccountModal({
               {committedCount} lançamento(s) importado(s) sem conta. Você poderá
               vincular uma conta depois.
             </p>
+            {!!commitResult?.rulesLearned && (
+              <p className="mt-2 text-sm text-gray-600">
+                <strong>{commitResult.rulesLearned}</strong> correção(ões)
+                viraram regra para o futuro
+              </p>
+            )}
+            {!!commitResult?.rulesSkippedNoMapping && (
+              <p className="mt-2 text-sm text-gray-500">
+                <strong>{commitResult.rulesSkippedNoMapping}</strong>{" "}
+                correção(ões) foram aplicadas à linha, mas não viraram regra:
+                esse tipo não tem categoria equivalente.
+              </p>
+            )}
+            {!!commitResult?.rulesLearnFailed && (
+              <p className="mt-2 text-sm text-amber-700">
+                A importação foi concluída, mas não foi possível salvar{" "}
+                <strong>{commitResult.rulesLearnFailed}</strong> regra(s).
+                Recategorize essas linhas para tentar de novo — a importação em
+                si não falhou.
+              </p>
+            )}
           </div>
         ) : (
           <>
@@ -575,39 +651,86 @@ export default function ImportWithoutAccountModal({
                     ? ` · ${preview.duplicated} duplicado(s)`
                     : ""}
                 </h3>
+                <ImportClassificationNotice
+                  status={preview.classificationStatus}
+                />
                 <ul className="max-h-[42dvh] divide-y overflow-y-auto rounded-lg border">
-                  {preview.rows.map((row) => (
-                    <li
-                      key={row.externalId}
-                      className="flex items-start justify-between gap-3 px-3 py-3"
-                    >
-                      <div className="min-w-0">
-                        <p
-                          className="truncate text-sm font-medium text-gray-800"
-                          title={row.description}
-                        >
-                          {row.description}
-                        </p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          {formatDateBR(row.date)} · {TYPE_LABELS[row.type]} ·{" "}
-                          {STATUS_LABELS[row.status]}
-                        </p>
-                        {(row.duplicate || row.ignored) && (
-                          <p className="mt-1 flex gap-2 text-xs font-medium">
-                            {row.duplicate && (
-                              <span className="text-amber-700">Duplicado</span>
-                            )}
-                            {row.ignored && (
-                              <span className="text-gray-600">Ignorado</span>
-                            )}
+                  {preview.rows.map((row) => {
+                    const isExpense = row.type === "DESPESA";
+                    const overridden =
+                      categoryOverrides[row.externalId] !== undefined;
+                    const suggested = row.suggestedCategory ?? "OUTROS";
+                    const selected =
+                      categoryOverrides[row.externalId] ?? suggested;
+                    const knownValues = new Set(
+                      DEBIT_CATEGORIES.map((c) => c.value),
+                    );
+                    const showDynamicOption =
+                      !!selected && !knownValues.has(selected);
+                    return (
+                      <li
+                        key={row.externalId}
+                        className="flex items-start justify-between gap-3 px-3 py-3"
+                      >
+                        <div className="min-w-0">
+                          <p
+                            className="truncate text-sm font-medium text-gray-800"
+                            title={row.description}
+                          >
+                            {row.description}
                           </p>
-                        )}
-                      </div>
-                      <span className="shrink-0 whitespace-nowrap text-[15px] font-semibold">
-                        {signedCurrency(row.amountCents)}
-                      </span>
-                    </li>
-                  ))}
+                          <p className="mt-1 text-xs text-gray-500">
+                            {formatDateBR(row.date)} · {TYPE_LABELS[row.type]} ·{" "}
+                            {STATUS_LABELS[row.status]}
+                          </p>
+                          {(row.duplicate || row.ignored) && (
+                            <p className="mt-1 flex gap-2 text-xs font-medium">
+                              {row.duplicate && (
+                                <span className="text-amber-700">Duplicado</span>
+                              )}
+                              {row.ignored && (
+                                <span className="text-gray-600">Ignorado</span>
+                              )}
+                            </p>
+                          )}
+                          {isExpense && (
+                            <div className="mt-2 flex flex-col">
+                              <select
+                                aria-label={`Categoria de ${row.description}`}
+                                value={selected}
+                                disabled={loading}
+                                onChange={(event) => {
+                                  const value = event.currentTarget.value;
+                                  setCategoryOverrides((prev) => ({
+                                    ...prev,
+                                    [row.externalId]: value,
+                                  }));
+                                }}
+                                className="w-fit max-w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                              >
+                                {showDynamicOption && (
+                                  <option value={selected}>
+                                    {categoryLabel(selected)}
+                                  </option>
+                                )}
+                                {DEBIT_CATEGORIES.map((c) => (
+                                  <option key={c.value} value={c.value}>
+                                    {c.label}
+                                  </option>
+                                ))}
+                              </select>
+                              {!overridden && (
+                                <CategoriaFonteChip fonte={row.categoriaFonte} />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <span className="shrink-0 whitespace-nowrap text-[15px] font-semibold">
+                          {signedCurrency(row.amountCents)}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             )}

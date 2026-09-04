@@ -37,6 +37,25 @@ import {
 } from './dto/import-receipt.dto';
 
 const PESSOAL_CATEGORY_MAP: Record<string, string> = MERCHANT_TO_EXPENSE_TYPE;
+
+/**
+ * (#659, espelha `credit-card.service.ts`) Categoria heurística local para uma
+ * linha SEM hit confiável do classificador. `null` — não `'OUTROS'` — quando o
+ * categorizador de keywords não casou nada (`categorize` devolve `'outros'` só
+ * como fallback). Sem isso, `categoriaFonte` marcaria `'regex'` para uma linha
+ * que ninguém classificou (finding F3 do PR-4/5).
+ */
+function localHeuristicCategory(merchant: string): string | null {
+  const cat = categorize(merchant);
+  if (cat === 'outros') return null;
+  return PESSOAL_CATEGORY_MAP[cat] ?? null;
+}
+
+/** Overrides de categoria que NÃO viram regra MANUAL (mesma regra de bank/card). */
+const NON_LEARNABLE_CATEGORY_OVERRIDES = new Set([
+  'MOVIMENTACAO_INTERNA',
+  'PAGAMENTO_FATURA_CARTAO',
+]);
 const DEFAULT_IMPORT_SOURCE = 'AUTO';
 const RECEIPT_IMPORT_SEED_PREFIX = 'receipts-import';
 const WALLET_ORIGIN = 'none';
@@ -64,6 +83,19 @@ export interface ReceiptImportPreviewRow {
   status: ExpenseStatus | ReceiptStatus;
   duplicate: boolean;
   willImport: boolean;
+  /**
+   * (#659) Origem da categoria sugerida nesta linha de despesa. `regra` = regra
+   * MANUAL do tenant/global; `ia` = classificação por IA acima do limiar;
+   * `regex` = heurística local casou; `null` = sem sugestão confiável ou linha
+   * que não recebe categoria (recebimento / pagamento de fatura).
+   */
+  categoriaFonte: 'regra' | 'ia' | 'regex' | null;
+  /**
+   * (#659) Categoria pré-selecionada para a linha de despesa (mesma resolução
+   * do commit: hit confiável → tipo mapeado; senão heurística local; senão
+   * `OUTROS`). `null` para recebimentos e pagamentos de fatura.
+   */
+  suggestedCategory: string | null;
 }
 
 export interface ReceiptImportError {
@@ -77,6 +109,12 @@ export interface ReceiptImportPreviewResult {
   totalAmountCents: number;
   duplicated: number;
   preview: ReceiptImportPreviewRow[];
+  /**
+   * (#659) Estado da categorização automática em lote (mesmas semânticas de
+   * `bank-account`/`credit-card`). Nunca bloqueia — `unavailable`/`error` só
+   * pedem revisão das sugestões antes de confirmar.
+   */
+  classificationStatus: 'ok' | 'unavailable' | 'error';
 }
 
 export interface ReceiptImportCommitResult {
@@ -88,6 +126,14 @@ export interface ReceiptImportCommitResult {
   duplicated: number;
   skipped: number;
   failed: number;
+  /**
+   * (#659, AC#7 do #582 / #665) Overrides EXPLÍCITOS de categoria em linhas
+   * efetivamente importadas como despesa viram regra MANUAL tenant-scoped.
+   * Reportado separado do resultado da importação; efeito PÓS-persistência.
+   */
+  rulesLearned: number;
+  rulesSkippedNoMapping: number;
+  rulesLearnFailed: number;
 }
 
 @Injectable()
@@ -417,19 +463,55 @@ export class ReceiptService {
       projectId,
       ids,
     );
+
+    // (#659) Uma única chamada de classificação para os merchants das linhas de
+    // DESPESA do lote — nunca por transação. Recebimentos (crédito de extrato) e
+    // pagamentos de fatura não recebem categoria, então ficam de fora.
+    const expenseMerchants = [
+      ...new Set(
+        parsed.transactions
+          .filter(
+            (t) =>
+              this.previewType(t, documentType) === PREVIEW_EXPENSE_TYPE &&
+              !this.isIgnoredImportRow(t, documentType),
+          )
+          .map((t) => t.merchant),
+      ),
+    ];
+    const importClassification =
+      await this.merchantClassifier.classifyForImport(
+        expenseMerchants,
+        tenantId,
+      );
+
     const preview: ReceiptImportPreviewRow[] = parsed.transactions.map(
       (transaction) => {
         const duplicate = existing.has(transaction.externalId);
+        const type = this.previewType(transaction, documentType);
+        const ignored = this.isIgnoredImportRow(transaction, documentType);
+        let categoriaFonte: ReceiptImportPreviewRow['categoriaFonte'] = null;
+        let suggestedCategory: string | null = null;
+        if (type === PREVIEW_EXPENSE_TYPE && !ignored) {
+          const hit = importClassification.classifications.get(
+            MerchantClassifierService.normalizeKey(transaction.merchant),
+          );
+          const localCat = localHeuristicCategory(transaction.merchant);
+          categoriaFonte = hit ? hit.source : localCat != null ? 'regex' : null;
+          suggestedCategory = hit
+            ? (PESSOAL_CATEGORY_MAP[hit.category] ?? ExpenseType.OUTROS)
+            : (localCat ?? ExpenseType.OUTROS);
+        }
         return {
           externalId: transaction.externalId,
           date: transaction.date.toISOString().slice(0, 10),
           description: transaction.merchant,
           amountCents: transaction.amountCents,
-          type: this.previewType(transaction, documentType),
+          type,
           status: this.previewStatus(transaction, documentType),
           duplicate,
-          willImport:
-            !duplicate && !this.isIgnoredImportRow(transaction, documentType),
+          willImport: !duplicate && !ignored,
+          categoriaFonte,
+          suggestedCategory,
         };
       },
     );
@@ -441,6 +523,7 @@ export class ReceiptService {
       totalAmountCents: parsed.totalAmountCents,
       duplicated: preview.filter((p) => p.duplicate).length,
       preview,
+      classificationStatus: importClassification.status,
     };
   }
 
@@ -483,6 +566,9 @@ export class ReceiptService {
     let duplicated = 0;
     let skipped = 0;
     let failed = 0;
+    // (#659) Overrides EXPLÍCITOS de categoria em linhas efetivamente criadas
+    // como despesa — viram regra MANUAL depois do loop, FORA de qualquer tx.
+    const learnEntries: Array<{ merchant: string; expenseType: string }> = [];
 
     for (const transaction of parsed.transactions) {
       if (existing.has(transaction.externalId)) {
@@ -523,6 +609,16 @@ export class ReceiptService {
           duplicated++;
         } else if (outcome === IMPORT_OUTCOME_EXPENSE) {
           expensesInserted++;
+          const categoryOverride = decision?.overrides?.category;
+          if (
+            categoryOverride &&
+            !NON_LEARNABLE_CATEGORY_OVERRIDES.has(categoryOverride)
+          ) {
+            learnEntries.push({
+              merchant: decision?.overrides?.titulo ?? transaction.merchant,
+              expenseType: categoryOverride,
+            });
+          }
         } else {
           receiptsInserted++;
         }
@@ -530,6 +626,18 @@ export class ReceiptService {
         failed++;
       }
     }
+
+    // (#659 / #665) Efeito PÓS-persistência, fora de qualquer $transaction:
+    // cada override vira regra MANUAL tenant-scoped (nunca global, nunca toca
+    // valor/sinal/status/caixa/projeto/vínculo/rateio/settlement).
+    const {
+      learned: rulesLearned,
+      skippedNoMapping: rulesSkippedNoMapping,
+      failed: rulesLearnFailed,
+    } = await this.merchantClassifier.learnFromImportOverrides(
+      learnEntries,
+      tenantId,
+    );
 
     return {
       source: parsed.source,
@@ -540,6 +648,9 @@ export class ReceiptService {
       duplicated,
       skipped,
       failed,
+      rulesLearned,
+      rulesSkippedNoMapping,
+      rulesLearnFailed,
     };
   }
 

@@ -11,6 +11,7 @@ import {
   PdfWrongPasswordError as CardPdfWrongPasswordError,
   parseStatementBuffers,
 } from "../credit-card/parsers";
+import { MerchantClassifierService } from "../merchant-classifier/merchant-classifier.service";
 import { ReceiptController } from "./receipt.controller";
 import { ImportReceiptQueryDto } from "./dto/import-receipt.dto";
 import { ReceiptService } from "./receipt.service";
@@ -164,7 +165,15 @@ function harness() {
       }
     }),
   };
-  const classifier = { manualExpenseType: jest.fn().mockResolvedValue(null) };
+  const classifier = {
+    manualExpenseType: jest.fn().mockResolvedValue(null),
+    classifyForImport: jest
+      .fn()
+      .mockResolvedValue({ classifications: new Map(), status: "ok" }),
+    learnFromImportOverrides: jest
+      .fn()
+      .mockResolvedValue({ learned: 0, skippedNoMapping: 0, failed: 0 }),
+  };
   return {
     classifier,
     prisma,
@@ -571,6 +580,7 @@ describe("accountless import approved contract", () => {
       total: 4,
       totalAmountCents: 5_345,
       duplicated: 0,
+      classificationStatus: "ok",
       preview: [
         {
           externalId: "purchase",
@@ -581,6 +591,8 @@ describe("accountless import approved contract", () => {
           status: "PLANEJADO",
           duplicate: false,
           willImport: true,
+          categoriaFonte: "regex",
+          suggestedCategory: "ALIMENTACAO",
         },
         {
           externalId: "refund",
@@ -591,6 +603,8 @@ describe("accountless import approved contract", () => {
           status: "PAGO",
           duplicate: false,
           willImport: true,
+          categoriaFonte: "regex",
+          suggestedCategory: "ALIMENTACAO",
         },
         {
           externalId: "payment",
@@ -601,6 +615,8 @@ describe("accountless import approved contract", () => {
           status: "PAGO",
           duplicate: false,
           willImport: false,
+          categoriaFonte: null,
+          suggestedCategory: null,
         },
         {
           externalId: "zero",
@@ -611,6 +627,8 @@ describe("accountless import approved contract", () => {
           status: "PLANEJADO",
           duplicate: false,
           willImport: false,
+          categoriaFonte: null,
+          suggestedCategory: null,
         },
       ],
     });
@@ -899,6 +917,9 @@ describe("accountless import approved contract", () => {
       duplicated: 0,
       skipped: 0,
       failed: 0,
+      rulesLearned: 0,
+      rulesSkippedNoMapping: 0,
+      rulesLearnFailed: 0,
     });
     await expect(commit(service, "bank")).resolves.toEqual({
       source: "OFX",
@@ -909,6 +930,9 @@ describe("accountless import approved contract", () => {
       duplicated: 2,
       skipped: 0,
       failed: 0,
+      rulesLearned: 0,
+      rulesSkippedNoMapping: 0,
+      rulesLearnFailed: 0,
     });
     expect(state.expenses).toHaveLength(1);
     expect(state.receipts).toHaveLength(1);
@@ -1025,5 +1049,131 @@ describe("accountless import approved contract", () => {
     expect(state.cashFlows).toHaveLength(1);
     expect(state.cashFlows[0].expenseId).toBe(state.expenses[0].id);
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("accountless import — classification banner + learn from overrides (#659)", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("preview: top-level classificationStatus + per-row categoriaFonte from classifyForImport", async () => {
+    const { service, classifier } = harness();
+    classifier.classifyForImport.mockResolvedValue({
+      classifications: new Map([
+        [
+          MerchantClassifierService.normalizeKey("IFOOD"),
+          { category: "alimentação", source: "ia", confidence: 0.9 },
+        ],
+      ]),
+      status: "unavailable",
+    });
+    bankParser.mockResolvedValue(
+      parsed([
+        row("ifood", 4_200, "IFOOD"),
+        row("credit", -50_000, "Salário"),
+      ]),
+    );
+
+    const result: any = await service.previewImport(
+      "tenant-1",
+      "project-1",
+      [Buffer.from("bank")],
+      "bank",
+      "OFX",
+    );
+
+    expect(classifier.classifyForImport).toHaveBeenCalledWith(
+      ["IFOOD"],
+      "tenant-1",
+    );
+    expect(result.classificationStatus).toBe("unavailable");
+    expect(result.preview[0]).toMatchObject({
+      externalId: "ifood",
+      categoriaFonte: "ia",
+      suggestedCategory: "ALIMENTACAO",
+    });
+    // crédito de extrato vira recebimento — nunca recebe categoria
+    expect(result.preview[1]).toMatchObject({
+      externalId: "credit",
+      type: "receipt",
+      categoriaFonte: null,
+      suggestedCategory: null,
+    });
+  });
+
+  it("commit: explicit category override on an imported expense → learn entry", async () => {
+    const { service, classifier } = harness();
+    bankParser.mockResolvedValue(parsed([row("padaria", 1_500, "PADARIA DO ZE")]));
+
+    await commit(service, "bank", [
+      {
+        externalId: "padaria",
+        action: "create",
+        overrides: { category: "ALIMENTACAO" },
+      },
+    ]);
+
+    expect(classifier.learnFromImportOverrides).toHaveBeenCalledWith(
+      [{ merchant: "PADARIA DO ZE", expenseType: "ALIMENTACAO" }],
+      "tenant-1",
+    );
+  });
+
+  it("commit: override on a bank-credit (RECEITA) row learns nothing", async () => {
+    const { service, classifier } = harness();
+    bankParser.mockResolvedValue(parsed([row("credit", -90_000, "Salário")]));
+
+    await commit(service, "bank", [
+      {
+        externalId: "credit",
+        action: "create",
+        overrides: { category: "SALARIO" },
+      },
+    ]);
+
+    expect(classifier.learnFromImportOverrides).toHaveBeenCalledWith([], "tenant-1");
+  });
+
+  it("commit: propagates rulesSkippedNoMapping from the classifier", async () => {
+    const { service, classifier } = harness();
+    classifier.learnFromImportOverrides.mockResolvedValue({
+      learned: 0,
+      skippedNoMapping: 1,
+      failed: 0,
+    });
+    bankParser.mockResolvedValue(parsed([row("loja", 2_000, "LOJA XYZ")]));
+
+    const result: any = await commit(service, "bank", [
+      {
+        externalId: "loja",
+        action: "create",
+        overrides: { category: "SEM_CATEGORIA_EQUIVALENTE" },
+      },
+    ]);
+
+    expect(result.rulesSkippedNoMapping).toBe(1);
+    expect(result.rulesLearned).toBe(0);
+    expect(result.rulesLearnFailed).toBe(0);
+  });
+
+  it("commit: skipped and duplicated rows with overrides learn nothing", async () => {
+    const { service, classifier, state } = harness();
+    state.expenses.push({
+      id: "dup-0",
+      externalId: "dup",
+      deletedAt: null,
+    });
+    bankParser.mockResolvedValue(
+      parsed([
+        row("dup", 1_000, "JÁ IMPORTADA"),
+        row("skip-me", 900, "IGNORADA"),
+      ]),
+    );
+
+    await commit(service, "bank", [
+      { externalId: "dup", action: "create", overrides: { category: "MORADIA" } },
+      { externalId: "skip-me", action: "skip", overrides: { category: "LAZER" } },
+    ]);
+
+    expect(classifier.learnFromImportOverrides).toHaveBeenCalledWith([], "tenant-1");
   });
 });
