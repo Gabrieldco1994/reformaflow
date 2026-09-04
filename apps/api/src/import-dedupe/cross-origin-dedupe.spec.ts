@@ -245,6 +245,37 @@ describe('#659 Tier A2 — auto-skip por hash de bytes (CSV sem FITID)', () => {
     expect(after.rowCount).toBe(before.rowCount);
     expect(after.consolidatedTotal).toBe(before.consolidatedTotal);
   });
+
+  it('contrato #3: Tier A NÃO é forçável — decisions[].action=import numa linha strong-dup continua pulada', async () => {
+    const r1 = (await svc.receipt.commitImport(
+      TENANT, PROJ_A, [buf(CSV_CARD_FILE_1)], 'card', 'CSV_NUBANK', undefined, undefined, undefined, null, 'fatura.csv',
+    )) as any;
+    expect(r1.error).toBeUndefined();
+    const before = await moneySnapshot(PROJ_A);
+    expect(before.rowCount).toBe(2);
+
+    // usuário abre o preview do MESMO arquivo pela fatura e tenta forçar TODAS as linhas
+    const preview = (await svc.card.previewImport(
+      TENANT, PROJ_A, CARD_A, [buf(CSV_CARD_FILE_1)], 'fatura.csv', 'CSV_NUBANK', undefined, REQ,
+    )) as any;
+    const forceAll = preview.preview.map((p: any) => ({
+      externalId: p.externalId,
+      action: 'import' as const,
+    }));
+    expect(forceAll.length).toBe(2);
+
+    const r2 = (await svc.card.commitImport(
+      TENANT, PROJ_A, CARD_A, [buf(CSV_CARD_FILE_1)], 'fatura.csv', 'CSV_NUBANK', undefined, undefined, forceAll as any, null, REQ,
+    )) as any;
+    expect(r2.error).toBeUndefined();
+    // strong-key bate ANTES da decisão → nada criado
+    expect(r2.duplicated).toBe(2);
+
+    const after = await moneySnapshot(PROJ_A);
+    expect(after.rowCount).toBe(before.rowCount);
+    expect(after.consolidatedTotal).toBe(before.consolidatedTotal);
+    expect(after.cashSum).toBe(before.cashSum);
+  });
 });
 
 describe('#659 Tier B — natural-key entre arquivos DIFERENTES é superfície, não auto-skip', () => {
@@ -301,6 +332,22 @@ describe('#659 Tier B — natural-key entre arquivos DIFERENTES é superfície, 
     // café (1200) + Mercado Bom (3000) entram → +2 linhas, +4200
     expect(after.rowCount).toBe(before.rowCount + 2);
     expect(after.consolidatedTotal).toBe(before.consolidatedTotal + 4200);
+  });
+});
+
+describe('#659 contrato #3 — duas transações legítimas idênticas no MESMO arquivo continuam duas', () => {
+  it('duas linhas iguais (date+merchant+amount) → ordinais 0/1 → ambas persistem', async () => {
+    const CSV_TWINS =
+      'date,title,amount\n2026-05-05,Feira Livre,25.00\n2026-05-05,Feira Livre,25.00\n';
+    const r1 = (await svc.receipt.commitImport(
+      TENANT, PROJ_A, [buf(CSV_TWINS)], 'card', 'CSV_NUBANK', undefined, undefined, undefined, null, 'feira.csv',
+    )) as any;
+    expect(r1.error).toBeUndefined();
+    const snap = await moneySnapshot(PROJ_A);
+    // mutação: dropar `ordinal` da natural/strong key colapsaria estas em 1
+    expect(snap.rowCount).toBe(2);
+    expect(snap.consolidatedTotal).toBe(5000);
+    expect(r1.duplicated).toBe(0);
   });
 });
 
