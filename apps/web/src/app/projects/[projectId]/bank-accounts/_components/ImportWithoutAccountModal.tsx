@@ -693,7 +693,7 @@ export default function ImportWithoutAccountModal({
                               )}
                             </p>
                           )}
-                          {isExpense && (
+                          {isExpense && !row.ignored && !row.duplicate && (
                             <div className="mt-2 flex flex-col">
                               <select
                                 aria-label={`Categoria de ${row.description}`}
@@ -706,7 +706,7 @@ export default function ImportWithoutAccountModal({
                                     [row.externalId]: value,
                                   }));
                                 }}
-                                className="w-fit max-w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                                className="min-h-11 w-fit max-w-full rounded border border-gray-300 px-2 py-1 text-sm"
                               >
                                 {showDynamicOption && (
                                   <option value={selected}>
