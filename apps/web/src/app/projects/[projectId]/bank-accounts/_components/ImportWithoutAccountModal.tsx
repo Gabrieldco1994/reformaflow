@@ -212,7 +212,6 @@ export default function ImportWithoutAccountModal({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const successHeadingRef = useRef<HTMLHeadingElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const committedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const committedNotifiedRef = useRef(false);
   const [documentType, setDocumentType] = useState<DocumentType>("bank");
   const [files, setFiles] = useState<File[]>([]);
@@ -234,10 +233,6 @@ export default function ImportWithoutAccountModal({
   const notifyCommitted = useCallback(() => {
     if (committedNotifiedRef.current) return;
     committedNotifiedRef.current = true;
-    if (committedTimerRef.current) {
-      clearTimeout(committedTimerRef.current);
-      committedTimerRef.current = null;
-    }
     onCommitted();
   }, [onCommitted]);
 
@@ -259,9 +254,6 @@ export default function ImportWithoutAccountModal({
     closeButtonRef.current?.focus();
 
     return () => {
-      if (committedTimerRef.current) {
-        clearTimeout(committedTimerRef.current);
-      }
       restorePreviousFocus();
     };
   }, [restorePreviousFocus]);
@@ -440,9 +432,6 @@ export default function ImportWithoutAccountModal({
       }
 
       setCommittedCount(inserted);
-      if (!committedNotifiedRef.current && committedTimerRef.current === null) {
-        committedTimerRef.current = setTimeout(notifyCommitted, 1500);
-      }
     } catch (caught) {
       showImportError(caught, "Não foi possível concluir a importação.");
     } finally {
@@ -455,10 +444,6 @@ export default function ImportWithoutAccountModal({
     setPreview(null);
     setCommittedCount(null);
     committedNotifiedRef.current = false;
-    if (committedTimerRef.current) {
-      clearTimeout(committedTimerRef.current);
-      committedTimerRef.current = null;
-    }
     setPassword("");
     setNeedsPassword(false);
     setError(null);
@@ -483,10 +468,6 @@ export default function ImportWithoutAccountModal({
     setPreview(null);
     setCommittedCount(null);
     committedNotifiedRef.current = false;
-    if (committedTimerRef.current) {
-      clearTimeout(committedTimerRef.current);
-      committedTimerRef.current = null;
-    }
     setPassword("");
     setNeedsPassword(false);
     setError(null);
@@ -538,6 +519,13 @@ export default function ImportWithoutAccountModal({
                 si não falhou.
               </p>
             )}
+            <button
+              type="button"
+              onClick={notifyCommitted}
+              className="mt-4 min-h-11 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+            >
+              Concluir
+            </button>
           </div>
         ) : (
           <>

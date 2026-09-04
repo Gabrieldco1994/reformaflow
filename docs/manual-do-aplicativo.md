@@ -932,10 +932,13 @@ visões de Mês/Ano.
 - **Editar conta e saldo inicial** abre o formulário existente de identidade e
   reconciliação; **Nova conta** usa o mesmo formulário.
 - **Sem nenhuma conta cadastrada**, o modal "Para qual conta é esse extrato?"
-  mostra o estado vazio **"Nenhuma conta cadastrada"** com CTA **"Nova conta"** →
-  `/bank-accounts?focus=openingBalance` (redireciona para `/conta?focus=openingBalance`,
-  abrindo o formulário). Esse estado só é alcançável no PESSOAL — nos demais tipos a
-  oferta de importar extrato nem aparece (issue #218).
+  mostra, antes do estado vazio, o botão **"Importar para Carteira"** — abre o
+  importador sem conta (§4.8.1) direto do launcher, sem precisar cadastrar uma
+  conta primeiro — seguido do estado vazio **"Nenhuma conta cadastrada"** com CTA
+  **"Nova conta"** → `/bank-accounts?focus=openingBalance` (redireciona para
+  `/conta?focus=openingBalance`, abrindo o formulário). Ambos os CTAs só
+  aparecem no PESSOAL — nos demais tipos a oferta de importar extrato nem
+  aparece (issue #218; reachability do "Importar para Carteira" via #659).
 - **Importações** abre, para cada conta, o histórico de extratos já importados
   nela, com o impacto de cada um e a opção de **desfazer** — o mesmo histórico
   antes disponível apenas na tela `/bank-accounts`. Desfazer uma importação
@@ -986,8 +989,10 @@ Permite importar um extrato ou fatura sem associar a uma conta cadastrada. O flu
 4. **Confirmação explícita** — somente ao clicar em **Confirmar importação** os
    lançamentos são criados. Corrigir a categoria de uma linha uma vez a
    transforma em regra para o futuro (mesmo "corrija uma vez" de §4.7/§4.8), e o
-   resultado informa quantas correções viraram regra. Os registros vão para
-   **Carteira / Sem conta** com os seguintes valores-padrão por origem:
+   resultado informa quantas correções viraram regra. A tela de sucesso fica
+   visível até o usuário clicar em **"Concluir"** (não fecha sozinha). Os
+   registros vão para **Carteira / Sem conta** com os seguintes valores-padrão
+   por origem:
 
    | Origem | Tipo | Status |
    |---|---|---|
