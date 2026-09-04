@@ -780,6 +780,7 @@ describe("bank candidate disclosure integration (#480)", () => {
       totalCredits: 1,
       duplicated: 0,
       inserted: 0,
+      possibleDuplicates: [],
       classificationStatus: 'unavailable',
       preview: [
         expect.objectContaining({

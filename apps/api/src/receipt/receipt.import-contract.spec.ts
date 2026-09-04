@@ -580,6 +580,7 @@ describe("accountless import approved contract", () => {
       total: 4,
       totalAmountCents: 5_345,
       duplicated: 0,
+      possibleDuplicates: [],
       classificationStatus: "ok",
       preview: [
         {
@@ -917,6 +918,7 @@ describe("accountless import approved contract", () => {
       duplicated: 0,
       skipped: 0,
       failed: 0,
+      possibleDuplicates: [],
       rulesLearned: 0,
       rulesSkippedNoMapping: 0,
       rulesLearnFailed: 0,
@@ -930,6 +932,7 @@ describe("accountless import approved contract", () => {
       duplicated: 2,
       skipped: 0,
       failed: 0,
+      possibleDuplicates: [],
       rulesLearned: 0,
       rulesSkippedNoMapping: 0,
       rulesLearnFailed: 0,

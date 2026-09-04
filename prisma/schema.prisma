@@ -190,6 +190,8 @@ model Receipt {
   accountId       String?   @map("account_id") // FK BankAccount: origem da importação ou vínculo retroativo (null = sem vínculo)
   origin          String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
   linkedReceiptId String?   @map("linked_receipt_id") // quando importado do extrato é vinculado a recebimento planejado de outro projeto (evita dupla contagem)
+  dedupeKeyStrong  String?  @map("dedupe_key_strong") // #659 — dedupe cross-origin: FITID ou hash de bytes do arquivo. UNIQUE PARCIAL (WHERE NOT NULL) definido à mão na migration; NÃO adicionar @@unique aqui (geraria unique total)
+  dedupeKeyNatural String?  @map("dedupe_key_natural") // #659 — chave natural seed-free (tenant,project,date,amount,merchant,ordinal). Sem unique: linhas Tier B legitimamente compartilham
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
@@ -203,6 +205,7 @@ model Receipt {
   @@unique([tenantId, projectId, externalId])
   @@index([linkedReceiptId])
   @@index([accountId])
+  @@index([dedupeKeyNatural])
   @@map("receipts")
 }
 
@@ -245,6 +248,8 @@ model Expense {
   origin             String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
   linkedExpenseId    String?   @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
   settlesInvoiceKey  String?   @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
+  dedupeKeyStrong    String?   @map("dedupe_key_strong") // #659 — dedupe cross-origin: FITID ou hash de bytes do arquivo. UNIQUE PARCIAL (WHERE NOT NULL) definido à mão na migration; NÃO adicionar @@unique aqui (geraria unique total)
+  dedupeKeyNatural   String?   @map("dedupe_key_natural") // #659 — chave natural seed-free (tenant,project,date,amount,merchant,ordinal). Sem unique: linhas Tier B legitimamente compartilham
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
@@ -267,6 +272,7 @@ model Expense {
   @@index([seriesKey])
   @@index([recurrenceKey])
   @@index([accountId])
+  @@index([dedupeKeyNatural])
   @@map("expenses")
 }
 

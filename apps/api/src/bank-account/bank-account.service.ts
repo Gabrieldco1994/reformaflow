@@ -78,10 +78,20 @@ import {
   resolveAccessibleProjectScope,
 } from '../common/access-rules';
 import { AMBIGUOUS_CARD_MESSAGE } from '../common/invoice-identity';
+import {
+  attachDedupeKeys,
+  dedupeColumns,
+  fileContentHash,
+  findDedupeMatches,
+  isDedupeUniqueViolation,
+  keysFromTransactions,
+  type PossibleDuplicate,
+} from '../import-dedupe/cross-origin-dedupe';
 
 export interface BankImportDecision {
   externalId: string;
-  action?: 'create' | 'skip' | 'link';
+  // 'import' (#659) força criar uma linha marcada `possibleDuplicate` (Tier B).
+  action?: 'create' | 'skip' | 'link' | 'import';
   linkToExpenseId?: string;
   linkToReceiptId?: string;
   overrides?: {
@@ -468,6 +478,11 @@ export class BankAccountService {
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
+    attachDedupeKeys(parsed.transactions, {
+      tenantId,
+      projectId,
+      fileContentHash: fileContentHash(buffers),
+    });
 
     // Resolve a lente antes de qualquer `take`, total ou ranking. O snapshot
     // impede que um projeto seja revogado entre a resolução e a leitura.
@@ -568,10 +583,11 @@ export class BankAccountService {
         };
       });
     const projectById = new Map(otherProjects.map((p) => [p.id, p]));
-    const existing = await this.findExistingExternalIds(
+    const dedupe = await findDedupeMatches(
+      this.prisma,
       tenantId,
       projectId,
-      parsed.transactions.map((t) => t.externalId),
+      keysFromTransactions(parsed.transactions),
     );
 
     function findExpenseMatches(tx: { date: Date; amountCents: number }) {
@@ -714,10 +730,16 @@ export class BankAccountService {
       // um fallback 'OUTROS' como classificação confiável ('regex').
       const localCat =
         tx.amountCents > 0 && !isCardPay && !isPixPf ? localHeuristicCategory(tx.merchant) : null;
+      const strongDup = dedupe.strongDuplicates.has(tx.externalId);
+      const possibleDuplicate = dedupe.possibleDuplicates.get(tx.externalId);
+      // (#659) não vaza as chaves internas de dedupe na resposta da API.
+      const { dedupeKeyStrong: _dks, dedupeKeyNatural: _dkn, ...txPublic } = tx;
       return {
-        ...tx,
+        ...txPublic,
         date: tx.date.toISOString().slice(0, 10),
-        duplicate: existing.has(tx.externalId),
+        duplicate: strongDup,
+        possibleDuplicate,
+        willImport: !strongDup && !possibleDuplicate,
         isCredit: tx.amountCents < 0,
         isCardPayment: isCardPay,
         suggestedCategory: tx.amountCents > 0
@@ -751,6 +773,7 @@ export class BankAccountService {
       duplicated: preview.filter((p) => p.duplicate).length,
       inserted: 0,
       preview,
+      possibleDuplicates: [...dedupe.possibleDuplicates.values()],
       classificationStatus: importClassification.status,
       ...(warning ? { warning } : {}),
     };
@@ -773,23 +796,43 @@ export class BankAccountService {
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
+    attachDedupeKeys(parsed.transactions, {
+      tenantId,
+      projectId,
+      fileContentHash: fileContentHash(buffers),
+    });
     const periodLabel = periodLabelOverride ?? parsed.periodLabel ?? new Date().toISOString().slice(0, 7);
 
     const decisionByExt = new Map<string, BankImportDecision>();
     for (const d of decisions ?? []) {
       if (d?.externalId) decisionByExt.set(d.externalId, d);
     }
+    // (#659) linhas Tier B que o usuário escolheu criar mesmo assim.
+    const forcedImport = new Set(
+      (decisions ?? [])
+        .filter((d) => d?.action === 'import' && d.externalId)
+        .map((d) => d.externalId),
+    );
 
-    const existingIds = await this.findExistingExternalIds(
+    const dedupe = await findDedupeMatches(
+      this.prisma,
       tenantId,
       projectId,
-      parsed.transactions.map((t) => t.externalId),
+      keysFromTransactions(parsed.transactions),
     );
+    const existingIds = dedupe.strongDuplicates;
+    // (#659 Tier B) natural-key casou outra origem sem `action:'import'` → não cria.
+    const possibleDuplicates: PossibleDuplicate[] = [];
 
     const toInsert = parsed.transactions.filter((t) => {
       const d = decisionByExt.get(t.externalId);
       if (d?.action === 'skip') return false;
       if (existingIds.has(t.externalId)) return false;
+      const pd = dedupe.possibleDuplicates.get(t.externalId);
+      if (pd && !forcedImport.has(t.externalId)) {
+        possibleDuplicates.push(pd);
+        return false;
+      }
       return true;
     });
     const insertableDecisions = toInsert
@@ -881,7 +924,11 @@ export class BankAccountService {
         amountCents: t.amountCents,
         reason: 'duplicate' as const,
       }));
-    const duplicated = parsed.transactions.length - toInsert.length - userSkipped;
+    const duplicated =
+      parsed.transactions.length -
+      toInsert.length -
+      userSkipped -
+      possibleDuplicates.length;
 
     // Linhas que o PARSER recebeu mas não conseguiu virar lançamento (têm data
     // + descrição, não são saldo, mas sem valor legível). Categoria de perda
@@ -937,6 +984,8 @@ export class BankAccountService {
       let cardPayments = 0;
       let unlinkedCardPayments = 0;
       let skipped = 0;
+      // (#659) corrida cross-canal pega pelo índice único parcial de dedupe_key_strong.
+      let raceDuplicated = 0;
       const failedItems: Array<{
         date: string;
         description: string;
@@ -979,6 +1028,13 @@ export class BankAccountService {
           if (result.unlinkedCardPayment) unlinkedCardPayments++;
           createdRows.push({ row, decision, result });
         } catch (err) {
+          // (#659) corrida cross-canal: mesma transação criada por outro canal
+          // entre o pré-check e o INSERT → índice único parcial de
+          // dedupe_key_strong. Conta como duplicata, não como falha.
+          if (isDedupeUniqueViolation(err)) {
+            raceDuplicated++;
+            continue;
+          }
           // Preparação/aplicação de cartão nunca é best-effort: propaga para o
           // callback e desfaz o lote inteiro, inclusive pagamentos anteriores.
           if (preparedCardPayment.matchedCard) throw err;
@@ -1008,6 +1064,7 @@ export class BankAccountService {
         cardPayments,
         unlinkedCardPayments,
         skipped,
+        raceDuplicated,
         failedItems,
         createdRows,
       };
@@ -1021,6 +1078,7 @@ export class BankAccountService {
       cardPayments,
       unlinkedCardPayments,
       skipped,
+      raceDuplicated,
       failedItems,
       createdRows,
     } = core;
@@ -1126,8 +1184,9 @@ export class BankAccountService {
       totalAmountCents: debitsTotal,
       total: parsed.transactions.length,
       inserted,
-      duplicated,
+      duplicated: duplicated + raceDuplicated,
       duplicatedItems,
+      possibleDuplicates,
       unparsedItems,
       failedItems,
       receiptsInserted,
@@ -2269,6 +2328,7 @@ export class BankAccountService {
             descricao: tx.merchant.slice(0, 200),
             importId,
             externalId: tx.externalId,
+            ...dedupeColumns(tx),
             bankLast4: account.last4,
           },
         });
@@ -2302,6 +2362,7 @@ export class BankAccountService {
           descricao: tx.merchant.slice(0, 200),
           importId,
           externalId: tx.externalId,
+          ...dedupeColumns(tx),
           bankLast4: account.last4,
         },
       });
@@ -2408,6 +2469,7 @@ export class BankAccountService {
         status: 'PAGO',
         importId,
         externalId: tx.externalId,
+        ...dedupeColumns(tx),
         bankLast4: account.last4,
         createdByUserId,
       },
@@ -2469,6 +2531,7 @@ export class BankAccountService {
         status: 'PAGO',
         importId,
         externalId: transaction.externalId,
+        ...dedupeColumns(transaction),
         bankLast4: account.last4,
         cardLast4: matchedCard?.last4 ?? detectedLast4,
         createdByUserId,

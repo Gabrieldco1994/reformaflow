@@ -16,6 +16,8 @@ export const RECEIPT_IMPORT_MODE_PREVIEW = 'preview';
 export const RECEIPT_IMPORT_MODE_COMMIT = 'commit';
 export const RECEIPT_IMPORT_ACTION_CREATE = 'create';
 export const RECEIPT_IMPORT_ACTION_SKIP = 'skip';
+/** (#659) força criar uma linha marcada `possibleDuplicate` (Tier B). */
+export const RECEIPT_IMPORT_ACTION_IMPORT = 'import';
 export const RECEIPT_IMPORT_DOCUMENT_TYPES = [
   RECEIPT_IMPORT_DOCUMENT_TYPE_BANK,
   RECEIPT_IMPORT_DOCUMENT_TYPE_CARD,
@@ -43,6 +45,7 @@ const RECEIPT_IMPORT_ORIGINS = ['none'] as const;
 const RECEIPT_IMPORT_ACTIONS = [
   RECEIPT_IMPORT_ACTION_CREATE,
   RECEIPT_IMPORT_ACTION_SKIP,
+  RECEIPT_IMPORT_ACTION_IMPORT,
 ] as const;
 const DECISION_KEYS = new Set(['externalId', 'action', 'overrides']);
 const OVERRIDE_KEYS = new Set(['titulo', 'valorCents', 'category']);

@@ -216,13 +216,13 @@ describe("isolamento de banco por worker do jest (#486)", () => {
     expect(fs.statSync(guard.ACTIVE_DB_PATH).size).toBeGreaterThan(0);
   });
 
-  it("o banco do worker carrega as 64 migrations do template, não um SQLite vazio", async () => {
+  it("o banco do worker carrega as 65 migrations do template, não um SQLite vazio", async () => {
     // Prova que a cópia é do template migrado — o modo de falha silencioso
     // seria um arquivo novo e vazio, com "no such table" em todo query.
     const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
       SELECT COUNT(*) AS total FROM _prisma_migrations
       WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
-    expect(Number(rows[0].total)).toBe(64);
+    expect(Number(rows[0].total)).toBe(65);
   });
 
   it("resolveWorkerId aceita só inteiro positivo — o resto cai no template", () => {

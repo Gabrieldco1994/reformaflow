@@ -11,6 +11,15 @@ import {
   RateioRequester,
 } from '../expense/rateio.types';
 import { EXPENSE_MODULE, resolveAccessibleProjectScope } from '../common/access-rules';
+import {
+  attachDedupeKeys,
+  dedupeColumns,
+  fileContentHash,
+  findDedupeMatches,
+  isDedupeUniqueViolation,
+  keysFromTransactions,
+  type PossibleDuplicate,
+} from '../import-dedupe/cross-origin-dedupe';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -51,7 +60,8 @@ function localHeuristicCategory(merchant: string): string | null {
 
 export interface ImportDecision {
   externalId: string;
-  action?: 'create' | 'skip' | 'link';
+  // 'import' (#659) força uma linha marcada `possibleDuplicate` (Tier B) a ser criada.
+  action?: 'create' | 'skip' | 'link' | 'import';
   linkToExpenseId?: string;        // quando action='link'
   overrides?: {
     titulo?: string;
@@ -295,6 +305,12 @@ export class CreditCardService {
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
+    // (#659) chaves de dedupe cross-origin — seed-free, antes de qualquer lookup.
+    attachDedupeKeys(parsed.transactions, {
+      tenantId,
+      projectId,
+      fileContentHash: fileContentHash(buffers),
+    });
     // Resolve a lente antes de qualquer leitura/ranking de candidatos. A
     // transação mantém projetos e despesas no mesmo snapshot.
     const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
@@ -339,10 +355,12 @@ export class CreditCardService {
       return { otherProjects: projects, planned: expenses };
     });
     const projectById = new Map(otherProjects.map((p) => [p.id, p]));
-    const existing = await this.findExistingExternalIds(
+    const dedupe = await findDedupeMatches(
+      this.prisma,
       tenantId,
       projectId,
-      parsed.transactions.map((t) => t.externalId),
+      keysFromTransactions(parsed.transactions),
+      { checkReceipts: false },
     );
 
     function findMatches(tx: NormalizedTx) {
@@ -428,13 +446,20 @@ export class CreditCardService {
       };
     };
 
-    const preview = parsed.transactions.map((tx) => ({
-      ...tx,
-      date: tx.date.toISOString().slice(0, 10),
-      duplicate: existing.has(tx.externalId),
-      ...classifyTx(tx),
-      crossProjectMatches: findMatches(tx),
-    }));
+    const preview = parsed.transactions.map((tx) => {
+      const strong = dedupe.strongDuplicates.has(tx.externalId);
+      const possibleDuplicate = dedupe.possibleDuplicates.get(tx.externalId);
+      const { dedupeKeyStrong: _dks, dedupeKeyNatural: _dkn, ...txPublic } = tx;
+      return {
+        ...txPublic,
+        date: tx.date.toISOString().slice(0, 10),
+        duplicate: strong,
+        possibleDuplicate,
+        willImport: !strong && !possibleDuplicate,
+        ...classifyTx(tx),
+        crossProjectMatches: findMatches(tx),
+      };
+    });
 
     const futureInstallments = (parsed.futureInstallments ?? []).map((tx) => ({
       ...tx,
@@ -451,6 +476,7 @@ export class CreditCardService {
       duplicated: preview.filter((p) => p.duplicate).length,
       inserted: 0, // ainda não inseriu
       preview,
+      possibleDuplicates: [...dedupe.possibleDuplicates.values()],
       futureInstallments,
       classificationStatus: importClassification.status,
     };
@@ -473,6 +499,11 @@ export class CreditCardService {
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
+    attachDedupeKeys(parsed.transactions, {
+      tenantId,
+      projectId,
+      fileContentHash: fileContentHash(buffers),
+    });
     // `invoiceDueMonth` vem lido do próprio arquivo (linha "Vencimento") e tem
     // precedência sobre `periodLabel`, que é um palpite pela densidade das datas
     // dos lançamentos — palpite que erra em toda fatura Itaú, porque ela lista a
@@ -485,18 +516,36 @@ export class CreditCardService {
     for (const d of decisions ?? []) {
       if (d?.externalId) decisionByExt.set(d.externalId, d);
     }
-
-    const existingIds = await this.findExistingExternalIds(
-      tenantId,
-      projectId,
-      parsed.transactions.map((t) => t.externalId),
+    // (#659) linhas Tier B que o usuário escolheu criar mesmo assim.
+    const forcedImport = new Set(
+      (decisions ?? [])
+        .filter((d) => d?.action === 'import' && d.externalId)
+        .map((d) => d.externalId),
     );
 
-    // Filtra transações: pula as que tem decision=skip ou já existentes
+    const dedupe = await findDedupeMatches(
+      this.prisma,
+      tenantId,
+      projectId,
+      keysFromTransactions(parsed.transactions),
+      { checkReceipts: false },
+    );
+    const existingIds = dedupe.strongDuplicates;
+
+    // (#659) Tier B sem decisão `import` → não cria, entra em `possibleDuplicates[]`.
+    const possibleDuplicates: PossibleDuplicate[] = [];
+
+    // Filtra transações: pula as que tem decision=skip, já existentes (strong) ou
+    // possível-duplicata Tier B não forçada.
     const toProcess = parsed.transactions.filter((t) => {
       const d = decisionByExt.get(t.externalId);
       if (d?.action === 'skip') return false;
       if (existingIds.has(t.externalId)) return false;
+      const pd = dedupe.possibleDuplicates.get(t.externalId);
+      if (pd && !forcedImport.has(t.externalId)) {
+        possibleDuplicates.push(pd);
+        return false;
+      }
       return true;
     });
     const processableDecisions = toProcess
@@ -527,7 +576,11 @@ export class CreditCardService {
     // `decisions.filter(skip).length` a fazia sumir do relatório inteiro
     // (`total !== inserted + duplicated + skipped`). Só o skip de linha NOVA
     // (`userSkipped`) é balde à parte. (#568 M6a)
-    const duplicated = parsed.transactions.length - toProcess.length - userSkipped;
+    const duplicated =
+      parsed.transactions.length -
+      toProcess.length -
+      userSkipped -
+      possibleDuplicates.length;
     // Lista auditável do que foi ignorado como duplicata (linhas, não só a contagem).
     // manter em sincronia com bank-account.service.ts (commitImport: userSkipped / duplicatedItems / duplicated)
     const duplicatedItems = parsed.transactions
@@ -563,6 +616,9 @@ export class CreditCardService {
     let settled = 0;
     let skipped = 0;
     let linked = 0;
+    // (#659) corrida cross-canal: o pré-check passou nos dois lados e o índice
+    // único parcial de `dedupe_key_strong` pegou o 2º INSERT.
+    let raceDuplicated = 0;
     // AC#7 (#582): overrides explícitos de linhas efetivamente criadas — viram
     // regra MANUAL tenant-scoped depois do loop (fora de qualquer tx).
     const learnEntries: Array<{ merchant: string; expenseType: string }> = [];
@@ -614,6 +670,10 @@ export class CreditCardService {
           }
         }
       } catch (err) {
+        if (isDedupeUniqueViolation(err)) {
+          raceDuplicated++;
+          continue;
+        }
         skipped++;
         console.warn(`[credit-card-import] tx skipped (${tx.externalId.slice(0, 8)}):`, (err as Error).message);
       }
@@ -630,7 +690,7 @@ export class CreditCardService {
       data: {
         inserted,
         skipped: skipped + userSkipped,
-        duplicated: duplicated + settled,
+        duplicated: duplicated + settled + raceDuplicated,
         message: [
           settled > 0 ? `${settled} parcela(s) liquidada(s)` : null,
           linked > 0 ? `${linked} vinculada(s) a planejado` : null,
@@ -645,8 +705,9 @@ export class CreditCardService {
       totalAmountCents: parsed.totalAmountCents,
       total: parsed.transactions.length,
       inserted,
-      duplicated,
+      duplicated: duplicated + raceDuplicated,
       duplicatedItems,
+      possibleDuplicates,
       settled,
       skipped: skipped + userSkipped,
       linked,
@@ -1087,6 +1148,7 @@ export class CreditCardService {
           status: 'PAGO',
           importId,
           externalId: tx.externalId,
+          ...dedupeColumns(tx),
           cardLast4: card.last4,
           createdByUserId,
         },
@@ -1176,7 +1238,7 @@ export class CreditCardService {
           if (!existing.externalId) {
             await this.prisma.expense.update({
               where: { id: existing.id },
-              data: { externalId: tx.externalId, importId },
+              data: { externalId: tx.externalId, importId, ...dedupeColumns(tx) },
             });
           }
           return { inserted: false, settled: true, expenseId: existing.id };
@@ -1217,6 +1279,7 @@ export class CreditCardService {
         status: 'PLANEJADO',
         importId,
         externalId: tx.externalId,
+        ...dedupeColumns(tx),
         seriesKey,
         cardLast4: card.last4,
         createdByUserId,
