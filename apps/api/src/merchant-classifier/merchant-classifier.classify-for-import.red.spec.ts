@@ -304,7 +304,10 @@ describe('MerchantClassifierService.classifyForImport — #582 PR-4/5 contract',
       ]);
       service = await buildService(prisma);
       (service as unknown as { apiKey: string }).apiKey = 'test-key-582';
-      jest.spyOn(service as unknown as { callGemini: () => Promise<unknown[]> }, 'callGemini').mockResolvedValue([]);
+      // rev2: callGemini nunca devolve `[]` — resposta não-array é rejeição estrutural.
+      jest
+        .spyOn(service as unknown as { callGemini: () => Promise<unknown> }, 'callGemini')
+        .mockResolvedValue({ ok: false, reason: 'not-array' });
 
       const result = await service.classifyForImport(['Cached Trusted', 'New Unknown'], 'tenant-1');
 
@@ -317,7 +320,10 @@ describe('MerchantClassifierService.classifyForImport — #582 PR-4/5 contract',
       expect(result.classifications.has('new unknown')).toBe(false);
     });
 
-    it('short AI response (1 item for 3 pending) → status error; the returned item stays, the missing ones do not', async () => {
+    // #582 REOPENED: uma resposta de chunk mais curta que o enviado é INTEIRAMENTE
+    // não-confiável (INV-3) — o chunk não persiste nada e nada entra no Map, nem
+    // o item que "veio". Antes do reopen o item posicional #0 era mantido.
+    it('short AI response (1 item for 3 pending) → status error; NOTHING from the chunk is kept', async () => {
       prisma = buildPrismaMock([]);
       service = await buildService(prisma);
       (service as unknown as { apiKey: string }).apiKey = 'test-key-582';
@@ -333,13 +339,10 @@ describe('MerchantClassifierService.classifyForImport — #582 PR-4/5 contract',
       );
 
       expect(result.status).toBe('error');
-      expect(result.classifications.get('pendente um')).toEqual({
-        category: 'transporte',
-        source: 'ia',
-        confidence: 0.95,
-      });
+      expect(result.classifications.has('pendente um')).toBe(false);
       expect(result.classifications.has('pendente dois')).toBe(false);
       expect(result.classifications.has('pendente tres')).toBe(false);
+      expect(prisma.merchantCategory.createMany).not.toHaveBeenCalled();
     });
   });
 });

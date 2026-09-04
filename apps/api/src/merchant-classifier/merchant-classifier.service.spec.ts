@@ -185,9 +185,13 @@ describe('classifyBatch — SEC-2 guard + SEC-3 preserva MANUAL (#582 PR-1)', ()
 
   describe('SEC-3 — persistência não usa upsert/update incondicional', () => {
     beforeEach(() => {
-      jest.spyOn(service as any, 'callGemini').mockResolvedValue([
-        { merchant: RAW, category: 'transporte', subcategory: null, confidence: 0.9 },
-      ]);
+      // #582 reopen rev2: callGemini devolve GeminiChunkValidation (índice
+      // explícito `sentIndex`), não mais um array cru.
+      jest.spyOn(service as any, 'callGemini').mockResolvedValue({
+        ok: true,
+        dropped: 0,
+        items: [{ sentIndex: 0, category: 'transporte', subcategory: null, confidence: 0.9 }],
+      });
     });
 
     it('chave nova → createMany com source AI e a confidence do Gemini; nunca upsert/update', async () => {
@@ -247,9 +251,19 @@ describe('classifyBatch — SEC-2 guard + SEC-3 preserva MANUAL (#582 PR-1)', ()
     });
 
     it('Gemini SEM confidence → persiste UNKNOWN_CONFIDENCE, nunca 0.8', async () => {
-      (service as any).callGemini.mockResolvedValue([
-        { merchant: RAW, category: 'transporte', subcategory: null },
-      ]);
+      // sem confidence → sanitizeConfidence(undefined) === UNKNOWN_CONFIDENCE
+      (service as any).callGemini.mockResolvedValue({
+        ok: true,
+        dropped: 0,
+        items: [
+          {
+            sentIndex: 0,
+            category: 'transporte',
+            subcategory: null,
+            confidence: sanitizeConfidence(undefined),
+          },
+        ],
+      });
       prisma.merchantCategory.findMany.mockResolvedValue([]);
 
       const result = await service.classifyBatch([RAW], TENANT);
