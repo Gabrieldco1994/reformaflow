@@ -74,6 +74,28 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
     }
   }, [carteiraImportOpen, open, screen, selectedAccountId]);
 
+  // #659 F3 follow-up: no "Concluir" (e em qualquer fecho total da folha) o
+  // picker <Modal> já desmontou e o `previousFocusRef` do ImportWithoutAccountModal
+  // só teria `<body>` para devolver. O AppShell não devolve o foco ao FAB
+  // "Lançar" (a a11y de diálogo do launch está diferida na #522), então
+  // capturamos o nó ao abrir a folha e devolvemos quando ela fecha.
+  const launcherReturnFocusRef = useRef<HTMLElement | null>(null);
+  const prevOpenRef = useRef(open);
+  // Captura o elemento (FAB "Lançar") na borda fechado→aberto, durante o render
+  // do container — antes das sub-folhas montarem e roubarem o foco. Ler
+  // `activeElement` e guardá-lo num ref no render é o padrão recomendado para
+  // "valor anterior"; nenhum efeito colateral externo aqui.
+  if (typeof document !== 'undefined' && open && !prevOpenRef.current) {
+    launcherReturnFocusRef.current = (document.activeElement as HTMLElement) ?? null;
+  }
+  prevOpenRef.current = open;
+  useEffect(() => {
+    if (!open && launcherReturnFocusRef.current) {
+      launcherReturnFocusRef.current.focus();
+      launcherReturnFocusRef.current = null;
+    }
+  }, [open]);
+
   // Cada abertura do "+" recomeça na escolha de modo (critério de aceite).
   useEffect(() => {
     if (open) {

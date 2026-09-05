@@ -86,6 +86,35 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
       carteiraTriggerRef.current?.focus();
     }
   }, [carteiraImportOpen, importStep, selectedAccount]);
+  // #659 F3 follow-up: no caminho "Concluir" (e em qualquer fecho total do
+  // fluxo) o picker <Modal> já desmontou, então o `previousFocusRef` do
+  // ImportWithoutAccountModal só tinha `<body>` para devolver. O gatilho que
+  // abre o fluxo NÃO desmonta (fica montado em `/conta`), então guardamos o nó
+  // ao abrir e devolvemos o foco quando tudo fecha. Mutuamente exclusivo com o
+  // restore do `carteiraTriggerRef` acima (aquele só dispara com o picker
+  // reabrindo — `importStep` truthy — quando este early-returna).
+  const launcherReturnFocusRef = useRef<HTMLElement | null>(null);
+  const flowWasOpenRef = useRef(false);
+  useEffect(() => {
+    const anyOpen =
+      payModalOpen ||
+      wizardOpen ||
+      recorrenteOpen ||
+      receitaOpen ||
+      importStep !== null ||
+      selectedCard !== null ||
+      selectedAccount !== null ||
+      carteiraImportOpen;
+    if (anyOpen) {
+      flowWasOpenRef.current = true;
+      return;
+    }
+    if (flowWasOpenRef.current) {
+      flowWasOpenRef.current = false;
+      launcherReturnFocusRef.current?.focus();
+      launcherReturnFocusRef.current = null;
+    }
+  }, [payModalOpen, wizardOpen, recorrenteOpen, receitaOpen, importStep, selectedCard, selectedAccount, carteiraImportOpen]);
 
   const invalidate = () => {
     for (const key of ['expenses', 'cash-flow', 'account-view', 'monthly-overview', 'dashboard', 'cross-project-expenses']) {
@@ -170,7 +199,10 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
 
   return (
     <>
-      {trigger(() => setPayModalOpen(true))}
+      {trigger(() => {
+        launcherReturnFocusRef.current = (document.activeElement as HTMLElement) ?? null;
+        setPayModalOpen(true);
+      })}
 
       <PayOptionsModal
         open={payModalOpen}

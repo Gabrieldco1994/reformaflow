@@ -175,7 +175,18 @@ test('Cancel button behaves like Escape', async ({ page, baseURL }, testInfo) =>
 test('Concluir after a real CSV import: modal closes, picker does not reopen', async ({ page, baseURL }, testInfo) => {
   const mobile = isMobile(testInfo);
   await mockApi(page, baseURL!);
-  await openCarteira(page, mobile);
+  await page.goto(`/projects/${PESSOAL_ID}/conta`);
+  const launcher = page.getByRole('button', { name: 'Lançar', exact: true }).first();
+  await launcher.click();
+  // marca o elemento que tinha o foco ao abrir o fluxo
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.setAttribute('data-e659-opener', '1'));
+  if (mobile) await page.getByRole('button', { name: /Fatura \/ Extrato/i }).click();
+  await page.getByRole('button', { name: /Extrato bancário/i }).click();
+  await page
+    .locator('[data-mobile-sheet="modal"]', { hasText: 'Para qual conta é esse extrato?' })
+    .getByRole('button', { name: 'Importar para Carteira' })
+    .click();
+  await expect(page.getByRole('dialog', { name: 'Importar sem conta' })).toBeVisible();
 
   const dialog = page.getByRole('dialog');
   await dialog.locator('input[type="file"]').setInputFiles({
@@ -196,6 +207,19 @@ test('Concluir after a real CSV import: modal closes, picker does not reopen', a
     Array.from(document.body.children).filter((el) => el.hasAttribute('inert')).length);
   expect(stillInert).toBe(0);
   expect(await page.evaluate(() => document.activeElement?.isConnected ?? false)).toBe(true);
+  // F3 follow-up: no Concluir o foco volta ao gatilho "Lançar" que abriu o
+  // fluxo — nunca fica preso no <body> (o picker <Modal> já desmontou, então o
+  // restore interno do importer só tinha o <body> para devolver).
+  const activeInfo = await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    const name = ((el?.textContent ?? '') + ' ' + (el?.getAttribute('aria-label') ?? '')).trim();
+    return {
+      isBody: el === document.body,
+      returnedToOpener: (el?.hasAttribute('data-e659-opener') ?? false) || name === 'Lançar',
+      name,
+    };
+  });
+  expect(activeInfo, JSON.stringify(activeInfo)).toMatchObject({ isBody: false, returnedToOpener: true });
 });
 
 test('375px (mobile project only): same isolation guarantees', async ({ page, baseURL }, testInfo) => {

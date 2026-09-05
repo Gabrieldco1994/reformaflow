@@ -73,11 +73,19 @@ function renderContainer() {
     path === '/projects/p1/bank-accounts' ? Promise.resolve([]) : Promise.resolve([]),
   );
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <MobileLaunchSheetContainer projectId="p1" open onClose={onCloseProp} />
-    </QueryClientProvider>,
-  );
+  // A "FAB Lançar" fora do container: abre a folha e deve recuperar o foco no fecho.
+  function Harness({ open }: { open: boolean }) {
+    return (
+      <QueryClientProvider client={client}>
+        <button type="button" data-testid="fab-lancar">Lançar</button>
+        <MobileLaunchSheetContainer projectId="p1" open={open} onClose={onCloseProp} />
+      </QueryClientProvider>
+    );
+  }
+  const utils = render(<Harness open={false} />);
+  (screen.getByTestId('fab-lancar') as HTMLElement).focus();
+  utils.rerender(<Harness open />);
+  return { ...utils, Harness };
 }
 
 async function abrirCarteira() {
@@ -116,12 +124,19 @@ describe('#659 F3 — MobileLaunchSheetContainer background isolation', () => {
   });
 
   it('onCommitted fecha a folha inteira e não remonta o picker', async () => {
-    renderContainer();
+    const { rerender, Harness } = renderContainer();
     await abrirCarteira();
+    // foco dentro do importer antes do commit (como no app real)
+    screen.getByRole('button', { name: 'Fechar' }).focus();
     onCommittedSpy?.();
 
     await waitFor(() => expect(onCloseProp).toHaveBeenCalledTimes(1));
+    // O pai (AppShell) reage ao onClose fechando a folha.
+    rerender(<Harness open={false} />);
+
     expect(screen.queryByTestId('import-without-account')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Importar para Carteira' })).not.toBeInTheDocument();
+    // F3 follow-up: foco volta ao FAB "Lançar", não fica no <body>.
+    await waitFor(() => expect(screen.getByTestId('fab-lancar')).toHaveFocus());
   });
 });

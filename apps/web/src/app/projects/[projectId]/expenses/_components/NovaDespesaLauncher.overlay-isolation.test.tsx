@@ -94,7 +94,9 @@ function renderLauncher(importAccounts: Array<Record<string, unknown>> = []) {
 }
 
 async function abrirCarteira() {
-  fireEvent.click(screen.getByRole('button', { name: 'abrir' }));
+  const trigger = screen.getByRole('button', { name: 'abrir' });
+  trigger.focus();
+  fireEvent.click(trigger);
   fireEvent.click(screen.getByRole('button', { name: /Extrato bancário/i }));
   const cta = await screen.findByRole('button', { name: 'Importar para Carteira' });
   fireEvent.click(cta);
@@ -133,12 +135,17 @@ describe('#659 F3 — NovaDespesaLauncher background isolation', () => {
   it('concluir encerra o fluxo: picker NÃO reabre', async () => {
     renderLauncher([]);
     await abrirCarteira();
-    onCommittedSpy?.();
+    // foco vai para dentro do importer antes do commit (como no app real)
+    const commit = screen.getByRole('button', { name: 'stub-commit' });
+    commit.focus();
+    fireEvent.click(commit);
 
     await waitFor(() => {
       expect(screen.queryByTestId('import-without-account')).not.toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: 'Importar para Carteira' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Para qual conta é esse extrato/i)).not.toBeInTheDocument();
+    // F3 follow-up: foco volta ao gatilho do launcher (não fica no <body>).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'abrir' })).toHaveFocus());
   });
 });
