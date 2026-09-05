@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import { api } from "@/lib/api";
+import { usePageInert } from "@/components/ui/use-page-inert";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 import {
   CategoriaFonteChip,
@@ -226,6 +228,23 @@ export default function ImportWithoutAccountModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // #659 F3: portaliza para <body> e isola o fundo. Portal (vs inline) porque o
+  // modal é montado dentro do launcher/picker — inertizar um ancestral que
+  // contém o próprio dialog é proibido; como sibling de <body> podemos inertizar
+  // todos os outros filhos de <body> sem tocar num ancestral do dialog.
+  const [portalEl] = useState<HTMLDivElement | null>(() =>
+    typeof document === "undefined" ? null : document.createElement("div"),
+  );
+  useEffect(() => {
+    if (!portalEl) return;
+    portalEl.setAttribute("data-carteira-import-portal", "");
+    document.body.appendChild(portalEl);
+    return () => {
+      document.body.removeChild(portalEl);
+    };
+  }, [portalEl]);
+  usePageInert(true, portalEl);
+
   const restorePreviousFocus = useCallback(() => {
     previousFocusRef.current?.focus();
   }, []);
@@ -281,6 +300,10 @@ export default function ImportWithoutAccountModal({
       if (event.key === "Escape") {
         if (!loading) {
           event.preventDefault();
+          // #659 F3: impede que um handler de Escape "de fora" (ex.: o
+          // AppShell fecha o overlay de lançamento inteiro no mobile) dispare
+          // junto — Escape aqui fecha só este modal e volta ao seletor.
+          event.stopPropagation();
           handleClose();
         }
         return;
@@ -473,7 +496,7 @@ export default function ImportWithoutAccountModal({
     setError(null);
   }
 
-  return (
+  const dialog = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       role="dialog"
@@ -778,4 +801,6 @@ export default function ImportWithoutAccountModal({
       </div>
     </div>
   );
+
+  return portalEl ? createPortal(dialog, portalEl) : dialog;
 }

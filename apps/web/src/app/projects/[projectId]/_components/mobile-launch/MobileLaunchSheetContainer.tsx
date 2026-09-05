@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CreditCard, Landmark } from 'lucide-react';
@@ -62,6 +62,17 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [carteiraImportOpen, setCarteiraImportOpen] = useState(false);
+  // #659 F3: o picker <Modal> desmonta enquanto o ImportWithoutAccountModal está
+  // aberto (sem overlays empilhados). "Cancelar" remonta o picker e devolve o
+  // foco para o gatilho "Importar para Carteira".
+  const carteiraTriggerRef = useRef<HTMLButtonElement>(null);
+  const restoreCarteiraFocusRef = useRef(false);
+  useEffect(() => {
+    if (!carteiraImportOpen && restoreCarteiraFocusRef.current && open && screen === 'extrato' && !selectedAccountId) {
+      restoreCarteiraFocusRef.current = false;
+      carteiraTriggerRef.current?.focus();
+    }
+  }, [carteiraImportOpen, open, screen, selectedAccountId]);
 
   // Cada abertura do "+" recomeça na escolha de modo (critério de aceite).
   useEffect(() => {
@@ -340,7 +351,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
         />
       )}
 
-      {open && screen === 'extrato' && canImportBankStatement && !selectedAccountId && (
+      {open && screen === 'extrato' && canImportBankStatement && !selectedAccountId && !carteiraImportOpen && (
         <Modal open onClose={handleClose} title="Para qual conta é esse extrato?">
           {accountsLoading && <p className="text-sm text-gray-500">Carregando contas…</p>}
           {!accountsLoading && accountsError && (
@@ -362,8 +373,12 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
             <div className="space-y-2">
               {canImportToCarteira && (
                 <button
+                  ref={carteiraTriggerRef}
                   type="button"
-                  onClick={() => setCarteiraImportOpen(true)}
+                  onClick={() => {
+                    restoreCarteiraFocusRef.current = true;
+                    setCarteiraImportOpen(true);
+                  }}
                   className="flex min-h-11 w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left hover:border-teal-300 hover:bg-teal-50"
                 >
                   <Landmark className="h-4 w-4 text-teal-500" />
