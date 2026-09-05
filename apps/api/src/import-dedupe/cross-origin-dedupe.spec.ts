@@ -59,6 +59,14 @@ const OFX_TWO_TXNS = [
   '</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>',
 ].join('\n');
 
+const OFX_TWO_DEBITS_ONE_CREDIT = [
+  '<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>',
+  '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260415120000<TRNAMT>-42.90<FITID>FIT-659-MIXED-0001<MEMO>PADARIA CENTRAL</STMTTRN>',
+  '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260416120000<TRNAMT>-1200.00<FITID>FIT-659-MIXED-0002<MEMO>SUPERMERCADO XYZ</STMTTRN>',
+  '<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260417120000<TRNAMT>2500.00<FITID>FIT-659-MIXED-0003<MEMO>SALARIO</STMTTRN>',
+  '</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>',
+].join('\n');
+
 // CSV sem FITID — Tier A2 depende do hash de bytes do arquivo.
 const CSV_CARD_FILE_1 =
   'date,title,amount\n2026-04-10,Cafeteria Bourbon,12.00\n2026-04-01,Posto Shell,50.00\n';
@@ -231,6 +239,45 @@ describe('#659 Tier A — auto-skip cross-origin do MESMO arquivo (FITID)', () =
     const rateio = await setupPrisma.rateioAllocation.count({ where: { tenantId: TENANT } });
     expect(settlements).toBe(0);
     expect(rateio).toBe(0);
+  });
+});
+
+describe('#659 preview→commit — cartão deduplica Expense e Receipt da Carteira', () => {
+  it('OFX misto já importado na Carteira fica integralmente no balde duplicated', async () => {
+    const walletCommit = (await svc.receipt.commitImport(
+      TENANT, PROJ_A, [buf(OFX_TWO_DEBITS_ONE_CREDIT)], 'bank', 'OFX',
+      undefined, undefined, undefined, null, 'extrato-misto.ofx',
+    )) as any;
+    expect(walletCommit.expensesInserted).toBe(2);
+    expect(walletCommit.receiptsInserted).toBe(1);
+
+    const before = await moneySnapshot(PROJ_A);
+    const preview = (await svc.card.previewImport(
+      TENANT, PROJ_A, CARD_A, [buf(OFX_TWO_DEBITS_ONE_CREDIT)],
+      'extrato-misto.ofx', 'OFX', undefined, REQ,
+    )) as any;
+
+    const willImport = preview.preview.filter((row: any) => row.willImport).length;
+    expect(willImport).toBe(0);
+    expect(preview.duplicated).toBe(3);
+    expect(preview.possibleDuplicates).toHaveLength(0);
+    expect(preview.total).toBe(
+      willImport + preview.duplicated + preview.possibleDuplicates.length,
+    );
+
+    const commit = (await svc.card.commitImport(
+      TENANT, PROJ_A, CARD_A, [buf(OFX_TWO_DEBITS_ONE_CREDIT)],
+      'extrato-misto.ofx', 'OFX', undefined, undefined, undefined, null, REQ,
+    )) as any;
+    expect(commit.inserted).toBe(0);
+    expect(commit.duplicated).toBe(3);
+    expect(commit.possibleDuplicates).toHaveLength(0);
+    expect(commit.total).toBe(
+      commit.inserted + commit.duplicated + commit.skipped + commit.settled,
+    );
+
+    const after = await moneySnapshot(PROJ_A);
+    expect(after.consolidatedTotal).toBe(before.consolidatedTotal);
   });
 });
 

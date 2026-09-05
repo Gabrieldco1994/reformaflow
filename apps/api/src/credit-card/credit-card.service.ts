@@ -361,7 +361,6 @@ export class CreditCardService {
       tenantId,
       projectId,
       keysFromTransactions(parsed.transactions),
-      { checkReceipts: false },
     );
 
     function findMatches(tx: NormalizedTx) {
@@ -529,7 +528,6 @@ export class CreditCardService {
       tenantId,
       projectId,
       keysFromTransactions(parsed.transactions),
-      { checkReceipts: false },
     );
     const existingIds = dedupe.strongDuplicates;
 
