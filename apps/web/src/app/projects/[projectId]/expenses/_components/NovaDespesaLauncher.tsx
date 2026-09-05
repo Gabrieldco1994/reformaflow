@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ExpenseType, hasFeature, type ProjectType } from '@reformaflow/domain';
@@ -70,6 +70,51 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
   const [selectedCard, setSelectedCard] = useState<{ id: string; last4: string; nickname?: string | null } | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null } | null>(null);
   const [carteiraImportOpen, setCarteiraImportOpen] = useState(false);
+  // #659 F3: o picker <Modal> desmonta enquanto o ImportWithoutAccountModal está
+  // aberto (sem overlays empilhados). No caminho "Cancelar" o picker remonta e o
+  // foco volta para o gatilho "Importar para Carteira".
+  const carteiraTriggerRef = useRef<HTMLButtonElement>(null);
+  const restoreCarteiraFocusRef = useRef(false);
+  useEffect(() => {
+    if (
+      !carteiraImportOpen &&
+      restoreCarteiraFocusRef.current &&
+      importStep === 'pick-account' &&
+      !selectedAccount
+    ) {
+      restoreCarteiraFocusRef.current = false;
+      carteiraTriggerRef.current?.focus();
+    }
+  }, [carteiraImportOpen, importStep, selectedAccount]);
+  // #659 F3 follow-up: no caminho "Concluir" (e em qualquer fecho total do
+  // fluxo) o picker <Modal> já desmontou, então o `previousFocusRef` do
+  // ImportWithoutAccountModal só tinha `<body>` para devolver. O gatilho que
+  // abre o fluxo NÃO desmonta (fica montado em `/conta`), então guardamos o nó
+  // ao abrir e devolvemos o foco quando tudo fecha. Mutuamente exclusivo com o
+  // restore do `carteiraTriggerRef` acima (aquele só dispara com o picker
+  // reabrindo — `importStep` truthy — quando este early-returna).
+  const launcherReturnFocusRef = useRef<HTMLElement | null>(null);
+  const flowWasOpenRef = useRef(false);
+  useEffect(() => {
+    const anyOpen =
+      payModalOpen ||
+      wizardOpen ||
+      recorrenteOpen ||
+      receitaOpen ||
+      importStep !== null ||
+      selectedCard !== null ||
+      selectedAccount !== null ||
+      carteiraImportOpen;
+    if (anyOpen) {
+      flowWasOpenRef.current = true;
+      return;
+    }
+    if (flowWasOpenRef.current) {
+      flowWasOpenRef.current = false;
+      launcherReturnFocusRef.current?.focus();
+      launcherReturnFocusRef.current = null;
+    }
+  }, [payModalOpen, wizardOpen, recorrenteOpen, receitaOpen, importStep, selectedCard, selectedAccount, carteiraImportOpen]);
 
   const invalidate = () => {
     for (const key of ['expenses', 'cash-flow', 'account-view', 'monthly-overview', 'dashboard', 'cross-project-expenses']) {
@@ -154,7 +199,10 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
 
   return (
     <>
-      {trigger(() => setPayModalOpen(true))}
+      {trigger(() => {
+        launcherReturnFocusRef.current = (document.activeElement as HTMLElement) ?? null;
+        setPayModalOpen(true);
+      })}
 
       <PayOptionsModal
         open={payModalOpen}
@@ -270,7 +318,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
         </Modal>
       )}
 
-      {importStep === 'pick-account' && !selectedAccount && (
+      {importStep === 'pick-account' && !selectedAccount && !carteiraImportOpen && (
         <Modal open onClose={() => setImportStep(null)} title="Para qual conta é esse extrato?">
           {loadingAccounts && <p className="text-sm text-gray-500">Carregando contas…</p>}
           {!loadingAccounts && accountsError && (
@@ -292,8 +340,12 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
             <div className="space-y-2">
               {canImportToCarteira && (
                 <button
+                  ref={carteiraTriggerRef}
                   type="button"
-                  onClick={() => setCarteiraImportOpen(true)}
+                  onClick={() => {
+                    restoreCarteiraFocusRef.current = true;
+                    setCarteiraImportOpen(true);
+                  }}
                   className="min-h-11 w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-teal-300 hover:bg-teal-50 text-left"
                 >
                   <span className="text-sm font-medium">Importar para Carteira</span>

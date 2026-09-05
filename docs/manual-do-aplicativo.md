@@ -939,6 +939,10 @@ visões de Mês/Ano.
   `/conta?focus=openingBalance`, abrindo o formulário). Ambos os CTAs só
   aparecem no PESSOAL — nos demais tipos a oferta de importar extrato nem
   aparece (issue #218; reachability do "Importar para Carteira" via #659).
+  Ao abrir "Importar para Carteira", o modal "Para qual conta é esse extrato?"
+  é ocultado (nada de telas empilhadas) e o restante da página fica inerte;
+  **Cancelar** ou **Esc** voltam ao seletor com o foco no botão "Importar para
+  Carteira", e **Concluir** encerra o fluxo (#659 F3).
 - **Importações** abre, para cada conta, o histórico de extratos já importados
   nela, com o impacto de cada um e a opção de **desfazer** — o mesmo histórico
   antes disponível apenas na tela `/bank-accounts`. Desfazer uma importação
