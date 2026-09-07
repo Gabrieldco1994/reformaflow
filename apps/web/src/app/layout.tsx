@@ -67,6 +67,12 @@ export const viewport: Viewport = {
   themeColor: '#eef0f3',
 };
 
+// `VERCEL` é a variável de sistema que a plataforma injeta em build E runtime
+// (preview e produção) — diferente de `NODE_ENV`, que também é "production"
+// num `next start` local sem Vercel (#639). É a checagem nativa recomendada
+// para gatear integrações exclusivas da plataforma sem inventar uma flag própria.
+const isVercelRuntime = process.env.VERCEL === '1';
+
 export default function RootLayout({
   children,
 }: {
@@ -81,7 +87,7 @@ export default function RootLayout({
           <Toaster richColors position="top-right" />
           {children}
         </Providers>
-        <SpeedInsights />
+        {isVercelRuntime && <SpeedInsights />}
       </body>
     </html>
   );
