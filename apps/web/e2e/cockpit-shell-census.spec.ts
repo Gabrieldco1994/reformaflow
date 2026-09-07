@@ -461,7 +461,7 @@ test.describe("issue #564 — cockpit shell census", () => {
     }
   });
 
-  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900", async ({ page }, testInfo) => {
+  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /maria", async ({ page }, testInfo) => {
     test.skip(
       testInfo.project.name !== "desktop",
       "a colisão expandida do FinancialAgentWidget só roda no projeto desktop",
@@ -497,6 +497,20 @@ test.describe("issue #564 — cockpit shell census", () => {
         ),
       ).toBe(true);
       await census(page, [...mariaTargets(page), ...expandedSidebarTargets(page)]);
+    }
+  });
+
+  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /planning", async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "a colisão expandida do FinancialAgentWidget só roda no projeto desktop",
+    );
+    await page.addInitScript(() => {
+      window.localStorage.setItem("lifeone:sidebar:collapsed", "false");
+    });
+    await mockApi(page);
+    for (const viewport of DESKTOP_VIEWPORTS) {
+      await page.setViewportSize(viewport);
 
       await page.goto(`/projects/${PROJECT_ID}/planning`);
       await ensureWidgetOpen(page);
@@ -504,6 +518,20 @@ test.describe("issue #564 — cockpit shell census", () => {
         ...(await planningTargets(page)),
         ...expandedSidebarTargets(page),
       ]);
+    }
+  });
+
+  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /conta", async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "a colisão expandida do FinancialAgentWidget só roda no projeto desktop",
+    );
+    await page.addInitScript(() => {
+      window.localStorage.setItem("lifeone:sidebar:collapsed", "false");
+    });
+    await mockApi(page);
+    for (const viewport of DESKTOP_VIEWPORTS) {
+      await page.setViewportSize(viewport);
 
       await page.goto(`/projects/${PROJECT_ID}/conta`);
       await ensureWidgetOpen(page);
