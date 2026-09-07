@@ -32,7 +32,10 @@ estar em andamento; ela não altera esta tela nem os contratos abaixo.
   desfaz a entrega de B0: **B0 foi entregue via PR #476 (produção)**. #446 não certifica
   segurança ou migração de produção. **B1a está implementado nesta PR, pendente de merge.**
 - B0/B1/B2 precisam ficar verdes antes de qualquer UX.
-- U6b continua bloqueada por U6a, lenses, architect e aprovação explícita do PO.
+- U6b build 1 (lente `by-type`, frontend-only) foi mergeado via #643; gated por
+  `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (padrão desabilitado); ativação em produção não
+  verificada. #456 permanece OPEN para o restante do escopo; `upcoming`/`top-suppliers` (#635) é
+  follow-up separado.
 - Maria agent-first (E5/M0–M3) é FUTURO e exige novo PO gate.
 - Hardening H1–H5 está bloqueado e separado; não foi entregue pelo programa.
 
