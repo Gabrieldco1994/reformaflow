@@ -84,9 +84,9 @@ Na base original, e **não como resultado deste programa**:
   (#506)** com A-1/A-2/A-3 decididas e **matriz re-ratificada contra `1da83286`**. A **U6b build 1**
   (lente `by-type` — agrupamento por `project.type`, **frontend-only, read-only em `/conta`**, sem
   endpoint/query/mutation novos) tem **design fechado** (architect + 8 lentes + security PASS) e
-  **RED spec definido**, mas **aguarda autorização de implementação do PO** — nada em produção.
-  Os endpoints `upcoming`/`top-suppliers` são **follow-up aprovado e não entregue (#635)**, backend
-  não autorizado nesta rodada. Continua zero fórmula/store/migration/backfill.
+  **RED spec definido**, e foi **mergeado via #643**; ativação em produção **não verificada**.
+  **#456 permanece OPEN para o restante do escopo.** Os endpoints `upcoming`/`top-suppliers` são
+  **follow-up aprovado e não entregue (#635)**, backend não autorizado nesta rodada.
   > **Nota — Controle de ativação (build 1):** a lente `by-type` é ativada via variável de ambiente
   > **build-time** `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (Next.js/Vercel). Ativação: `=== '1'`;
   > padrão (ausente ou qualquer valor): desabilitada. **Não é `ProjectFeature`, `ModuleSlug` ou nav
@@ -326,14 +326,14 @@ liberada para desenho e implementação.
   capacidade, origem/finalidade, identidade, ACL e deep-link/fallback. Somente spec.
   **Mergeada (#506) em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md); A-1/A-2/A-3
   decididas (2026-08-19); matriz re-ratificada contra `1da83286` (2026-08-31).**
-- [U6b #456](https://github.com/Gabrieldco1994/reformaflow/issues/456): **NÃO implementada.**
+- [U6b #456](https://github.com/Gabrieldco1994/reformaflow/issues/456): **OPEN — build 1 mergeado, restante do escopo pendente.**
   **Build 1** = lente `by-type` (agrupamento por `project.type`, **frontend-only, read-only em
   `/conta`**, sem endpoint/query/mutation novos): design fechado (architect + 8 lentes + security
-  PASS), RED spec definido, **aguardando autorização de implementação do PO** — nada em produção.
+  PASS), RED spec definido, **mergeado via #643**; ativação em produção **não verificada**.
   `upcoming`/`top-suppliers` → **follow-up aprovado e não entregue
   ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))**, classificação ABSORVER
   conforme A-1, backend não autorizado nesta rodada (criam superfície HTTP nova, exigem architect +
-  security novos). Zero fórmula/store/migration/backfill.
+  security novos).
   > **Nota — Controle de ativação:** ativada via `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (build-time,
   > Next.js/Vercel); `=== '1'` para ativar, padrão desabilitada. Não é `ProjectFeature`/`ModuleSlug`.
   > Não substitui gates server-side.
@@ -497,10 +497,10 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-006 | Budget sai do discovery e fica ADMIN/read-only com histórico preservado. | **APROVADO — BLOQUEADO em B2. Gate de extinção DISPENSADO pelo PO em 2026-08-19 — não por uso zero, mas porque B2 é congelamento read-only com histórico preservado, não extinção** (nenhuma linha é apagada). Evidência real medida no volume Fly via `fly ssh console` em 2026-08-19: 200 usuários, 196 tenants, `budget_allocations` 6 total / **4 vivas somando R$ 235.000,00**, `ALOCACAO_ORCAMENTO` vivas 4, `category_budgets` 0, **todas as vivas concentradas em 1 tenant — `dev-tenant-1`, de desenvolvimento**. Efeito visível: as linhas `ALOCACAO_ORCAMENTO` somem da tela de Recebimentos desse tenant de dev. **Budget FOI usado; a leitura anterior de "uso zero" veio de `prisma/dev.db`, banco local, não de produção (`apps/api/fly.toml:5,11`).** Desenho do gate precisa considerar #497 — `@Roles('ADMIN')` não barra convidado de demo. |
 | D-007 | Mobile 375/390/desktop e acessibilidade são contrato de merge. | **APROVADO — BLOQUEADO** |
 | D-008 | Analytics usa Clarity existente e allowlist sem conteúdo financeiro. | **APROVADO — BLOQUEADO em A0** |
-| D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **NÃO IMPLEMENTADA. Build 1 (lente `by-type`, frontend-only, read-only em `/conta`): design fechado (architect + 8 lentes + security PASS), RED spec definido, aguardando autorização de implementação do PO — nada em produção. `upcoming`/`top-suppliers` → follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635)), ABSORVER conforme A-1, backend não autorizado nesta rodada** |
+| D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **OPEN (#456). Build 1 (lente `by-type`, frontend-only, read-only em `/conta`): design fechado (architect + 8 lentes + security PASS), RED spec definido, mergeado via #643; ativação em produção não verificada. `upcoming`/`top-suppliers` → follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635)), ABSORVER conforme A-1, backend não autorizado nesta rodada** |
 | D-010 | Maria agent-first reutiliza serviços/cards/actions/ACLs e requer novo PO gate. | **FUTURO; NÃO ENTREGUE** |
 | D-011 | H1–H5 ficam separados e gated; não entram automaticamente no critical path. | **BLOQUEADO; NÃO ENTREGUE** |
-| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para o gate de produção/inventário de E0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA (gate #445); B0 ENTREGUE (PR #476, CLOSED); B1a MERGEADO (#477, #478, #479); B1b CLOSED (#499); B2 CLOSED (#500); W1 (#214) CLOSED. U6a spec MERGEADA (#506); U6b build 1 (lente `by-type`) com design fechado, NÃO IMPLEMENTADA — aguardando autorização do PO; `upcoming`/`top-suppliers` são follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))** |
+| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para o gate de produção/inventário de E0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA (gate #445); B0 ENTREGUE (PR #476, CLOSED); B1a MERGEADO (#477, #478, #479); B1b CLOSED (#499); B2 CLOSED (#500); W1 (#214) CLOSED. U6a spec MERGEADA (#506); U6b build 1 (lente `by-type`) com design fechado, mergeado via #643, ativação em produção não verificada; #456 permanece OPEN para o restante do escopo; `upcoming`/`top-suppliers` são follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))** |
 
 ## 12. Changelog
 
