@@ -86,7 +86,8 @@ Na base original, e **não como resultado deste programa**:
   endpoint/query/mutation novos) tem **design fechado** (architect + 8 lentes + security PASS) e
   **RED spec definido**, e foi **mergeado via #643**; ativação em produção **não verificada**.
   **#456 permanece OPEN para o restante do escopo.** Os endpoints `upcoming`/`top-suppliers` são
-  **follow-up aprovado e não entregue (#635)**, backend não autorizado nesta rodada.
+  **follow-up aprovado e não entregue (#635)**, backend não autorizado nesta rodada. Continua zero
+  fórmula/store/migration/backfill.
   > **Nota — Controle de ativação (build 1):** a lente `by-type` é ativada via variável de ambiente
   > **build-time** `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (Next.js/Vercel). Ativação: `=== '1'`;
   > padrão (ausente ou qualquer valor): desabilitada. **Não é `ProjectFeature`, `ModuleSlug` ou nav
@@ -333,7 +334,7 @@ liberada para desenho e implementação.
   `upcoming`/`top-suppliers` → **follow-up aprovado e não entregue
   ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))**, classificação ABSORVER
   conforme A-1, backend não autorizado nesta rodada (criam superfície HTTP nova, exigem architect +
-  security novos).
+  security novos). Zero fórmula/store/migration/backfill.
   > **Nota — Controle de ativação:** ativada via `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (build-time,
   > Next.js/Vercel); `=== '1'` para ativar, padrão desabilitada. Não é `ProjectFeature`/`ModuleSlug`.
   > Não substitui gates server-side.
