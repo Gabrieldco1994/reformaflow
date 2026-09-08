@@ -309,6 +309,19 @@ describe('bank amount magnitude — real PrismaService and caixa', () => {
     expect(await prisma.cashFlowEntry.count({ where: { tenantId: TENANT } })).toBe(0);
   });
 
+  it('does not validate an invalid category override on a skipped row either', async () => {
+    const file = statement('500.00');
+    const [externalId] = await preview(file);
+    const payload: unknown = [{ externalId, action: 'skip', overrides: { category: '' } }];
+    expect(await commit(file, payload as BankImportDecision[])).toMatchObject({
+      inserted: 0,
+      receiptsInserted: 0,
+      skipped: 1,
+    });
+    expect(await prisma.receipt.count({ where: { tenantId: TENANT } })).toBe(0);
+    expect(await prisma.cashFlowEntry.count({ where: { tenantId: TENANT } })).toBe(0);
+  });
+
   it('replay of the original file cannot update or recreate the edited credit', async () => {
     const file = statement('500.00');
     const [externalId] = await preview(file);
@@ -561,13 +574,19 @@ describe('bank amount magnitude — real PrismaService and caixa', () => {
     );
   });
 
-  it('linked amount+category edit rejects atomically; unlink retry persists both credits and leaves the planned target untouched', async () => {
+  it('linked amount+category edit rejects atomically; unlink retry (explicit action:create) persists both credits with their CashFlowEntry and leaves the planned target/flow completely untouched', async () => {
     const target = await receipts.create(TENANT, TARGET_PROJECT, {
       valor: 500,
       data: '2026-09-01',
       tipo: 'PAGAMENTO',
       status: 'PREVISTO',
     });
+    // Full objects, captured BEFORE the first (rejected) attempt — compared by
+    // deep equality after the retry, not just a value/status subset, so a
+    // regression touching e.g. `tipo`/`categoria` on the target would fail too.
+    const targetBefore = await prisma.receipt.findUnique({ where: { id: target.id } });
+    const targetFlowBefore = await prisma.cashFlowEntry.findFirst({ where: { receiptId: target.id } });
+
     const file = statement('500.00', '75.00');
     const [first, second] = await preview(file);
     await expectRejected(
@@ -579,37 +598,43 @@ describe('bank amount magnitude — real PrismaService and caixa', () => {
       first,
       /remova.*v[íi]nculo/i,
     );
-    expect(await prisma.receipt.findUnique({ where: { id: target.id } })).toMatchObject({
-      valor: 50000,
-      status: 'PREVISTO',
-    });
-    expect(await prisma.cashFlowEntry.findFirst({ where: { receiptId: target.id } })).toMatchObject({
-      valor: 50000,
-      status: 'PREVISTO',
-    });
 
-    // Retry without the link (action:'create' by omission) + unlink: both credits now persist.
+    // Retry with the real unlink payload: explicit action:'create' on both rows.
     const retry = await commit(file, [
-      { externalId: first, overrides: { valorCents: 60000, category: 'FREELANCE' } },
-      { externalId: second, overrides: { category: 'OUTROS' } },
+      { externalId: first, action: 'create', overrides: { valorCents: 60000, category: 'FREELANCE' } },
+      { externalId: second, action: 'create', overrides: { category: 'OUTROS' } },
     ]);
     expect(retry).toMatchObject({ receiptsInserted: 2, inserted: 0, linked: 0, duplicated: 0 });
     const created = await prisma.receipt.findMany({ where: { tenantId: TENANT, projectId: PROJECT } });
     expect(created).toHaveLength(2);
     const byExternalId = (id: string) => created.find((row) => row.externalId === id);
-    expect(byExternalId(first)).toMatchObject({ valor: 60000, tipo: 'FREELANCE', linkedReceiptId: null });
-    expect(byExternalId(second)).toMatchObject({ valor: 7500, tipo: 'OUTROS', linkedReceiptId: null });
+    const firstReceipt = byExternalId(first);
+    const secondReceipt = byExternalId(second);
+    expect(firstReceipt).toMatchObject({ valor: 60000, tipo: 'FREELANCE', linkedReceiptId: null });
+    expect(secondReceipt).toMatchObject({ valor: 7500, tipo: 'OUTROS', linkedReceiptId: null });
+
+    // Both new CashFlowEntry rows: explicit valor/categoria AND linked to the right receipt.
+    expect(await prisma.cashFlowEntry.findFirst({ where: { receiptId: firstReceipt!.id } })).toMatchObject({
+      valor: 60000,
+      tipo: 'RECEBIMENTO',
+      categoria: 'FREELANCE',
+      status: 'EM_CAIXA',
+      receiptId: firstReceipt!.id,
+    });
+    expect(await prisma.cashFlowEntry.findFirst({ where: { receiptId: secondReceipt!.id } })).toMatchObject({
+      valor: 7500,
+      tipo: 'RECEBIMENTO',
+      categoria: 'OUTROS',
+      status: 'EM_CAIXA',
+      receiptId: secondReceipt!.id,
+    });
+
     const caixa = await monthly.getCaixaConta(TENANT, PROJECT, CLOCK);
     expect(caixa.hoje).toBe(67500);
-    // Planned target in the OTHER project stays untouched: no link happened this time.
-    expect(await prisma.receipt.findUnique({ where: { id: target.id } })).toMatchObject({
-      valor: 50000,
-      status: 'PREVISTO',
-    });
-    expect(await prisma.cashFlowEntry.findFirst({ where: { receiptId: target.id } })).toMatchObject({
-      valor: 50000,
-      status: 'PREVISTO',
-    });
+    // Planned target in the OTHER project: full-object equality (categoria/tipo
+    // included) through both the failed attempt and the successful retry.
+    expect(await prisma.receipt.findUnique({ where: { id: target.id } })).toEqual(targetBefore);
+    expect(await prisma.cashFlowEntry.findFirst({ where: { receiptId: target.id } })).toEqual(targetFlowBefore);
   });
 
   it('an invalid category on a decision for an externalId absent from the file is never read/validated', async () => {
