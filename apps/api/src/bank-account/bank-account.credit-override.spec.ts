@@ -10,6 +10,7 @@ import { MerchantClassifierService } from '../merchant-classifier/merchant-class
 import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReceiptService } from '../receipt/receipt.service';
+import { dedupeKeyNatural } from '../credit-card/parsers/dedupe-key';
 import { BankAccountService, type BankImportDecision } from './bank-account.service';
 import * as bankParsers from './parsers';
 
@@ -87,7 +88,10 @@ describe('bank amount magnitude — real PrismaService and caixa', () => {
     ]);
   }
 
-  async function preview(file: Buffer): Promise<string[]> {
+  /** Full preview rows (`externalId`/`merchant`/etc.) — needed to reconstruct a real dedupe natural key. */
+  async function previewFull(
+    file: Buffer,
+  ): Promise<Awaited<ReturnType<BankAccountService['previewImport']>>['preview']> {
     const result = await bank.previewImport(
       TENANT,
       PROJECT,
@@ -98,7 +102,11 @@ describe('bank amount magnitude — real PrismaService and caixa', () => {
       undefined,
       REQUESTER,
     );
-    return result.preview.map((row) => row.externalId);
+    return result.preview;
+  }
+
+  async function preview(file: Buffer): Promise<string[]> {
+    return (await previewFull(file)).map((row) => row.externalId);
   }
 
   async function commit(
@@ -493,9 +501,189 @@ describe('bank amount magnitude — real PrismaService and caixa', () => {
     await preview(file);
     const result = await commit(file);
     expect(result).toMatchObject({ receiptsInserted: 1 });
+    // Statement MEMO "Ordinary movement 0" matches none of classifyCreditType's
+    // regexes (SALARIO/REND/TRANSFERENCIA/SISPAG/REEMBOLSO) → literal fallback.
     const receipt = await prisma.receipt.findFirst({ where: { tenantId: TENANT } });
-    expect(receipt?.tipo).toBeDefined();
+    expect(receipt?.tipo).toBe('OUTROS');
     expect(receipt?.status).toBe('EM_CAIXA');
+    const entry = await prisma.cashFlowEntry.findFirst({ where: { tenantId: TENANT } });
+    expect(entry?.categoria).toBe('OUTROS');
+  });
+
+  it('explicit RECEITA sentinel still falls back to classifyCreditType even with a titulo override', async () => {
+    // (#bank-category-sentinel) 'RECEITA' is the preview's suggestedCategory
+    // sentinel, never an explicit user choice — must behave like `undefined`
+    // and reclassify from the (possibly overridden) merchant/titulo text.
+    const file = statement('500.00');
+    const [externalId] = await preview(file);
+    await commit(file, [{ externalId, overrides: { category: 'RECEITA', titulo: 'SALARIO EMPRESA' } }]);
+    const receipt = await prisma.receipt.findFirst({ where: { tenantId: TENANT } });
+    expect(receipt).toMatchObject({ tipo: 'PAGAMENTO', valor: 50000, status: 'EM_CAIXA' });
+    const entry = await prisma.cashFlowEntry.findFirst({ where: { tenantId: TENANT } });
+    expect(entry).toMatchObject({ categoria: 'PAGAMENTO', tipo: 'RECEBIMENTO', valor: 50000 });
+  });
+
+  it('explicit OUTROS override persists literally, ignoring a titulo that matches the salary heuristic', async () => {
+    const file = statement('500.00');
+    const [externalId] = await preview(file);
+    await commit(file, [{ externalId, overrides: { category: 'OUTROS', titulo: 'SALARIO EMPRESA' } }]);
+    const receipt = await prisma.receipt.findFirst({ where: { tenantId: TENANT } });
+    expect(receipt).toMatchObject({ tipo: 'OUTROS', valor: 50000, status: 'EM_CAIXA' });
+    const entry = await prisma.cashFlowEntry.findFirst({ where: { tenantId: TENANT } });
+    expect(entry).toMatchObject({ categoria: 'OUTROS', tipo: 'RECEBIMENTO', valor: 50000 });
+  });
+
+  it.each(['X', 'A'.repeat(100), 'Categoria Livre Sem Whitelist'])(
+    'credit category %p persists literally to both records — no enum whitelist/no alias remapping',
+    async (category) => {
+      const file = statement('500.00');
+      const [externalId] = await preview(file);
+      await commit(file, [{ externalId, overrides: { category } }]);
+      const receipt = await prisma.receipt.findFirst({ where: { tenantId: TENANT } });
+      expect(receipt).toMatchObject({ tipo: category, valor: 50000, status: 'EM_CAIXA' });
+      const entry = await prisma.cashFlowEntry.findFirst({ where: { tenantId: TENANT } });
+      expect(entry).toMatchObject({ categoria: category, tipo: 'RECEBIMENTO', valor: 50000 });
+    },
+  );
+
+  it('credit category with raw length 101 (trimmed to 100) still rejects atomically — validates BEFORE trim', async () => {
+    const paddedTo101 = ` ${'X'.repeat(100)}`; // raw.length === 101, trimmed.length === 100
+    const file = statement('-500.00', '500.00');
+    const [first, second] = await preview(file);
+    await expectRejected(
+      file,
+      [
+        { externalId: first, overrides: { category: 'OUTROS' } },
+        { externalId: second, overrides: { category: paddedTo101 } },
+      ],
+      second,
+      /categoria.*100/i,
+    );
+  });
+
+  it('linked amount+category edit rejects atomically; unlink retry persists both credits and leaves the planned target untouched', async () => {
+    const target = await receipts.create(TENANT, TARGET_PROJECT, {
+      valor: 500,
+      data: '2026-09-01',
+      tipo: 'PAGAMENTO',
+      status: 'PREVISTO',
+    });
+    const file = statement('500.00', '75.00');
+    const [first, second] = await preview(file);
+    await expectRejected(
+      file,
+      [
+        { externalId: first, action: 'link', linkToReceiptId: target.id, overrides: { valorCents: 60000, category: 'FREELANCE' } },
+        { externalId: second, overrides: { category: 'OUTROS' } },
+      ],
+      first,
+      /remova.*v[íi]nculo/i,
+    );
+    expect(await prisma.receipt.findUnique({ where: { id: target.id } })).toMatchObject({
+      valor: 50000,
+      status: 'PREVISTO',
+    });
+    expect(await prisma.cashFlowEntry.findFirst({ where: { receiptId: target.id } })).toMatchObject({
+      valor: 50000,
+      status: 'PREVISTO',
+    });
+
+    // Retry without the link (action:'create' by omission) + unlink: both credits now persist.
+    const retry = await commit(file, [
+      { externalId: first, overrides: { valorCents: 60000, category: 'FREELANCE' } },
+      { externalId: second, overrides: { category: 'OUTROS' } },
+    ]);
+    expect(retry).toMatchObject({ receiptsInserted: 2, inserted: 0, linked: 0, duplicated: 0 });
+    const created = await prisma.receipt.findMany({ where: { tenantId: TENANT, projectId: PROJECT } });
+    expect(created).toHaveLength(2);
+    const byExternalId = (id: string) => created.find((row) => row.externalId === id);
+    expect(byExternalId(first)).toMatchObject({ valor: 60000, tipo: 'FREELANCE', linkedReceiptId: null });
+    expect(byExternalId(second)).toMatchObject({ valor: 7500, tipo: 'OUTROS', linkedReceiptId: null });
+    const caixa = await monthly.getCaixaConta(TENANT, PROJECT, CLOCK);
+    expect(caixa.hoje).toBe(67500);
+    // Planned target in the OTHER project stays untouched: no link happened this time.
+    expect(await prisma.receipt.findUnique({ where: { id: target.id } })).toMatchObject({
+      valor: 50000,
+      status: 'PREVISTO',
+    });
+    expect(await prisma.cashFlowEntry.findFirst({ where: { receiptId: target.id } })).toMatchObject({
+      valor: 50000,
+      status: 'PREVISTO',
+    });
+  });
+
+  it('an invalid category on a decision for an externalId absent from the file is never read/validated', async () => {
+    const file = statement('500.00');
+    const [externalId] = await preview(file);
+    const result = await commit(file, [
+      { externalId: 'not-in-this-file-xyz', overrides: { category: null } },
+    ] as unknown as BankImportDecision[]);
+    expect(result).toMatchObject({ receiptsInserted: 1, inserted: 0 });
+    expect(await prisma.receipt.findFirst({ where: { tenantId: TENANT, externalId } })).toMatchObject({
+      tipo: 'OUTROS',
+    });
+  });
+
+  it('invalid category on a strong-duplicate replay is ignored (row excluded from validation before reaching it)', async () => {
+    const file = statement('500.00');
+    const [externalId] = await preview(file);
+    await commit(file, [{ externalId, overrides: { valorCents: 60000, category: 'FREELANCE' } }]);
+    const before = await snapshot();
+    const result = await commit(file, [{ externalId, overrides: { category: '' } }]);
+    expect(result).toMatchObject({ inserted: 0, receiptsInserted: 0, duplicated: 1 });
+    await setup.bankStatementImport.delete({ where: { id: result.importId } });
+    expect(await snapshot()).toEqual(before);
+    expect((await monthly.getCaixaConta(TENANT, PROJECT, CLOCK)).hoje).toBe(60000);
+  });
+
+  it('invalid category on a Tier B row not forced is ignored; forcing action:import brings it under validation', async () => {
+    const file = statement('500.00');
+    const [{ externalId, merchant }] = await previewFull(file);
+    // Seed an existing receipt colliding only by natural key (cross-origin Tier B),
+    // reusing the real dedupe helper instead of reconstructing its hash formula.
+    const naturalKey = dedupeKeyNatural({
+      tenantId: TENANT,
+      projectId: PROJECT,
+      date: DATE,
+      merchant,
+      amountCents: -50000,
+      ordinal: 0,
+    });
+    await prisma.receipt.create({
+      data: {
+        tenantId: TENANT,
+        projectId: PROJECT,
+        valor: 1,
+        data: DATE,
+        tipo: 'OUTROS',
+        status: 'EM_CAIXA',
+        externalId: 'seed-natural-existing',
+        dedupeKeyNatural: naturalKey,
+      },
+    });
+
+    // Default (no action:'import') → row excluded from `toInsert`; invalid category never validated.
+    const defaultResult = await commit(file, [{ externalId, overrides: { category: '' } }]);
+    expect(defaultResult).toMatchObject({ inserted: 0, receiptsInserted: 0 });
+    expect(defaultResult.possibleDuplicates).toHaveLength(1);
+    expect(defaultResult.possibleDuplicates[0]).toMatchObject({ externalId });
+    await setup.bankStatementImport.delete({ where: { id: defaultResult.importId } });
+    expect(await prisma.receipt.count({ where: { tenantId: TENANT } })).toBe(1); // only the seed row
+
+    // Forced import ('action:import') puts the row back into `toInsert` → category IS validated.
+    await expectRejected(
+      file,
+      [{ externalId, action: 'import', overrides: { category: '' } }],
+      externalId,
+      /categoria.*string|categoria.*caracteres/i,
+    );
+
+    const forced = await commit(file, [{ externalId, action: 'import', overrides: { category: 'REEMBOLSO' } }]);
+    expect(forced).toMatchObject({ receiptsInserted: 1, inserted: 0 });
+    expect(await prisma.receipt.findFirst({ where: { tenantId: TENANT, externalId } })).toMatchObject({
+      tipo: 'REEMBOLSO',
+      valor: 50000,
+    });
   });
 
   it('edited credit with category override does not lose override on replay', async () => {
