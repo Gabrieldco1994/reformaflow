@@ -265,7 +265,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
                   m.kind === 'expense' ? m.expenseId : undefined,
                   m.kind === 'receipt' ? m.receiptId : undefined,
                 )}
-                onUnlink={onClearDecision}
+                onUnlink={() => setAction('create')}
               />
             );
           })}

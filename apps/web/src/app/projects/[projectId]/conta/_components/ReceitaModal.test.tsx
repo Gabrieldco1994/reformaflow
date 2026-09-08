@@ -195,4 +195,38 @@ describe("ReceitaModal — invalidação das visões financeiras", () => {
     expect(onClose).toHaveBeenCalledOnce();
     unsubscribe();
   });
+
+  it("normaliza tipo importado em minúscula (freelance → FREELANCE) ao salvar", async () => {
+    apiMocks.patch.mockResolvedValueOnce({ id: "receipt-freelance" });
+    const editing: ReceitaEditing = {
+      id: "receipt-freelance-1",
+      valor: 500_000,
+      data: "2026-08-15T00:00:00.000Z",
+      tipo: "freelance", // lowercase — caso importado do banco
+      status: "EM_CAIXA",
+    };
+    const { queryClient, fetchDre, onClose, unsubscribe } =
+      renderModal(editing);
+
+    // Verifica que o select exibe FREELANCE (normalizado) antes de salvar
+    const tipoSelect = screen.getByLabelText("Tipo") as HTMLSelectElement;
+    expect(tipoSelect.value).toBe("FREELANCE");
+
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() =>
+      expect(apiMocks.patch).toHaveBeenCalledWith(
+        `/projects/${PROJECT_ID}/receipts/${editing.id}`,
+        expect.objectContaining({
+          tipo: "FREELANCE", // normalizado em maiúscula
+          valor: 5000, // 500_000 centavos = 5000 reais / 100
+          status: "EM_CAIXA",
+        }),
+      ),
+    );
+    await expectFinancialQueriesInvalidated(queryClient);
+    await expectDreRefetched(queryClient, fetchDre);
+    expect(onClose).toHaveBeenCalledOnce();
+    unsubscribe();
+  });
 });
