@@ -407,4 +407,108 @@ describe('bank amount magnitude — real PrismaService and caixa', () => {
     // Caixa is source-based and type-agnostic, not a sum of neutral CashFlowEntries.
     expect((await monthly.getCaixaConta(TENANT, PROJECT, CLOCK)).hoje).toBe(60000);
   });
+
+  it.each([
+    ['SALARIO', '500.00', 50000],
+    ['BONUS', '500.00', 50000],
+    ['FREELANCE', '600.00', 60000],
+    ['RENDIMENTO_INVESTIMENTO', '500.00', 50000],
+    ['REEMBOLSO', '500.00', 50000],
+    ['TRANSFERENCIA', '500.00', 50000],
+    ['OUTROS', '500.00', 50000],
+  ])('credit with category override %s persists to Receipt.tipo and CashFlowEntry.categoria', async (category, amount, expectedValue) => {
+    const file = statement(amount);
+    const [externalId] = await preview(file);
+    await commit(file, [{ externalId, overrides: { category } }]);
+    const receipt = await prisma.receipt.findFirst({ where: { tenantId: TENANT } });
+    expect(receipt).toMatchObject({
+      valor: expectedValue,
+      tipo: category,
+      status: 'EM_CAIXA',
+    });
+    const entry = await prisma.cashFlowEntry.findFirst({ where: { tenantId: TENANT } });
+    expect(entry).toMatchObject({
+      valor: expectedValue,
+      tipo: 'RECEBIMENTO',
+      categoria: category,
+      status: 'EM_CAIXA',
+    });
+  });
+
+  it('credit with invalid category null rejects the whole batch', async () => {
+    const file = statement('-500.00', '500.00');
+    const [first, second] = await preview(file);
+    await expectRejected(
+      file,
+      [
+        { externalId: first, overrides: { category: 'OUTROS' } },
+        { externalId: second, overrides: { category: null } },
+      ],
+      second,
+      /categoria.*string|categoria.*caracteres/i,
+    );
+  });
+
+  it.each([false, 0, {}, [], '', '                 '])('credit with invalid category %p rejects the whole batch', async (invalid: unknown) => {
+    const file = statement('-500.00', '500.00');
+    const [first, second] = await preview(file);
+    await expectRejected(
+      file,
+      [
+        { externalId: first, overrides: { category: 'OUTROS' } },
+        { externalId: second, overrides: { category: invalid } },
+      ],
+      second,
+      /categoria.*string|categoria.*caracteres/i,
+    );
+  });
+
+  it('credit with category exceeding 100 chars rejects the whole batch', async () => {
+    const tooLong = 'A'.repeat(101);
+    const file = statement('-500.00', '500.00');
+    const [first, second] = await preview(file);
+    await expectRejected(
+      file,
+      [
+        { externalId: first, overrides: { category: 'OUTROS' } },
+        { externalId: second, overrides: { category: tooLong } },
+      ],
+      second,
+      /categoria.*100/i,
+    );
+  });
+
+  it('credit category with leading/trailing whitespace is trimmed', async () => {
+    const file = statement('500.00');
+    const [externalId] = await preview(file);
+    await commit(file, [{ externalId, overrides: { category: '  FREELANCE  ' } }]);
+    const receipt = await prisma.receipt.findFirst({ where: { tenantId: TENANT } });
+    expect(receipt).toMatchObject({
+      tipo: 'FREELANCE',
+    });
+  });
+
+  it('credit without category override uses existing heuristic via classifyCreditType', async () => {
+    const file = statement('500.00');
+    await preview(file);
+    const result = await commit(file);
+    expect(result).toMatchObject({ receiptsInserted: 1 });
+    const receipt = await prisma.receipt.findFirst({ where: { tenantId: TENANT } });
+    expect(receipt?.tipo).toBeDefined();
+    expect(receipt?.status).toBe('EM_CAIXA');
+  });
+
+  it('edited credit with category override does not lose override on replay', async () => {
+    const file = statement('500.00');
+    const [externalId] = await preview(file);
+    await commit(file, [{ externalId, overrides: { valorCents: 60000, category: 'FREELANCE' } }]);
+    const before = await snapshot();
+    const result = await commit(file, [{ externalId, overrides: { category: 'REEMBOLSO' } }]);
+    expect(result).toMatchObject({ duplicated: 1 });
+    await setup.bankStatementImport.delete({ where: { id: result.importId } });
+    const receipt = await prisma.receipt.findFirst({ where: { tenantId: TENANT } });
+    expect(receipt?.tipo).toBe('FREELANCE');
+    expect(receipt?.valor).toBe(60000);
+    expect(await snapshot()).toEqual(before);
+  });
 });

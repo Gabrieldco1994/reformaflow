@@ -866,6 +866,7 @@ export class BankAccountService {
     const preparedRows: BankImportPreparedRow[] = toInsert.map((transaction) => {
       const decision = decisionByExt.get(transaction.externalId);
       const amountOverride = decision?.overrides?.valorCents;
+      const categoryOverride = decision?.overrides?.category;
       // Valida TODO o lote efetivo antes de qualquer escrita/per-row catch.
       // Skip/dedupe já foram filtrados; as chaves continuam sendo as do arquivo.
       if (amountOverride !== undefined) {
@@ -900,6 +901,26 @@ export class BankAccountService {
           });
         }
       }
+      // Validar category override apenas para créditos efetivos (amountCents < 0).
+      // Undefined/absent = válido (sem override); null/não-string/vazio/blank/101+ (raw) = inválido.
+      const isCredit = transaction.amountCents < 0;
+      let validatedCategory: string | undefined = undefined;
+      if (isCredit && categoryOverride !== undefined) {
+        if (typeof categoryOverride !== 'string' || categoryOverride.length > 100) {
+          throw new BadRequestException({
+            message: 'Categoria deve ser uma string não vazia com até 100 caracteres. Corrija a categoria antes de importar.',
+            externalId: transaction.externalId,
+          });
+        }
+        const trimmed = categoryOverride.trim();
+        if (trimmed.length === 0) {
+          throw new BadRequestException({
+            message: 'Categoria deve ser uma string não vazia com até 100 caracteres. Corrija a categoria antes de importar.',
+            externalId: transaction.externalId,
+          });
+        }
+        validatedCategory = trimmed;
+      }
       return {
         transaction: {
           ...transaction,
@@ -909,7 +930,7 @@ export class BankAccountService {
               ? transaction.amountCents
               : Math.sign(transaction.amountCents) * amountOverride,
         },
-        categoryOverride: decision?.overrides?.category,
+        categoryOverride: isCredit ? validatedCategory : decision?.overrides?.category,
         cardOverride: decision?.overrides?.cardLast4 ?? null,
         internalTransferAccountId:
           decision?.overrides?.category === 'MOVIMENTACAO_INTERNA'
@@ -2408,7 +2429,7 @@ export class BankAccountService {
         }
         return { inserted: false, receiptInserted: true, cardPayment: false, unlinkedCardPayment: false, receiptId: receipt.id };
       }
-      const tipoReceipt = classifyCreditType(tx.merchant);
+      const tipoReceipt = categoryOverride ?? classifyCreditType(tx.merchant);
       const receipt = await client.receipt.create({
         data: {
           tenantId,
