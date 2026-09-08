@@ -2429,7 +2429,15 @@ export class BankAccountService {
         }
         return { inserted: false, receiptInserted: true, cardPayment: false, unlinkedCardPayment: false, receiptId: receipt.id };
       }
-      const tipoReceipt = categoryOverride ?? classifyCreditType(tx.merchant);
+      // (#bank-category-sentinel) `categoryOverride === 'RECEITA'` é o sentinel
+      // de `suggestedCategory` do preview (linha ~762), não uma escolha
+      // explícita do usuário — deve cair no classificador real, igual a
+      // `undefined`. Qualquer outro valor explícito (SALARIO, BONUS, etc.)
+      // persiste literal, sem reclassificação.
+      const tipoReceipt =
+        categoryOverride === undefined || categoryOverride === 'RECEITA'
+          ? classifyCreditType(tx.merchant)
+          : categoryOverride;
       const receipt = await client.receipt.create({
         data: {
           tenantId,
