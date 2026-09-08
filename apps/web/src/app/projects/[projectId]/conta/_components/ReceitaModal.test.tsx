@@ -208,6 +208,10 @@ describe("ReceitaModal — invalidação das visões financeiras", () => {
     const { queryClient, fetchDre, onClose, unsubscribe } =
       renderModal(editing);
 
+    // Verifica que o select exibe FREELANCE (normalizado) antes de salvar
+    const tipoSelect = screen.getByLabelText("Tipo") as HTMLSelectElement;
+    expect(tipoSelect.value).toBe("FREELANCE");
+
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
     await waitFor(() =>
