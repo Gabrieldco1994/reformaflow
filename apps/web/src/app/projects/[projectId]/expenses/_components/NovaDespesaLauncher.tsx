@@ -154,7 +154,8 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
     queryKey: ['credit-cards', projectId],
     queryFn: () => api.get(`/projects/${projectId}/credit-cards`),
     enabled: importStep === 'pick-card',
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
   const {
     data: importAccounts = [],
@@ -165,7 +166,8 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
     queryKey: ['bank-accounts', projectId],
     queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
     enabled: importStep === 'pick-account' && canImportBankStatement,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const createMutation = useMutation({
