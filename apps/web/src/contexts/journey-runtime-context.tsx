@@ -521,7 +521,13 @@ function JourneyRuntimeOverlay() {
   useEffect(() => {
     if (!active || !currentStep) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") runtime.dismiss();
+      if (event.key !== "Escape") return;
+      // Enquanto um overlay de tela cheia estiver aberto (useOverlayLock), o
+      // painel já está escondido via CSS (`body[data-overlay-open]
+      // [data-journey-panel]`) — o Escape aqui pertence ao overlay de cima
+      // (ex.: fechar o importador), não pode encerrar a jornada por baixo.
+      if (document.body.hasAttribute("data-overlay-open")) return;
+      runtime.dismiss();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);

@@ -445,6 +445,48 @@ describe("JourneyRuntimeProvider", () => {
 
       expect(screen.getByRole("dialog")).toBe(panel);
     });
+
+    // #659: com um overlay de tela cheia aberto (useOverlayLock), o painel
+    // fica escondido via CSS (`body[data-overlay-open] [data-journey-panel]`)
+    // mas continuava vivo no DOM — o Escape "de baixo" ainda era ouvido pelo
+    // listener do próprio painel e disparava dismiss(), perdendo o passo/fila
+    // mesmo sem o usuário nunca ter visto ou interagido com a jornada. O
+    // Escape nesse momento pertence ao overlay de cima.
+    it("does NOT dismiss on Escape while a full-screen overlay is open (data-overlay-open)", async () => {
+      setupJourney(true);
+      renderRuntime();
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar projeto" }));
+      const panel = await screen.findByRole("dialog");
+
+      document.body.dataset.overlayOpen = "true";
+      try {
+        await userEvent.setup().keyboard("{Escape}");
+        expect(screen.getByRole("dialog")).toBe(panel);
+      } finally {
+        delete document.body.dataset.overlayOpen;
+      }
+    });
+
+    it("resumes normal Escape dismissal once the overlay closes", async () => {
+      setupJourney(true);
+      renderRuntime();
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar projeto" }));
+      await screen.findByRole("dialog");
+
+      document.body.dataset.overlayOpen = "true";
+      await userEvent.setup().keyboard("{Escape}");
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      delete document.body.dataset.overlayOpen;
+      await userEvent.setup().keyboard("{Escape}");
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+    });
   });
 
   // Regressão: SCREEN_VISIT é o ÚNICO gatilho automático vivo (o bootstrap só

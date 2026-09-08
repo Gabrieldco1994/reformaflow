@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { usePageInert } from "@/components/ui/use-page-inert";
+import { useOverlayLock } from "@/components/ui/use-overlay-lock";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 import {
   CategoriaFonteChip,
@@ -244,6 +245,12 @@ export default function ImportWithoutAccountModal({
     };
   }, [portalEl]);
   usePageInert(true, portalEl);
+  // #659: este modal nunca passava pelo contador compartilhado de
+  // useOverlayLock (usado por Modal/VoiceAssistantOverlay) — o painel da
+  // jornada (`data-journey-panel`, z-[70]) não tinha como saber que um
+  // overlay de tela cheia estava aberto e ficava flutuando por cima do
+  // importador. `data-overlay-open` no <body> é o sinal que o CSS já espera.
+  useOverlayLock(true);
 
   const restorePreviousFocus = useCallback(() => {
     previousFocusRef.current?.focus();
