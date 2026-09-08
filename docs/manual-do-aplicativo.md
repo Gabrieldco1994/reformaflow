@@ -907,6 +907,20 @@ Gestão dos cartões de crédito.
   importação informa quantas correções viraram regra, quantas não puderam virar
   (sem categoria equivalente) e, se alguma regra falhou ao salvar, quantas — a
   importação em si não falha por isso, basta recategorizar para tentar de novo.
+- **Revisão de possíveis duplicatas (#659):** o servidor separa dois níveis. Uma
+  **duplicata forte** (mesmo arquivo/mesma origem já importado) continua bloqueada,
+  sem opção de forçar. Uma **possível duplicata** — mesma data e valor de um
+  lançamento já registrado por **outra origem** (ex.: você já lançou pela conta e
+  agora importa a fatura) — aparece com um aviso âmbar e a caixa **"Importar mesmo
+  assim"** **desmarcada**: por padrão ela **não** é importada e **não** conta como
+  "nova" no resumo (o resumo mostra "N possível(is) duplicata(s)" à parte).
+  Marcar a caixa é o único jeito de criar a linha; desmarcar volta ao estado
+  seguro. Se a linha também casa com uma despesa planejada de outro projeto, ela
+  **não** é auto-vinculada — escolha explicitamente **vincular** (quita o
+  planejado, sem criar lançamento novo) **ou** "Importar mesmo assim" (cria um
+  lançamento novo); não são a mesma coisa. Trocar de arquivo/prévia zera essas
+  escolhas. O commit continua sujeito à deduplicação do servidor. O mesmo
+  comportamento vale para a importação de extrato (§4.8) e para a Carteira (§4.8.1).
 - **Valor editável na prévia aceita estorno/crédito negativo** (ex.: `-45,00`):
   o campo de valor da linha da fatura preserva o sinal de menos ao editar —
   diferente da prévia de extrato de conta, que sempre trata o valor como
@@ -970,6 +984,11 @@ visões de Mês/Ano.
   categorização automática do lote estiver **indisponível** ou **não concluída**,
   um aviso âmbar pede para revisar as categorias antes de confirmar; a
   importação segue normalmente com a sugestão por palavra-chave.
+- **Possíveis duplicatas na prévia:** linhas que casam data e valor de um
+  lançamento já registrado por outra origem trazem o aviso âmbar e a caixa
+  **"Importar mesmo assim"** desmarcada — não entram nem contam como "nova" até
+  você marcar a caixa (mesmo comportamento e regras da §4.7, incluindo a
+  precedência entre vincular e importar).
 - **Deep-link do cockpit:** o banner de estado degradado leva a
   `/conta?focus=openingBalance`, abrindo a criação, a conta única ou o seletor.
 - Links antigos para `/bank-accounts` continuam compatíveis: redirecionam para
@@ -994,6 +1013,10 @@ Permite importar um extrato ou fatura sem associar a uma conta cadastrada. O flu
    categorização automática do lote estiver **indisponível** ou **não
    concluída**, aparece o mesmo aviso âmbar de §4.7/§4.8 pedindo revisão antes de
    confirmar. Recebimentos (crédito de extrato) não recebem categoria.
+   Linhas marcadas como **possível duplicata** (mesma data e valor de um
+   lançamento de outra origem) trazem o aviso âmbar e a caixa **"Importar mesmo
+   assim"** desmarcada — o cabeçalho da conferência conta "N possível(is)
+   duplicata(s)" à parte e nada é criado até você marcar a caixa (§4.7).
 4. **Confirmação explícita** — somente ao clicar em **Confirmar importação** os
    lançamentos são criados. Corrigir a categoria de uma linha uma vez a
    transforma em regra para o futuro (mesmo "corrija uma vez" de §4.7/§4.8), e o

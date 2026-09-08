@@ -6,6 +6,7 @@ import { Trash2, Link2, RotateCcw, Check, ArrowDownCircle, ArrowUpCircle } from 
 import type { BankPreviewTx, BankCrossProjectMatch, BankCardCandidate } from '../_types';
 import type { BankImportDecision, BankTxState } from './ImportBankStatementModal';
 import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
+import { PossibleDuplicateNotice } from '@/components/import/PossibleDuplicateNotice';
 import { CREDIT_CATEGORIES, DEBIT_CATEGORIES, categoryLabel } from '../_lib/import-categories';
 
 /** "2026-08" → "ago/2026". */
@@ -55,6 +56,8 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
   const isCredit = tx.amountCents < 0;
   const isSkipped = state.decision?.action === 'skip';
   const isLinked = state.decision?.action === 'link';
+  const isForcedImport = state.decision?.action === 'import';
+  const possibleDuplicate = tx.possibleDuplicate ?? null;
   const matches = tx.crossProjectMatches ?? [];
   const valorCents = state.decision?.overrides?.valorCents ?? Math.abs(tx.amountCents);
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
@@ -84,7 +87,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
   }
 
   function setAction(
-    action: 'skip' | 'link' | 'create',
+    action: 'skip' | 'link' | 'create' | 'import',
     linkToExpenseId?: string,
     linkToReceiptId?: string,
   ) {
@@ -105,7 +108,9 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
       ? 'bg-green-50'
       : tx.duplicate
         ? 'bg-yellow-50 text-gray-500'
-        : '';
+        : possibleDuplicate && !isForcedImport
+          ? 'bg-orange-50'
+          : '';
 
   return (
     <div className={`border-b p-3 ${rowClass}`}>
@@ -180,6 +185,16 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
         <div className="text-xs text-yellow-700 mt-1 italic">
           ↻ Já importada anteriormente (será ignorada)
         </div>
+      )}
+
+      {possibleDuplicate && !isSkipped && (
+        <PossibleDuplicateNotice
+          info={possibleDuplicate}
+          optedIn={isForcedImport}
+          disabled={isLinked}
+          disabledHint="Esta linha já será resolvida pelo vínculo abaixo — desfaça o vínculo para importar como nova."
+          onToggle={(next) => (next ? setAction('import') : onClearDecision())}
+        />
       )}
 
       {isCardPaymentRow && !isSkipped && (

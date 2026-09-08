@@ -7,6 +7,7 @@ import { tipoLabel } from '@/lib/expense-options';
 import type { PreviewTx, CrossProjectMatch } from '../_types';
 import type { ImportDecision, TxState } from './ImportStatementModal';
 import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
+import { PossibleDuplicateNotice } from '@/components/import/PossibleDuplicateNotice';
 
 const PESSOAL_CATEGORIES = [
   { value: 'MORADIA', label: 'Moradia' },
@@ -39,6 +40,8 @@ interface RowProps {
 export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps) {
   const isSkipped = state.decision?.action === 'skip';
   const isLinked = state.decision?.action === 'link';
+  const isForcedImport = state.decision?.action === 'import';
+  const possibleDuplicate = tx.possibleDuplicate ?? null;
   const matches = tx.crossProjectMatches ?? [];
   const valorCents = state.decision?.overrides?.valorCents ?? tx.amountCents;
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
@@ -59,7 +62,7 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
     });
   }
 
-  function setAction(action: 'skip' | 'link' | 'create', linkToExpenseId?: string) {
+  function setAction(action: 'skip' | 'link' | 'create' | 'import', linkToExpenseId?: string) {
     onChange({
       decision: {
         ...(state.decision ?? { externalId: tx.externalId }),
@@ -76,7 +79,9 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
       ? 'bg-green-50'
       : tx.duplicate
         ? 'bg-yellow-50 text-gray-500'
-        : '';
+        : possibleDuplicate && !isForcedImport
+          ? 'bg-orange-50'
+          : '';
 
   return (
     <div className={`border-b p-3 ${rowClass}`}>
@@ -154,6 +159,16 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
         <div className="text-xs text-yellow-700 mt-1 italic">
           ↻ Já importada anteriormente (será ignorada)
         </div>
+      )}
+
+      {possibleDuplicate && !isSkipped && (
+        <PossibleDuplicateNotice
+          info={possibleDuplicate}
+          optedIn={isForcedImport}
+          disabled={isLinked}
+          disabledHint="Esta linha já será resolvida pelo vínculo abaixo — desfaça o vínculo para importar como nova."
+          onToggle={(next) => (next ? setAction('import') : onClearDecision())}
+        />
       )}
 
       {matches.length > 0 && !isSkipped && (

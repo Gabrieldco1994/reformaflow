@@ -19,7 +19,8 @@ interface Props {
 
 export interface BankImportDecision {
   externalId: string;
-  action?: 'create' | 'skip' | 'link';
+  // 'import' (#659) força criar uma linha marcada `possibleDuplicate` (Tier B).
+  action?: 'create' | 'skip' | 'link' | 'import';
   linkToExpenseId?: string;
   linkToReceiptId?: string;
   overrides?: {
@@ -73,6 +74,9 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
       setPreview(res);
       const auto: Record<string, BankTxState> = {};
       for (const tx of res.preview ?? []) {
+        // Tier B (#659): nunca auto-vincular/auto-preencher uma linha que o
+        // servidor marcou como possível duplicata — o opt-in é sempre explícito.
+        if (tx.possibleDuplicate) continue;
         // Pagamento de fatura com cartão detectado sem ambiguidade já vem
         // pré-selecionado — o usuário só confirma (ou troca) antes de importar.
         if (tx.isCardPayment && tx.suggestedCardLast4) {
@@ -159,19 +163,25 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
   }
 
   const counts = useMemo(() => {
-    if (!preview) return { willCreate: 0, willLink: 0, willSkip: 0, debitCents: 0, creditCents: 0 };
-    let willCreate = 0, willLink = 0, willSkip = 0, debitCents = 0, creditCents = 0;
+    if (!preview) return { willCreate: 0, willLink: 0, willSkip: 0, possibleDup: 0, debitCents: 0, creditCents: 0 };
+    let willCreate = 0, willLink = 0, willSkip = 0, possibleDup = 0, debitCents = 0, creditCents = 0;
     for (const tx of preview.preview) {
       const d = txStates[tx.externalId]?.decision;
       if (tx.duplicate) continue;
       if (d?.action === 'skip') { willSkip++; continue; }
+      // Tier B (#659): sem "importar mesmo assim" (nem vínculo) o servidor NÃO
+      // cria a linha — não pode contar como nova nem entrar nos somatórios.
+      if (tx.possibleDuplicate && d?.action !== 'import' && d?.action !== 'link') {
+        possibleDup++;
+        continue;
+      }
       if (d?.action === 'link') willLink++;
       else willCreate++;
       const v = d?.overrides?.valorCents ?? Math.abs(tx.amountCents);
       if (tx.amountCents < 0) creditCents += v;
       else debitCents += v;
     }
-    return { willCreate, willLink, willSkip, debitCents, creditCents };
+    return { willCreate, willLink, willSkip, possibleDup, debitCents, creditCents };
   }, [preview, txStates]);
 
   return (
@@ -289,6 +299,9 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                     Após confirmar: <strong>{counts.willCreate}</strong> novas ·
                     <strong> {counts.willLink}</strong> vinculadas ·
                     <strong> {counts.willSkip}</strong> ignoradas ·
+                    {counts.possibleDup > 0 && (
+                      <><strong> {counts.possibleDup}</strong> possível(is) duplicata(s) ·</>
+                    )}
                     saídas: <strong>{formatCurrency(counts.debitCents / 100)}</strong> ·
                     entradas: <strong>{formatCurrency(counts.creditCents / 100)}</strong>
                   </div>
@@ -341,6 +354,11 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
         <p><strong>{result.inserted}</strong> despesas criadas</p>
         <p><strong>{result.receiptsInserted}</strong> recebimentos criados</p>
         <p><strong>{result.duplicated}</strong> ignoradas (duplicadas)</p>
+        {!!result.possibleDuplicates?.length && (
+          <p className="text-orange-700">
+            <strong>{result.possibleDuplicates.length}</strong> possível(is) duplicata(s) não importada(s) — marque “Importar mesmo assim” para incluí-las.
+          </p>
+        )}
         {!!result.duplicatedItems?.length && (
           <details className="text-left mt-1 mx-auto max-w-md">
             <summary className="text-sm text-gray-500 cursor-pointer select-none">

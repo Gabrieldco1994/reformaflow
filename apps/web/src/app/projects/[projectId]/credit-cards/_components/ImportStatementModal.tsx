@@ -19,7 +19,8 @@ interface Props {
 
 export interface ImportDecision {
   externalId: string;
-  action?: 'create' | 'skip' | 'link';
+  // 'import' (#659) força uma linha marcada `possibleDuplicate` (Tier B) a ser criada.
+  action?: 'create' | 'skip' | 'link' | 'import';
   linkToExpenseId?: string;
   overrides?: {
     titulo?: string;
@@ -71,6 +72,10 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
       // Auto-marca matches únicos como "linked" por padrão (quando houver exatamente 1 match com delta=0)
       const auto: Record<string, TxState> = {};
       for (const tx of res.preview ?? []) {
+        // Tier B (#659): nunca auto-vincular uma linha que o servidor marcou
+        // como possível duplicata — auto-link cria + quita planejado, e fazer
+        // isso em silêncio numa linha talvez-já-existente é o risco de dobra.
+        if (tx.possibleDuplicate) continue;
         const matches = tx.crossProjectMatches ?? [];
         if (matches.length === 1 && Math.abs(matches[0].deltaCents) < 100) {
           auto[tx.externalId] = {
@@ -139,17 +144,23 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
   }
 
   const counts = useMemo(() => {
-    if (!preview) return { willCreate: 0, willLink: 0, willSkip: 0, totalCents: 0 };
-    let willCreate = 0, willLink = 0, willSkip = 0, totalCents = 0;
+    if (!preview) return { willCreate: 0, willLink: 0, willSkip: 0, possibleDup: 0, totalCents: 0 };
+    let willCreate = 0, willLink = 0, willSkip = 0, possibleDup = 0, totalCents = 0;
     for (const tx of preview.preview) {
       const d = txStates[tx.externalId]?.decision;
       if (tx.duplicate) continue;
       if (d?.action === 'skip') { willSkip++; continue; }
+      // Tier B (#659): sem "importar mesmo assim" (nem vínculo) o servidor NÃO
+      // cria a linha — não pode contar como nova nem entrar no somatório.
+      if (tx.possibleDuplicate && d?.action !== 'import' && d?.action !== 'link') {
+        possibleDup++;
+        continue;
+      }
       if (d?.action === 'link') willLink++;
       else willCreate++;
       totalCents += d?.overrides?.valorCents ?? tx.amountCents;
     }
-    return { willCreate, willLink, willSkip, totalCents };
+    return { willCreate, willLink, willSkip, possibleDup, totalCents };
   }, [preview, txStates]);
 
   return (
@@ -202,6 +213,9 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
                   Após confirmar: <strong>{counts.willCreate}</strong> novas ·
                   <strong> {counts.willLink}</strong> vinculadas a planejado ·
                   <strong> {counts.willSkip}</strong> ignoradas ·
+                  {counts.possibleDup > 0 && (
+                    <><strong> {counts.possibleDup}</strong> possível(is) duplicata(s) ·</>
+                  )}
                   soma: <strong>{formatCurrency(counts.totalCents / 100)}</strong>
                 </div>
               </div>
@@ -397,6 +411,11 @@ function CommittedView({ result, onClose }: { result: CommitResult; onClose: () 
               ))}
             </ul>
           </details>
+        )}
+        {!!result.possibleDuplicates?.length && (
+          <p className="text-orange-700">
+            <strong>{result.possibleDuplicates.length}</strong> possível(is) duplicata(s) não importada(s) — marque “Importar mesmo assim” para incluí-las.
+          </p>
         )}
         <p><strong>{result.settled}</strong> parcelas planejadas marcadas como pagas</p>
         {!!result.linked && <p><strong>{result.linked}</strong> vinculadas a despesas planejadas em outros projetos</p>}

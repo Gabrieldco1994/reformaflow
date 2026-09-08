@@ -1,7 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { PreviewTxRow } from './PreviewTxRow';
-import type { PreviewTx } from '../_types';
+import type { PreviewTx, PossibleDuplicateInfo } from '../_types';
+
+const POSSIBLE_DUP: PossibleDuplicateInfo = {
+  externalId: 't1',
+  existingId: 'exp-9',
+  existingOrigin: 'bank:1111',
+  existingDate: '2026-07-01',
+  existingAmountCents: 5000,
+  reason: 'same_natural_key_different_source',
+};
 
 function baseTx(over: Partial<PreviewTx> = {}): PreviewTx {
   return {
@@ -50,5 +60,70 @@ describe('PreviewTxRow (fatura) — categoria + chip de origem', () => {
     );
     expect(screen.queryByText('IA')).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('Lazer')).toBeInTheDocument();
+  });
+});
+
+describe('PreviewTxRow (fatura) — Tier B possível duplicata (#659)', () => {
+  it('mostra o aviso e o opt-in DESMARCADO por padrão', () => {
+    renderRow(baseTx({ possibleDuplicate: POSSIBLE_DUP }));
+    expect(screen.getByText('⚠ Possível duplicata')).toBeInTheDocument();
+    const checkbox = screen.getByRole('checkbox', { name: /importar mesmo assim/i });
+    expect(checkbox).not.toBeChecked();
+  });
+
+  it('marcar o opt-in emite decision.action="import"', async () => {
+    const onChange = vi.fn();
+    render(
+      <PreviewTxRow
+        tx={baseTx({ possibleDuplicate: POSSIBLE_DUP })}
+        state={{}}
+        onChange={onChange}
+        onClearDecision={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('checkbox', { name: /importar mesmo assim/i }));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: expect.objectContaining({ externalId: 't1', action: 'import' }),
+      }),
+    );
+  });
+
+  it('desmarcar o opt-in chama onClearDecision (volta ao estado seguro)', async () => {
+    const onClearDecision = vi.fn();
+    render(
+      <PreviewTxRow
+        tx={baseTx({ possibleDuplicate: POSSIBLE_DUP })}
+        state={{ decision: { externalId: 't1', action: 'import' } }}
+        onChange={vi.fn()}
+        onClearDecision={onClearDecision}
+      />,
+    );
+    await userEvent.click(screen.getByRole('checkbox', { name: /importar mesmo assim/i }));
+    expect(onClearDecision).toHaveBeenCalledTimes(1);
+  });
+
+  it('quando a linha está vinculada a planejado, o opt-in fica desabilitado', () => {
+    renderRow(
+      baseTx({
+        possibleDuplicate: POSSIBLE_DUP,
+        crossProjectMatches: [
+          {
+            expenseId: 'plan-1',
+            projectId: 'p2',
+            projectName: 'Reforma',
+            projectType: 'REFORMA',
+            titulo: 'Piso',
+            valorCents: 5000,
+            data: '2026-07-01',
+            deltaCents: 0,
+            installmentCurrent: null,
+            installmentTotal: null,
+          },
+        ],
+      }),
+      { decision: { externalId: 't1', action: 'link', linkToExpenseId: 'plan-1' } },
+    );
+    expect(screen.getByRole('checkbox', { name: /importar mesmo assim/i })).toBeDisabled();
   });
 });

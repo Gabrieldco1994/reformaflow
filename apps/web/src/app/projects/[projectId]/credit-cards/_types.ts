@@ -2,8 +2,9 @@ import type {
   CategoriaFonte,
   ImportClassificationStatus,
 } from '@/components/import/ImportClassificationNotice';
+import type { PossibleDuplicateInfo } from '@/components/import/PossibleDuplicateNotice';
 
-export type { CategoriaFonte, ImportClassificationStatus };
+export type { CategoriaFonte, ImportClassificationStatus, PossibleDuplicateInfo };
 
 export interface CardRow {
   id: string;
@@ -50,6 +51,10 @@ export interface PreviewTx {
   installmentCurrent: number | null;
   installmentTotal: number | null;
   duplicate: boolean;
+  /** Tier B (#659): casou a chave natural de um lançamento de outra origem. */
+  possibleDuplicate?: PossibleDuplicateInfo | null;
+  /** Servidor não importa por padrão (`false` p/ Tier A e Tier B). */
+  willImport?: boolean;
   suggestedCategory?: string;
   /** Origem da categoria sugerida nesta linha (#582 PR-5). `null` = heurístico não casou. */
   categoriaFonte?: CategoriaFonte | null;
@@ -66,6 +71,8 @@ export interface PreviewResult {
   duplicated: number;
   totalAmountCents: number;
   inserted?: number;
+  /** Tier B (#659): linhas do preview com `possibleDuplicate` anexado. */
+  possibleDuplicates?: PossibleDuplicateInfo[];
   /** Estado da categorização automática em lote do preview (#582 PR-5). Não bloqueia. */
   classificationStatus?: ImportClassificationStatus;
 }
@@ -81,6 +88,8 @@ export interface CommitResult {
   importId: string;
   linked?: number;
   skipped?: number;
+  /** Tier B (#659) que o usuário não optou por importar — não entraram. */
+  possibleDuplicates?: PossibleDuplicateInfo[];
   /** AC#7 (#582): correções de categoria no import que viraram regra MANUAL tenant-scoped. */
   rulesLearned?: number;
   /** Correções aplicadas à linha mas sem categoria equivalente para virar regra. */

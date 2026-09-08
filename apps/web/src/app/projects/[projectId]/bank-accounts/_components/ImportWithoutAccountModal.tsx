@@ -14,6 +14,10 @@ import {
   type ImportClassificationStatus,
 } from "@/components/import/ImportClassificationNotice";
 import {
+  PossibleDuplicateNotice,
+  type PossibleDuplicateInfo,
+} from "@/components/import/PossibleDuplicateNotice";
+import {
   DEBIT_CATEGORIES,
   categoryLabel,
 } from "../_lib/import-categories";
@@ -42,6 +46,7 @@ interface ApiPreviewRow {
   duplicate?: boolean;
   ignored?: boolean;
   willImport?: boolean;
+  possibleDuplicate?: PossibleDuplicateInfo | null;
   categoriaFonte?: CategoriaFonte | null;
   suggestedCategory?: string | null;
 }
@@ -65,6 +70,7 @@ interface PreviewRow {
   status: RowStatus;
   duplicate: boolean;
   ignored: boolean;
+  possibleDuplicate: PossibleDuplicateInfo | null;
   categoriaFonte: CategoriaFonte | null;
   suggestedCategory: string | null;
 }
@@ -86,6 +92,7 @@ interface ApiCommitResult {
   failed?: number;
   skipped?: number;
   duplicated?: number;
+  possibleDuplicates?: PossibleDuplicateInfo[];
   rulesLearned?: number;
   rulesSkippedNoMapping?: number;
   rulesLearnFailed?: number;
@@ -93,6 +100,8 @@ interface ApiCommitResult {
 
 interface ImportDecision {
   externalId: string;
+  // 'import' (#659) força criar uma linha marcada `possibleDuplicate` (Tier B).
+  action?: "import";
   overrides?: { category?: string };
 }
 
@@ -166,6 +175,7 @@ function normalizePreview(
         "A prévia contém um lançamento incompleto. Tente outro arquivo.",
       );
     }
+    const possibleDuplicate = row.possibleDuplicate ?? null;
     return {
       externalId: row.externalId,
       date,
@@ -174,7 +184,12 @@ function normalizePreview(
       type: rowType(row.type ?? row.tipo, documentType, amount),
       status: rowStatus(row.status, documentType, amount),
       duplicate: row.duplicate === true,
-      ignored: row.ignored === true || row.willImport === false,
+      possibleDuplicate,
+      // `willImport === false` cobre Tier A e Tier B; só é "Ignorado" o que não
+      // for nenhum dos dois (linha que o servidor descarta por outro motivo).
+      ignored:
+        row.ignored === true ||
+        (row.willImport === false && row.duplicate !== true && !possibleDuplicate),
       categoriaFonte: row.categoriaFonte ?? null,
       suggestedCategory: row.suggestedCategory ?? null,
     };
@@ -224,6 +239,12 @@ export default function ImportWithoutAccountModal({
   const [categoryOverrides, setCategoryOverrides] = useState<
     Record<string, string>
   >({});
+  // #659 Tier B: linhas "possível duplicata" que o usuário marcou "importar
+  // mesmo assim". Zerado sempre que a prévia é descartada (novo arquivo, troca
+  // de tipo, senha) — nunca reaproveitado entre prévias.
+  const [duplicateOptIn, setDuplicateOptIn] = useState<Record<string, boolean>>(
+    {},
+  );
   const [commitResult, setCommitResult] = useState<ApiCommitResult | null>(null);
   const [committedCount, setCommittedCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -295,6 +316,7 @@ export default function ImportWithoutAccountModal({
   useEffect(() => {
     if (preview === null) {
       setCategoryOverrides({});
+      setDuplicateOptIn({});
       setCommitResult(null);
     }
   }, [preview]);
@@ -376,12 +398,17 @@ export default function ImportWithoutAccountModal({
 
   function commitFormData() {
     const data = formData();
-    const decisions: ImportDecision[] = Object.entries(categoryOverrides)
-      .filter(([, category]) => !!category)
-      .map(([externalId, category]) => ({
-        externalId,
-        overrides: { category },
-      }));
+    const byId = new Map<string, ImportDecision>();
+    for (const [externalId, category] of Object.entries(categoryOverrides)) {
+      if (category) byId.set(externalId, { externalId, overrides: { category } });
+    }
+    // #659 Tier B: só a escolha explícita ("importar mesmo assim") manda
+    // `action:'import'` — sem ela o servidor não cria a linha.
+    for (const [externalId, on] of Object.entries(duplicateOptIn)) {
+      if (!on) continue;
+      byId.set(externalId, { ...byId.get(externalId), externalId, action: "import" });
+    }
+    const decisions = [...byId.values()];
     if (decisions.length > 0) {
       data.append("decisions", JSON.stringify(decisions));
     }
@@ -528,6 +555,13 @@ export default function ImportWithoutAccountModal({
               {committedCount} lançamento(s) importado(s) sem conta. Você poderá
               vincular uma conta depois.
             </p>
+            {!!commitResult?.possibleDuplicates?.length && (
+              <p className="mt-2 text-sm text-orange-700">
+                <strong>{commitResult.possibleDuplicates.length}</strong>{" "}
+                possível(is) duplicata(s) não importada(s) — marque “Importar
+                mesmo assim” para incluí-las.
+              </p>
+            )}
             {!!commitResult?.rulesLearned && (
               <p className="mt-2 text-sm text-gray-600">
                 <strong>{commitResult.rulesLearned}</strong> correção(ões)
@@ -668,6 +702,12 @@ export default function ImportWithoutAccountModal({
                   {preview.duplicated
                     ? ` · ${preview.duplicated} duplicado(s)`
                     : ""}
+                  {(() => {
+                    const n = preview.rows.filter(
+                      (r) => r.possibleDuplicate,
+                    ).length;
+                    return n ? ` · ${n} possível(is) duplicata(s)` : "";
+                  })()}
                 </h3>
                 <ImportClassificationNotice
                   status={preview.classificationStatus}
@@ -675,6 +715,7 @@ export default function ImportWithoutAccountModal({
                 <ul className="max-h-[42dvh] divide-y overflow-y-auto rounded-lg border">
                   {preview.rows.map((row) => {
                     const isExpense = row.type === "DESPESA";
+                    const optedIn = duplicateOptIn[row.externalId] === true;
                     const overridden =
                       categoryOverrides[row.externalId] !== undefined;
                     const suggested = row.suggestedCategory ?? "OUTROS";
@@ -711,7 +752,22 @@ export default function ImportWithoutAccountModal({
                               )}
                             </p>
                           )}
-                          {isExpense && !row.ignored && !row.duplicate && (
+                          {row.possibleDuplicate && (
+                            <PossibleDuplicateNotice
+                              info={row.possibleDuplicate}
+                              optedIn={optedIn}
+                              onToggle={(next) =>
+                                setDuplicateOptIn((prev) => ({
+                                  ...prev,
+                                  [row.externalId]: next,
+                                }))
+                              }
+                            />
+                          )}
+                          {isExpense &&
+                            !row.ignored &&
+                            !row.duplicate &&
+                            (!row.possibleDuplicate || optedIn) && (
                             <div className="mt-2 flex flex-col">
                               <select
                                 aria-label={`Categoria de ${row.description}`}
