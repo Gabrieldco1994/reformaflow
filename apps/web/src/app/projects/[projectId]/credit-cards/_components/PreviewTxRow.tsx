@@ -7,6 +7,7 @@ import { tipoLabel } from '@/lib/expense-options';
 import type { PreviewTx, CrossProjectMatch } from '../_types';
 import type { ImportDecision, TxState } from './ImportStatementModal';
 import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
+import { PossibleDuplicateNotice } from '@/components/import/PossibleDuplicateNotice';
 
 const PESSOAL_CATEGORIES = [
   { value: 'MORADIA', label: 'Moradia' },
@@ -39,6 +40,8 @@ interface RowProps {
 export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps) {
   const isSkipped = state.decision?.action === 'skip';
   const isLinked = state.decision?.action === 'link';
+  const isForcedImport = state.decision?.action === 'import';
+  const possibleDuplicate = tx.possibleDuplicate ?? null;
   const matches = tx.crossProjectMatches ?? [];
   const valorCents = state.decision?.overrides?.valorCents ?? tx.amountCents;
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
@@ -59,7 +62,7 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
     });
   }
 
-  function setAction(action: 'skip' | 'link' | 'create', linkToExpenseId?: string) {
+  function setAction(action: 'skip' | 'link' | 'create' | 'import', linkToExpenseId?: string) {
     onChange({
       decision: {
         ...(state.decision ?? { externalId: tx.externalId }),
@@ -70,13 +73,29 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
     });
   }
 
+  // Tier B (#659): desmarcar "Importar mesmo assim" remove SÓ o opt-in de
+  // criação, preservando categoria/título/valor já editados. Não usa
+  // `onClearDecision` (reset do #572), que apagaria a linha inteira — Tier B
+  // nunca tem snapshot de auto-detecção para onde voltar.
+  function clearImportOptIn() {
+    const overrides = state.decision?.overrides;
+    onChange({
+      decision:
+        overrides && Object.keys(overrides).length > 0
+          ? { externalId: tx.externalId, overrides }
+          : undefined,
+    });
+  }
+
   const rowClass = isSkipped
     ? 'bg-red-50 line-through text-gray-400'
     : isLinked
       ? 'bg-green-50'
       : tx.duplicate
         ? 'bg-yellow-50 text-gray-500'
-        : '';
+        : possibleDuplicate && !isForcedImport
+          ? 'bg-orange-50'
+          : '';
 
   return (
     <div className={`border-b p-3 ${rowClass}`}>
@@ -156,7 +175,18 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
         </div>
       )}
 
-      {matches.length > 0 && !isSkipped && (
+      {possibleDuplicate && !isSkipped && (
+        <PossibleDuplicateNotice
+          info={possibleDuplicate}
+          optedIn={isForcedImport}
+          onToggle={(next) => (next ? setAction('import') : clearImportOptIn())}
+        />
+      )}
+
+      {/* Tier B (#659): vincular NÃO é resolução válida — o commit descarta a
+          linha antes de processar `link` (só `action:'import'` a cria). A
+          superfície de vínculo cross-project fica só para linhas normais. */}
+      {matches.length > 0 && !isSkipped && !possibleDuplicate && (
         <div className="mt-2 pl-3 border-l-2 border-blue-300 space-y-1">
           <div className="text-xs text-blue-700 font-medium">
             📌 Encontrado em outro(s) projeto(s):

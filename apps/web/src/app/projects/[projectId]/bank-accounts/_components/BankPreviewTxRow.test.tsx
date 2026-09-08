@@ -1,7 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BankPreviewTxRow } from './BankPreviewTxRow';
-import type { BankPreviewTx } from '../_types';
+import type { BankPreviewTx, PossibleDuplicateInfo } from '../_types';
+
+const POSSIBLE_DUP: PossibleDuplicateInfo = {
+  externalId: 't1',
+  existingId: 'rec-9',
+  existingOrigin: 'none',
+  existingDate: '2026-07-01',
+  existingAmountCents: 5000,
+  reason: 'same_natural_key_different_source',
+};
 
 function baseTx(over: Partial<BankPreviewTx> = {}): BankPreviewTx {
   return {
@@ -59,5 +69,93 @@ describe('BankPreviewTxRow — categoria + chip de origem', () => {
     );
     expect(screen.queryByText('IA')).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('Transporte')).toBeInTheDocument();
+  });
+});
+
+describe('BankPreviewTxRow — Tier B possível duplicata (#659)', () => {
+  it('mostra o aviso e o opt-in DESMARCADO por padrão', () => {
+    renderRow(baseTx({ possibleDuplicate: POSSIBLE_DUP }));
+    expect(screen.getByText('⚠ Possível duplicata')).toBeInTheDocument();
+    expect(
+      screen.getByRole('checkbox', { name: /importar mesmo assim/i }),
+    ).not.toBeChecked();
+  });
+
+  it('marcar o opt-in emite decision.action="import"', async () => {
+    const onChange = vi.fn();
+    render(
+      <BankPreviewTxRow
+        tx={baseTx({ possibleDuplicate: POSSIBLE_DUP })}
+        state={{}}
+        onChange={onChange}
+        onClearDecision={vi.fn()}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /importar mesmo assim/i }),
+    );
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: expect.objectContaining({ externalId: 't1', action: 'import' }),
+      }),
+    );
+  });
+
+  it('desmarcar o opt-in NÃO chama onClearDecision e preserva overrides editados', async () => {
+    const onChange = vi.fn();
+    const onClearDecision = vi.fn();
+    render(
+      <BankPreviewTxRow
+        tx={baseTx({ possibleDuplicate: POSSIBLE_DUP })}
+        state={{
+          decision: { externalId: 't1', action: 'import', overrides: { category: 'TRANSPORTE' } },
+        }}
+        onChange={onChange}
+        onClearDecision={onClearDecision}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /importar mesmo assim/i }),
+    );
+    expect(onClearDecision).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledWith({
+      decision: { externalId: 't1', overrides: { category: 'TRANSPORTE' } },
+    });
+  });
+
+  it('linha Tier B com match cross-project NÃO oferece vincular', () => {
+    renderRow(
+      baseTx({
+        possibleDuplicate: POSSIBLE_DUP,
+        crossProjectMatches: [
+          {
+            kind: 'expense',
+            expenseId: 'plan-1',
+            projectId: 'p2',
+            projectName: 'Reforma',
+            projectType: 'REFORMA',
+            titulo: 'Material',
+            valorCents: 5000,
+            data: '2026-07-01',
+            deltaCents: 0,
+          },
+        ],
+      }),
+    );
+    expect(screen.queryByRole('button', { name: /vincular/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/planejada em outro/i)).not.toBeInTheDocument();
+  });
+
+  it('linha Tier B classificada como pagamento de fatura NÃO mostra o seletor de cartão', () => {
+    renderRow(
+      baseTx({
+        possibleDuplicate: POSSIBLE_DUP,
+        suggestedCategory: 'PAGAMENTO_FATURA_CARTAO',
+        cardCandidates: [
+          { cardLast4: '4242', nickname: 'Roxo', dueMonth: '2026-07', invoiceTotalCents: 5000, deltaCents: 0 },
+        ],
+      }),
+    );
+    expect(screen.queryByText(/qual cartão isso quita/i)).not.toBeInTheDocument();
   });
 });

@@ -6,6 +6,7 @@ import { Trash2, Link2, RotateCcw, Check, ArrowDownCircle, ArrowUpCircle } from 
 import type { BankPreviewTx, BankCrossProjectMatch, BankCardCandidate } from '../_types';
 import type { BankImportDecision, BankTxState } from './ImportBankStatementModal';
 import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
+import { PossibleDuplicateNotice } from '@/components/import/PossibleDuplicateNotice';
 import { CREDIT_CATEGORIES, DEBIT_CATEGORIES, categoryLabel } from '../_lib/import-categories';
 
 /** "2026-08" → "ago/2026". */
@@ -55,6 +56,8 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
   const isCredit = tx.amountCents < 0;
   const isSkipped = state.decision?.action === 'skip';
   const isLinked = state.decision?.action === 'link';
+  const isForcedImport = state.decision?.action === 'import';
+  const possibleDuplicate = tx.possibleDuplicate ?? null;
   const matches = tx.crossProjectMatches ?? [];
   const valorCents = state.decision?.overrides?.valorCents ?? Math.abs(tx.amountCents);
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
@@ -84,7 +87,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
   }
 
   function setAction(
-    action: 'skip' | 'link' | 'create',
+    action: 'skip' | 'link' | 'create' | 'import',
     linkToExpenseId?: string,
     linkToReceiptId?: string,
   ) {
@@ -99,13 +102,28 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
     });
   }
 
+  // Tier B (#659): desmarcar "Importar mesmo assim" remove SÓ o opt-in de
+  // criação, preservando categoria/título/valor/cartão já editados. Não usa
+  // `onClearDecision` (reset do #572), que apagaria a linha inteira.
+  function clearImportOptIn() {
+    const overrides = state.decision?.overrides;
+    onChange({
+      decision:
+        overrides && Object.keys(overrides).length > 0
+          ? { externalId: tx.externalId, overrides }
+          : undefined,
+    });
+  }
+
   const rowClass = isSkipped
     ? 'bg-red-50 line-through text-gray-400'
     : isLinked
       ? 'bg-green-50'
       : tx.duplicate
         ? 'bg-yellow-50 text-gray-500'
-        : '';
+        : possibleDuplicate && !isForcedImport
+          ? 'bg-orange-50'
+          : '';
 
   return (
     <div className={`border-b p-3 ${rowClass}`}>
@@ -182,7 +200,19 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
         </div>
       )}
 
-      {isCardPaymentRow && !isSkipped && (
+      {possibleDuplicate && !isSkipped && (
+        <PossibleDuplicateNotice
+          info={possibleDuplicate}
+          optedIn={isForcedImport}
+          onToggle={(next) => (next ? setAction('import') : clearImportOptIn())}
+        />
+      )}
+
+      {/* Tier B (#659): o commit descarta a linha antes de processar vínculo /
+          quitação de fatura — só `action:'import'` a cria. As superfícies de
+          vínculo e de pagamento-de-fatura ficam só para linhas normais; alinhar
+          Tier B ↔ API. */}
+      {isCardPaymentRow && !isSkipped && !possibleDuplicate && (
         <div className="mt-2 pl-3 border-l-2 border-purple-300 space-y-1">
           <div className="text-xs text-purple-800 font-medium">
             💳 Pagamento de fatura — qual cartão isso quita?
@@ -214,7 +244,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
         </div>
       )}
 
-      {matches.length > 0 && !isSkipped && (
+      {matches.length > 0 && !isSkipped && !possibleDuplicate && (
         <div className="mt-2 pl-3 border-l-2 border-blue-300 space-y-1">
           <div className="text-xs text-blue-700 font-medium">
             📌 {isCredit ? 'Recebimento previsto' : 'Despesa planejada'} em outro(s) projeto(s):

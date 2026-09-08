@@ -2,8 +2,9 @@ import type {
   CategoriaFonte,
   ImportClassificationStatus,
 } from '@/components/import/ImportClassificationNotice';
+import type { PossibleDuplicateInfo } from '@/components/import/PossibleDuplicateNotice';
 
-export type { CategoriaFonte, ImportClassificationStatus };
+export type { CategoriaFonte, ImportClassificationStatus, PossibleDuplicateInfo };
 
 export interface BankAccountRow {
   id: string;
@@ -62,6 +63,10 @@ export interface BankPreviewTx {
   amountCents: number;
   category: string | null;
   duplicate: boolean;
+  /** Tier B (#659): casou a chave natural de um lançamento de outra origem. */
+  possibleDuplicate?: PossibleDuplicateInfo | null;
+  /** Servidor não importa por padrão (`false` p/ Tier A e Tier B). */
+  willImport?: boolean;
   isCredit?: boolean;
   isCardPayment?: boolean;
   suggestedCategory?: string;
@@ -84,6 +89,8 @@ export interface BankPreviewResult {
   totalDebits?: number;
   totalCredits?: number;
   inserted?: number;
+  /** Tier B (#659): linhas do preview com `possibleDuplicate` anexado. */
+  possibleDuplicates?: PossibleDuplicateInfo[];
   /** Estado da categorização automática em lote do preview (#582 PR-4). Não bloqueia. */
   classificationStatus?: ImportClassificationStatus;
   /** Sinal de que o arquivo parece uma fatura de cartão, não um extrato (Bug A). Não bloqueia. */
@@ -115,6 +122,8 @@ export interface BankCommitResult {
   rulesLearnFailed?: number;
   recurrencesCreated: number;
   skipped: number;
+  /** Tier B (#659) que o usuário não optou por importar — não entraram. */
+  possibleDuplicates?: PossibleDuplicateInfo[];
 }
 
 /** Uma linha do arquivo que a importação ignorou por já existir (dedup). */
