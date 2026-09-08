@@ -171,6 +171,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
       title={`Importar fatura — ${card.nickname ?? `${card.brand} ****${card.last4}`}`}
       size="xl"
       variant="center"
+      trapFocus
     >
       {commitResult ? (
         <CommittedView result={commitResult} onClose={onCommitted} />

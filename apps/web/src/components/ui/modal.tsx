@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayLock } from './use-overlay-lock';
+import { useFocusTrap } from './use-focus-trap';
 
 interface ModalProps {
   open: boolean;
@@ -16,6 +17,8 @@ interface ModalProps {
   /** Renderiza via createPortal em document.body. Use apenas em modais aninhados
    *  dentro de outro Modal (overflow-y-auto) para escapar do stacking context. */
   portal?: boolean;
+  /** Ativa focus trap e adiciona aria-modal=true. */
+  trapFocus?: boolean;
 }
 
 const sizeMap = {
@@ -42,8 +45,10 @@ export function Modal({
   size = 'md',
   zIndex,
   portal = false,
+  trapFocus,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const idRef = useRef<number | null>(null);
   if (idRef.current === null) idRef.current = ++modalIdSeq;
@@ -57,6 +62,7 @@ export function Modal({
   }, [open]);
 
   useOverlayLock(open);
+  useFocusTrap(open && !!trapFocus, panelRef);
 
   // Só o modal no topo da pilha fecha com Escape — evita fechar o modal pai
   // "de baixo" quando um modal aninhado (ex.: portal=true) está por cima.
@@ -111,7 +117,11 @@ export function Modal({
       }}
     >
       <div
+        ref={panelRef}
         data-mobile-sheet="modal"
+        role={trapFocus ? 'dialog' : undefined}
+        aria-modal={trapFocus ? true : undefined}
+        aria-label={trapFocus ? title : undefined}
         className={`bg-white shadow-darc-hero overflow-y-auto border border-darc-linen ${panelClasses}`}
       >
         {!isCenterOnly && (

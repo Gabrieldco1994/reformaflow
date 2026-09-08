@@ -192,6 +192,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
       title={`Importar extrato — ${account.nickname ?? `${account.institution} ****${account.last4}`}`}
       size="xl"
       variant="center"
+      trapFocus
     >
 
         {commitResult ? (
