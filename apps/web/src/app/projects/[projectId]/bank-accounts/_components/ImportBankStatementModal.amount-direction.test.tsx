@@ -41,7 +41,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function loadPreview(credit: boolean, linked = false) {
+async function loadPreview(credit: boolean, linked = false, multiple = false) {
   const preview: BankPreviewResult = {
     source: "OFX",
     periodLabel: "2026-09",
@@ -62,19 +62,24 @@ async function loadPreview(credit: boolean, linked = false) {
         willImport: true,
         isCardPayment: false,
         crossProjectMatches: linked
-          ? [
-              {
-                kind: "receipt",
-                receiptId: "qa-planned-receipt",
-                projectId: "qa-target",
-                projectName: "QA target",
-                projectType: "REFORMA",
-                titulo: "QA planned receipt",
-                valorCents: 50000,
-                data: "2026-09-01",
-                deltaCents: 0,
-              },
-            ]
+          ? Array.from({ length: multiple ? 2 : 1 }, (_, index) => ({
+              ...(credit
+                ? {
+                    kind: "receipt" as const,
+                    receiptId: `qa-planned-receipt${index || ""}`,
+                  }
+                : {
+                    kind: "expense" as const,
+                    expenseId: `qa-planned-expense${index || ""}`,
+                  }),
+              projectId: "qa-target",
+              projectName: "QA target",
+              projectType: "REFORMA",
+              titulo: credit ? "QA planned receipt" : "QA planned expense",
+              valorCents: 50000,
+              data: "2026-09-01",
+              deltaCents: 0,
+            }))
           : [],
       },
     ],
@@ -202,4 +207,150 @@ describe("ImportBankStatementModal — magnitude versus bank direction", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCommitted).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { credit: true, multiple: false, edited: true },
+    { credit: true, multiple: true, edited: true },
+    { credit: false, multiple: false, edited: true },
+    { credit: false, multiple: true, edited: true },
+    { credit: true, multiple: false, edited: false },
+    { credit: true, multiple: true, edited: false },
+    { credit: false, multiple: false, edited: false },
+    { credit: false, multiple: true, edited: false },
+  ])(
+    "unlink preserves edits and commits create (credit=$credit, multiple=$multiple, edited=$edited)",
+    async ({ credit, multiple, edited }) => {
+      const { file, onClose, onCommitted } = await loadPreview(
+        credit,
+        true,
+        multiple,
+      );
+      // One exact match is auto-linked; multiple matches require a manual choice.
+      if (multiple) {
+        fireEvent.click(
+          screen.getAllByRole("button", { name: /vincular como/i })[0],
+        );
+      }
+      const overrides = {
+        valorCents: 60000,
+        titulo: "QA edited movement",
+        category: credit ? "SALARIO" : "TRANSPORTE",
+      };
+      if (edited) {
+        fireEvent.change(screen.getByDisplayValue("500,00"), {
+          target: { value: "600,00" },
+        });
+        fireEvent.change(screen.getByDisplayValue("QA ordinary movement"), {
+          target: { value: overrides.titulo },
+        });
+        fireEvent.change(screen.getByDisplayValue("Outros"), {
+          target: { value: overrides.category },
+        });
+      }
+      if (credit && edited) {
+        const message = "QA: remova o vínculo antes de alterar o valor.";
+        fetchMock.mockResolvedValueOnce(
+          Response.json({ message }, { status: 400 }),
+        );
+        fireEvent.click(
+          screen.getByRole("button", { name: /confirmar importação/i }),
+        );
+        await screen.findByText(message);
+        expect(commitPayload(1, file)).toEqual([
+          {
+            externalId: "qa-movement",
+            action: "link",
+            linkToReceiptId: "qa-planned-receipt",
+            overrides,
+          },
+        ]);
+        expect(onCommitted).not.toHaveBeenCalled();
+        expect(onClose).not.toHaveBeenCalled();
+      }
+
+      fireEvent.click(screen.getByRole("button", { name: "Vinculado" }));
+      // Read the real controlled input, then the real multipart commit; no copied state.
+      expect(
+        screen.getByDisplayValue(edited ? "600,00" : "500,00"),
+      ).toBeDefined();
+      const callIndex = fetchMock.mock.calls.length;
+      const result: BankCommitResult = {
+        importId: "qa-import",
+        source: "OFX",
+        periodLabel: "2026-09",
+        inserted: credit ? 0 : 1,
+        receiptsInserted: credit ? 1 : 0,
+        duplicated: 0,
+        skipped: 0,
+        cardPayments: 0,
+        aiReclassified: 0,
+        recurrencesCreated: 0,
+      };
+      fetchMock.mockResolvedValueOnce(Response.json(result));
+      fireEvent.click(
+        screen.getByRole("button", { name: /confirmar importação/i }),
+      );
+      const finish = await screen.findByRole("button", { name: "Concluir" });
+      expect(fetchMock).toHaveBeenCalledTimes(callIndex + 1);
+      expect(commitPayload(callIndex, file)).toEqual([
+        {
+          externalId: "qa-movement",
+          action: "create",
+          ...(edited ? { overrides } : {}),
+        },
+      ]);
+      fireEvent.click(finish);
+      expect(onCommitted).toHaveBeenCalledTimes(1);
+      expect(onClose).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { credit: true, multiple: false },
+    { credit: true, multiple: true },
+    { credit: false, multiple: false },
+    { credit: false, multiple: true },
+  ])(
+    "Restaurar still resets edits to the auto-detection snapshot (#572, credit=$credit, multiple=$multiple)",
+    async ({ credit, multiple }) => {
+      const { file } = await loadPreview(credit, true, multiple);
+      if (multiple) {
+        fireEvent.click(
+          screen.getAllByRole("button", { name: /vincular como/i })[0],
+        );
+      }
+      fireEvent.change(screen.getByDisplayValue("500,00"), {
+        target: { value: "600,00" },
+      });
+      fireEvent.change(screen.getByDisplayValue("QA ordinary movement"), {
+        target: { value: "QA edited movement" },
+      });
+      fireEvent.change(screen.getByDisplayValue("Outros"), {
+        target: { value: credit ? "SALARIO" : "TRANSPORTE" },
+      });
+      fireEvent.click(screen.getByTitle("Excluir desta importação"));
+      fireEvent.click(screen.getByTitle("Restaurar"));
+      const message = "QA: inspect restored payload";
+      fetchMock.mockResolvedValueOnce(
+        Response.json({ message }, { status: 400 }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: /confirmar importação/i }),
+      );
+      await screen.findByText(message);
+      expect(commitPayload(1, file)).toEqual(
+        multiple
+          ? []
+          : [
+              {
+                externalId: "qa-movement",
+                action: "link",
+                ...(credit
+                  ? { linkToReceiptId: "qa-planned-receipt" }
+                  : { linkToExpenseId: "qa-planned-expense" }),
+              },
+            ],
+      );
+    },
+  );
 });
