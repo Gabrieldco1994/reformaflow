@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NovaDespesaLauncher } from './NovaDespesaLauncher';
 
@@ -107,13 +107,15 @@ describe('NovaDespesaLauncher — gate de import de extrato (#218)', () => {
     expect(screen.queryByRole('button', { name: /Extrato bancário/i })).not.toBeInTheDocument();
   });
 
-  it('PESSOAL + hasModule true, sem conta: picker mostra SemContaEmptyState, sem texto morto', () => {
+  it('PESSOAL + hasModule true, sem conta: picker mostra SemContaEmptyState, sem texto morto', async () => {
     mockHasModule = () => true;
     renderLauncher('PESSOAL', []);
     abrirMenu();
     fireEvent.click(screen.getByRole('button', { name: /Extrato bancário/i }));
 
-    expect(screen.getByTestId('sem-conta-empty')).toHaveAttribute('data-pid', 'p1');
+    await waitFor(() => {
+      expect(screen.getByTestId('sem-conta-empty')).toHaveAttribute('data-pid', 'p1');
+    });
     expect(screen.queryByText(/Nenhuma conta cadastrada\. Cadastre em/)).not.toBeInTheDocument();
   });
 });

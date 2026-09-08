@@ -119,14 +119,16 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
     queryKey: ['project', projectId, 'bank-accounts'],
     queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
     enabled: open && canImportBankStatement,
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const { data: cards = [] } = useQuery<LaunchCardOption[]>({
     queryKey: ['project', projectId, 'credit-cards'],
     queryFn: () => api.get(`/projects/${projectId}/credit-cards`),
     enabled: open,
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const { data: accountView } = useQuery<AccountViewResponse>({
