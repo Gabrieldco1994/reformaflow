@@ -254,4 +254,29 @@ describe('#573 M8 · extrato → identificação de cartão pela competência', 
     const payment = await paymentExpense(commit.importId);
     expect(payment?.cardLast4).toBe('2026');
   });
+
+  it('CENÁRIO F — dois cartões com o mesmo final: prévia não escolhe nenhum (não vira escolha arbitrária)', async () => {
+    await createCard('m8-card-dup-a', '9000', 'Cartão A 9000');
+    await createPurchaseOnCard('m8-buy-dup-a', '9000', 50_000);
+    await createCard('m8-card-dup-b', '9000', 'Cartão B 9000');
+    await createPurchaseOnCard('m8-buy-dup-b', '9000', 50_000);
+
+    // Texto com o final explícito "9000" — mas há 2 cartões com esse final.
+    const ofx = bankOfx(ofxTransaction('20260912', 50_000, 'PAGTO CART CRED 9000', 'M8F1'));
+    const preview = await service.previewImport(TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', undefined, REQUESTER);
+    const row = preview.preview.find((p) => p.isCardPayment);
+
+    expect(row?.isCardPayment).toBe(true);
+    // ambíguo → nenhum cartão sugerido; o usuário escolhe na tela.
+    expect(row?.suggestedCardLast4 ?? null).toBeNull();
+  });
+
+  it('CENÁRIO G — prévia com zero cartões: linha reconhecida como pagamento, sem cartão sugerido, sem crash', async () => {
+    const ofx = bankOfx(ofxTransaction('20260912', 40_000, 'FATURA PAGA CARTAO', 'M8G1'));
+    const preview = await service.previewImport(TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', undefined, REQUESTER);
+    const row = preview.preview.find((p) => p.isCardPayment);
+
+    expect(row?.isCardPayment).toBe(true);
+    expect(row?.suggestedCardLast4 ?? null).toBeNull();
+  });
 });

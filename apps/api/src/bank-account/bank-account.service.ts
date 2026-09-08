@@ -2928,11 +2928,13 @@ export function detectCardPayment(merchant: string): { isCardPayment: boolean; l
   );
   if (!isCardPayment) return { isCardPayment: false, last4: null };
   // #573 M8: uma competência/data ("08/2026", "08.2026", "2026-08",
-  // "15/08/2026") NÃO é final de cartão. Remove tokens data-like antes de
-  // procurar o final; um `\d{4}` isolado (final explícito, mascarado ou
-  // trailing) continua valendo — inclusive um cartão que termine mesmo em 2026.
+  // "15/08/2026") NÃO é final de cartão. Remove tokens data-like — dia/mês (1-2
+  // dígitos) com ano (2-4), ou ano-mês — antes de procurar o final. Um `\d{4}`
+  // isolado (final explícito, mascarado ou trailing) continua valendo, inclusive
+  // um cartão que termine mesmo em 2026 ("PAGTO CART CRED 2026"); e um par de
+  // grupos de 4 dígitos ("CART 1234-5678") NÃO é confundido com data.
   const withoutDates = m.replace(
-    /\b\d{1,4}[./-]\d{1,4}(?:[./-]\d{1,4})?\b/g,
+    /\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b|\b\d{1,2}[./-]\d{2,4}\b|\b\d{4}[./-]\d{1,2}\b/g,
     ' ',
   );
   const last4Match = withoutDates.match(/\b(\d{4})\b/);
