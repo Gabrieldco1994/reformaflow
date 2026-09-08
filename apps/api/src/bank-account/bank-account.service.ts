@@ -97,6 +97,7 @@ export interface BankImportDecision {
   linkToReceiptId?: string;
   overrides?: {
     titulo?: string;
+    /** Magnitude positiva em centavos; a direção vem da transação original do banco. */
     valorCents?: number;
     category?: string;
     /**
@@ -172,6 +173,13 @@ const IMPORT_NOT_FOUND_MESSAGE = 'Importação não encontrada';
 const CARD_PAYMENT_PREFLIGHT_MISSING_MESSAGE =
   'Pré-validação de pagamento de fatura ausente';
 const CARD_NOT_FOUND_MESSAGE = 'Cartão não encontrado';
+/** Limite do Int persistido pelo Prisma; não arredondar nem truncar overrides. */
+const BANK_IMPORT_MAX_AMOUNT_CENTS = 2_147_483_647;
+const BANK_IMPORT_INVALID_AMOUNT_MESSAGE = `Valor em centavos deve ser um número inteiro entre 1 e ${BANK_IMPORT_MAX_AMOUNT_CENTS}. Corrija o valor antes de importar.`;
+const BANK_IMPORT_ZERO_DIRECTION_MESSAGE =
+  'Transação original com valor zero não tem direção definida. Remova a edição de valor ou ignore a linha antes de importar.';
+const BANK_IMPORT_LINKED_AMOUNT_MESSAGE =
+  'Remova o vínculo com o recebimento antes de editar o valor e importar esta linha.';
 
 /**
  * Heurísticas determinísticas para descrições de extrato que IA não distingue bem.
@@ -857,11 +865,49 @@ export class BankAccountService {
     ];
     const preparedRows: BankImportPreparedRow[] = toInsert.map((transaction) => {
       const decision = decisionByExt.get(transaction.externalId);
+      const amountOverride = decision?.overrides?.valorCents;
+      // Valida TODO o lote efetivo antes de qualquer escrita/per-row catch.
+      // Skip/dedupe já foram filtrados; as chaves continuam sendo as do arquivo.
+      if (amountOverride !== undefined) {
+        if (
+          typeof amountOverride !== 'number' ||
+          !Number.isInteger(amountOverride) ||
+          amountOverride < 1 ||
+          amountOverride > BANK_IMPORT_MAX_AMOUNT_CENTS
+        ) {
+          throw new BadRequestException({
+            message: BANK_IMPORT_INVALID_AMOUNT_MESSAGE,
+            externalId: transaction.externalId,
+          });
+        }
+        if (transaction.amountCents === 0) {
+          throw new BadRequestException({
+            message: BANK_IMPORT_ZERO_DIRECTION_MESSAGE,
+            externalId: transaction.externalId,
+          });
+        }
+        // O vínculo existente quita o alvo sem reconciliar seu valor. Não
+        // permitir edição acoplada, nem descartar silenciosamente o vínculo.
+        if (
+          transaction.amountCents < 0 &&
+          amountOverride !== Math.abs(transaction.amountCents) &&
+          decision?.action === 'link' &&
+          decision.linkToReceiptId
+        ) {
+          throw new BadRequestException({
+            message: BANK_IMPORT_LINKED_AMOUNT_MESSAGE,
+            externalId: transaction.externalId,
+          });
+        }
+      }
       return {
         transaction: {
           ...transaction,
           merchant: decision?.overrides?.titulo ?? transaction.merchant,
-          amountCents: decision?.overrides?.valorCents ?? transaction.amountCents,
+          amountCents:
+            amountOverride === undefined
+              ? transaction.amountCents
+              : Math.sign(transaction.amountCents) * amountOverride,
         },
         categoryOverride: decision?.overrides?.category,
         cardOverride: decision?.overrides?.cardLast4 ?? null,
