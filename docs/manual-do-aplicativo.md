@@ -943,6 +943,10 @@ visões de Mês/Ano.
   é ocultado (nada de telas empilhadas) e o restante da página fica inerte;
   **Cancelar** ou **Esc** voltam ao seletor com o foco no botão "Importar para
   Carteira", e **Concluir** encerra o fluxo (#659 F3).
+  Se houver uma jornada guiada em andamento, ela fica oculta enquanto o seletor
+  de conta ou o importador para Carteira estiver aberto. **Esc** ou **Cancelar**
+  fecham apenas a janela em primeiro plano, sem encerrar nem reiniciar a jornada,
+  que reaparece no mesmo passo somente após fechar a última dessas janelas.
 - **Importações** abre, para cada conta, o histórico de extratos já importados
   nela, com o impacto de cada um e a opção de **desfazer** — o mesmo histórico
   antes disponível apenas na tela `/bank-accounts`. Desfazer uma importação
