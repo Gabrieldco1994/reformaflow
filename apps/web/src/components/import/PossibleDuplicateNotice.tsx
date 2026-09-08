@@ -37,19 +37,10 @@ interface Props {
   info: PossibleDuplicateInfo;
   /** true quando o usuário marcou "Importar mesmo assim" para esta linha. */
   optedIn: boolean;
-  /** desabilita o opt-in (ex.: linha já resolvida por vínculo a planejado). */
-  disabled?: boolean;
-  disabledHint?: string;
   onToggle: (next: boolean) => void;
 }
 
-export function PossibleDuplicateNotice({
-  info,
-  optedIn,
-  disabled = false,
-  disabledHint,
-  onToggle,
-}: Props) {
+export function PossibleDuplicateNotice({ info, optedIn, onToggle }: Props) {
   const existingDate = formatDateBR(info.existingDate);
   return (
     <div className="mt-2 rounded-r-lg border-l-2 border-orange-400 bg-orange-50 py-1.5 pl-3 pr-2">
@@ -67,16 +58,12 @@ export function PossibleDuplicateNotice({
         <input
           type="checkbox"
           checked={optedIn}
-          disabled={disabled}
           onChange={(event) => onToggle(event.currentTarget.checked)}
           className="h-4 w-4 shrink-0 accent-orange-600"
         />
         Importar mesmo assim
       </label>
-      {disabled && disabledHint && (
-        <p className="text-xs text-orange-700">{disabledHint}</p>
-      )}
-      {!optedIn && !disabled && (
+      {!optedIn && (
         <span className="sr-only">
           Esta linha não será importada enquanto a caixa não for marcada.
         </span>

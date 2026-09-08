@@ -101,19 +101,61 @@ describe('BankPreviewTxRow — Tier B possível duplicata (#659)', () => {
     );
   });
 
-  it('desmarcar o opt-in chama onClearDecision', async () => {
+  it('desmarcar o opt-in NÃO chama onClearDecision e preserva overrides editados', async () => {
+    const onChange = vi.fn();
     const onClearDecision = vi.fn();
     render(
       <BankPreviewTxRow
         tx={baseTx({ possibleDuplicate: POSSIBLE_DUP })}
-        state={{ decision: { externalId: 't1', action: 'import' } }}
-        onChange={vi.fn()}
+        state={{
+          decision: { externalId: 't1', action: 'import', overrides: { category: 'TRANSPORTE' } },
+        }}
+        onChange={onChange}
         onClearDecision={onClearDecision}
       />,
     );
     await userEvent.click(
       screen.getByRole('checkbox', { name: /importar mesmo assim/i }),
     );
-    expect(onClearDecision).toHaveBeenCalledTimes(1);
+    expect(onClearDecision).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledWith({
+      decision: { externalId: 't1', overrides: { category: 'TRANSPORTE' } },
+    });
+  });
+
+  it('linha Tier B com match cross-project NÃO oferece vincular', () => {
+    renderRow(
+      baseTx({
+        possibleDuplicate: POSSIBLE_DUP,
+        crossProjectMatches: [
+          {
+            kind: 'expense',
+            expenseId: 'plan-1',
+            projectId: 'p2',
+            projectName: 'Reforma',
+            projectType: 'REFORMA',
+            titulo: 'Material',
+            valorCents: 5000,
+            data: '2026-07-01',
+            deltaCents: 0,
+          },
+        ],
+      }),
+    );
+    expect(screen.queryByRole('button', { name: /vincular/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/planejada em outro/i)).not.toBeInTheDocument();
+  });
+
+  it('linha Tier B classificada como pagamento de fatura NÃO mostra o seletor de cartão', () => {
+    renderRow(
+      baseTx({
+        possibleDuplicate: POSSIBLE_DUP,
+        suggestedCategory: 'PAGAMENTO_FATURA_CARTAO',
+        cardCandidates: [
+          { cardLast4: '4242', nickname: 'Roxo', dueMonth: '2026-07', invoiceTotalCents: 5000, deltaCents: 0 },
+        ],
+      }),
+    );
+    expect(screen.queryByText(/qual cartão isso quita/i)).not.toBeInTheDocument();
   });
 });

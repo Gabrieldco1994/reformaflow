@@ -89,21 +89,40 @@ describe('PreviewTxRow (fatura) — Tier B possível duplicata (#659)', () => {
     );
   });
 
-  it('desmarcar o opt-in chama onClearDecision (volta ao estado seguro)', async () => {
+  it('desmarcar o opt-in NÃO chama onClearDecision e preserva overrides já editados', async () => {
+    const onChange = vi.fn();
     const onClearDecision = vi.fn();
     render(
       <PreviewTxRow
         tx={baseTx({ possibleDuplicate: POSSIBLE_DUP })}
-        state={{ decision: { externalId: 't1', action: 'import' } }}
-        onChange={vi.fn()}
+        state={{ decision: { externalId: 't1', action: 'import', overrides: { category: 'LAZER' } } }}
+        onChange={onChange}
         onClearDecision={onClearDecision}
       />,
     );
     await userEvent.click(screen.getByRole('checkbox', { name: /importar mesmo assim/i }));
-    expect(onClearDecision).toHaveBeenCalledTimes(1);
+    expect(onClearDecision).not.toHaveBeenCalled();
+    // remove só o `action`, mantém os overrides
+    expect(onChange).toHaveBeenCalledWith({
+      decision: { externalId: 't1', overrides: { category: 'LAZER' } },
+    });
   });
 
-  it('quando a linha está vinculada a planejado, o opt-in fica desabilitado', () => {
+  it('desmarcar sem nenhum override limpa a decisão inteira', async () => {
+    const onChange = vi.fn();
+    render(
+      <PreviewTxRow
+        tx={baseTx({ possibleDuplicate: POSSIBLE_DUP })}
+        state={{ decision: { externalId: 't1', action: 'import' } }}
+        onChange={onChange}
+        onClearDecision={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('checkbox', { name: /importar mesmo assim/i }));
+    expect(onChange).toHaveBeenCalledWith({ decision: undefined });
+  });
+
+  it('linha Tier B com match cross-project NÃO oferece vincular (só o opt-in)', () => {
     renderRow(
       baseTx({
         possibleDuplicate: POSSIBLE_DUP,
@@ -117,13 +136,12 @@ describe('PreviewTxRow (fatura) — Tier B possível duplicata (#659)', () => {
             valorCents: 5000,
             data: '2026-07-01',
             deltaCents: 0,
-            installmentCurrent: null,
-            installmentTotal: null,
           },
         ],
       }),
-      { decision: { externalId: 't1', action: 'link', linkToExpenseId: 'plan-1' } },
     );
-    expect(screen.getByRole('checkbox', { name: /importar mesmo assim/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /vincular/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Encontrado em outro/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /importar mesmo assim/i })).toBeEnabled();
   });
 });

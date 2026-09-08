@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ImportStatementModal from './ImportStatementModal';
 import type { CardRow } from '../_types';
@@ -149,6 +149,32 @@ describe('ImportStatementModal — Tier B possível duplicata (#659)', () => {
     const decisions = decisionsFromLastUpload();
     expect(decisions).toContainEqual(
       expect.objectContaining({ externalId: 't-dup', action: 'import' }),
+    );
+  });
+
+  it('editar categoria → marcar → desmarcar → remarcar: o commit mantém a edição', async () => {
+    await toPreview();
+
+    const dupRow = screen.getByText('⚠ Possível duplicata').closest('div.border-b') as HTMLElement;
+    const optIn = () => within(dupRow).getByRole('checkbox', { name: /importar mesmo assim/i });
+
+    fireEvent.change(within(dupRow).getByRole('combobox'), { target: { value: 'LAZER' } });
+    await userEvent.click(optIn()); // marca
+    await userEvent.click(optIn()); // desmarca — NÃO pode perder a categoria
+    await userEvent.click(optIn()); // remarca
+
+    expect((within(dupRow).getByRole('combobox') as HTMLSelectElement).value).toBe('LAZER');
+
+    apiUploadMock.mockResolvedValueOnce(COMMIT);
+    fireEvent.click(screen.getByRole('button', { name: /confirmar importação/i }));
+    await screen.findByText('Importação concluída');
+
+    expect(decisionsFromLastUpload()).toContainEqual(
+      expect.objectContaining({
+        externalId: 't-dup',
+        action: 'import',
+        overrides: expect.objectContaining({ category: 'LAZER' }),
+      }),
     );
   });
 });

@@ -102,6 +102,19 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
     });
   }
 
+  // Tier B (#659): desmarcar "Importar mesmo assim" remove SÓ o opt-in de
+  // criação, preservando categoria/título/valor/cartão já editados. Não usa
+  // `onClearDecision` (reset do #572), que apagaria a linha inteira.
+  function clearImportOptIn() {
+    const overrides = state.decision?.overrides;
+    onChange({
+      decision:
+        overrides && Object.keys(overrides).length > 0
+          ? { externalId: tx.externalId, overrides }
+          : undefined,
+    });
+  }
+
   const rowClass = isSkipped
     ? 'bg-red-50 line-through text-gray-400'
     : isLinked
@@ -191,13 +204,15 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
         <PossibleDuplicateNotice
           info={possibleDuplicate}
           optedIn={isForcedImport}
-          disabled={isLinked}
-          disabledHint="Esta linha já será resolvida pelo vínculo abaixo — desfaça o vínculo para importar como nova."
-          onToggle={(next) => (next ? setAction('import') : onClearDecision())}
+          onToggle={(next) => (next ? setAction('import') : clearImportOptIn())}
         />
       )}
 
-      {isCardPaymentRow && !isSkipped && (
+      {/* Tier B (#659): o commit descarta a linha antes de processar vínculo /
+          quitação de fatura — só `action:'import'` a cria. As superfícies de
+          vínculo e de pagamento-de-fatura ficam só para linhas normais; alinhar
+          Tier B ↔ API. */}
+      {isCardPaymentRow && !isSkipped && !possibleDuplicate && (
         <div className="mt-2 pl-3 border-l-2 border-purple-300 space-y-1">
           <div className="text-xs text-purple-800 font-medium">
             💳 Pagamento de fatura — qual cartão isso quita?
@@ -229,7 +244,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
         </div>
       )}
 
-      {matches.length > 0 && !isSkipped && (
+      {matches.length > 0 && !isSkipped && !possibleDuplicate && (
         <div className="mt-2 pl-3 border-l-2 border-blue-300 space-y-1">
           <div className="text-xs text-blue-700 font-medium">
             📌 {isCredit ? 'Recebimento previsto' : 'Despesa planejada'} em outro(s) projeto(s):

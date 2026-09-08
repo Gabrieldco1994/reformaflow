@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ImportBankStatementModal from './ImportBankStatementModal';
 import type { BankAccountRow } from '../_types';
@@ -119,15 +119,40 @@ function decisionsFromLastUpload() {
 beforeEach(() => apiUploadMock.mockReset());
 
 describe('ImportBankStatementModal — Tier B possível duplicata (#659)', () => {
-  it('não auto-vincula a linha Tier B, mesmo com match único e exato', async () => {
+  it('linha Tier B com match único e exato: sem auto-link E sem oferta de vincular', async () => {
     await toPreview();
-    // "Vinculado" só aparece quando há vínculo ativo; a linha Tier B deve
-    // continuar oferecendo "Vincular como pago", não estar já vinculada.
+    // Tier B não oferece vínculo (o commit descarta a linha antes de processar
+    // `link`); a única ação é "Importar mesmo assim".
+    expect(screen.queryByRole('button', { name: /vincular/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Vinculado$/ })).not.toBeInTheDocument();
     const resumo = screen.getByText(/Após confirmar:/i);
     expect(resumo).toHaveTextContent('1 novas');
     expect(resumo).toHaveTextContent('0 vinculadas');
     expect(resumo).toHaveTextContent('1 possível(is) duplicata(s)');
+  });
+
+  it('editar categoria → marcar → desmarcar → remarcar: o commit mantém a edição', async () => {
+    await toPreview();
+
+    const dupRow = screen.getByText('⚠ Possível duplicata').closest('div.border-b') as HTMLElement;
+    const optIn = () => within(dupRow).getByRole('checkbox', { name: /importar mesmo assim/i });
+
+    fireEvent.change(within(dupRow).getByRole('combobox'), { target: { value: 'TRANSPORTE' } });
+    await userEvent.click(optIn());
+    await userEvent.click(optIn());
+    await userEvent.click(optIn());
+
+    apiUploadMock.mockResolvedValueOnce(COMMIT);
+    fireEvent.click(screen.getByRole('button', { name: /confirmar importação/i }));
+    await screen.findByText('Importação concluída');
+
+    expect(decisionsFromLastUpload()).toContainEqual(
+      expect.objectContaining({
+        externalId: 't-dup',
+        action: 'import',
+        overrides: expect.objectContaining({ category: 'TRANSPORTE' }),
+      }),
+    );
   });
 
   it('commit padrão não força a linha; após opt-in manda action:"import"', async () => {

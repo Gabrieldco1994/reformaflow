@@ -169,9 +169,10 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
       const d = txStates[tx.externalId]?.decision;
       if (tx.duplicate) continue;
       if (d?.action === 'skip') { willSkip++; continue; }
-      // Tier B (#659): sem "importar mesmo assim" (nem vínculo) o servidor NÃO
-      // cria a linha — não pode contar como nova nem entrar nos somatórios.
-      if (tx.possibleDuplicate && d?.action !== 'import' && d?.action !== 'link') {
+      // Tier B (#659): só "importar mesmo assim" (`action:'import'`) cria a
+      // linha — o commit descarta Tier B antes de processar `link`, então
+      // vincular não resolve e a linha não conta como nova nem nos somatórios.
+      if (tx.possibleDuplicate && d?.action !== 'import') {
         possibleDup++;
         continue;
       }

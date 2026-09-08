@@ -73,6 +73,20 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
     });
   }
 
+  // Tier B (#659): desmarcar "Importar mesmo assim" remove SÓ o opt-in de
+  // criação, preservando categoria/título/valor já editados. Não usa
+  // `onClearDecision` (reset do #572), que apagaria a linha inteira — Tier B
+  // nunca tem snapshot de auto-detecção para onde voltar.
+  function clearImportOptIn() {
+    const overrides = state.decision?.overrides;
+    onChange({
+      decision:
+        overrides && Object.keys(overrides).length > 0
+          ? { externalId: tx.externalId, overrides }
+          : undefined,
+    });
+  }
+
   const rowClass = isSkipped
     ? 'bg-red-50 line-through text-gray-400'
     : isLinked
@@ -165,13 +179,14 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
         <PossibleDuplicateNotice
           info={possibleDuplicate}
           optedIn={isForcedImport}
-          disabled={isLinked}
-          disabledHint="Esta linha já será resolvida pelo vínculo abaixo — desfaça o vínculo para importar como nova."
-          onToggle={(next) => (next ? setAction('import') : onClearDecision())}
+          onToggle={(next) => (next ? setAction('import') : clearImportOptIn())}
         />
       )}
 
-      {matches.length > 0 && !isSkipped && (
+      {/* Tier B (#659): vincular NÃO é resolução válida — o commit descarta a
+          linha antes de processar `link` (só `action:'import'` a cria). A
+          superfície de vínculo cross-project fica só para linhas normais. */}
+      {matches.length > 0 && !isSkipped && !possibleDuplicate && (
         <div className="mt-2 pl-3 border-l-2 border-blue-300 space-y-1">
           <div className="text-xs text-blue-700 font-medium">
             📌 Encontrado em outro(s) projeto(s):

@@ -915,12 +915,14 @@ Gestão dos cartões de crédito.
   assim"** **desmarcada**: por padrão ela **não** é importada e **não** conta como
   "nova" no resumo (o resumo mostra "N possível(is) duplicata(s)" à parte).
   Marcar a caixa é o único jeito de criar a linha; desmarcar volta ao estado
-  seguro. Se a linha também casa com uma despesa planejada de outro projeto, ela
-  **não** é auto-vinculada — escolha explicitamente **vincular** (quita o
-  planejado, sem criar lançamento novo) **ou** "Importar mesmo assim" (cria um
-  lançamento novo); não são a mesma coisa. Trocar de arquivo/prévia zera essas
-  escolhas. O commit continua sujeito à deduplicação do servidor. O mesmo
-  comportamento vale para a importação de extrato (§4.8) e para a Carteira (§4.8.1).
+  seguro **preservando** categoria/título/valor que você já tenha editado na
+  linha. Numa linha "possível duplicata" a **única** ação é "Importar mesmo
+  assim" — vincular a um planejado de outro projeto ou quitar fatura **não**
+  aparecem, porque o servidor descarta a linha antes de processar vínculo
+  (só `action:'import'` a cria); o vínculo cross-project comum continua nas
+  linhas normais. Trocar de arquivo/prévia zera essas escolhas. O commit
+  continua sujeito à deduplicação do servidor. O mesmo comportamento vale para a
+  importação de extrato (§4.8) e para a Carteira (§4.8.1).
 - **Valor editável na prévia aceita estorno/crédito negativo** (ex.: `-45,00`):
   o campo de valor da linha da fatura preserva o sinal de menos ao editar —
   diferente da prévia de extrato de conta, que sempre trata o valor como
@@ -987,8 +989,9 @@ visões de Mês/Ano.
 - **Possíveis duplicatas na prévia:** linhas que casam data e valor de um
   lançamento já registrado por outra origem trazem o aviso âmbar e a caixa
   **"Importar mesmo assim"** desmarcada — não entram nem contam como "nova" até
-  você marcar a caixa (mesmo comportamento e regras da §4.7, incluindo a
-  precedência entre vincular e importar).
+  você marcar a caixa (mesmas regras da §4.7: única ação é importar; vincular /
+  quitar fatura não aparecem nessas linhas; desmarcar preserva o que você
+  editou).
 - **Deep-link do cockpit:** o banner de estado degradado leva a
   `/conta?focus=openingBalance`, abrindo a criação, a conta única ou o seletor.
 - Links antigos para `/bank-accounts` continuam compatíveis: redirecionam para
