@@ -986,6 +986,16 @@ visões de Mês/Ano.
   categorização automática do lote estiver **indisponível** ou **não concluída**,
   um aviso âmbar pede para revisar as categorias antes de confirmar; a
   importação segue normalmente com a sugestão por palavra-chave.
+- **Pagamento de fatura — qual cartão:** uma linha de pagamento de fatura só é
+  associada automaticamente a um cartão quando há **evidência clara**: o final do
+  cartão aparece explícito no texto (ex.: "PAGTO CART CRED 4242") **ou** o valor
+  do pagamento casa, sem ambiguidade, com a fatura em aberto de um único cartão.
+  Uma competência/data no texto (ex.: "…CRED 08/2026") **não** identifica cartão —
+  "2026" ali é o ano, não o final. Ter só um cartão cadastrado também não basta
+  para associar. Sem identificação confiável, o pagamento é importado **sem
+  cartão** (aparece na fila de "pagamento de fatura sem cartão") e nenhuma fatura
+  é liquidada até você escolher o cartão. A escolha explícita na tela de
+  importação sempre prevalece.
 - **Editar valor na prévia do extrato bancário:** informe um valor positivo, sem sinal; entrada continua entrada e saída continua saída. Uma entrada de R$ 500 editada para R$ 600 continua sendo um recebimento de R$ 600; sem edição, o valor original é mantido. Se a entrada estiver vinculada a um recebimento previsto, desvincule antes de confirmar um valor diferente ou mantenha o valor original para preservar o vínculo. Um valor inválido impede a importação, sem gravar alterações. Isso não muda a importação de fatura de cartão, a Carteira, o histórico nem o desfazer.
 - **Desvincular na prévia:** clicar em **"Vinculado"** remove apenas o vínculo com o recebimento previsto ou a despesa planejada, mantendo as edições da linha. Já **"Restaurar"**, numa linha excluída, descarta as edições e volta à sugestão automática original. A categoria escolhida para uma entrada na prévia é mantida após a importação, inclusive ao desvincular e confirmar novamente; isso não altera o valor nem a direção do movimento e não corrige importações anteriores.
 - **Possíveis duplicatas na prévia:** linhas que casam data e valor de um
