@@ -330,10 +330,11 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                 </div>
 
                 <div className="flex justify-end gap-2 mt-4">
-                  <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+                  <Button variant="secondary" onClick={onClose} className="min-h-11">Cancelar</Button>
                   <Button
                     onClick={handleCommit}
                     disabled={loading || (counts.willCreate + counts.willLink === 0)}
+                    className="min-h-11"
                   >
                     {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Importando…</> : <><Upload className="w-4 h-4" /> Confirmar importação</>}
                   </Button>
