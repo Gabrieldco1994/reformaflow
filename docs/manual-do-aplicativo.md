@@ -986,6 +986,7 @@ visões de Mês/Ano.
   categorização automática do lote estiver **indisponível** ou **não concluída**,
   um aviso âmbar pede para revisar as categorias antes de confirmar; a
   importação segue normalmente com a sugestão por palavra-chave.
+- **Editar valor na prévia do extrato bancário:** informe um valor positivo, sem sinal; entrada continua entrada e saída continua saída. Uma entrada de R$ 500 editada para R$ 600 continua sendo um recebimento de R$ 600; sem edição, o valor original é mantido. Se a entrada estiver vinculada a um recebimento previsto, desvincule antes de confirmar um valor diferente ou mantenha o valor original para preservar o vínculo. Um valor inválido impede a importação, sem gravar alterações. Isso não muda a importação de fatura de cartão, a Carteira, o histórico nem o desfazer.
 - **Possíveis duplicatas na prévia:** linhas que casam data e valor de um
   lançamento já registrado por outra origem trazem o aviso âmbar e a caixa
   **"Importar mesmo assim"** desmarcada — não entram nem contam como "nova" até
