@@ -2471,7 +2471,6 @@ export class BankAccountService {
     }
 
     // ─── Pagamento de fatura pré-validado antes da criação do lote ─────
-    const cardPaymentInfo = detectCardPayment(tx.merchant);
     const { isCardPayment, matchedCard, settlement } = preparedCardPayment;
     if (isCardPayment) {
       if (matchedCard) {
@@ -2494,7 +2493,6 @@ export class BankAccountService {
           importId,
           createdByUserId,
           matchedCard,
-          cardPaymentInfo.last4,
         );
         await this.cardSettlement.applyPreparedSettlement(client, currentSettlement);
         return {
@@ -2515,7 +2513,6 @@ export class BankAccountService {
         importId,
         createdByUserId,
         null,
-        cardPaymentInfo.last4,
       );
       return {
         inserted: false,
@@ -2599,7 +2596,6 @@ export class BankAccountService {
     importId: string,
     createdByUserId: string | null,
     matchedCard: MatchedSettlementCard | null,
-    detectedLast4: string | null,
   ): Promise<{ id: string }> {
     return client.expense.create({
       data: {
@@ -2620,7 +2616,9 @@ export class BankAccountService {
         externalId: transaction.externalId,
         ...dedupeColumns(transaction),
         bankLast4: account.last4,
-        cardLast4: matchedCard?.last4 ?? detectedLast4,
+        // #573 M8: nunca persistir um final que não corresponde a um cartão
+        // identificado (era `?? detectedLast4`, que carimbava "2026" de datas).
+        cardLast4: matchedCard?.last4 ?? null,
         createdByUserId,
       },
       select: { id: true },
@@ -2862,22 +2860,10 @@ export class BankAccountService {
       }
     }
 
-    const cards = await client.creditCard.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-        ...(authorizedCardIds ? { id: { in: authorizedCardIds } } : {}),
-      },
-      select: {
-        id: true,
-        last4: true,
-        nickname: true,
-        closingDay: true,
-        dueDay: true,
-      },
-      take: 2,
-    });
-    if (cards.length === 1) return cards[0];
+    // #573 M8: NÃO associar um pagamento a um cartão só porque ele é o único
+    // cadastrado. Sem identidade explícita (`hintLast4` de um final real) nem
+    // match único por valor (`pickUniqueCardMatch` / import casado), o pagamento
+    // fica sem cartão e a fatura não é liquidada automaticamente.
     return null;
   }
 
@@ -2941,7 +2927,15 @@ export function detectCardPayment(merchant: string): { isCardPayment: boolean; l
     m,
   );
   if (!isCardPayment) return { isCardPayment: false, last4: null };
-  const last4Match = m.match(/\b(\d{4})\b/);
+  // #573 M8: uma competência/data ("08/2026", "08.2026", "2026-08",
+  // "15/08/2026") NÃO é final de cartão. Remove tokens data-like antes de
+  // procurar o final; um `\d{4}` isolado (final explícito, mascarado ou
+  // trailing) continua valendo — inclusive um cartão que termine mesmo em 2026.
+  const withoutDates = m.replace(
+    /\b\d{1,4}[./-]\d{1,4}(?:[./-]\d{1,4})?\b/g,
+    ' ',
+  );
+  const last4Match = withoutDates.match(/\b(\d{4})\b/);
   return { isCardPayment: true, last4: last4Match ? last4Match[1] : null };
 }
 

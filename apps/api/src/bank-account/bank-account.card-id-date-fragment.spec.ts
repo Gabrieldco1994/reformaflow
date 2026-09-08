@@ -156,71 +156,102 @@ afterEach(async () => {
   await setup.creditCard.deleteMany({ where: { tenantId: TENANT } });
 });
 
-describe('#573 M8 · extrato → cartão errado por causa da competência', () => {
-  it('CENÁRIO A — existe cartão final 2026: paga R$500 (fatura do 4242) mas "08/2026" liquida a fatura do cartão 2026', async () => {
-    // Cartão que o usuário REALMENTE paga: final 4242, fatura ~R$500.
+async function commitStatement(ofx: Buffer) {
+  return service.commitImport(
+    TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', '2026-09', undefined, undefined, CREATED_BY, REQUESTER,
+  );
+}
+async function paymentExpense(importId: string) {
+  return setup.expense.findFirst({
+    where: { tenantId: TENANT, importId, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
+    select: { cardLast4: true, settlesInvoiceKey: true, titulo: true, valorTotal: true },
+  });
+}
+
+describe('#573 M8 · extrato → identificação de cartão pela competência', () => {
+  it('CENÁRIO A/prévia — "PAGAMENTO CARTAO CRED 08/2026" R$500: sugere o 4242 (match por valor), não o cartão final 2026', async () => {
     await createCard(CARD_PAID_ID, CARD_PAID_LAST4, 'Cartão Pago');
     await createPurchaseOnCard('m8-buy-4242', CARD_PAID_LAST4, 50_000);
-    // Cartão com final coincidente com o ano: 2026, fatura R$300 (valor diferente).
     await createCard(CARD_2026_ID, '2026', 'Cartão Ano');
     await createPurchaseOnCard('m8-buy-2026', '2026', 30_000);
 
     const ofx = bankOfx(ofxTransaction('20260912', 50_000, 'PAGAMENTO CARTAO CRED 08/2026', 'M8A1'));
-
     const preview = await service.previewImport(TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', undefined, REQUESTER);
     const row = preview.preview.find((p) => p.isCardPayment);
-    // CONTRATO: a competência não pode identificar o cartão; o único cartão cuja
-    // fatura casa em valor (R$500) é o 4242.
-    expect(row?.suggestedCardLast4).toBe(CARD_PAID_LAST4);
 
-    const commit = await service.commitImport(
-      TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', '2026-09', undefined, undefined, CREATED_BY, REQUESTER,
-    );
-    const payment = await setup.expense.findFirst({
-      where: { tenantId: TENANT, importId: commit.importId, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
-      select: { cardLast4: true, settlesInvoiceKey: true, valorTotal: true },
-    });
+    expect(row?.suggestedCardLast4).toBe(CARD_PAID_LAST4);
+  });
+
+  it('CENÁRIO A/commit — mesmo lançamento: liquida a fatura do 4242 e NÃO a do cartão final 2026', async () => {
+    await createCard(CARD_PAID_ID, CARD_PAID_LAST4, 'Cartão Pago');
+    await createPurchaseOnCard('m8-buy-4242', CARD_PAID_LAST4, 50_000);
+    await createCard(CARD_2026_ID, '2026', 'Cartão Ano');
+    await createPurchaseOnCard('m8-buy-2026', '2026', 30_000);
+
+    const ofx = bankOfx(ofxTransaction('20260912', 50_000, 'PAGAMENTO CARTAO CRED 08/2026', 'M8A2'));
+    const commit = await commitStatement(ofx);
+
+    const payment = await paymentExpense(commit.importId);
     expect(payment?.cardLast4).toBe(CARD_PAID_LAST4);
 
-    // A fatura do cartão "2026" NÃO pode ter sido liquidada.
+    // Compra do cartão "2026" continua planejada — a fatura errada não foi tocada.
     const buy2026 = await setup.expense.findUnique({ where: { id: 'm8-buy-2026' }, select: { status: true, settledByExpenseId: true } });
     expect(buy2026?.status).toBe('PLANEJADO');
     expect(buy2026?.settledByExpenseId).toBeNull();
   });
 
-  it('CENÁRIO B — nenhum cartão final 2026: a despesa de pagamento NÃO pode nascer com cardLast4="2026"', async () => {
+  it('CENÁRIO B — só existe o cartão 4242, pagamento R$123,45 (não casa nenhuma fatura): NÃO associa nem liquida', async () => {
     await createCard(CARD_PAID_ID, CARD_PAID_LAST4, 'Cartão Pago');
     await createPurchaseOnCard('m8-buy-4242', CARD_PAID_LAST4, 50_000);
 
-    // Pagamento de valor que NÃO casa com a fatura do 4242 → sem match por valor.
     const ofx = bankOfx(ofxTransaction('20260912', 12_345, 'PAGAMENTO CARTAO CRED 08/2026', 'M8B1'));
-    const commit = await service.commitImport(
-      TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', '2026-09', undefined, undefined, CREATED_BY, REQUESTER,
-    );
-    const payment = await setup.expense.findFirst({
-      where: { tenantId: TENANT, importId: commit.importId, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
-      select: { cardLast4: true, settlesInvoiceKey: true, titulo: true, valorTotal: true },
-    });
-    // CONTRATO (M8): uma competência nunca vira identidade de cartão persistida.
-    expect(payment?.cardLast4).not.toBe('2026');
-    // OBSERVAÇÃO p/ contrato: hoje o fallback `cards.length === 1` associa este
-    // pagamento ao único cartão (cardLast4='4242') mesmo o valor (R$123,45) não
-    // batendo com a fatura — sem liquidar (settlesInvoiceKey=null). Decisão de
-    // contrato pendente (ver relatório).
+    const commit = await commitStatement(ofx);
+
+    const payment = await paymentExpense(commit.importId);
+    // CONTRATO: sem identificação confiável → cardLast4 null, nada liquidado.
+    // (fallback "cards.length === 1" removido; competência não identifica.)
+    expect(payment?.cardLast4).toBeNull();
+    expect(payment?.settlesInvoiceKey).toBeNull();
+    expect(commit).toEqual(expect.objectContaining({ cardPayments: 0, unlinkedCardPayments: 1 }));
   });
 
-  it('CENÁRIO C — final explícito 2026 continua identificável', async () => {
+  it('CENÁRIO C — "PAGTO CART CRED 2026" (final explícito, sem data): identifica o cartão final 2026', async () => {
     await createCard(CARD_2026_ID, '2026', 'Cartão Ano');
     await createPurchaseOnCard('m8-buy-2026', '2026', 30_000);
 
     const ofx = bankOfx(ofxTransaction('20260912', 30_000, 'PAGTO CART CRED 2026', 'M8C1'));
+    const commit = await commitStatement(ofx);
+
+    const payment = await paymentExpense(commit.importId);
+    expect(payment?.cardLast4).toBe('2026');
+  });
+
+  it('CENÁRIO D — zero cartões cadastrados: cria pagamento sem cartão, sem crash', async () => {
+    const ofx = bankOfx(ofxTransaction('20260912', 40_000, 'PAGAMENTO CARTAO CRED 08/2026', 'M8D1'));
+    const commit = await commitStatement(ofx);
+
+    const payment = await paymentExpense(commit.importId);
+    expect(payment).not.toBeNull();
+    expect(payment?.cardLast4).toBeNull();
+    expect(payment?.settlesInvoiceKey).toBeNull();
+    expect(commit).toEqual(expect.objectContaining({ cardPayments: 0, unlinkedCardPayments: 1 }));
+  });
+
+  it('CENÁRIO E — escolha explícita do usuário (decisions.overrides.cardLast4) continua prioritária', async () => {
+    await createCard(CARD_PAID_ID, CARD_PAID_LAST4, 'Cartão Pago');
+    await createPurchaseOnCard('m8-buy-4242', CARD_PAID_LAST4, 50_000);
+    await createCard(CARD_2026_ID, '2026', 'Cartão Ano');
+
+    const ofx = bankOfx(ofxTransaction('20260912', 50_000, 'PAGAMENTO CARTAO CRED 08/2026', 'M8E1'));
+    const preview = await service.previewImport(TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', undefined, REQUESTER);
+    const externalId = preview.preview.find((p) => p.isCardPayment)!.externalId;
     const commit = await service.commitImport(
-      TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', '2026-09', undefined, undefined, CREATED_BY, REQUESTER,
+      TENANT, PESSOAL, ACCOUNT_ID, ofx, 'm8.ofx', 'OFX', '2026-09',
+      undefined,
+      [{ externalId, action: 'create', overrides: { category: 'PAGAMENTO_FATURA_CARTAO', cardLast4: '2026' } }],
+      CREATED_BY, REQUESTER,
     );
-    const payment = await setup.expense.findFirst({
-      where: { tenantId: TENANT, importId: commit.importId, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
-      select: { cardLast4: true },
-    });
+    const payment = await paymentExpense(commit.importId);
     expect(payment?.cardLast4).toBe('2026');
   });
 });

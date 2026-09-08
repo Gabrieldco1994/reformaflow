@@ -358,6 +358,61 @@ async function expectSingleAuthorizedPayment(
   });
 }
 
+/**
+ * #573 M8 — quando o texto do extrato NÃO traz identidade de cartão e nenhum
+ * cartão autorizado casa por valor, o pagamento é reconhecido mas fica SEM
+ * cartão (`unlinkedCardPayments: 1`, `cardLast4: null`) e nenhuma fatura é
+ * liquidada. O antigo fallback "só existe um cartão → deve ser esse" foi
+ * removido.
+ */
+async function expectUnlinkedPayment(
+  result: Awaited<ReturnType<typeof commit>>,
+  expectedExternalId: string,
+): Promise<void> {
+  expect(result).toEqual(
+    expect.objectContaining({
+      source: "OFX",
+      total: 1,
+      inserted: 0,
+      duplicated: 0,
+      failedItems: [],
+      receiptsInserted: 0,
+      cardPayments: 0,
+      unlinkedCardPayments: 1,
+      skipped: 0,
+      linked: 0,
+    }),
+  );
+
+  const payments = await setup.expense.findMany({
+    where: { tenantId: TENANT, importId: result.importId },
+    select: {
+      projectId: true,
+      tipoDespesa: true,
+      valorTotal: true,
+      status: true,
+      externalId: true,
+      cardLast4: true,
+      bankLast4: true,
+      settlesInvoiceKey: true,
+      deletedAt: true,
+    },
+  });
+  expect(payments).toEqual([
+    {
+      projectId: PESSOAL,
+      tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+      valorTotal: 10_000,
+      status: "PAGO",
+      externalId: expectedExternalId,
+      cardLast4: null,
+      bankLast4: BANK_LAST4,
+      settlesInvoiceKey: null,
+      deletedAt: null,
+    },
+  ]);
+}
+
 describe("BankAccountService.commitImport — invoice child ACL and atomicity (SEC-4)", () => {
   let service: BankAccountService;
 
@@ -498,7 +553,7 @@ describe("BankAccountService.commitImport — invoice child ACL and atomicity (S
     expect(after.imports).toEqual([]);
   });
 
-  it("candidato hidden por valor não influencia o match nem impede fallback para o único cartão autorizado", async () => {
+  it("candidato hidden por valor não influencia o match; sem identidade nem match por valor, o pagamento fica sem cartão (#573 M8)", async () => {
     await createCard({
       id: VISIBLE_CARD_ID,
       projectId: PESSOAL,
@@ -540,10 +595,10 @@ describe("BankAccountService.commitImport — invoice child ACL and atomicity (S
 
     const result = await commit(service, statement, "2026-07");
 
-    await expectSingleAuthorizedPayment(
-      result,
-      parsed.transactions[0].externalId,
-    );
+    // SEC-4: o import do cartão OCULTO casa por valor (R$100) mas NÃO pode ser
+    // tocado nem escolhido. Sem identidade no texto ("FATURA PAGA CARTAO") e sem
+    // fatura do cartão visível para casar, o pagamento fica sem cartão (#573 M8).
+    await expectUnlinkedPayment(result, parsed.transactions[0].externalId);
     const hiddenImport = await setup.creditCardStatementImport.findUnique({
       where: { id: "sec4-hidden-amount-candidate" },
       select: { cardId: true, totalAmountCents: true, deletedAt: true },
@@ -555,7 +610,7 @@ describe("BankAccountService.commitImport — invoice child ACL and atomicity (S
     });
   });
 
-  it("pagamento reconhecido com cartão autorizado e nenhuma compra participante continua válido", async () => {
+  it("pagamento sem identidade nem compra participante → pagamento sem cartão, sem crash (#573 M8)", async () => {
     await createCard({
       id: VISIBLE_CARD_ID,
       projectId: PESSOAL,
@@ -579,9 +634,8 @@ describe("BankAccountService.commitImport — invoice child ACL and atomicity (S
 
     const result = await commit(service, statement, "2026-07");
 
-    await expectSingleAuthorizedPayment(
-      result,
-      parsed.transactions[0].externalId,
-    );
+    // Sem identidade no texto e sem fatura do cartão para casar por valor, o
+    // pagamento é reconhecido mas não vinculado (#573 M8).
+    await expectUnlinkedPayment(result, parsed.transactions[0].externalId);
   });
 });
