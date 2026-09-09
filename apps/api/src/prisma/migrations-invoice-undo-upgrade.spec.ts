@@ -1,13 +1,12 @@
-// RED por ausência: depende do schema aditivo do PR 1 (degrau) — §3.3.1. NÃO aplicar migration nesta rodada (decisão do PO).
-//
 // PR: PR 1 (degrau) — a migração aditiva + fixture de upgrade legado + guarda de
 //     versão + fail-closed do legado. Nada aqui é PR 2.
 // #569 §6.7 — upgrade da fixture legada. A migração aditiva
 // (`imported_invoice_liquidations` + 5 colunas `invoice_undo_*` em `expenses` +
-// índice único parcial) NÃO está aplicada nesta rodada; estes `it` executam o
-// corpo real contra o banco de teste e falham porque a tabela/colunas não
-// existem. O fail-closed do LEGADO (`getImportDetail` canUndo:false / `undoImport`
-// 409) já vale hoje e é asseverado como trava.
+// índice único parcial + FKs `import_id`/`card_id`) JÁ está incluída neste PR e
+// aplicada no banco de teste; estes `it` executam o corpo real contra o banco
+// migrado e asseveram o comportamento fail-closed pós-migração: o LEGADO sem
+// carimbo (`getImportDetail` canUndo:false / `undoImport` 409) e a guarda de
+// versão de trilha desconhecida permanecem travas.
 import { PrismaClient } from "@prisma/client";
 import { PrismaService } from "./prisma.service";
 import {
