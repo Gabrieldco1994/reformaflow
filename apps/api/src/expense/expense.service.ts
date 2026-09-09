@@ -700,6 +700,7 @@ export class ExpenseService {
       isRemove?: boolean;
       changedFinancials?: boolean;
       changedProtectedPaymentFields?: boolean;
+      changedToIncompatibleType?: boolean;
       newCardId?: string | null;
     },
   ): Promise<void> {
@@ -720,10 +721,18 @@ export class ExpenseService {
       : 0;
     const state = existing.invoiceUndoState ?? null;
     const settledPayment = state === 'PROCESSED_SETTLED';
+    // #569 B5/B9 — a PROVENIÊNCIA durável do pagamento é o próprio carimbo
+    // (`invoice_undo_state IS NOT NULL`, §1.2 do design), NÃO só o estado
+    // `PROCESSED_SETTLED`. Um `PAGAMENTO_FATURA_CARTAO` carimbado `PROCESSED_NONE`
+    // (estados 2a/2b, inclui M8 sem cartão) É uma linha de trilha real e não pode
+    // ser removido nem reclassificado para um tipo incompatível pela porta genérica.
+    const stampedPayment = state !== null;
 
-    // B5 — remoção da compra liquidada ou do pagamento com trilha ATIVA.
+    // B5 — remoção da COMPRA liquidada OU do PAGAMENTO carimbado (qualquer
+    // estado do carimbo). O undo do lote deleta via `updateMany` direto (não passa
+    // por aqui); esta porta genérica exige "desfaça a importação primeiro".
     if (opts.isRemove) {
-      if (activeAsPurchase > 0 || settledPayment) {
+      if (activeAsPurchase > 0 || stampedPayment) {
         throw new ConflictException(
           'Esta despesa foi liquidada por um pagamento de fatura importado. ' +
             'Desfaça a importação primeiro.',
@@ -739,7 +748,20 @@ export class ExpenseService {
       );
     }
 
-    // B4/B9 — mutação do PAGAMENTO carimbado.
+    // B9 — reclassificar um pagamento carimbado (QUALQUER estado) para um tipo
+    // INCOMPATÍVEL (não-neutro) o converteria numa despesa de obra fantasma e
+    // derivaria sua proveniência. A associação de cartão sem flips (estados 2a/2b,
+    // M8) e as edições descritivas seguras (título/fornecedor) permanecem
+    // permitidas — NÃO são bloqueadas aqui.
+    if (stampedPayment && opts.changedToIncompatibleType) {
+      throw new ConflictException(
+        'Este pagamento tem trilha de liquidação por importação ativa e não pode ' +
+          'ser reclassificado. Desfaça a importação primeiro.',
+      );
+    }
+
+    // B4/B9 — pagamento SETTLED: bloqueio TOTAL da mutação do pagamento carimbado
+    // (troca de cartão e campos protegidos), território do PR2.
     if (settledPayment) {
       if (
         opts.newCardId !== undefined &&
@@ -1653,6 +1675,11 @@ export class ExpenseService {
         (['cardLast4', 'bankLast4', 'settlesInvoiceKey', 'settlesInvoiceCardId', 'settlesInvoiceDueMonth', 'bankAccountId'] as const).some(
           (k) => (dto as Record<string, unknown>)[k] !== undefined,
         ),
+      // B9 (carimbo, qualquer estado) — reclassificar o pagamento carimbado para
+      // um tipo NÃO-neutro (obra) é a mutação "incompatível" que o corromperia.
+      // Neutro→neutro e associação de cartão não caem aqui.
+      changedToIncompatibleType:
+        changedTipoDespesa && !isNeutralExpenseType(dto.tipoDespesa as string),
       newCardId: (dto as { creditCardId?: string | null }).creditCardId ?? undefined,
     });
 

@@ -162,6 +162,41 @@ async function importedPayment(
   return { committed, payment, claims };
 }
 
+/**
+ * Pagamento de fatura importado que NÃO liquida nada (0 flips) — carimbo
+ * `PROCESSED_NONE` (estado 2a/2b do design). O cartão é resolvido pelo memo, mas
+ * não há parcela em aberto na janela ⇒ zero linhas no ledger. É uma trilha REAL:
+ * a proveniência durável é o carimbo, não a existência de itens (§1.2).
+ */
+async function importedNonePayment(date = '20260805', period = '2026-08') {
+  const committed = await commitStatement(bank, {
+    tenantId: TENANT,
+    projectId: A,
+    accountId,
+    bankLast4: BANK,
+    cardLast4: CARD,
+    debitCents: 7_777, // não casa nenhuma parcela ⇒ 0 flips ⇒ PROCESSED_NONE
+    date,
+    period,
+    requester: ADMIN,
+    fitId: `rf569-none-${date}`,
+  });
+  const payment = await setup.expense.findFirstOrThrow({
+    where: {
+      tenantId: TENANT,
+      importId: committed.importId,
+      tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+    },
+  });
+  expect(payment.invoiceUndoState).toBe('PROCESSED_NONE');
+  expect(
+    await setup.importedInvoiceLiquidation.count({
+      where: { tenantId: TENANT, deletedAt: null },
+    }),
+  ).toBe(0);
+  return { committed, payment };
+}
+
 beforeAll(async () => {
   await setup.$connect();
   await prisma.onModuleInit();
@@ -327,4 +362,54 @@ it('Bmix ratearMixed rejects splitting an import-claimed purchase with 409 and z
   diagnostic('Bmix ACT', outcome.error);
   expect(errorStatus(outcome.error)).toBe(409);
   expect(after).toEqual(before);
+});
+
+it('B5-none removing a PROCESSED_NONE stamped card payment (carimbo, zero itens) is rejected with 409 and zero writes', async () => {
+  const { payment } = await importedNonePayment();
+  const before = await fullSnapshot();
+  expect(before.ledger).toHaveLength(0);
+  expect(before.expenses.find((e) => e.id === payment.id)?.invoiceUndoState).toBe(
+    'PROCESSED_NONE',
+  );
+  console.log('B5-none ARRANGE_OK: stamped PROCESSED_NONE payment, empty ledger');
+
+  const outcome = await observe(() => expenses.remove(TENANT, A, payment.id, ADMIN));
+  const after = await fullSnapshot();
+  diagnostic('B5-none ACT', outcome.error);
+  expect(errorStatus(outcome.error)).toBe(409);
+  expect(after).toEqual(before);
+});
+
+it('B9-none reclassifying a PROCESSED_NONE stamped payment to a non-neutral type is 409, while safe descriptive edits stay allowed and preserve the carimbo', async () => {
+  const { payment } = await importedNonePayment();
+  const before = await fullSnapshot();
+  console.log('B9-none ARRANGE_OK: stamped PROCESSED_NONE payment');
+
+  // Reclassificação para tipo INCOMPATÍVEL (não-neutro) ⇒ 409, zero escritas.
+  const blocked = await observe(() =>
+    expenses.update(TENANT, A, payment.id, { tipoDespesa: 'MATERIAL' }, ADMIN),
+  );
+  const afterBlocked = await fullSnapshot();
+  diagnostic('B9-none reclassify', blocked.error);
+  expect(errorStatus(blocked.error)).toBe(409);
+  expect(afterBlocked).toEqual(before);
+
+  // Exceção preservada: edição descritiva segura permanece PERMITIDA; carimbo intacto.
+  const allowed = await observe(() =>
+    expenses.update(TENANT, A, payment.id, { titulo: 'pagamento renomeado' }, ADMIN),
+  );
+  diagnostic('B9-none descriptive', allowed.error);
+  expect(allowed.error).toBeNull();
+  const raw = await setup.expense.findUniqueOrThrow({ where: { id: payment.id } });
+  expect(raw).toMatchObject({
+    titulo: 'pagamento renomeado',
+    tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+    invoiceUndoState: 'PROCESSED_NONE',
+    importId: payment.importId,
+  });
+  expect(
+    await setup.importedInvoiceLiquidation.count({
+      where: { tenantId: TENANT, deletedAt: null },
+    }),
+  ).toBe(0);
 });
