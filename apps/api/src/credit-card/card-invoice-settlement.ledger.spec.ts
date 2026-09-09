@@ -505,16 +505,23 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
     expect(revertOtherTenant).toHaveLength(0);
   });
 
-  it("applyPreparedSettlement devolve flippedEntries só das entries que de fato virou PAGO (entry já PAGO não entra)", async () => {
-    const parc = await seedInstallmentPurchase(setup, {
-      tenantId: TENANT,
-      projectId: PESSOAL,
-      cardLast4: CARD_LAST4,
-      parcelas: 3,
-      valorCents: 10_000,
-      primeiraData: new Date("2026-01-05T12:00:00.000Z"),
+  it("applyPreparedSettlement devolve flippedEntries: exatamente as 2 entries PLANEJADO→PAGO do ciclo (a que já era PAGO não entra), com prevStatus/valorCents/cashFlowEntryId exatos", async () => {
+    // Ciclo único que fecha 20/03 e vence 2026-04: 3 compras à vista de R$100,00
+    // em 2026-03-10 (mesmo dueMonth). 1 já PAGO + 2 PLANEJADO. Pagamento em
+    // 2026-04-01 de R$300,00 = total EXATO da fatura (3 parcelas).
+    const dia = new Date("2026-03-10T12:00:00.000Z");
+    const jaPago = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 10_000,
+      data: dia, status: "PAGO", titulo: "ja-pago",
     });
-    await setup.cashFlowEntry.update({ where: { id: parc.entryIds[0] }, data: { status: "PAGO" } });
+    const p1 = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 10_000,
+      data: dia, status: "PLANEJADO", titulo: "planejado-1",
+    });
+    const p2 = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 10_000,
+      data: dia, status: "PLANEJADO", titulo: "planejado-2",
+    });
     const result = (await settlement.settleInvoice({
       tenantId: TENANT,
       card: { id: card.id, last4: CARD_LAST4, closingDay: 20, dueDay: 1 } as never,
@@ -522,9 +529,20 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
       paymentDate: new Date("2026-04-01T12:00:00.000Z"),
       requester: ADMIN_REQUESTER as never,
     })) as Record<string, unknown>;
-    expect(Array.isArray(result.flippedEntries)).toBe(true);
-    expect((result.flippedEntries as unknown[]).length).toBe(result.settledParcelas);
-    expect((result.flippedEntries as unknown[]).length).toBeLessThanOrEqual(2);
+    // REGRESSÃO (comportamento vigente): as 2 PLANEJADO viraram PAGO, a 3ª intacta.
+    expect(result.settledParcelas).toBe(2);
+    expect((await setup.cashFlowEntry.findUnique({ where: { id: jaPago.entryId } }))?.status).toBe("PAGO");
+    expect((await setup.cashFlowEntry.findUnique({ where: { id: p1.entryId } }))?.status).toBe("PAGO");
+    expect((await setup.cashFlowEntry.findUnique({ where: { id: p2.entryId } }))?.status).toBe("PAGO");
+    // RED (§6.1): applyPreparedSettlement ainda NÃO devolve flippedEntries.
+    // Deve FALHAR se vier [] / undefined E se algum dia trouxer a entry já-PAGO (3).
+    const flipped = result.flippedEntries as Array<Record<string, unknown>> | undefined;
+    expect(Array.isArray(flipped)).toBe(true);
+    expect(flipped!.map((f) => f.cashFlowEntryId).sort()).toEqual([p1.entryId, p2.entryId].sort());
+    for (const f of flipped!) {
+      expect(f.prevStatus).toBe("PLANEJADO");
+      expect(f.valorCents).toBe(10_000);
+    }
     expect(EXPECTED_TRAIL_VERSION).toBe(1);
   });
 });

@@ -24,14 +24,23 @@ import {
   seedCardWithClosingDue,
   seedInstallmentPurchase,
   seedPessoal,
+  seedProject,
   seedSinglePurchase,
 } from "./__tests__/invoice-undo.fixtures";
 
 const TENANT = "iul-mut-tenant";
 const PESSOAL = "iul-mut-pessoal";
+const PESSOAL2 = "iul-mut-pessoal-2";
 const CARD = "4400";
 const BANK = "8400";
 const R = pessoalRequester(PESSOAL);
+/** Requester autorizado aos DOIS projetos PESSOAL (rateio cross-project do B6). */
+const R2 = {
+  role: "USER" as const,
+  allowedProjects: [PESSOAL, PESSOAL2],
+  allowedProjectTypes: ["PESSOAL"],
+  allowedModules: ["expenses", "creditCards", "monthlyOverview", "bankAccounts"],
+};
 const ADMIN: MonthlyOverviewMutationRequester = { id: "iul-mut-admin", role: "ADMIN" };
 
 const setup = new PrismaClient();
@@ -50,6 +59,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     await prisma.onModuleInit();
     await resetTenant(setup, TENANT);
     await seedPessoal(setup, { tenantId: TENANT, projectId: PESSOAL });
+    await seedProject(setup, { tenantId: TENANT, projectId: PESSOAL2, type: "PESSOAL", name: "Pessoal 2" });
     ({ id: cardId } = await seedCardWithClosingDue(setup, {
       tenantId: TENANT, projectId: PESSOAL, last4: CARD, closingDay: 20, dueDay: 1,
     }));
@@ -63,6 +73,8 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
   });
 
   afterEach(async () => {
+    await setup.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
+    await setup.crossProjectSettlement.deleteMany({ where: { tenantId: TENANT } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setup.expense.deleteMany({ where: { tenantId: TENANT } });
     await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
@@ -76,19 +88,29 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     await setup.$disconnect();
   });
 
-  /** Compra 1x + commit que liquida a fatura; devolve ids. */
-  async function importSettled(valorCents = 30_000, primeiraData = new Date("2026-07-01T12:00:00.000Z")) {
+  /**
+   * Compra 1x semeada NO ciclo que fecha 20/06 e vence 2026-07 (`primeiraData`
+   * 2026-06-10, ≤ dia 20) + commit de um pagamento importado em julho
+   * (`payMonth=2026-07` ⇒ janela `{2026-07, 2026-08}` ⊇ `dueMonth 2026-07`),
+   * `debitCents` = total exato da fatura (1 parcela). Devolve ids e, para a
+   * precondição financeira do §6.4, assevera a parcela EFETIVAMENTE PAGO.
+   */
+  async function importSettled(valorCents = 30_000, primeiraData = new Date("2026-06-10T12:00:00.000Z")) {
     const purchase = await seedInstallmentPurchase(setup, {
       tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 1, valorCents, primeiraData,
     });
     const commit = await commitStatement(bank, {
       tenantId: TENANT, projectId: PESSOAL, accountId, bankLast4: BANK, cardLast4: CARD,
-      debitCents: valorCents, date: "20260630", period: "2026-06", requester: R,
+      debitCents: valorCents, date: "20260705", period: "2026-07", requester: R,
       fitId: `s-${Math.random()}`,
     });
     const payment = await setup.expense.findFirst({
       where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO", importId: commit.importId },
     });
+    // precondição financeira: a parcela do ciclo virou PAGO pela importação, valor exato.
+    const entry = await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } });
+    expect(entry?.status).toBe("PAGO");
+    expect(entry?.valor).toBe(valorCents);
     return { purchaseId: purchase.id, entryId: purchase.entryIds[0], importId: commit.importId, paymentId: payment!.id };
   }
 
@@ -234,20 +256,32 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     await expect(expenses.remove(TENANT, PESSOAL, paymentId, R)).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it("B6 ratear a compra liquidada → 409 em guardRateioParticipation", async () => {
-    // entrypoint REAL: ExpenseService.ratear → prisma.$transaction → ConciliacaoService.ratearSource
-    // (o guard de ledger é adicionado em guardRateioParticipation nesse fluxo — §4 B6).
-    const { purchaseId } = await importSettled();
+  it("B6a ratear a compra EFETIVAMENTE liquidada (parcela PAGO) → 409 ConflictException em guardRateioParticipation [RED comportamental: o guard ainda não existe]", async () => {
+    // entrypoint REAL: ExpenseService.ratear → prisma.$transaction → ConciliacaoService.ratearSource.
+    // NÃO tocar o delegate ausente (importedInvoiceLiquidation) antes do `act` — TypeError
+    // mascararia o resultado do guard. Alvo = despesa PLANEJADO em OUTRO projeto PESSOAL
+    // que o requester (R2) pode ver; alocação = valorTotal exato da fonte (30_000).
+    const { purchaseId } = await importSettled(30_000);
     const target = await seedSinglePurchase(setup, {
-      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, valorCents: 30_000,
-      data: new Date("2026-07-01T12:00:00.000Z"), titulo: "alvo-rateio",
+      tenantId: TENANT, projectId: PESSOAL2, cardLast4: CARD, valorCents: 30_000,
+      data: new Date("2026-07-01T12:00:00.000Z"), titulo: "alvo-rateio", status: "PLANEJADO",
     });
-    const before = await ledger().count({ where: { tenantId: TENANT, deletedAt: null } });
     await expect(
-      expenses.ratear(TENANT, PESSOAL, purchaseId, [{ targetExpenseId: target.id, allocation: 30_000 }] as never, R),
+      expenses.ratear(TENANT, PESSOAL, purchaseId, [{ targetExpenseId: target.id, allocation: 30_000 }] as never, R2 as never),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(await ledger().count({ where: { tenantId: TENANT, deletedAt: null } })).toBe(before);
-    expect(before).toBeGreaterThan(0);
+  });
+
+  it("B6b [dependência futura PR1: modelo ImportedInvoiceLiquidation] a linha do ledger da fonte continua ATIVA após a tentativa de rateio", async () => {
+    const { purchaseId } = await importSettled(30_000);
+    const target = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL2, cardLast4: CARD, valorCents: 30_000,
+      data: new Date("2026-07-01T12:00:00.000Z"), titulo: "alvo-rateio-2", status: "PLANEJADO",
+    });
+    await expenses
+      .ratear(TENANT, PESSOAL, purchaseId, [{ targetExpenseId: target.id, allocation: 30_000 }] as never, R2 as never)
+      .catch(() => undefined);
+    // Toca o delegate ausente no schema atual → TypeError esperado (RED por ausência de modelo).
+    expect(await ledger().count({ where: { tenantId: TENANT, deletedAt: null } })).toBeGreaterThan(0);
   });
 
   it("B9a PATCH tipoDespesa do PAGAMENTO_FATURA_CARTAO com carimbo ATIVO → 409 em hasProtectedChange; carimbo/importId/cardLast4 intactos", async () => {

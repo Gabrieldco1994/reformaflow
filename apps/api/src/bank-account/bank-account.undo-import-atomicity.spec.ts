@@ -125,6 +125,12 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
     expect(entry?.status).toBe("PLANEJADO");
   });
 
+  // DEPENDÊNCIA FUTURA (PR 2). Hoje `undoImport` faz fail-closed 409 (lote contém
+  // PAGAMENTO_FATURA_CARTAO) ANTES de qualquer laço de `cashFlowEntry.update`, então
+  // o rollback-de-undo-parcial nunca é exercido — um `.rejects` genérico aqui seria
+  // um FALSO PASS de atomicidade. Este `it` só passa a ter significado quando o
+  // `undoImport` via ledger (`applyRevertImportedLiquidations`) existir; até lá é RED
+  // porque o spy de `update` nunca é alcançado.
   it("undoImport: falha forçada no update de uma entry no meio → rollback total, nenhuma outra entry/caixa/vínculo/import alterado", async () => {
     const purchase = await seedInstallmentPurchase(setup, {
       tenantId: TENANT,
@@ -150,7 +156,10 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
       .spyOn(prisma.cashFlowEntry, "update")
       .mockRejectedValueOnce(new Error("forced mid-loop failure"));
     const before = await setup.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, commit.importId, R)).rejects.toBeDefined();
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, commit.importId, R)).rejects.toThrow();
+    // RED (PR 2): o caminho de reversão via ledger tem de chegar ao laço de update.
+    // Hoje o 409 fail-closed dispara antes → spy nunca chamado → esta linha falha.
+    expect(spy).toHaveBeenCalled();
     spy.mockRestore();
     const after = await setup.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
     expect(after).toEqual(before);
