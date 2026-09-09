@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import { resolveAccessibleProjectScope } from '../common/access-rules';
@@ -3359,6 +3359,28 @@ export class MonthlyOverviewService {
         throw new BadRequestException('accountId e bankLast4 não correspondem à mesma conta.');
       }
 
+      // #569 (degrau) — B2 pre-check: a fatura alvo (card + dueMonth do DTO,
+      // NÃO do `prepared`, que vem vazio quando a importação já liquidou tudo)
+      // já tem parcela ATIVA no ledger de liquidação por importação ⇒ 409, zero
+      // escrita. `PROCESSED_NONE` não cria linha de ledger ⇒ não dispara.
+      const ledgerDelegate = (
+        tx as unknown as {
+          importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
+        }
+      ).importedInvoiceLiquidation;
+      if (month && ledgerDelegate?.count) {
+        const importTrail = await ledgerDelegate.count({
+          where: { tenantId, cardId: card.id, dueMonth: month, deletedAt: null },
+        });
+        if (importTrail > 0) {
+          throw new ConflictException(
+            'INVOICE_HAS_IMPORT_TRAIL: esta fatura já foi liquidada por uma ' +
+              'importação de extrato. Desfaça a importação para registrar um ' +
+              'pagamento manual.',
+          );
+        }
+      }
+
       // Idempotência por payload exato, relida na mesma transação da escrita.
       const existing = await tx.expense.findFirst({
         where: {
@@ -3414,7 +3436,8 @@ export class MonthlyOverviewService {
         accountId: account.id,
         month,
         amountCents,
-        ...settled,
+        settledExpenses: settled.settledExpenses,
+        settledParcelas: settled.settledParcelas,
       };
     });
   }

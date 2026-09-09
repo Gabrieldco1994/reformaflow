@@ -628,7 +628,7 @@ describe('BankAccountService', () => {
       });
       const settleSpy = jest
         .spyOn(settlement, 'applyPreparedSettlement')
-        .mockResolvedValue({ settledExpenses: 3, settledParcelas: 3 });
+        .mockResolvedValue({ settledExpenses: 3, settledParcelas: 3, flippedEntries: [] });
 
       prisma.expense.create.mockClear();
       const preview = await service.previewImport(

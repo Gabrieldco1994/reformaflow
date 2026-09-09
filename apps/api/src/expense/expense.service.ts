@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
@@ -682,6 +682,80 @@ export class ExpenseService {
    * qualquer escrita nos pontos de mutação (`update`, `unlinkCrossProject`).
    * A guarda também cobre alvos, para centralizar todas as mutações genéricas.
    */
+  /**
+   * #569 (degrau) — bloqueia mutações posteriores sobre parcelas liquidadas por
+   * importação (tabela B: B3/B4/B5/B6/B9). Defesa em profundidade: filtra por
+   * `tenantId` (Scar #498). Lê o estado do ledger DENTRO da tx do caller.
+   */
+  private async guardImportedInvoiceTrail(
+    db: ExpenseDb,
+    tenantId: string,
+    existing: {
+      id: string;
+      invoiceUndoState?: string | null;
+      invoiceUndoCardId?: string | null;
+      cardLast4?: string | null;
+    },
+    opts: {
+      isRemove?: boolean;
+      changedFinancials?: boolean;
+      changedProtectedPaymentFields?: boolean;
+      newCardId?: string | null;
+    },
+  ): Promise<void> {
+    const ledgerDelegate = (
+      db as unknown as {
+        importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
+      }
+    ).importedInvoiceLiquidation;
+    const activeAsPurchase = ledgerDelegate?.count
+      ? await ledgerDelegate.count({
+          where: { tenantId, purchaseExpenseId: existing.id, deletedAt: null },
+        })
+      : 0;
+    const state = existing.invoiceUndoState ?? null;
+    const settledPayment = state === 'PROCESSED_SETTLED';
+
+    // B5 — remoção da compra liquidada ou do pagamento com trilha ATIVA.
+    if (opts.isRemove) {
+      if (activeAsPurchase > 0 || settledPayment) {
+        throw new ConflictException(
+          'Esta despesa foi liquidada por um pagamento de fatura importado. ' +
+            'Desfaça a importação primeiro.',
+        );
+      }
+      return;
+    }
+
+    // B3/B6 — mudança financeira numa compra com parcela no ledger ativo.
+    if (activeAsPurchase > 0 && opts.changedFinancials) {
+      throw new ConflictException(
+        'Compra liquidada por pagamento importado; desfaça a importação primeiro.',
+      );
+    }
+
+    // B4/B9 — mutação do PAGAMENTO carimbado.
+    if (settledPayment) {
+      if (
+        opts.newCardId !== undefined &&
+        opts.newCardId !== null &&
+        opts.newCardId !== (existing.invoiceUndoCardId ?? null)
+      ) {
+        throw new ConflictException(
+          'Este pagamento liquidou uma fatura importada; o cartão não pode ser ' +
+            'trocado. Desfaça a importação primeiro.',
+        );
+      }
+      if (opts.changedProtectedPaymentFields || opts.changedFinancials) {
+        throw new ConflictException(
+          'Este pagamento tem trilha de liquidação por importação ativa e não ' +
+            'pode ser alterado. Desfaça a importação primeiro.',
+        );
+      }
+    }
+    // `PROCESSED_NONE` (estado 2a/2b) — associação de cartão PERMITIDA (B4b).
+  }
+
   private async guardRateioParticipation(
     tenantId: string,
     expenseId: string,
@@ -1118,6 +1192,10 @@ export class ExpenseService {
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
+    // #569 (degrau) — B6: ratear compra com parcela liquidada por importação.
+    await this.guardImportedInvoiceTrail(this.prisma, tenantId, source, {
+      changedFinancials: true,
+    });
 
     const result = await this.prisma.$transaction(async (tx) =>
       this.conciliacao.ratearSource(
@@ -1535,6 +1613,24 @@ export class ExpenseService {
       !hasProtectedChange,
       db,
     );
+
+    // #569 (degrau) — B3/B4/B9: mutação posterior sobre parcela/pagamento
+    // liquidado por importação.
+    await this.guardImportedInvoiceTrail(db, tenantId, existing, {
+      changedFinancials:
+        changedValor ||
+        changedQuantidade ||
+        changedQuantidadeParcela ||
+        changedDataPagamento ||
+        changedDataInicioParcela,
+      changedProtectedPaymentFields:
+        changedOwnership ||
+        (dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa) ||
+        (['cardLast4', 'bankLast4', 'settlesInvoiceKey', 'settlesInvoiceCardId', 'settlesInvoiceDueMonth', 'bankAccountId'] as const).some(
+          (k) => (dto as Record<string, unknown>)[k] !== undefined,
+        ),
+      newCardId: (dto as { creditCardId?: string | null }).creditCardId ?? undefined,
+    });
 
     const resultingFormaPagamento = dto.formaPagamento ?? existing.formaPagamento;
     const resultingQuantidadeParcela =
@@ -2201,6 +2297,8 @@ export class ExpenseService {
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
       await this.assertCanMutateLinkedRows(tx, tenantId, expense, requester);
+      // #569 (degrau) — B5: DELETE de compra liquidada ou pagamento carimbado.
+      await this.guardImportedInvoiceTrail(tx, tenantId, expense, { isRemove: true });
 
       const rateioParticipation = await this.guardRateioParticipation(
         tenantId,

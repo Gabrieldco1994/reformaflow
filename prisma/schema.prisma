@@ -250,6 +250,11 @@ model Expense {
   settlesInvoiceKey  String?   @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
   dedupeKeyStrong    String?   @map("dedupe_key_strong") // #659 — dedupe cross-origin: FITID ou hash de bytes do arquivo. UNIQUE PARCIAL (WHERE NOT NULL) definido à mão na migration; NÃO adicionar @@unique aqui (geraria unique total)
   dedupeKeyNatural   String?   @map("dedupe_key_natural") // #659 — chave natural seed-free (tenant,project,date,amount,merchant,ordinal). Sem unique: linhas Tier B legitimamente compartilham
+  invoiceUndoState        String?  @map("invoice_undo_state") // #569 — carimbo no PAGAMENTO_FATURA_CARTAO: NULL(legado) | PROCESSED_NONE | PROCESSED_SETTLED
+  invoiceUndoParcelaCount Int?     @map("invoice_undo_parcela_count") // #569 — N esperado de itens ativos no ledger
+  invoiceUndoDueMonth     String?  @map("invoice_undo_due_month") // #569 — YYYY-MM alvo da liquidação
+  invoiceUndoCardId       String?  @map("invoice_undo_card_id") // #569 — id ESTÁVEL do cartão; NULL quando M8 não identificou
+  invoiceUndoTrailVersion Int?     @map("invoice_undo_trail_version") // #569 — versão do protocolo do carimbo (guarda de versão)
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
@@ -266,6 +271,8 @@ model Expense {
   rateioAsSource      RateioAllocation[]       @relation("RateioSource")
   rateioAsTarget      RateioAllocation[]       @relation("RateioTarget")
   financingInstallment FinancingInstallment?
+  importedInvoiceLiquidationsAsPayment  ImportedInvoiceLiquidation[] @relation("ImportedInvoiceLiquidationPayment")
+  importedInvoiceLiquidationsAsPurchase ImportedInvoiceLiquidation[] @relation("ImportedInvoiceLiquidationPurchase")
 
   @@unique([tenantId, projectId, externalId])
   @@index([linkedExpenseId])
@@ -434,12 +441,43 @@ model CashFlowEntry {
   receipt          Receipt?          @relation(fields: [receiptId], references: [id])
   expense          Expense?          @relation(fields: [expenseId], references: [id])
   budgetAllocation BudgetAllocation? @relation(fields: [budgetAllocationId], references: [id])
+  importedInvoiceLiquidations ImportedInvoiceLiquidation[]
 
   @@index([projectId, data])
   @@index([receiptId])
   @@index([expenseId])
   @@index([budgetAllocationId])
   @@map("cash_flow_entries")
+}
+
+// #569 — trilha exata de liquidação de fatura por importação de extrato.
+// 1 linha ATIVA (deleted_at IS NULL) por CashFlowEntry — garantido pelo índice
+// único PARCIAL escrito à mão na migration (Prisma não expressa WHERE). N linhas
+// históricas soft-deleted por cash_flow_entry_id são permitidas.
+// TEM deleted_at ⇒ NÃO entra em modelsWithoutSoftDelete.
+model ImportedInvoiceLiquidation {
+  id                String    @id @default(cuid())
+  tenantId          String    @map("tenant_id")
+  paymentExpenseId  String    @map("payment_expense_id")
+  importId          String    @map("import_id")
+  purchaseExpenseId String    @map("purchase_expense_id")
+  cashFlowEntryId   String    @map("cash_flow_entry_id")
+  cardId            String    @map("card_id")
+  prevStatus        String    @map("prev_status")
+  entryValorCents   Int       @map("entry_valor_cents")
+  parcela           String?
+  dueMonth          String    @map("due_month")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  payment       Expense       @relation("ImportedInvoiceLiquidationPayment", fields: [paymentExpenseId], references: [id])
+  purchase      Expense       @relation("ImportedInvoiceLiquidationPurchase", fields: [purchaseExpenseId], references: [id])
+  cashFlowEntry CashFlowEntry @relation(fields: [cashFlowEntryId], references: [id])
+
+  @@index([importId])
+  @@index([paymentExpenseId])
+  @@index([tenantId])
+  @@map("imported_invoice_liquidations")
 }
 
 model Attachment {

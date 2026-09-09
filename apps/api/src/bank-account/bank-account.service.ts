@@ -60,6 +60,7 @@ import {
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import {
   CardInvoiceSettlementService,
+  INVOICE_UNDO_TRAIL_VERSION,
   type PreparedInvoiceSettlement,
   type SettleCard,
 } from '../credit-card/card-invoice-settlement.service';
@@ -1294,7 +1295,42 @@ export class BankAccountService {
    * não arriscamos alterar outros pagamentos. Nenhum lookup de cartão, fatura ou
    * projeto externo, nenhuma reconstrução de `dueMonth`.
    */
-  async getImportDetail(tenantId: string, projectId: string, accountId: string, importId: string) {
+  /**
+   * #569 (degrau) — classifica a trilha de undo de importação de um lote a
+   * partir dos carimbos dos pagamentos de fatura. Fail-closed:
+   *  - pagamento de fatura SEM carimbo (`invoiceUndoState IS NULL`) ⇒ legado/misto
+   *  - carimbo com `invoiceUndoTrailVersion` não reconhecida ⇒ guarda de versão
+   *  - qualquer `PROCESSED_SETTLED` ⇒ a degrau não sabe reverter via ledger (PR 2)
+   *  - só `PROCESSED_NONE` ⇒ liberado (não há parcela a reabrir)
+   */
+  private classifyInvoiceUndoTrail(
+    payments: Array<{
+      invoiceUndoState: string | null;
+      invoiceUndoTrailVersion: number | null;
+    }>,
+  ): { canUndo: boolean; blockReason: string | null } {
+    if (payments.length === 0) return { canUndo: true, blockReason: null };
+    for (const p of payments) {
+      if (p.invoiceUndoState == null) {
+        return { canUndo: false, blockReason: 'LEGACY_OR_MIXED' };
+      }
+      if (p.invoiceUndoTrailVersion !== INVOICE_UNDO_TRAIL_VERSION) {
+        return { canUndo: false, blockReason: 'TRAIL_VERSION_MISMATCH' };
+      }
+    }
+    if (payments.some((p) => p.invoiceUndoState === 'PROCESSED_SETTLED')) {
+      return { canUndo: false, blockReason: 'SETTLED_TRAIL_PENDING_UNDO' };
+    }
+    return { canUndo: true, blockReason: null };
+  }
+
+  async getImportDetail(
+    tenantId: string,
+    projectId: string,
+    accountId: string,
+    importId: string,
+    _requester?: RateioRequester,
+  ) {
     await this.findAccount(tenantId, projectId, accountId);
     const importRecord = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, tenantId, accountId },
@@ -1341,12 +1377,16 @@ export class BankAccountService {
       where: {
         tenantId,
         importId,
-        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
         deletedAt: INCLUDE_SOFT_DELETED,
+        OR: [
+          { tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
+          { invoiceUndoState: { not: null } },
+        ],
       },
-      select: { id: true },
+      select: { id: true, invoiceUndoState: true, invoiceUndoTrailVersion: true },
     });
     const hasCardInvoicePayment = cardInvoicePayments.length > 0;
+    const trail = this.classifyInvoiceUndoTrail(cardInvoicePayments);
 
     // Recorrências propagadas (RecurringBill) — efeito IRREVERSÍVEL (upsert sem
     // snapshot). Contadas por best-effort re-rodando detectRecurrence.
@@ -1359,8 +1399,9 @@ export class BankAccountService {
       createdAt: importRecord.createdAt,
       alreadyUndone: importRecord.deletedAt != null,
       totalAmountCents: createdExpenses.reduce((s, e) => s + e.valorTotal, 0),
-      // #569: lote com pagamento de fatura não pode ser desfeito como lote.
-      canUndo: importRecord.deletedAt != null ? true : !hasCardInvoicePayment,
+      // #569 (degrau): undo do lote depende da classificação da trilha.
+      canUndo: importRecord.deletedAt != null ? true : trail.canUndo,
+      blockReason: importRecord.deletedAt != null ? null : trail.blockReason,
       blocking: {
         cardInvoicePayments: cardInvoicePayments.length,
       },
@@ -1476,16 +1517,39 @@ export class BankAccountService {
         where: {
           tenantId,
           importId,
-          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
           deletedAt: INCLUDE_SOFT_DELETED,
+          OR: [
+            { tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
+            { invoiceUndoState: { not: null } },
+          ],
         },
-        select: { id: true },
+        select: { id: true, invoiceUndoState: true, invoiceUndoTrailVersion: true },
       });
-      if (cardInvoicePayments.length > 0) {
+      // #569 (degrau) — guarda de versão + fail-closed. A reversão via ledger
+      // (estado PROCESSED_SETTLED) é PR 2; até lá qualquer trilha liquidada
+      // responde 409 fail-closed. Só `PROCESSED_NONE` segue o undo normal.
+      for (const p of cardInvoicePayments) {
+        if (p.invoiceUndoState == null) {
+          throw new ConflictException(
+            'Esta importação contém pagamento de fatura de cartão sem trilha ' +
+              '(LEGACY_OR_MIXED). Lotes legados ou mistos permanecem intactos.',
+          );
+        }
+        if (p.invoiceUndoTrailVersion !== INVOICE_UNDO_TRAIL_VERSION) {
+          throw new ConflictException(
+            'Carimbo com versão de trilha não reconhecida ' +
+              '(TRAIL_VERSION_MISMATCH). Undo bloqueado por segurança.',
+          );
+        }
+      }
+      if (
+        cardInvoicePayments.some(
+          (p) => p.invoiceUndoState === 'PROCESSED_SETTLED',
+        )
+      ) {
         throw new ConflictException(
-          'Esta importação contém pagamento de fatura de cartão. Lotes com ' +
-            'pagamento de fatura permanecem intactos por segurança e não podem ' +
-            'ser desfeitos automaticamente.',
+          'Esta importação liquidou faturas de cartão. Desfazer com reabertura ' +
+            'de fatura ainda não está disponível (SETTLED_TRAIL_PENDING_UNDO).',
         );
       }
       // Sempre 0 daqui pra frente (o guard acima já barrou o único caso) —
@@ -2494,7 +2558,35 @@ export class BankAccountService {
           createdByUserId,
           matchedCard,
         );
-        await this.cardSettlement.applyPreparedSettlement(client, currentSettlement);
+        const applied = await this.cardSettlement.applyPreparedSettlement(
+          client,
+          currentSettlement,
+        );
+        // #569 (degrau) — trilha REAL da liquidação + carimbo, MESMA transação.
+        // P2002 no índice único parcial NÃO é capturado ⇒ rollback do lote.
+        if (applied.flippedEntries.length > 0) {
+          await this.cardSettlement.recordImportedLiquidations(client, {
+            tenantId,
+            paymentExpenseId: e.id,
+            importId,
+            cardId: matchedCard.id,
+            flippedEntries: applied.flippedEntries,
+          });
+        }
+        const settledDueMonth =
+          applied.flippedEntries[0]?.dueMonth ?? null;
+        await client.expense.update({
+          where: { id: e.id },
+          data: {
+            invoiceUndoState: applied.flippedEntries.length
+              ? 'PROCESSED_SETTLED'
+              : 'PROCESSED_NONE',
+            invoiceUndoParcelaCount: applied.flippedEntries.length,
+            invoiceUndoDueMonth: settledDueMonth,
+            invoiceUndoCardId: matchedCard.id,
+            invoiceUndoTrailVersion: INVOICE_UNDO_TRAIL_VERSION,
+          },
+        });
         return {
           inserted: false,
           receiptInserted: false,
@@ -2514,6 +2606,19 @@ export class BankAccountService {
         createdByUserId,
         null,
       );
+      // #569 (degrau) — M8 (sem cartão identificado): carimbo PROCESSED_NONE,
+      // 0 itens, card_id NULL. Sem o carimbo o pagamento cairia no estado 1
+      // (legado) e travaria o lote indevidamente.
+      await client.expense.update({
+        where: { id: e.id },
+        data: {
+          invoiceUndoState: 'PROCESSED_NONE',
+          invoiceUndoParcelaCount: 0,
+          invoiceUndoDueMonth: null,
+          invoiceUndoCardId: null,
+          invoiceUndoTrailVersion: INVOICE_UNDO_TRAIL_VERSION,
+        },
+      });
       return {
         inserted: false,
         receiptInserted: false,

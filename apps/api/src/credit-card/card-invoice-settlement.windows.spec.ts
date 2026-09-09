@@ -49,6 +49,9 @@ describe("#569 §6.2 — janelas (RED)", () => {
   });
 
   afterEach(async () => {
+    await (setup as unknown as {
+      importedInvoiceLiquidation?: { deleteMany: (a: unknown) => Promise<unknown> };
+    }).importedInvoiceLiquidation?.deleteMany({ where: { tenantId: TENANT } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setup.expense.deleteMany({ where: { tenantId: TENANT } });
     await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
@@ -189,6 +192,9 @@ describe("#569 §6.2 — janelas (RED)", () => {
       await pay(debit, "20260615", "2026-06", "4276");
       const entry = await setup.cashFlowEntry.findFirst({ where: { expenseId: p.id } });
       expect(entry?.status).toBe(shouldSettle ? "PAGO" : "PLANEJADO");
+      await (setup as unknown as {
+        importedInvoiceLiquidation?: { deleteMany: (a: unknown) => Promise<unknown> };
+      }).importedInvoiceLiquidation?.deleteMany({ where: { tenantId: TENANT } });
       await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
       await setup.expense.deleteMany({ where: { tenantId: TENANT, tipoDespesa: { not: undefined } } });
       await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });

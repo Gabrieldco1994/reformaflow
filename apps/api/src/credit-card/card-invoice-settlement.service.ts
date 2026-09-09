@@ -76,6 +76,39 @@ export interface PreparedInvoiceUnsettlement {
 
 export interface PreparedInvoiceSettlement {
   purchases: SettlePurchase[];
+  /** #569 — cartão da liquidação (para derivar `dueMonth` no `apply`). */
+  card?: SettleCard;
+}
+
+/**
+ * #569 — versão do protocolo do carimbo de undo de importação. O `undoImport` e
+ * o `getImportDetail` recusam fail-closed (409) um carimbo cuja versão não
+ * reconheçam (guarda de versão bidirecional degrau↔feature — design §3.3).
+ */
+export const INVOICE_UNDO_TRAIL_VERSION = 1;
+
+/** Transição EFETIVA de uma parcela PLANEJADO→PAGO no `applyPreparedSettlement`. */
+export interface FlippedEntry {
+  cashFlowEntryId: string;
+  purchaseExpenseId: string;
+  prevStatus: string;
+  valorCents: number;
+  parcela: string | null;
+  dueMonth: string;
+}
+
+export interface AppliedSettlement {
+  settledExpenses: number;
+  settledParcelas: number;
+  flippedEntries: FlippedEntry[];
+}
+
+export interface RecordImportedLiquidationsArgs {
+  tenantId: string;
+  paymentExpenseId: string;
+  importId: string;
+  cardId: string;
+  flippedEntries: FlippedEntry[];
 }
 
 /**
@@ -123,14 +156,21 @@ export class CardInvoiceSettlementService {
     requester: RateioRequester;
     /** Ver `assertCanAccessCard.requiredModule` (#480 SEC-1). */
     requiredModule?: string;
-  }): Promise<{ settledExpenses: number; settledParcelas: number }> {
+  }): Promise<
+    AppliedSettlement & { outcome: 'SETTLED' | 'NO_SETTLEMENT' }
+  > {
     assertRateioRequester(params.requester);
     return this.prisma.$transaction(async (tx) => {
       const prepared = await this.prepareSettleInvoice({
         ...params,
         tx,
       });
-      return this.applyPreparedSettlement(tx, prepared);
+      const applied = await this.applyPreparedSettlement(tx, prepared);
+      return {
+        ...applied,
+        outcome:
+          applied.flippedEntries.length > 0 ? 'SETTLED' : 'NO_SETTLEMENT',
+      };
     });
   }
 
@@ -208,7 +248,7 @@ export class CardInvoiceSettlementService {
           card,
           target,
         );
-        if (prepared.length > 0) return { purchases: prepared };
+        if (prepared.length > 0) return { purchases: prepared, card };
       }
     }
 
@@ -220,7 +260,7 @@ export class CardInvoiceSettlementService {
       amountCents,
       paymentDate,
     );
-    if (!matchedImport) return { purchases: [] };
+    if (!matchedImport) return { purchases: [], card };
 
     const importPurchases = purchases.filter(
       (purchase) => purchase.importId === matchedImport.id,
@@ -229,7 +269,7 @@ export class CardInvoiceSettlementService {
       tx,
       importPurchases,
     );
-    return { purchases: prepared };
+    return { purchases: prepared, card };
   }
 
   /**
@@ -613,22 +653,158 @@ export class CardInvoiceSettlementService {
   async applyPreparedSettlement(
     tx: Prisma.TransactionClient,
     prepared: PreparedInvoiceSettlement,
-  ): Promise<{ settledExpenses: number; settledParcelas: number }> {
+  ): Promise<AppliedSettlement> {
+    const card = prepared.card ?? null;
     let settledParcelas = 0;
+    let settledExpenses = 0;
+    const flippedEntries: FlippedEntry[] = [];
     for (const purchase of prepared.purchases) {
+      const flippedForPurchase: EntryRow[] = [];
       for (const entry of purchase.entries) {
+        // Defensivo: `prepare*` já filtra PLANEJADO, mas nunca re-flipar um PAGO
+        // (não seria uma transição real → não entra na trilha).
+        if (entry.status === 'PAGO') continue;
+        const prevStatus = entry.status;
         await tx.cashFlowEntry.update({
           where: { id: entry.id },
           data: { status: 'PAGO' },
         });
+        flippedForPurchase.push(entry);
+        flippedEntries.push({
+          cashFlowEntryId: entry.id,
+          purchaseExpenseId: purchase.expense.id,
+          prevStatus,
+          valorCents: entry.valor ?? 0,
+          parcela: entry.parcela ?? null,
+          dueMonth: caixaMonthForCardPurchase(
+            entry.data,
+            card?.closingDay ?? null,
+            card?.dueDay ?? null,
+          ),
+        });
       }
-      await this.applyPaid(tx, purchase.expense, purchase.entries);
-      settledParcelas += purchase.entries.length;
+      if (flippedForPurchase.length === 0) continue;
+      await this.applyPaid(tx, purchase.expense, flippedForPurchase);
+      settledParcelas += flippedForPurchase.length;
+      settledExpenses += 1;
     }
-    return {
-      settledExpenses: prepared.purchases.length,
-      settledParcelas,
-    };
+    return { settledExpenses, settledParcelas, flippedEntries };
+  }
+
+  /**
+   * #569 — grava a trilha da liquidação: 1 linha por `FlippedEntry`. Um `P2002`
+   * no índice único parcial (parcela já reivindicada ativamente) **NÃO é
+   * capturado** — propaga e faz a `$transaction` do lote inteiro dar rollback.
+   */
+  async recordImportedLiquidations(
+    client: PrismaService | Prisma.TransactionClient,
+    args: RecordImportedLiquidationsArgs,
+  ): Promise<void> {
+    for (const f of args.flippedEntries) {
+      await client.importedInvoiceLiquidation.create({
+        data: {
+          tenantId: args.tenantId,
+          paymentExpenseId: args.paymentExpenseId,
+          importId: args.importId,
+          purchaseExpenseId: f.purchaseExpenseId,
+          cashFlowEntryId: f.cashFlowEntryId,
+          cardId: args.cardId,
+          prevStatus: f.prevStatus,
+          entryValorCents: f.valorCents,
+          parcela: f.parcela,
+          dueMonth: f.dueMonth,
+        },
+      });
+    }
+  }
+
+  /**
+   * #569 — enumera as linhas ATIVAS de um lote (tenant-scoped). Consumido só
+   * pelo `undoImport` via ledger (PR 2). O `$use` injeta `deletedAt: null`.
+   */
+  async prepareRevertImportedLiquidations(
+    client: PrismaService | Prisma.TransactionClient,
+    args: { tenantId: string; importId: string },
+  ): Promise<
+    Array<{
+      id: string;
+      paymentExpenseId: string;
+      purchaseExpenseId: string;
+      cashFlowEntryId: string;
+      prevStatus: string;
+      entryValorCents: number;
+      parcela: string | null;
+      dueMonth: string;
+      cardId: string;
+    }>
+  > {
+    return client.importedInvoiceLiquidation.findMany({
+      where: { tenantId: args.tenantId, importId: args.importId, deletedAt: null },
+      select: {
+        id: true,
+        paymentExpenseId: true,
+        purchaseExpenseId: true,
+        cashFlowEntryId: true,
+        prevStatus: true,
+        entryValorCents: true,
+        parcela: true,
+        dueMonth: true,
+        cardId: true,
+      },
+    });
+  }
+
+  /**
+   * #569 — reverte a trilha de um pagamento: restaura `status → prev_status` de
+   * cada parcela ativa, recomputa `paidParcelas`/`status` da compra e
+   * soft-deleta as linhas do ledger. Consumido só pelo `undoImport` (PR 2).
+   */
+  async applyRevertImportedLiquidations(
+    client: PrismaService | Prisma.TransactionClient,
+    args: { tenantId: string; paymentExpenseId: string },
+  ): Promise<{ revertedParcelas: number }> {
+    const rows = (await client.importedInvoiceLiquidation.findMany({
+      where: {
+        tenantId: args.tenantId,
+        paymentExpenseId: args.paymentExpenseId,
+        deletedAt: null,
+      },
+    })) as Array<{
+      id: string;
+      purchaseExpenseId: string;
+      cashFlowEntryId: string;
+      prevStatus: string;
+    }>;
+    const byPurchase = new Map<string, EntryRow[]>();
+    for (const row of rows) {
+      const entry = (await client.cashFlowEntry.findUnique({
+        where: { id: row.cashFlowEntryId },
+      })) as EntryRow | null;
+      await client.cashFlowEntry.update({
+        where: { id: row.cashFlowEntryId },
+        data: { status: row.prevStatus },
+      });
+      if (entry) {
+        const list = byPurchase.get(row.purchaseExpenseId) ?? [];
+        list.push(entry);
+        byPurchase.set(row.purchaseExpenseId, list);
+      }
+    }
+    for (const [purchaseId, entries] of byPurchase) {
+      const purchase = (await client.expense.findUnique({
+        where: { id: purchaseId },
+      })) as ExpenseRow | null;
+      if (purchase) await this.applyUnpaid(client, purchase, entries);
+    }
+    await client.importedInvoiceLiquidation.updateMany({
+      where: {
+        tenantId: args.tenantId,
+        paymentExpenseId: args.paymentExpenseId,
+        deletedAt: null,
+      },
+      data: { deletedAt: new Date() },
+    });
+    return { revertedParcelas: rows.length };
   }
 
   /**

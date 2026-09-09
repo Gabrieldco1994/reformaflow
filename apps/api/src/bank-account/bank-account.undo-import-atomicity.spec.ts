@@ -56,11 +56,11 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
   });
 
   afterEach(async () => {
+    const l = (setup as unknown as { importedInvoiceLiquidation?: { deleteMany: (a: unknown) => Promise<unknown> } }).importedInvoiceLiquidation;
+    if (l) await l.deleteMany({ where: { tenantId: TENANT } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setup.expense.deleteMany({ where: { tenantId: TENANT } });
     await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
-    const l = (setup as unknown as { importedInvoiceLiquidation?: { deleteMany: (a: unknown) => Promise<unknown> } }).importedInvoiceLiquidation;
-    if (l) await l.deleteMany({ where: { tenantId: TENANT } });
   });
 
   afterAll(async () => {

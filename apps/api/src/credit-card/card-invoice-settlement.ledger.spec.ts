@@ -65,13 +65,13 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
   });
 
   afterEach(async () => {
-    await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
-    await setup.expense.deleteMany({ where: { tenantId: TENANT } });
-    await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
     const anyDb = setup as unknown as { importedInvoiceLiquidation?: { deleteMany: (a: unknown) => Promise<unknown> } };
     if (anyDb.importedInvoiceLiquidation) {
       await anyDb.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
     }
+    await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+    await setup.expense.deleteMany({ where: { tenantId: TENANT } });
+    await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
   });
 
   afterAll(async () => {
@@ -187,6 +187,8 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
         totalAmountCents: 5_000,
       },
     });
+    // estratégia 2 (fallback) só considera compras com Expense.importId == import.id.
+    await setup.expense.update({ where: { id: p1.id }, data: { importId: cardImport.id } });
     const commit = await commitStatement(bank, {
       tenantId: TENANT,
       projectId: PESSOAL,
@@ -528,7 +530,7 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
       amountCents: 30_000,
       paymentDate: new Date("2026-04-01T12:00:00.000Z"),
       requester: ADMIN_REQUESTER as never,
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     // REGRESSÃO (comportamento vigente): as 2 PLANEJADO viraram PAGO, a 3ª intacta.
     expect(result.settledParcelas).toBe(2);
     expect((await setup.cashFlowEntry.findUnique({ where: { id: jaPago.entryId } }))?.status).toBe("PAGO");

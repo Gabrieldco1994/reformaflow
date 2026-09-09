@@ -114,6 +114,7 @@ async function createPurchaseOnCard(id: string, cardLast4: string, amountCents: 
 
 async function cleanup() {
   for (const t of [TENANT]) {
+    await setup.importedInvoiceLiquidation.deleteMany({ where: { tenantId: t } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: t } });
     await setup.expense.deleteMany({ where: { tenantId: t } });
     await setup.receipt.deleteMany({ where: { tenantId: t } });
@@ -148,6 +149,7 @@ afterAll(async () => {
   await setup.$disconnect();
 });
 afterEach(async () => {
+  await setup.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
   await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
   await setup.expense.deleteMany({ where: { tenantId: TENANT } });
   await setup.receipt.deleteMany({ where: { tenantId: TENANT } });

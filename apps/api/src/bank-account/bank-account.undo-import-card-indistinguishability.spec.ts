@@ -61,6 +61,7 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
     await setupPrisma.crossProjectSettlement.deleteMany({
       where: { tenantId: TENANT },
     });
+    await setupPrisma.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.expense.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.receipt.deleteMany({ where: { tenantId: TENANT } });
@@ -321,9 +322,8 @@ describe("BankAccountService.undoImport — cartão indistinguível e zero-write
       const after = await snapshot();
 
       const expectedMessage =
-        "Esta importação contém pagamento de fatura de cartão. Lotes com " +
-        "pagamento de fatura permanecem intactos por segurança e não podem " +
-        "ser desfeitos automaticamente.";
+        "Esta importação contém pagamento de fatura de cartão sem trilha " +
+        "(LEGACY_OR_MIXED). Lotes legados ou mistos permanecem intactos.";
       expect(rejectionShape(error)).toEqual({
         name: ConflictException.name,
         status: 409,

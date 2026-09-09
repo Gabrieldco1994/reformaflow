@@ -86,6 +86,7 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
   async function cleanup(): Promise<void> {
     await setupPrisma.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.crossProjectSettlement.deleteMany({ where: { tenantId: TENANT } });
+    await setupPrisma.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.expense.deleteMany({ where: { tenantId: TENANT } });
     await setupPrisma.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
