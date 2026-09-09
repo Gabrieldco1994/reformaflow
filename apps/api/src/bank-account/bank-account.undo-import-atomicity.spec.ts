@@ -1,12 +1,3 @@
-// PR: PR 1 (degrau) — rollback do lote quando `recordImportedLiquidations` estoura
-//     (itens 1–2 + regression). PR 2 (feature) — `getAccountView` volta ao baseline
-//     pós-`undoImport` via ledger (item 3, "pagar-por-import → undoImport …").
-// #569 §6.3 — atomicidade do commit/undo com a trilha.
-// RED por ausência (Grupo B) nos itens que semeiam/leem `ImportedInvoiceLiquidation`
-// — depende do schema aditivo do PR 1 (degrau), §3.3.1. NÃO aplicar migration
-// nesta rodada (decisão do PO). O 3º `it` é RED por comportamento (Grupo A):
-// hoje `undoImport` faz 409 fail-closed no lote com pagamento de fatura, então
-// `getAccountView` nunca volta ao baseline.
 import { PrismaClient } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -89,14 +80,15 @@ describe("#569 §6.3 — undo-import atomicity (PR 1)", () => {
       cardLast4: CARD,
       valorCents: 17_000,
       data: new Date("2026-06-10T12:00:00.000Z"),
-      id: "atomic-purchase",
+      id: "atomic-purchase-first",
     });
-    const secondEntry = await setup.cashFlowEntry.create({
-      data: {
-        id: "atomic-entry-second", tenantId: TENANT, projectId: PESSOAL, expenseId: first.id,
-        valor: 24_000, tipo: "DESPESA", data: new Date("2026-06-11T12:00:00.000Z"),
-        categoria: "OUTROS", formaPagamento: "CARTAO_CREDITO", status: "PLANEJADO",
-      },
+    const second = await seedSinglePurchase(setup, {
+      tenantId: TENANT,
+      projectId: PESSOAL,
+      cardLast4: CARD,
+      valorCents: 24_000,
+      data: new Date("2026-06-11T12:00:00.000Z"),
+      id: "atomic-purchase-second",
     });
     const settlement = makeSettlementService(prisma);
     const prepared = await prisma.$transaction((tx) =>
@@ -110,7 +102,7 @@ describe("#569 §6.3 — undo-import atomicity (PR 1)", () => {
       }),
     );
     expect(prepared.purchases.flatMap((purchase) => purchase.entries.map((entry) => entry.id)))
-      .toEqual([first.entryId, secondEntry.id]);
+      .toEqual([first.entryId, second.entryId]);
 
     // A primeira gravação não conflita; a segunda encontra esta claim ativa.
     await seedStatementImport(setup, { tenantId: TENANT, accountId, id: "pre-existing" });
@@ -119,8 +111,8 @@ describe("#569 §6.3 — undo-import atomicity (PR 1)", () => {
         tenantId: TENANT,
         paymentExpenseId: first.id,
         importId: "pre-existing",
-        purchaseExpenseId: first.id,
-        cashFlowEntryId: secondEntry.id,
+        purchaseExpenseId: second.id,
+        cashFlowEntryId: second.entryId,
         cardId,
         prevStatus: "PLANEJADO",
         entryValorCents: 24_000,
@@ -172,6 +164,39 @@ describe("#569 §6.3 — undo-import atomicity (PR 1)", () => {
     });
 
     const before = await financialSnapshot();
+    const ledgerWrites: Array<{
+      cashFlowEntryId: string;
+      outcome: "PENDING" | "SUCCEEDED" | "P2002";
+      runInTransaction: boolean;
+    }> = [];
+    prisma.$use(async (params, next) => {
+      const data = params.args?.data as
+        | { tenantId?: string; cashFlowEntryId?: string }
+        | undefined;
+      if (
+        params.model !== "ImportedInvoiceLiquidation"
+        || params.action !== "create"
+        || data?.tenantId !== TENANT
+      ) {
+        return next(params);
+      }
+      const observation: (typeof ledgerWrites)[number] = {
+        cashFlowEntryId: data.cashFlowEntryId!,
+        outcome: "PENDING",
+        runInTransaction: params.runInTransaction,
+      };
+      ledgerWrites.push(observation);
+      try {
+        const result = await next(params);
+        observation.outcome = "SUCCEEDED";
+        return result;
+      } catch (caught) {
+        if ((caught as { code?: string }).code === "P2002") {
+          observation.outcome = "P2002";
+        }
+        throw caught;
+      }
+    });
     let error: unknown;
     try {
       await commitStatement(bank, {
@@ -189,12 +214,30 @@ describe("#569 §6.3 — undo-import atomicity (PR 1)", () => {
       error = caught;
     }
     expect(error).toMatchObject({ code: "P2002" });
+    expect(ledgerWrites).toEqual([
+      {
+        cashFlowEntryId: first.entryId,
+        outcome: "SUCCEEDED",
+        runInTransaction: true,
+      },
+      {
+        cashFlowEntryId: second.entryId,
+        outcome: "P2002",
+        runInTransaction: true,
+      },
+    ]);
     expect(await financialSnapshot()).toEqual(before);
-    expect(before.expenses.find((expense) => expense.id === first.id))
-      .toMatchObject({ status: "PLANEJADO", paidParcelas: null });
+    expect(before.expenses).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: first.id, status: "PLANEJADO", valorTotal: 17_000, paidParcelas: null,
+      }),
+      expect.objectContaining({
+        id: second.id, status: "PLANEJADO", valorTotal: 24_000, paidParcelas: null,
+      }),
+    ]));
     expect(before.entries).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: first.entryId, status: "PLANEJADO", valor: 17_000 }),
-      expect.objectContaining({ id: secondEntry.id, status: "PLANEJADO", valor: 24_000 }),
+      expect.objectContaining({ id: second.entryId, status: "PLANEJADO", valor: 24_000 }),
       expect.objectContaining({ id: "atomic-receipt-entry", receiptId: receipt.id }),
     ]));
     expect(before.ledger).toHaveLength(1);
