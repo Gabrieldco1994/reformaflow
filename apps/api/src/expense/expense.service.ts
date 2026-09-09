@@ -1622,7 +1622,9 @@ export class ExpenseService {
         changedQuantidade ||
         changedQuantidadeParcela ||
         changedDataPagamento ||
-        changedDataInicioParcela,
+        changedDataInicioParcela ||
+        changedStatus ||
+        changedFormaPagamento,
       changedProtectedPaymentFields:
         changedOwnership ||
         (dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa) ||
