@@ -160,4 +160,37 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
     expect(after).toHaveLength(3);
     expect(after.some((e) => idsBefore.includes(e.id))).toBe(false);
   });
+
+  it("2c — updateInstallmentDate numa compra parcelada com parcela liquidada por importação → 409, zero regeneração de caixa", async () => {
+    const { purchaseId, entryIds } = await importSettled(2, 20_000);
+    const entriesBefore = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchaseId }, orderBy: { data: "asc" },
+    });
+    await expect(
+      expenses.updateInstallmentDate(TENANT, PESSOAL, purchaseId, 1, "2026-09-15", R),
+    ).rejects.toBeInstanceOf(ConflictException);
+    const entriesAfter = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchaseId }, orderBy: { data: "asc" },
+    });
+    expect(entriesAfter.map((e) => e.id).sort()).toEqual([...entryIds].sort());
+    expect(entriesAfter.map((e) => [e.valor, e.status])).toEqual(
+      entriesBefore.map((e) => [e.valor, e.status]),
+    );
+  });
+
+  it("2c — remove() cujo cascade arrastaria um ESPELHO (linkedExpenseId) liquidado por importação → 409, zero escrita", async () => {
+    const { purchaseId: mirrorId, entryIds } = await importSettled(1, 25_000);
+    // despesa comum que aponta para o espelho liquidado via linkedExpenseId
+    const head = await setup.expense.create({
+      data: {
+        tenantId: TENANT, projectId: PESSOAL, tipoDespesa: "OUTROS", titulo: "cabeca",
+        valor: 25_000, quantidade: 1, valorTotal: 25_000, formaPagamento: "A_VISTA",
+        status: "PLANEJADO", linkedExpenseId: mirrorId,
+      },
+    });
+    const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
+    await expect(expenses.remove(TENANT, PESSOAL, head.id, R)).rejects.toBeInstanceOf(ConflictException);
+    expect(await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
+    expect((await setup.cashFlowEntry.findUnique({ where: { id: entryIds[0] } }))?.deletedAt).toBeNull();
+  });
 });

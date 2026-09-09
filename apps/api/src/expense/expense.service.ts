@@ -1788,6 +1788,12 @@ export class ExpenseService {
         include: { room: true },
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
+      // #569 (degrau, §2c) — mover a data de uma parcela regenera o caixa; se a
+      // parcela (ou a de um alvo de rateio / par vinculado) tem linha de ledger
+      // ATIVA, isso orfanaria a trilha. Bloqueia antes de qualquer escrita.
+      await this.guardImportedInvoiceTrail(tx, tenantId, expense, {
+        changedFinancials: true,
+      });
       if (isSinglePaymentForm(expense.formaPagamento)) {
         throw new BadRequestException('Despesa não é parcelada/quinzenal');
       }
@@ -1841,6 +1847,12 @@ export class ExpenseService {
         .filter((target) => target.deletedAt === null);
       const hasFullAccess = isFullAccessRole(requester.role);
       for (const target of activeRateioTargets) {
+        await this.guardImportedInvoiceTrail(
+          tx,
+          tenantId,
+          { id: target.id },
+          { changedFinancials: true },
+        );
         if (
           target.tenantId !== tenantId ||
           (target.project
@@ -1931,6 +1943,12 @@ export class ExpenseService {
           ) {
             throw new BadRequestException('Par vinculado possui parcelamento incompatível');
           }
+          await this.guardImportedInvoiceTrail(
+            tx,
+            tenantId,
+            { id: counterpart.id, invoiceUndoState: counterpart.invoiceUndoState },
+            { changedFinancials: true },
+          );
           preparedCounterparts.push({
             id: counterpart.id,
             projectId: counterpart.projectId,
@@ -2432,6 +2450,20 @@ export class ExpenseService {
       }
 
       const idArr = [...ids];
+      // #569 (degrau, §2c) — o cascade soft-deleta as CashFlowEntry de CADA id;
+      // um espelho/par vinculado com trilha ATIVA não pode ser arrastado.
+      for (const cascadeId of idArr) {
+        if (cascadeId === id) continue; // já checado acima
+        const cascadeExpense = await tx.expense.findUnique({
+          where: { id: cascadeId },
+          select: { id: true, invoiceUndoState: true, cardLast4: true },
+        });
+        if (cascadeExpense) {
+          await this.guardImportedInvoiceTrail(tx, tenantId, cascadeExpense, {
+            isRemove: true,
+          });
+        }
+      }
       const now = new Date();
       await tx.expense.updateMany({
         where: {
