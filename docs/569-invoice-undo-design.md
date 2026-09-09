@@ -359,8 +359,10 @@ Ordem, ANTES da 1ª escrita:
 ### 3.3 Rollback — piso compatível PR 1 e `DROP` futuro (E)
 
 **Guarda de versão** (inalterada): `INVOICE_UNDO_TRAIL_VERSION` (const em
-`card-invoice-settlement.service.ts`) grava no carimbo; `undoImport`/`getImportDetail`
-**recusam fail-closed (409)** um carimbo com versão que não reconhecem.
+`card-invoice-settlement.service.ts`) grava no carimbo. Para uma versão não
+reconhecida, `getImportDetail` retorna **`canUndo:false` + `blockReason`** na
+leitura — não HTTP 409 por esse bloqueio. A tentativa de escrita via
+`undoImport` é recusada **com HTTP 409**, sem mutação.
 
 **Piso de compatibilidade:** depois que o PR 1 gravar trilhas, o rollback tem de
 preservar schema, carimbos, itens e todos os guards que protegem os dados existentes.
@@ -455,8 +457,9 @@ obrigatórios que o texto acima não listava:**
   do `apply` (`PROCESSED_SETTLED` se liquidou, `PROCESSED_NONE` se não), nunca
   `PROCESSED_NONE` fixo — sem isso a degrau reabre o estado-1 indevido ou apaga a trilha;
 - **guarda de versão em `undoImport` E `getImportDetail`**: carimbo com
-  `invoice_undo_trail_version` não reconhecida ⇒ 409 fail-closed (rolar entre degrau e
-  feature nas duas direções);
+  `invoice_undo_trail_version` não reconhecida ⇒ leitura com
+  `canUndo:false` + `blockReason`; tentativa de undo com HTTP 409, sem escrita
+  (rolar entre degrau e feature nas duas direções);
 - **fail-closed da degrau sobre `PROCESSED_SETTLED`**: o PR 1 **cria esse estado**
   quando liquida parcelas e grava os itens reais; `getImportDetail` mantém
   `canUndo:false` e `undoImport` 409. Helpers de reversão no código não significam
@@ -533,25 +536,19 @@ tamanho e tempo do `ALTER`; drill de backup/restore executado.
 Sem framework genérico de auditoria. Cada linha: caminho (arquivo:linha) →
 tratamento → ponto concreto a mudar.
 
-**B2 — receita técnica suspensa para fechamento pelo parent.** O plano antigo
-confundia resolução de fatura com `dto.month`/data de compra; não deve orientar
-uma implementação nem justificar um bug. Na base `57287dad`,
-`MonthlyOverviewService.payInvoice` ainda combina `dto.month` com
-`resolveEffectiveDueMonths`; este helper calcula totais sem receber `requester`
-e consulta o fallback mesmo após encontrar um alvo por vencimento. A correção de
-build informada pelo parent vai **unificar o resolver autorizado antes dos
-totais**, respeitando a precedência existente e **sem ampliar as janelas**.
-Validar na branch integrada; as receitas B2 repetidas no plano RED abaixo são
-históricas, não uma alteração do contrato de negócio. Os guards e o manual não
-certificam essa correção como concluída.
+**B2 — implementação em validação nas branches dos builders.** O parent
+encaminhou a unificação do **resolver autorizado antes dos totais**, respeitando
+a precedência existente e **sem ampliar as janelas**. A receita antiga baseada
+em `dto.month`/data de compra continua suspensa; suas repetições no plano RED
+abaixo são históricas, não uma alteração do contrato de negócio.
 
-**Outras divergências devolvidas ao parent, sem mudar a regra:** B5/B9 abaixo
-descrevem proteção do pagamento carimbado, mas `guardImportedInvoiceTrail`
-(`expense.service.ts:716–756` em `57287dad`) restringe esses bloqueios a
-`PROCESSED_SETTLED`. Validar o caso `PROCESSED_NONE` antes de considerar esses
-itens fechados. Também falta harmonizar a documentação da guarda de versão:
-§3.3/§3.3.1 falam em 409 nos dois caminhos; `classifyInvoiceUndoTrail`
-(`bank-account.service.ts:1317–1319`) retorna `canUndo:false` na leitura.
+**B5/B9 — contrato preservado; guards em validação pelos builders.** Pagamentos
+carimbados continuam protegidos contra remoção e reclassificação incompatível,
+inclusive `PROCESSED_NONE`. A exceção é a **associação M8**: `PROCESSED_NONE`,
+cartão ainda não identificado (`invoiceUndoCardId IS NULL`) e zero flips/itens;
+associar o cartão não liquida parcelas nem apaga a proveniência. Os defeitos
+de implementação já encaminhados ao parent não são a regra e não exigem
+aguardar as branches para concluir esta revisão documental.
 
 | # | caminho | o que faz às parcelas | tratamento mínimo | ponto concreto |
 |---|---|---|---|---|
@@ -559,7 +556,7 @@ itens fechados. Também falta harmonizar a documentação da guarda de versão:
 | B2 | `MonthlyOverviewService.payInvoice` (cockpit manual) | criaria um 2º pagamento sobre uma fatura liquidada por importação | Parcela ativa no ledger da fatura efetivamente visada ⇒ 409 `INVOICE_HAS_IMPORT_TRAIL`, zero escrita, mesmo com `prepared` vazio. `PROCESSED_NONE` sem itens não dispara. Receita de resolução **suspensa**, ver nota acima; `MANUAL_PAYMENT_OVERLAP` no undo é PR 2. | correção do resolver em validação pelo backend/parent |
 | B3 | `ExpenseService.update` `expense.service.ts:1444` — PATCH da COMPRA (valor/quantidade/parcelas) | regenera `CashFlowEntry` ⇒ muda `valor`/`parcela` | **bloquear no `assertCanMutateLinkedRows`** (`expense.service.ts:1465`): se a compra tem item de ledger ATIVO e o DTO muda `valor`/`quantidade`/`quantidadeParcela`/datas ⇒ `ConflictException` "compra liquidada por pagamento importado; desfaça a importação primeiro". | +cheque em `assertCanMutateLinkedRows` |
 | B4 | `ExpenseService.update` — PATCH do PAGAMENTO `{ creditCardId }` | escolhe CARTÃO, não fatura (F) | **carimbo `PROCESSED_NONE` + `invoiceUndoCardId IS NULL` + zero itens ativos** (estado 2b, M8 "confirme qual cartão") ⇒ PATCH de `creditCardId` **PERMITIDO**: associa o cartão, **NÃO liquida parcela alguma**, o carimbo/proveniência permanece (opcionalmente atualiza `invoiceUndoCardId`). **Carimbo com itens ATIVOS (`PROCESSED_SETTLED`)** e o `creditCardId` novo ≠ `invoiceUndoCardId` ⇒ `ConflictException` (o carimbo/itens apontam para o cartão antigo). | +cheque em `assertCanMutateLinkedRows` |
-| B9 | `ExpenseService.update` — PATCH do PAGAMENTO `{ tipoDespesa }` / ownership / `cardLast4` / `bankLast4` / `settlesInvoiceKey` | tiraria a proveniência que faz o par derivar (§1.2) | pagamento **com carimbo ATIVO** (`invoice_undo_state IS NOT NULL`, e para `PROCESSED_SETTLED` com itens no ledger) ⇒ `hasProtectedChange`/`changedToNeutralType` (`expense.service.ts:1509-1526`) retorna true ⇒ `ConflictException`. Um `PROCESSED_NONE` sem itens **não** bloqueia a associação de cartão (isso é B4). | +ramo em `hasProtectedChange` (carimbo ativo + muda `tipoDespesa`/ownership/`*Last4`/`settlesInvoiceKey`) |
+| B9 | `ExpenseService.update` — PATCH do PAGAMENTO `{ tipoDespesa }` / ownership / `cardLast4` / `bankLast4` / `settlesInvoiceKey` | tiraria a proveniência que faz o par derivar (§1.2) | pagamento **com carimbo ATIVO** (`invoice_undo_state IS NOT NULL`, e para `PROCESSED_SETTLED` com itens no ledger) ⇒ `hasProtectedChange`/`changedToNeutralType` (`expense.service.ts:1509-1526`) retorna true ⇒ `ConflictException`. Exceção: associação M8 com `PROCESSED_NONE`, `invoiceUndoCardId IS NULL` e zero flips/itens (B4). | +ramo em `hasProtectedChange` (carimbo ativo + muda `tipoDespesa`/ownership/`*Last4`/`settlesInvoiceKey`) |
 | B5 | `ExpenseService.remove` `expense.service.ts:2190` — DELETE da COMPRA ou do PAGAMENTO | soft-delete da despesa + suas `CashFlowEntry` | COMPRA com item ativo ⇒ **bloquear** em `assertCanMutateLinkedRows` (ConflictException). PAGAMENTO com carimbo ⇒ **bloquear** ("desfaça pela importação"). Se escapar: drift-check `deletedAt != null` ⇒ 409. | +cheque em `assertCanMutateLinkedRows` |
 | B6 | Rateio `conciliacao.ratearSource` / `unratearSource` (via `expense.service.ts:2014`, `bank-account.service.ts:1533`) | sobrescreve schedule/`paidParcelas` do alvo | `guardRateioParticipation` (`expense.service.ts` ~`:2014`): se a compra participante tem item de ledger ativo ⇒ `ConflictException`. Escape ⇒ drift-check `parcela`/rateio-snapshot ⇒ 409. | +cheque em `guardRateioParticipation` |
 | B7 | Recorrência `propagateRecurrences` `bank-account.service.ts:1230` / `RecurringBill` upsert | cria despesa NOVA em CASA/CARRO; **não toca** `CashFlowEntry` PAGO da compra de cartão | nenhum — documentar que não interfere | — |
@@ -698,7 +695,7 @@ Um `it` por caminho de B:
 ### 6.7 `apps/api/src/prisma/migrations-invoice-undo-upgrade.spec.ts`
 - `it('migrate deploy sobre fixture legada: cria imported_invoice_liquidations vazia e colunas invoice_undo_* NULL; PRAGMA foreign_key_check zero violações')`.
 - `it('lote legado (PAGAMENTO_FATURA_CARTAO sem carimbo, parcelas PAGO) após migration: getImportDetail canUndo:false / undoImport 409, sem backfill')`.
-- `it('carimbo com trail_version desconhecida → getImportDetail canUndo:false, undoImport 409 (guarda de versão)')`.
+- `it('carimbo com trail_version desconhecida → getImportDetail canUndo:false + blockReason (não HTTP 409); undoImport HTTP 409 sem escrita (guarda de versão)')`.
 - `it('critério de DROP seguro: base com 0 linhas em imported_invoice_liquidations MAS ≥1 expense com invoice_undo_state = PROCESSED_NONE → o check de pré-condição de rollback destrutivo reprova (as duas contagens, não só a da tabela)')`.
 
 ### 6.8 `apps/api/src/bank-account/bank-account.import-detail-contract.spec.ts`
