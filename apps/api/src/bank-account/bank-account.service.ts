@@ -2664,6 +2664,25 @@ export class BankAccountService {
       },
     });
 
+    // #569 (degrau, §3c) — quando o usuário classifica explicitamente a linha
+    // como PAGAMENTO_FATURA_CARTAO mas o preparo NÃO a reconheceu (memo sem
+    // indício, sem last4), a despesa chega aqui sem carimbo. Sem ele o pagamento
+    // seria indistinguível do legado (estado 1) e travaria o lote. Carimba
+    // PROCESSED_NONE / 0 itens / card NULL — sem inventar identificação nem
+    // liquidação.
+    if (expenseType === 'PAGAMENTO_FATURA_CARTAO') {
+      await client.expense.update({
+        where: { id: expense.id },
+        data: {
+          invoiceUndoState: 'PROCESSED_NONE',
+          invoiceUndoParcelaCount: 0,
+          invoiceUndoDueMonth: null,
+          invoiceUndoCardId: null,
+          invoiceUndoTrailVersion: INVOICE_UNDO_TRAIL_VERSION,
+        },
+      });
+    }
+
     // Perna de DÉBITO de movimentação interna (aplicação): NÃO gera CashFlowEntry.
     // ATENÇÃO (#574): isso é ASSIMÉTRICO em relação à perna de CRÉDITO (resgate,
     // ver isInternalMov acima) — aquela GERA CashFlowEntry RECEBIMENTO normalmente.
