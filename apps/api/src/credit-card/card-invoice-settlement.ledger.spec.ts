@@ -11,7 +11,6 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import {
-  ADMIN_REQUESTER,
   EXPECTED_TRAIL_VERSION,
   bankOfx,
   commitStatement,
@@ -38,7 +37,7 @@ const REQUESTER = pessoalRequester(PESSOAL);
 const setup = new PrismaClient();
 const prisma = new PrismaService();
 
-describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
+describe("#569 §6.1 — card-invoice-settlement ledger (PR 1)", () => {
   let bank: ReturnType<typeof makeBankAccountService>;
   let settlement: ReturnType<typeof makeSettlementService>;
   let accountId: string;
@@ -121,18 +120,29 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
     expect(payment).not.toBeNull();
 
     const rows = await ledger().findMany({ where: { paymentExpenseId: payment!.id } });
-    expect(rows.length).toBeGreaterThan(0);
-    for (const r of rows) {
-      expect(r.prevStatus).toBe("PLANEJADO");
-      expect(r.entryValorCents).toBe(10_000);
-      expect(String(r.parcela ?? "")).toMatch(/^\d+\/3$/);
-      const entry = await setup.cashFlowEntry.findUnique({ where: { id: r.cashFlowEntryId as string } });
-      expect(entry?.status).toBe("PAGO");
-    }
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId: TENANT,
+      paymentExpenseId: payment!.id,
+      importId: commit.importId,
+      purchaseExpenseId: purchase.id,
+      cashFlowEntryId: purchase.entryIds[0],
+      cardId: card.id,
+      prevStatus: "PLANEJADO",
+      entryValorCents: 10_000,
+      parcela: "1/3",
+      dueMonth: "2026-02",
+      deletedAt: null,
+    });
+    const entry = await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } });
+    expect(entry?.status).toBe("PAGO");
     // completude O(1): carimbo no pagamento
     const raw = await readExpenseRaw(setup, payment!.id);
     expect(raw?.invoiceUndoState).toBe("PROCESSED_SETTLED");
-    expect(raw?.invoiceUndoParcelaCount).toBe(rows.length);
+    expect(raw?.invoiceUndoParcelaCount).toBe(1);
+    expect(raw?.invoiceUndoDueMonth).toBe("2026-02");
+    expect(raw?.invoiceUndoCardId).toBe(card.id);
+    expect(raw?.invoiceUndoTrailVersion).toBe(EXPECTED_TRAIL_VERSION);
   });
 
   it("estratégia 1 (vencimento): grava só as parcelas do dueMonth alvo; parcelas de outro ciclo do mesmo cartão ficam fora do ledger e PLANEJADO", async () => {
@@ -312,6 +322,9 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
     expect(raw!.invoiceUndoState).toBe("PROCESSED_NONE");
     expect(raw!.invoiceUndoCardId).toBeNull();
     expect(raw!.invoiceUndoParcelaCount).toBe(0);
+    expect(await setup.importedInvoiceLiquidation.findMany({
+      where: { paymentExpenseId: payment!.id },
+    })).toEqual([]);
     const detail = (await (bank as unknown as {
       getImportDetail: (...a: unknown[]) => Promise<Record<string, unknown>>;
     }).getImportDetail(TENANT, PESSOAL, accountId, commit.importId, REQUESTER)) as Record<string, unknown>;
@@ -515,44 +528,86 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
     expect(revertOtherTenant).toHaveLength(0);
   });
 
-  it("applyPreparedSettlement devolve flippedEntries: exatamente as 2 entries PLANEJADO→PAGO do ciclo (a que já era PAGO não entra), com prevStatus/valorCents/cashFlowEntryId exatos", async () => {
-    // Ciclo único que fecha 20/03 e vence 2026-04: 3 compras à vista de R$100,00
-    // em 2026-03-10 (mesmo dueMonth). 1 já PAGO + 2 PLANEJADO. Pagamento em
-    // 2026-04-01 de R$300,00 = total EXATO da fatura (3 parcelas).
+  it("import real persiste exatamente 2 flips de valores distintos no mesmo ciclo; a entry já PAGO não entra no ledger nem no carimbo", async () => {
+    // Ciclo único que fecha 20/03 e vence 2026-04: uma entry já PAGO (R$70),
+    // duas PLANEJADO (R$110/R$130) e pagamento exato de R$310.
     const dia = new Date("2026-03-10T12:00:00.000Z");
     const jaPago = await seedSinglePurchase(setup, {
-      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 10_000,
-      data: dia, status: "PAGO", titulo: "ja-pago",
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 7_000,
+      data: dia, status: "PAGO", titulo: "ja-pago", id: "ledger-ja-pago",
     });
     const p1 = await seedSinglePurchase(setup, {
-      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 10_000,
-      data: dia, status: "PLANEJADO", titulo: "planejado-1",
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 11_000,
+      data: dia, status: "PLANEJADO", titulo: "planejado-1", id: "ledger-planejado-1",
     });
     const p2 = await seedSinglePurchase(setup, {
-      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 10_000,
-      data: dia, status: "PLANEJADO", titulo: "planejado-2",
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD_LAST4, valorCents: 13_000,
+      data: dia, status: "PLANEJADO", titulo: "planejado-2", id: "ledger-planejado-2",
     });
-    const result = (await settlement.settleInvoice({
+    const commit = await commitStatement(bank, {
       tenantId: TENANT,
-      card: { id: card.id, last4: CARD_LAST4, closingDay: 20, dueDay: 1 } as never,
-      amountCents: 30_000,
-      paymentDate: new Date("2026-04-01T12:00:00.000Z"),
-      requester: ADMIN_REQUESTER as never,
-    })) as unknown as Record<string, unknown>;
-    // REGRESSÃO (comportamento vigente): as 2 PLANEJADO viraram PAGO, a 3ª intacta.
-    expect(result.settledParcelas).toBe(2);
-    expect((await setup.cashFlowEntry.findUnique({ where: { id: jaPago.entryId } }))?.status).toBe("PAGO");
-    expect((await setup.cashFlowEntry.findUnique({ where: { id: p1.entryId } }))?.status).toBe("PAGO");
-    expect((await setup.cashFlowEntry.findUnique({ where: { id: p2.entryId } }))?.status).toBe("PAGO");
-    // RED (§6.1): applyPreparedSettlement ainda NÃO devolve flippedEntries.
-    // Deve FALHAR se vier [] / undefined E se algum dia trouxer a entry já-PAGO (3).
-    const flipped = result.flippedEntries as Array<Record<string, unknown>> | undefined;
-    expect(Array.isArray(flipped)).toBe(true);
-    expect(flipped!.map((f) => f.cashFlowEntryId).sort()).toEqual([p1.entryId, p2.entryId].sort());
-    for (const f of flipped!) {
-      expect(f.prevStatus).toBe("PLANEJADO");
-      expect(f.valorCents).toBe(10_000);
-    }
-    expect(EXPECTED_TRAIL_VERSION).toBe(1);
+      projectId: PESSOAL,
+      accountId,
+      bankLast4: BANK_LAST4,
+      cardLast4: CARD_LAST4,
+      debitCents: 31_000,
+      date: "20260401",
+      period: "2026-04",
+      fitId: "persist-two-distinct-flips",
+      requester: REQUESTER,
+    });
+    const payment = await setup.expense.findFirstOrThrow({
+      where: {
+        tenantId: TENANT,
+        importId: commit.importId,
+        tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+      },
+    });
+    const persisted = await setup.importedInvoiceLiquidation.findMany({
+      where: { paymentExpenseId: payment.id, deletedAt: null },
+      orderBy: { cashFlowEntryId: "asc" },
+    });
+    const expectedRows = [
+      { cashFlowEntryId: p1.entryId, purchaseExpenseId: p1.id, entryValorCents: 11_000 },
+      { cashFlowEntryId: p2.entryId, purchaseExpenseId: p2.id, entryValorCents: 13_000 },
+    ].sort((a, b) => a.cashFlowEntryId.localeCompare(b.cashFlowEntryId));
+    expect(persisted.map((row) => ({
+      cashFlowEntryId: row.cashFlowEntryId,
+      purchaseExpenseId: row.purchaseExpenseId,
+      entryValorCents: row.entryValorCents,
+      prevStatus: row.prevStatus,
+      dueMonth: row.dueMonth,
+      paymentExpenseId: row.paymentExpenseId,
+      importId: row.importId,
+      cardId: row.cardId,
+      parcela: row.parcela,
+      deletedAt: row.deletedAt,
+    }))).toEqual(expectedRows.map((row) => ({
+      ...row,
+      prevStatus: "PLANEJADO",
+      dueMonth: "2026-04",
+      paymentExpenseId: payment.id,
+      importId: commit.importId,
+      cardId: card.id,
+      parcela: null,
+      deletedAt: null,
+    })));
+    expect(persisted.map((row) => row.cashFlowEntryId)).not.toContain(jaPago.entryId);
+    expect(await setup.cashFlowEntry.findMany({
+      where: { id: { in: [jaPago.entryId, p1.entryId, p2.entryId] } },
+      select: { id: true, status: true, valor: true },
+      orderBy: { id: "asc" },
+    })).toEqual([
+      { id: jaPago.entryId, status: "PAGO", valor: 7_000 },
+      { id: p1.entryId, status: "PAGO", valor: 11_000 },
+      { id: p2.entryId, status: "PAGO", valor: 13_000 },
+    ].sort((a, b) => a.id.localeCompare(b.id)));
+    expect(payment).toMatchObject({
+      invoiceUndoState: "PROCESSED_SETTLED",
+      invoiceUndoParcelaCount: 2,
+      invoiceUndoDueMonth: "2026-04",
+      invoiceUndoCardId: card.id,
+      invoiceUndoTrailVersion: EXPECTED_TRAIL_VERSION,
+    });
   });
 });

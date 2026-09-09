@@ -71,6 +71,7 @@ export async function resetTenant(setup: PrismaClient, tenantId: string): Promis
   await setup.rateioAllocation.deleteMany({ where: { tenantId } });
   await setup.crossProjectSettlement.deleteMany({ where: { tenantId } });
   await setup.cashFlowEntry.deleteMany({ where: { tenantId } });
+  await setup.receipt.deleteMany({ where: { tenantId } });
   await setup.expense.deleteMany({ where: { tenantId } });
   await setup.bankStatementImport.deleteMany({ where: { tenantId } });
   const cardImports = (setup as unknown as {

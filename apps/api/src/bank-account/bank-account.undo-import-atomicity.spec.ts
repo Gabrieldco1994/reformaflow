@@ -12,12 +12,13 @@ import { PrismaService } from "../prisma/prisma.service";
 import {
   commitStatement,
   makeBankAccountService,
+  makeSettlementService,
   pessoalRequester,
   resetTenant,
   seedBankAccount,
   seedCardWithClosingDue,
-  seedInstallmentPurchase,
   seedPessoal,
+  seedSinglePurchase,
   seedStatementImport,
 } from "./__tests__/invoice-undo.fixtures";
 
@@ -30,7 +31,7 @@ const R = pessoalRequester(PESSOAL);
 const setup = new PrismaClient();
 const prisma = new PrismaService();
 
-describe("#569 §6.3 — undo-import atomicity (RED)", () => {
+describe("#569 §6.3 — undo-import atomicity (PR 1)", () => {
   let bank: ReturnType<typeof makeBankAccountService>;
   let accountId: string;
   let cardId: string;
@@ -52,9 +53,11 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
   });
 
   afterEach(async () => {
-    const l = (setup as unknown as { importedInvoiceLiquidation?: { deleteMany: (a: unknown) => Promise<unknown> } }).importedInvoiceLiquidation;
-    if (l) await l.deleteMany({ where: { tenantId: TENANT } });
+    await setup.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
+    await setup.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
+    await setup.crossProjectSettlement.deleteMany({ where: { tenantId: TENANT } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+    await setup.receipt.deleteMany({ where: { tenantId: TENANT } });
     await setup.expense.deleteMany({ where: { tenantId: TENANT } });
     await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
   });
@@ -65,61 +68,139 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
     await setup.$disconnect();
   });
 
-  async function counts() {
-    return {
-      expense: await setup.expense.count({ where: { tenantId: TENANT } }),
-      cashFlow: await setup.cashFlowEntry.count({ where: { tenantId: TENANT } }),
-      import: await setup.bankStatementImport.count({ where: { tenantId: TENANT } }),
-      ledger: await (setup as unknown as { importedInvoiceLiquidation: { count: (a: unknown) => Promise<number> } }).importedInvoiceLiquidation.count({
-        where: { tenantId: TENANT },
-      }),
-    };
+  async function financialSnapshot() {
+    const args = { where: { tenantId: TENANT }, orderBy: { id: "asc" as const } };
+    const [expenses, entries, imports, ledger, receipts, settlements, allocations] = await Promise.all([
+      setup.expense.findMany(args),
+      setup.cashFlowEntry.findMany(args),
+      setup.bankStatementImport.findMany(args),
+      setup.importedInvoiceLiquidation.findMany(args),
+      setup.receipt.findMany(args),
+      setup.crossProjectSettlement.findMany(args),
+      setup.rateioAllocation.findMany(args),
+    ]);
+    return { expenses, entries, imports, ledger, receipts, settlements, allocations };
   }
 
-  it("falha forçada em recordImportedLiquidations aborta o commit inteiro: 0 Expense, 0 CashFlowEntry, 0 BankStatementImport, 0 ImportedInvoiceLiquidation, entries seguem PLANEJADO", async () => {
-    const purchase = await seedInstallmentPurchase(setup, {
+  it("P2002 na SEGUNDA linha do ledger reverte o primeiro insert e o lote inteiro, preservando snapshot financeiro completo", async () => {
+    const first = await seedSinglePurchase(setup, {
       tenantId: TENANT,
       projectId: PESSOAL,
       cardLast4: CARD,
-      parcelas: 1,
-      valorCents: 30_000,
-      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+      valorCents: 17_000,
+      data: new Date("2026-06-10T12:00:00.000Z"),
+      id: "atomic-purchase",
     });
-    // força P2002: já existe uma liquidação ATIVA para a entry que o commit vai tocar
+    const secondEntry = await setup.cashFlowEntry.create({
+      data: {
+        id: "atomic-entry-second", tenantId: TENANT, projectId: PESSOAL, expenseId: first.id,
+        valor: 24_000, tipo: "DESPESA", data: new Date("2026-06-11T12:00:00.000Z"),
+        categoria: "OUTROS", formaPagamento: "CARTAO_CREDITO", status: "PLANEJADO",
+      },
+    });
+    const settlement = makeSettlementService(prisma);
+    const prepared = await prisma.$transaction((tx) =>
+      settlement.prepareSettleInvoice({
+        tenantId: TENANT,
+        card: { id: cardId, last4: CARD, closingDay: 20, dueDay: 1 },
+        amountCents: 41_000,
+        paymentDate: new Date("2026-06-30T12:00:00.000Z"),
+        tx,
+        requester: R,
+      }),
+    );
+    expect(prepared.purchases.flatMap((purchase) => purchase.entries.map((entry) => entry.id)))
+      .toEqual([first.entryId, secondEntry.id]);
+
+    // A primeira gravação não conflita; a segunda encontra esta claim ativa.
     await seedStatementImport(setup, { tenantId: TENANT, accountId, id: "pre-existing" });
-    await (setup as unknown as {
-      importedInvoiceLiquidation: { create: (a: unknown) => Promise<unknown> };
-    }).importedInvoiceLiquidation.create({
+    await setup.importedInvoiceLiquidation.create({
       data: {
         tenantId: TENANT,
-        paymentExpenseId: purchase.id,
+        paymentExpenseId: first.id,
         importId: "pre-existing",
-        purchaseExpenseId: purchase.id,
-        cashFlowEntryId: purchase.entryIds[0],
+        purchaseExpenseId: first.id,
+        cashFlowEntryId: secondEntry.id,
         cardId,
         prevStatus: "PLANEJADO",
-        entryValorCents: 30_000,
+        entryValorCents: 24_000,
         dueMonth: "2026-07",
       },
     });
-    const before = await counts();
-    await expect(
-      commitStatement(bank, {
+
+    const linkedTarget = await setup.expense.create({
+      data: {
+        id: "atomic-linked-target", tenantId: TENANT, projectId: PESSOAL,
+        tipoDespesa: "OUTROS", titulo: "sentinela settlement", valor: 1_000,
+        quantidade: 1, valorTotal: 1_000, formaPagamento: "A_VISTA", status: "PLANEJADO",
+      },
+    });
+    const rateioTarget = await setup.expense.create({
+      data: {
+        id: "atomic-rateio-target", tenantId: TENANT, projectId: PESSOAL,
+        tipoDespesa: "OUTROS", titulo: "sentinela rateio", valor: 1_000,
+        quantidade: 1, valorTotal: 1_000, formaPagamento: "A_VISTA", status: "PLANEJADO",
+      },
+    });
+    await setup.crossProjectSettlement.create({
+      data: {
+        id: "atomic-settlement", tenantId: TENANT, sourceExpenseId: first.id,
+        targetExpenseId: linkedTarget.id, parcelaIndex: 0, realValor: 1_000,
+        plannedValor: 1_000, plannedStatus: "PLANEJADO",
+      },
+    });
+    await setup.rateioAllocation.create({
+      data: {
+        id: "atomic-allocation", tenantId: TENANT, sourceExpenseId: first.id,
+        targetExpenseId: rateioTarget.id, allocation: 1_000, plannedStatus: "PLANEJADO",
+      },
+    });
+    const receipt = await setup.receipt.create({
+      data: {
+        id: "atomic-receipt", tenantId: TENANT, projectId: PESSOAL, valor: 9_999,
+        data: new Date("2026-06-01T12:00:00.000Z"), tipo: "OUTROS", status: "EM_CAIXA",
+        linkedReceiptId: "receipt-link-sentinel",
+      },
+    });
+    await setup.cashFlowEntry.create({
+      data: {
+        id: "atomic-receipt-entry", tenantId: TENANT, projectId: PESSOAL,
+        receiptId: receipt.id, valor: 9_999, tipo: "RECEBIMENTO",
+        data: new Date("2026-06-01T12:00:00.000Z"), categoria: "OUTROS",
+        formaPagamento: "CONTA_CORRENTE", status: "EM_CAIXA",
+      },
+    });
+
+    const before = await financialSnapshot();
+    let error: unknown;
+    try {
+      await commitStatement(bank, {
         tenantId: TENANT,
         projectId: PESSOAL,
         accountId,
         bankLast4: BANK,
         cardLast4: CARD,
-        debitCents: 30_000,
+        debitCents: 41_000,
         date: "20260630",
         period: "2026-06",
         requester: R,
-      }),
-    ).rejects.toThrow();
-    const after = await counts();
-    expect(after).toEqual({ ...before });
-    const entry = await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } });
-    expect(entry?.status).toBe("PLANEJADO");
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({ code: "P2002" });
+    expect(await financialSnapshot()).toEqual(before);
+    expect(before.expenses.find((expense) => expense.id === first.id))
+      .toMatchObject({ status: "PLANEJADO", paidParcelas: null });
+    expect(before.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: first.entryId, status: "PLANEJADO", valor: 17_000 }),
+      expect.objectContaining({ id: secondEntry.id, status: "PLANEJADO", valor: 24_000 }),
+      expect.objectContaining({ id: "atomic-receipt-entry", receiptId: receipt.id }),
+    ]));
+    expect(before.ledger).toHaveLength(1);
+    expect(before.settlements).toHaveLength(1);
+    expect(before.allocations).toHaveLength(1);
+    expect(before.receipts).toHaveLength(1);
   });
 
   // Removidos desta branch (PR 1): os 2 `it` que exercitam `undoImport` revertendo

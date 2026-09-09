@@ -1,15 +1,27 @@
-// PR: PR 1 (degrau) — §6.7 / parecer SRE §3.3.1 ponto 5 / #7.
-// Upgrade legado REAL: aplica a sequência de migrations ATÉ a imediatamente
-// anterior a `20260909120000_imported_invoice_liquidations` num banco dedicado,
-// semeia dados legados PAGOS no schema ANTIGO (sem colunas de carimbo, lote misto),
-// faz backup do arquivo, roda `prisma migrate deploy` COMPLETO no mesmo banco e
-// assevera preservação + colunas NULL + tabela vazia + FKs + `foreign_key_check`.
-// Guard `scripts/test-db-env.cjs`: o banco fica DENTRO do worktree e é removido
-// no afterAll.
+// PR 1 (degrau) — upgrade legado REAL e drill restaurável de backup.
+// O alvo é sempre um SQLite descartável validado por scripts/test-db-env.cjs.
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { ConflictException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
+import {
+  makeBankAccountService,
+  pessoalRequester,
+} from "../bank-account/__tests__/invoice-undo.fixtures";
+import { PrismaService } from "./prisma.service";
+
+type TestDbGuard = {
+  REPO_ROOT: string;
+  REAL_REPO_ROOT: string;
+  forbiddenReason: (url: string) => string | null;
+  resolveSqlitePath: (url: string) => string | null;
+  resolveRealSqlitePath: (url: string) => string | null;
+};
+
+// O setupFile já carregou este mesmo módulo antes do Prisma.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const dbGuard = require("../../../../scripts/test-db-env.cjs") as TestDbGuard;
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const REAL_MIGRATIONS = path.join(REPO_ROOT, "prisma/migrations");
@@ -20,202 +32,552 @@ const RUN = `569up-${process.pid}`;
 const TMP_DIR = path.join(REPO_ROOT, "prisma", `.tmp-${RUN}`);
 const TMP_MIGRATIONS = path.join(TMP_DIR, "migrations");
 const DB_FILE = path.join(REPO_ROOT, "prisma", `test-${RUN}.db`);
+const RESTORE_FILE = path.join(REPO_ROOT, "prisma", `test-${RUN}-restore.db`);
+const BACKUP_FILE = `${DB_FILE}.bak`;
 const DB_URL = `file:${DB_FILE}`;
+const RESTORE_URL = `file:${RESTORE_FILE}`;
 
-function deploy(): void {
-  execFileSync(
-    "npx",
-    ["prisma", "migrate", "deploy", "--schema", path.join(TMP_DIR, "schema.prisma")],
-    { cwd: path.join(REPO_ROOT, "apps/api"), env: { ...process.env, DATABASE_URL: DB_URL }, stdio: "pipe" },
+const legacy = {
+  tenant: "iul-up-real",
+  project: "iul-up-real-proj",
+  projectB: "iul-up-real-proj-b",
+  account: "iul-up-real-account",
+  card: "iul-up-real-card",
+  importLegacy: "imp-legacy-569",
+  importMixed: "imp-mixed-569",
+  importM8: "imp-m8-569",
+  importAdopted: "imp-adopted-569",
+  purchaseLegacy: "exp-legacy-purchase",
+  purchaseCross: "exp-cross-purchase",
+  purchaseRateioTarget: "exp-rateio-target",
+  paymentLegacy: "exp-legacy-payment",
+  paymentMixedA: "exp-mixed-payment-a",
+  paymentMixedB: "exp-mixed-payment-b",
+  paymentM8: "exp-m8-payment",
+  paymentManual: "exp-manual-payment",
+  paymentAdopted: "exp-adopted-payment",
+  entryLegacy: "cfe-legacy",
+  entryCross: "cfe-cross",
+  entryReceipt: "cfe-receipt",
+  receiptPlanned: "receipt-planned",
+  receiptImported: "receipt-imported",
+};
+
+const REQUESTER = pessoalRequester(legacy.project);
+
+function assertSafeDatabaseUrl(url: string, expectedPath: string): void {
+  expect(dbGuard.REPO_ROOT).toBe(REPO_ROOT);
+  expect(dbGuard.forbiddenReason(url)).toBeNull();
+  expect(dbGuard.resolveSqlitePath(url)).toBe(expectedPath);
+  const realPath = dbGuard.resolveRealSqlitePath(url);
+  expect(realPath).not.toBeNull();
+  expect(path.basename(realPath!).toLowerCase()).not.toBe("dev.db");
+  expect(path.relative(dbGuard.REAL_REPO_ROOT, realPath!)).not.toMatch(
+    /^(?:\.\.(?:\/|$)|\/)/,
   );
 }
 
-describe("#569 §6.7 — upgrade legado REAL (seed no schema antigo, depois migrate deploy)", () => {
-  let db: PrismaClient;
-  let backupPath: string;
-  const legacy = {
-    tenant: "iul-up-real",
-    project: "iul-up-real-proj",
-    importLegacy: "imp-legacy-569",
-    importMixed: "imp-mixed-569",
-    purchaseLegacy: "exp-legacy-purchase",
-    paymentLegacy: "exp-legacy-payment",
-    entryLegacy: "cfe-legacy",
-    paymentMixedNew: "exp-mixed-new-payment",
-  };
+async function withExplicitDatabaseUrl<T>(
+  url: string,
+  create: () => Promise<T>,
+): Promise<T> {
+  const expected = url === DB_URL ? DB_FILE : RESTORE_FILE;
+  assertSafeDatabaseUrl(url, expected);
+  const previous = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = url;
+  try {
+    return await create();
+  } finally {
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
+  }
+}
 
-  beforeAll(() => {
-    // 1) migrations dir SEM a migration alvo
+function deploy(url: string): void {
+  assertSafeDatabaseUrl(url, url === DB_URL ? DB_FILE : RESTORE_FILE);
+  const prismaCli = require.resolve("prisma/build/index.js");
+  execFileSync(
+    process.execPath,
+    [
+      prismaCli,
+      "migrate",
+      "deploy",
+      "--schema",
+      path.join(TMP_DIR, "schema.prisma"),
+    ],
+    {
+      cwd: path.join(REPO_ROOT, "apps/api"),
+      env: { ...process.env, DATABASE_URL: url },
+      stdio: "pipe",
+    },
+  );
+}
+
+async function readTable(
+  client: PrismaClient,
+  table: string,
+  orderBy = "id",
+): Promise<Array<Record<string, unknown>>> {
+  return client.$queryRawUnsafe(
+    `SELECT * FROM "${table}" ORDER BY "${orderBy}"`,
+  );
+}
+
+async function legacyDataSnapshot(client: PrismaClient) {
+  const [
+    tenants,
+    projects,
+    accounts,
+    cards,
+    imports,
+    expenses,
+    receipts,
+    entries,
+    settlements,
+    allocations,
+  ] = await Promise.all([
+    readTable(client, "tenants"),
+    readTable(client, "projects"),
+    readTable(client, "bank_accounts"),
+    readTable(client, "credit_cards"),
+    readTable(client, "bank_statement_imports"),
+    readTable(client, "expenses"),
+    readTable(client, "receipts"),
+    readTable(client, "cash_flow_entries"),
+    readTable(client, "cross_project_settlements"),
+    readTable(client, "rateio_allocations"),
+  ]);
+  const expensesWithoutAddedColumns = expenses.map((expense) => {
+    const {
+      invoice_undo_state: _state,
+      invoice_undo_parcela_count: _count,
+      invoice_undo_due_month: _month,
+      invoice_undo_card_id: _card,
+      invoice_undo_trail_version: _version,
+      ...legacyExpense
+    } = expense;
+    return legacyExpense;
+  });
+  return {
+    tenants,
+    projects,
+    accounts,
+    cards,
+    imports,
+    expenses: expensesWithoutAddedColumns,
+    receipts,
+    entries,
+    settlements,
+    allocations,
+  };
+}
+
+async function migratedFinancialSnapshot(client: PrismaClient) {
+  return {
+    ...(await legacyDataSnapshot(client)),
+    ledger: await readTable(client, "imported_invoice_liquidations"),
+  };
+}
+
+async function seedLegacyData(seed: PrismaClient): Promise<void> {
+  const fixed = "'2026-09-01 12:00:00'";
+  await seed.$executeRawUnsafe(
+    `INSERT INTO tenants (id, name, created_at, updated_at)
+     VALUES ('${legacy.tenant}', 'Upgrade Real Tenant', ${fixed}, ${fixed})`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO projects (id, tenant_id, type, name, created_at, updated_at)
+     VALUES
+       ('${legacy.project}', '${legacy.tenant}', 'PESSOAL', 'Pessoal A', ${fixed}, ${fixed}),
+       ('${legacy.projectB}', '${legacy.tenant}', 'PESSOAL', 'Pessoal B', ${fixed}, ${fixed})`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO bank_accounts
+       (id, project_id, tenant_id, institution, nickname, last4,
+        opening_balance_cents, created_at, updated_at)
+     VALUES
+       ('${legacy.account}', '${legacy.project}', '${legacy.tenant}', 'ITAU',
+        'Conta X', '8700', 0, ${fixed}, ${fixed})`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO credit_cards
+       (id, project_id, tenant_id, institution, brand, nickname, last4,
+        closing_day, due_day, created_at, updated_at)
+     VALUES
+       ('${legacy.card}', '${legacy.project}', '${legacy.tenant}', 'OUTROS',
+        'Outros', 'Cartao legado', '4700', 20, 1, ${fixed}, ${fixed})`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO bank_statement_imports
+       (id, tenant_id, account_id, period_label, source, inserted,
+        total_amount_cents, created_at, updated_at)
+     VALUES
+       ('${legacy.importLegacy}', '${legacy.tenant}', '${legacy.account}',
+        '2026-01', 'OFX', 1, 30000, '2026-09-01 12:10:00', '2026-09-01 12:10:00'),
+       ('${legacy.importMixed}', '${legacy.tenant}', '${legacy.account}',
+        '2026-01', 'OFX', 2, 60000, '2026-09-01 12:20:00', '2026-09-01 12:20:00'),
+       ('${legacy.importM8}', '${legacy.tenant}', '${legacy.account}',
+        '2026-01', 'OFX', 1, 12000, '2026-09-01 12:30:00', '2026-09-01 12:30:00'),
+       ('${legacy.importAdopted}', '${legacy.tenant}', '${legacy.account}',
+        '2026-01', 'OFX', 1, 15000, '2026-09-02 12:00:00', '2026-09-02 12:00:00')`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO expenses
+       (id, tenant_id, project_id, tipo_despesa, titulo, valor, quantidade,
+        valor_total, forma_pagamento, data_pagamento, status, import_id,
+        external_id, card_last4, bank_last4, settles_invoice_key,
+        created_at, updated_at)
+     VALUES
+       ('${legacy.purchaseLegacy}', '${legacy.tenant}', '${legacy.project}',
+        'OUTROS', 'compra legada', 30000, 1, 30000, 'A_VISTA',
+        '2026-01-10 12:00:00', 'PAGO', NULL, NULL, '4700', NULL, NULL,
+        ${fixed}, ${fixed}),
+       ('${legacy.purchaseCross}', '${legacy.tenant}', '${legacy.projectB}',
+        'OUTROS', 'compra cross-project', 20000, 1, 20000, 'A_VISTA',
+        '2026-01-11 12:00:00', 'PAGO', NULL, NULL, '4700', NULL, NULL,
+        ${fixed}, ${fixed}),
+       ('${legacy.purchaseRateioTarget}', '${legacy.tenant}', '${legacy.projectB}',
+        'OUTROS', 'alvo rateio', 10000, 1, 10000, 'A_VISTA',
+        '2026-01-12 12:00:00', 'PLANEJADO', NULL, NULL, NULL, NULL, NULL,
+        ${fixed}, ${fixed}),
+       ('${legacy.paymentLegacy}', '${legacy.tenant}', '${legacy.project}',
+        'PAGAMENTO_FATURA_CARTAO', 'pgto legado', 30000, 1, 30000, 'A_VISTA',
+        '2026-01-25 12:00:00', 'PAGO', '${legacy.importLegacy}', NULL,
+        '4700', '8700', NULL, '2026-09-01 12:11:00', '2026-09-01 12:11:00'),
+       ('${legacy.paymentMixedA}', '${legacy.tenant}', '${legacy.project}',
+        'PAGAMENTO_FATURA_CARTAO', 'pgto misto A', 30000, 1, 30000, 'A_VISTA',
+        '2026-01-26 12:00:00', 'PAGO', '${legacy.importMixed}', NULL,
+        '4700', '8700', NULL, '2026-09-01 12:21:00', '2026-09-01 12:21:00'),
+       ('${legacy.paymentMixedB}', '${legacy.tenant}', '${legacy.project}',
+        'PAGAMENTO_FATURA_CARTAO', 'pgto misto B', 30000, 1, 30000, 'A_VISTA',
+        '2026-01-27 12:00:00', 'PAGO', '${legacy.importMixed}', NULL,
+        '4700', '8700', NULL, '2026-09-01 12:22:00', '2026-09-01 12:22:00'),
+       ('${legacy.paymentM8}', '${legacy.tenant}', '${legacy.project}',
+        'PAGAMENTO_FATURA_CARTAO', 'pgto sem cartao M8', 12000, 1, 12000, 'A_VISTA',
+        '2026-01-28 12:00:00', 'PAGO', '${legacy.importM8}', NULL,
+        NULL, '8700', NULL, '2026-09-01 12:31:00', '2026-09-01 12:31:00'),
+       ('${legacy.paymentManual}', '${legacy.tenant}', '${legacy.project}',
+        'PAGAMENTO_FATURA_CARTAO', 'pgto manual', 20000, 1, 20000, 'A_VISTA',
+        '2026-01-29 12:00:00', 'PAGO', NULL, NULL,
+        '4700', '8700', '4700:2026-02', ${fixed}, ${fixed}),
+       ('${legacy.paymentAdopted}', '${legacy.tenant}', '${legacy.project}',
+        'PAGAMENTO_FATURA_CARTAO', 'pgto adotado', 15000, 1, 15000, 'A_VISTA',
+        '2026-01-30 12:00:00', 'PAGO', '${legacy.importAdopted}', 'adopted-ext-569',
+        '4700', '8700', NULL, '2026-09-01 11:00:00', '2026-09-01 11:00:00')`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO receipts
+       (id, project_id, tenant_id, valor, data, tipo, status, descricao,
+        import_id, linked_receipt_id, created_at, updated_at)
+     VALUES
+       ('${legacy.receiptPlanned}', '${legacy.projectB}', '${legacy.tenant}',
+        9000, '2026-01-15 12:00:00', 'OUTROS', 'PREVISTO', 'previsto',
+        NULL, NULL, ${fixed}, ${fixed}),
+       ('${legacy.receiptImported}', '${legacy.project}', '${legacy.tenant}',
+        9000, '2026-01-15 12:00:00', 'OUTROS', 'EM_CAIXA', 'importado',
+        '${legacy.importLegacy}', '${legacy.receiptPlanned}',
+        '2026-09-01 12:12:00', '2026-09-01 12:12:00')`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO cash_flow_entries
+       (id, tenant_id, project_id, receipt_id, expense_id, valor, tipo, data,
+        categoria, forma_pagamento, status, created_at, updated_at)
+     VALUES
+       ('${legacy.entryLegacy}', '${legacy.tenant}', '${legacy.project}', NULL,
+        '${legacy.purchaseLegacy}', 30000, 'DESPESA', '2026-01-10 12:00:00',
+        'OUTROS', 'CARTAO_CREDITO', 'PAGO', ${fixed}, ${fixed}),
+       ('${legacy.entryCross}', '${legacy.tenant}', '${legacy.projectB}', NULL,
+        '${legacy.purchaseCross}', 20000, 'DESPESA', '2026-01-11 12:00:00',
+        'OUTROS', 'CARTAO_CREDITO', 'PAGO', ${fixed}, ${fixed}),
+       ('${legacy.entryReceipt}', '${legacy.tenant}', '${legacy.project}',
+        '${legacy.receiptImported}', NULL, 9000, 'RECEBIMENTO',
+        '2026-01-15 12:00:00', 'OUTROS', 'CONTA_CORRENTE', 'EM_CAIXA',
+        ${fixed}, ${fixed})`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO cross_project_settlements
+       (id, tenant_id, source_expense_id, target_expense_id, parcela_index,
+        real_valor, planned_valor, planned_status, created_at)
+     VALUES
+       ('upgrade-settlement', '${legacy.tenant}', '${legacy.paymentLegacy}',
+        '${legacy.purchaseCross}', 0, 20000, 20000, 'PLANEJADO', ${fixed})`,
+  );
+  await seed.$executeRawUnsafe(
+    `INSERT INTO rateio_allocations
+       (id, tenant_id, source_expense_id, target_expense_id, allocation,
+        planned_status, created_at)
+     VALUES
+       ('upgrade-allocation', '${legacy.tenant}', '${legacy.purchaseLegacy}',
+        '${legacy.purchaseRateioTarget}', 10000, 'PLANEJADO', ${fixed})`,
+  );
+}
+
+describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
+  let db: PrismaClient;
+  let restored: PrismaClient;
+  let servicePrisma: PrismaService;
+  let bank: ReturnType<typeof makeBankAccountService>;
+  let beforeMigration: Awaited<ReturnType<typeof legacyDataSnapshot>>;
+  let seedForeignKeys = 0;
+
+  beforeAll(async () => {
+    // PRIMEIRO ato: validar os dois overrides antes de qualquer FS, CLI ou client.
+    assertSafeDatabaseUrl(DB_URL, DB_FILE);
+    assertSafeDatabaseUrl(RESTORE_URL, RESTORE_FILE);
+
     fs.rmSync(TMP_DIR, { recursive: true, force: true });
-    fs.rmSync(DB_FILE, { force: true });
-    fs.mkdirSync(TMP_MIGRATIONS, { recursive: true });
-    fs.copyFileSync(path.join(REAL_MIGRATIONS, "migration_lock.toml"), path.join(TMP_MIGRATIONS, "migration_lock.toml"));
-    for (const name of fs.readdirSync(REAL_MIGRATIONS)) {
-      if (name === "migration_lock.toml" || name === TARGET_MIGRATION) continue;
-      const src = path.join(REAL_MIGRATIONS, name);
-      if (!fs.statSync(src).isDirectory()) continue;
-      fs.cpSync(src, path.join(TMP_MIGRATIONS, name), { recursive: true });
+    for (const file of [DB_FILE, RESTORE_FILE, BACKUP_FILE]) {
+      fs.rmSync(file, { force: true });
     }
+    fs.mkdirSync(TMP_MIGRATIONS, { recursive: true });
+    fs.copyFileSync(
+      path.join(REAL_MIGRATIONS, "migration_lock.toml"),
+      path.join(TMP_MIGRATIONS, "migration_lock.toml"),
+    );
     fs.copyFileSync(REAL_SCHEMA, path.join(TMP_DIR, "schema.prisma"));
 
-    // 2) deploy do schema ANTERIOR
-    deploy();
-
-    // 3) seed legado via SQL cru (schema antigo — sem colunas invoice_undo_*)
-    const seed = new PrismaClient({ datasources: { db: { url: DB_URL } } });
-    return (async () => {
-      await seed.$executeRawUnsafe(
-        `INSERT INTO tenants (id, name, created_at, updated_at)
-         VALUES ('${legacy.tenant}', 'Upgrade Real Tenant', datetime('now'), datetime('now'))`,
-      );
-      await seed.$executeRawUnsafe(
-        `INSERT INTO projects (id, tenant_id, type, name, created_at, updated_at)
-         VALUES ('${legacy.project}', '${legacy.tenant}', 'PESSOAL', 'Upgrade Real', datetime('now'), datetime('now'))`,
-      );
-      await seed.$executeRawUnsafe(
-        `INSERT INTO bank_accounts (id, project_id, tenant_id, institution, nickname, last4, opening_balance_cents, created_at, updated_at)
-         VALUES ('acc-x', '${legacy.project}', '${legacy.tenant}', 'ITAU', 'Conta X', '8700', 0, datetime('now'), datetime('now'))`,
-      );
-      // lote legado (estado 1): compra PAGO + entry PAGO + pagamento importado, ZERO ledger
-      await seed.$executeRawUnsafe(
-        `INSERT INTO bank_statement_imports (id, tenant_id, account_id, period_label, source, inserted, total_amount_cents, created_at, updated_at)
-         VALUES ('${legacy.importLegacy}', '${legacy.tenant}', 'acc-x', '2025-12', 'OFX', 1, 30000, datetime('now'), datetime('now'))`,
-      );
-      await seed.$executeRawUnsafe(
-        `INSERT INTO expenses (id, tenant_id, project_id, tipo_despesa, titulo, valor, quantidade, valor_total, forma_pagamento, data_pagamento, status, card_last4, created_at, updated_at)
-         VALUES ('${legacy.purchaseLegacy}', '${legacy.tenant}', '${legacy.project}', 'OUTROS', 'compra legada', 30000, 1, 30000, 'A_VISTA', datetime('now'), 'PAGO', '4700', datetime('now'), datetime('now'))`,
-      );
-      await seed.$executeRawUnsafe(
-        `INSERT INTO cash_flow_entries (id, tenant_id, project_id, expense_id, valor, tipo, data, categoria, forma_pagamento, status, created_at, updated_at)
-         VALUES ('${legacy.entryLegacy}', '${legacy.tenant}', '${legacy.project}', '${legacy.purchaseLegacy}', 30000, 'DESPESA', datetime('now'), 'OUTROS', 'CARTAO_CREDITO', 'PAGO', datetime('now'), datetime('now'))`,
-      );
-      await seed.$executeRawUnsafe(
-        `INSERT INTO expenses (id, tenant_id, project_id, tipo_despesa, titulo, valor, quantidade, valor_total, forma_pagamento, data_pagamento, status, import_id, card_last4, created_at, updated_at)
-         VALUES ('${legacy.paymentLegacy}', '${legacy.tenant}', '${legacy.project}', 'PAGAMENTO_FATURA_CARTAO', 'pgto legado', 30000, 1, 30000, 'A_VISTA', datetime('now'), 'PAGO', '${legacy.importLegacy}', '4700', datetime('now'), datetime('now'))`,
-      );
-      // lote misto (estado 4): 1 pagamento importado legado + 1 pagamento importado "novo" (sem carimbo ainda, schema antigo)
-      await seed.$executeRawUnsafe(
-        `INSERT INTO bank_statement_imports (id, tenant_id, account_id, period_label, source, inserted, total_amount_cents, created_at, updated_at)
-         VALUES ('${legacy.importMixed}', '${legacy.tenant}', 'acc-x', '2026-01', 'OFX', 2, 60000, datetime('now'), datetime('now'))`,
-      );
-      await seed.$executeRawUnsafe(
-        `INSERT INTO expenses (id, tenant_id, project_id, tipo_despesa, titulo, valor, quantidade, valor_total, forma_pagamento, data_pagamento, status, import_id, card_last4, created_at, updated_at)
-         VALUES ('${legacy.paymentMixedNew}', '${legacy.tenant}', '${legacy.project}', 'PAGAMENTO_FATURA_CARTAO', 'pgto misto', 60000, 1, 60000, 'A_VISTA', datetime('now'), 'PAGO', '${legacy.importMixed}', '4700', datetime('now'), datetime('now'))`,
-      );
-      await seed.$disconnect();
-
-      // 4) backup do arquivo antes da migração alvo
-      backupPath = `${DB_FILE}.bak`;
-      fs.copyFileSync(DB_FILE, backupPath);
-
-      // 5) copia a migration alvo e roda deploy COMPLETO no MESMO banco
+    const orderedMigrations = fs
+      .readdirSync(REAL_MIGRATIONS)
+      .filter((name) =>
+        fs.statSync(path.join(REAL_MIGRATIONS, name)).isDirectory(),
+      )
+      .sort();
+    const targetIndex = orderedMigrations.indexOf(TARGET_MIGRATION);
+    expect(targetIndex).toBeGreaterThan(0);
+    const legacyMigrations = orderedMigrations.slice(0, targetIndex);
+    expect(
+      legacyMigrations.at(-1)!.localeCompare(TARGET_MIGRATION),
+    ).toBeLessThan(0);
+    for (const name of legacyMigrations) {
       fs.cpSync(
-        path.join(REAL_MIGRATIONS, TARGET_MIGRATION),
-        path.join(TMP_MIGRATIONS, TARGET_MIGRATION),
+        path.join(REAL_MIGRATIONS, name),
+        path.join(TMP_MIGRATIONS, name),
         { recursive: true },
       );
-      deploy();
+    }
+    deploy(DB_URL);
 
-      db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
-      await db.$connect();
-    })();
+    const seed = new PrismaClient({ datasources: { db: { url: DB_URL } } });
+    await seed.$connect();
+    await seed.$executeRawUnsafe("PRAGMA foreign_keys = ON");
+    const pragma = (await seed.$queryRawUnsafe(
+      "PRAGMA foreign_keys",
+    )) as Array<{ foreign_keys: bigint }>;
+    seedForeignKeys = Number(pragma[0].foreign_keys);
+    expect(seedForeignKeys).toBe(1);
+    await seedLegacyData(seed);
+    beforeMigration = await legacyDataSnapshot(seed);
+    await seed.$disconnect();
+
+    fs.copyFileSync(DB_FILE, BACKUP_FILE);
+    fs.copyFileSync(BACKUP_FILE, RESTORE_FILE);
+    restored = new PrismaClient({
+      datasources: { db: { url: RESTORE_URL } },
+    });
+    await restored.$connect();
+    await restored.$executeRawUnsafe("PRAGMA foreign_keys = ON");
+
+    // Completa o diretório com alvo + eventuais migrations FUTURAS, em ordem.
+    for (const name of orderedMigrations.slice(targetIndex)) {
+      fs.cpSync(
+        path.join(REAL_MIGRATIONS, name),
+        path.join(TMP_MIGRATIONS, name),
+        { recursive: true },
+      );
+    }
+    deploy(DB_URL);
+
+    db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
+    await db.$connect();
+    servicePrisma = await withExplicitDatabaseUrl(DB_URL, async () => {
+      const connected = new PrismaService();
+      await connected.onModuleInit();
+      return connected;
+    });
+    bank = makeBankAccountService(servicePrisma);
   }, 120_000);
 
   afterAll(async () => {
+    if (servicePrisma) await servicePrisma.onModuleDestroy();
     if (db) await db.$disconnect();
+    if (restored) await restored.$disconnect();
     fs.rmSync(TMP_DIR, { recursive: true, force: true });
-    fs.rmSync(DB_FILE, { force: true });
-    if (backupPath) fs.rmSync(backupPath, { force: true });
-    fs.rmSync(`${DB_FILE}-journal`, { force: true });
+    for (const file of [
+      DB_FILE,
+      RESTORE_FILE,
+      BACKUP_FILE,
+      `${DB_FILE}-journal`,
+      `${RESTORE_FILE}-journal`,
+    ]) {
+      fs.rmSync(file, { force: true });
+    }
   });
 
-  it("Expense/CashFlowEntry legadas preservadas (ids/valores/status) após a migração alvo", async () => {
-    const purchase = (await db.$queryRawUnsafe(
-      `SELECT id, valor, status FROM expenses WHERE id = '${legacy.purchaseLegacy}'`,
-    )) as Array<Record<string, unknown>>;
-    expect(purchase).toEqual([{ id: legacy.purchaseLegacy, valor: 30000, status: "PAGO" }]);
-    const entry = (await db.$queryRawUnsafe(
-      `SELECT id, valor, status FROM cash_flow_entries WHERE id = '${legacy.entryLegacy}'`,
-    )) as Array<Record<string, unknown>>;
-    expect(entry).toEqual([{ id: legacy.entryLegacy, valor: 30000, status: "PAGO" }]);
-    const payments = (await db.$queryRawUnsafe(
-      `SELECT count(*) AS c FROM expenses WHERE tipo_despesa = 'PAGAMENTO_FATURA_CARTAO'`,
-    )) as Array<{ c: bigint }>;
-    expect(Number(payments[0].c)).toBe(2);
+  it("prova URL/realpath seguros e foreign_keys=1 antes do seed", () => {
+    expect(seedForeignKeys).toBe(1);
+    assertSafeDatabaseUrl(DB_URL, DB_FILE);
+    assertSafeDatabaseUrl(RESTORE_URL, RESTORE_FILE);
+    expect(fs.statSync(BACKUP_FILE).size).toBeGreaterThan(0);
+    expect(fs.statSync(RESTORE_FILE).size).toBe(fs.statSync(BACKUP_FILE).size);
   });
 
-  it("5 colunas invoice_undo_* existem e são NULL em TODA linha (sem backfill); imported_invoice_liquidations vazia", async () => {
-    const cols = (await db.$queryRawUnsafe("PRAGMA table_info('expenses')")) as Array<{ name: string }>;
-    expect(cols.map((c) => c.name)).toEqual(
-      expect.arrayContaining([
-        "invoice_undo_state",
-        "invoice_undo_parcela_count",
-        "invoice_undo_due_month",
-        "invoice_undo_card_id",
-        "invoice_undo_trail_version",
-      ]),
+  it("drill de restore: backup restaurado abre, passa integrity/FK e preserva snapshot legado completo", async () => {
+    const integrity = (await restored.$queryRawUnsafe(
+      "PRAGMA integrity_check",
+    )) as Array<{ integrity_check: string }>;
+    expect(integrity).toEqual([{ integrity_check: "ok" }]);
+    expect(await restored.$queryRawUnsafe("PRAGMA foreign_key_check")).toEqual(
+      [],
     );
-    const notNull = (await db.$queryRawUnsafe(
-      `SELECT count(*) AS c FROM expenses
-       WHERE invoice_undo_state IS NOT NULL OR invoice_undo_parcela_count IS NOT NULL
-          OR invoice_undo_due_month IS NOT NULL OR invoice_undo_card_id IS NOT NULL
-          OR invoice_undo_trail_version IS NOT NULL`,
-    )) as Array<{ c: bigint }>;
-    expect(Number(notNull[0].c)).toBe(0);
-    const ledger = (await db.$queryRawUnsafe(
-      "SELECT count(*) AS c FROM imported_invoice_liquidations",
-    )) as Array<{ c: bigint }>;
-    expect(Number(ledger[0].c)).toBe(0);
+    expect(await legacyDataSnapshot(restored)).toEqual(beforeMigration);
   });
 
-  it("PRAGMA foreign_key_check zero violações; as 5 FKs (incl. bank_statement_imports e credit_cards) existem em PRAGMA foreign_key_list", async () => {
-    const fk = (await db.$queryRawUnsafe("PRAGMA foreign_key_check")) as unknown[];
-    expect(fk).toHaveLength(0);
-    const list = (await db.$queryRawUnsafe(
+  it("migrate deploy no MESMO DB preserva toda a massa legada PESSOAL/cross-project/M8/manual/adotada", async () => {
+    expect(await legacyDataSnapshot(db)).toEqual(beforeMigration);
+    expect(beforeMigration.projects).toHaveLength(2);
+    expect(beforeMigration.expenses).toHaveLength(9);
+    expect(beforeMigration.receipts).toHaveLength(2);
+    expect(beforeMigration.settlements).toHaveLength(1);
+    expect(beforeMigration.allocations).toHaveLength(1);
+  });
+
+  it("5 colunas invoice_undo_* existem e ficam NULL em TODAS as 9 expenses; ledger nasce vazio", async () => {
+    const columns = (await db.$queryRawUnsafe(
+      "PRAGMA table_info('expenses')",
+    )) as Array<{ name: string }>;
+    const undoColumns = columns
+      .map((column) => column.name)
+      .filter((name) => name.startsWith("invoice_undo_"))
+      .sort();
+    expect(undoColumns).toEqual([
+      "invoice_undo_card_id",
+      "invoice_undo_due_month",
+      "invoice_undo_parcela_count",
+      "invoice_undo_state",
+      "invoice_undo_trail_version",
+    ]);
+    const stamped = (await db.$queryRawUnsafe(
+      `SELECT id FROM expenses
+       WHERE invoice_undo_state IS NOT NULL
+          OR invoice_undo_parcela_count IS NOT NULL
+          OR invoice_undo_due_month IS NOT NULL
+          OR invoice_undo_card_id IS NOT NULL
+          OR invoice_undo_trail_version IS NOT NULL`,
+    )) as Array<{ id: string }>;
+    expect(stamped).toEqual([]);
+    expect(await readTable(db, "imported_invoice_liquidations")).toEqual([]);
+  });
+
+  it("FK check limpo e 5 FKs exatas usam as colunas corretas com ON DELETE RESTRICT", async () => {
+    expect(await db.$queryRawUnsafe("PRAGMA foreign_key_check")).toEqual([]);
+    const foreignKeys = (await db.$queryRawUnsafe(
       "PRAGMA foreign_key_list('imported_invoice_liquidations')",
-    )) as Array<{ table: string; to: string }>;
-    expect(list).toHaveLength(5);
-    const targets = list.map((r) => r.table).sort();
-    expect(targets).toEqual([
-      "bank_statement_imports",
-      "cash_flow_entries",
-      "credit_cards",
-      "expenses",
-      "expenses",
+    )) as Array<{
+      from: string;
+      table: string;
+      to: string;
+      on_delete: string;
+    }>;
+    expect(
+      foreignKeys
+        .map(({ from, table, to, on_delete }) => ({
+          from,
+          table,
+          to,
+          on_delete,
+        }))
+        .sort((a, b) => a.from.localeCompare(b.from)),
+    ).toEqual([
+      {
+        from: "card_id",
+        table: "credit_cards",
+        to: "id",
+        on_delete: "RESTRICT",
+      },
+      {
+        from: "cash_flow_entry_id",
+        table: "cash_flow_entries",
+        to: "id",
+        on_delete: "RESTRICT",
+      },
+      {
+        from: "import_id",
+        table: "bank_statement_imports",
+        to: "id",
+        on_delete: "RESTRICT",
+      },
+      {
+        from: "payment_expense_id",
+        table: "expenses",
+        to: "id",
+        on_delete: "RESTRICT",
+      },
+      {
+        from: "purchase_expense_id",
+        table: "expenses",
+        to: "id",
+        on_delete: "RESTRICT",
+      },
     ]);
   });
 
-  it("hard-delete FK-OFF-style não é o caminho: RESTRICT bloqueia apagar o import (bank_statement_imports) com liquidação ativa via ORM", async () => {
-    // linha real que a nova FK card_id exige (import_id reusa o bank_statement_imports legado)
-    await db.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO credit_cards (id, project_id, tenant_id, institution, brand, nickname, last4, created_at, updated_at)
-       VALUES ('card-569-restrict', '${legacy.project}', '${legacy.tenant}', 'OUTROS', 'Outros', 'restrict', '4700', datetime('now'), datetime('now'))`,
-    );
-    // materializa uma liquidação apontando para o import legado (bank_statement_imports)
-    await db.$executeRawUnsafe(
-      `INSERT INTO imported_invoice_liquidations
-         (id, tenant_id, payment_expense_id, import_id, purchase_expense_id, cash_flow_entry_id, card_id, prev_status, entry_valor_cents, due_month, created_at)
-       VALUES ('iil-restrict-569', '${legacy.tenant}', '${legacy.paymentLegacy}', '${legacy.importLegacy}', '${legacy.purchaseLegacy}', '${legacy.entryLegacy}', 'card-569-restrict', 'PLANEJADO', 30000, '2025-12', datetime('now'))`,
-    );
-    await expect(
-      db.$executeRawUnsafe(`DELETE FROM bank_statement_imports WHERE id = '${legacy.importLegacy}'`),
-    ).rejects.toThrow();
-    await db.$executeRawUnsafe(`DELETE FROM imported_invoice_liquidations WHERE id = 'iil-restrict-569'`);
-  });
-
-  it("índice único PARCIAL WHERE deleted_at IS NULL existe", async () => {
-    const idx = (await db.$queryRawUnsafe(
-      "SELECT sql FROM sqlite_master WHERE type='index' AND name='imported_invoice_liquidations_entry_active_key'",
+  it("índice da entry é UNIQUE PARCIAL exato (deleted_at IS NULL)", async () => {
+    const indexes = (await db.$queryRawUnsafe(
+      "PRAGMA index_list('imported_invoice_liquidations')",
+    )) as Array<{ name: string; unique: bigint; partial: bigint }>;
+    expect(
+      indexes.find(
+        (index) =>
+          index.name === "imported_invoice_liquidations_entry_active_key",
+      ),
+    ).toMatchObject({ unique: 1n, partial: 1n });
+    const info = (await db.$queryRawUnsafe(
+      "PRAGMA index_info('imported_invoice_liquidations_entry_active_key')",
+    )) as Array<{ name: string }>;
+    expect(info.map((column) => column.name)).toEqual(["cash_flow_entry_id"]);
+    const sql = (await db.$queryRawUnsafe(
+      `SELECT sql FROM sqlite_master
+       WHERE type = 'index'
+         AND name = 'imported_invoice_liquidations_entry_active_key'`,
     )) as Array<{ sql: string }>;
-    expect(idx).toHaveLength(1);
-    expect(idx[0].sql).toMatch(/WHERE\s+"?deleted_at"?\s+IS\s+NULL/i);
+    expect(sql).toHaveLength(1);
+    expect(sql[0].sql).toMatch(
+      /UNIQUE\s+INDEX[\s\S]*cash_flow_entry_id[\s\S]*WHERE\s+"?deleted_at"?\s+IS\s+NULL/i,
+    );
   });
 
-  it("lote legado sem carimbo continua fail-closed: SELECT do carimbo do pagamento importado é NULL", async () => {
-    const stamp = (await db.$queryRawUnsafe(
-      `SELECT invoice_undo_state, invoice_undo_trail_version FROM expenses WHERE id = '${legacy.paymentLegacy}'`,
-    )) as Array<Record<string, unknown>>;
-    expect(stamp[0].invoice_undo_state).toBeNull();
-    expect(stamp[0].invoice_undo_trail_version).toBeNull();
+  it("REAL PrismaService lê o lote legado no DB migrado e undoImport responde 409 sem uma única escrita", async () => {
+    const before = await migratedFinancialSnapshot(db);
+    const detail = await bank.getImportDetail(
+      legacy.tenant,
+      legacy.project,
+      legacy.account,
+      legacy.importLegacy,
+      REQUESTER,
+    );
+    expect(detail).toMatchObject({
+      importId: legacy.importLegacy,
+      canUndo: false,
+      blockReason: "LEGACY_OR_MIXED",
+      alreadyUndone: false,
+      blocking: { cardInvoicePayments: 1 },
+    });
+
+    let error: unknown;
+    try {
+      await bank.undoImport(
+        legacy.tenant,
+        legacy.project,
+        legacy.account,
+        legacy.importLegacy,
+        REQUESTER,
+      );
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getStatus()).toBe(409);
+    expect((error as Error).message).toMatch(/LEGACY_OR_MIXED/);
+    expect(await migratedFinancialSnapshot(db)).toEqual(before);
   });
 });

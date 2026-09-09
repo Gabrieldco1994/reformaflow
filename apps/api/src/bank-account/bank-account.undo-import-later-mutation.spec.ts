@@ -14,6 +14,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import type { MonthlyOverviewMutationRequester } from "../monthly-overview/monthly-overview.service";
 import {
+  EXPECTED_TRAIL_VERSION,
   commitStatement,
   makeBankAccountService,
   makeExpenseService,
@@ -57,8 +58,9 @@ const GENERIC_IMPORT_TRAIL_MESSAGE =
 
 const setup = new PrismaClient();
 const prisma = new PrismaService();
+let importSequence = 0;
 
-describe("#569 §6.4 — later-mutation guards (RED)", () => {
+describe("#569 §6.4 — later-mutation guards (PR 1)", () => {
   let bank: ReturnType<typeof makeBankAccountService>;
   let mo: ReturnType<typeof makeMonthlyOverviewService>;
   let expenses: ReturnType<typeof makeExpenseService>;
@@ -114,7 +116,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     const commit = await commitStatement(bank, {
       tenantId: TENANT, projectId: PESSOAL, accountId, bankLast4: BANK, cardLast4: CARD,
       debitCents: valorCents, date: "20260705", period: "2026-07", requester: R,
-      fitId: `s-${Math.random()}`,
+      fitId: `settled-${++importSequence}`,
     });
     const payment = await setup.expense.findFirst({
       where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO", importId: commit.importId },
@@ -126,9 +128,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     return { purchaseId: purchase.id, entryId: purchase.entryIds[0], importId: commit.importId, paymentId: payment!.id };
   }
 
-  const ledger = () => (setup as unknown as {
-    importedInvoiceLiquidation: { count: (a: unknown) => Promise<number>; updateMany: (a: unknown) => Promise<unknown> };
-  }).importedInvoiceLiquidation;
+  const ledger = () => setup.importedInvoiceLiquidation;
 
   it("B1 undoInvoicePayment (REAL, monthly-overview.service.ts) já responde 404 quando o pagamento casado tem importId != null (:3548-3558); ledger intacto", async () => {
     const { importId } = await importSettled();
@@ -367,13 +367,60 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     // precondição: pagamento M8 sem cartão criado, carimbo PROCESSED_NONE, zero itens
     expect(payment).not.toBeNull();
     expect(payment!.cardLast4).toBeNull();
+    const purchase = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, valorCents: 12_345,
+      data: new Date("2026-06-10T12:00:00.000Z"), status: "PLANEJADO",
+      titulo: "M8 não pode liquidar por associação posterior",
+    });
+    const paymentCashBefore = await setup.cashFlowEntry.findMany({
+      where: { tenantId: TENANT, expenseId: payment!.id, deletedAt: null },
+      select: { id: true, valor: true, tipo: true, status: true, data: true },
+      orderBy: { id: "asc" },
+    });
+    expect(paymentCashBefore).toEqual([]);
+    const accountViewBefore = (await mo.getAccountView(
+      TENANT, PESSOAL, "2026-06", R as never,
+    )) as unknown as Record<string, unknown>;
+    const cashBefore = {
+      caixaHoje: accountViewBefore.caixaHoje,
+      saiuMes: accountViewBefore.saiuMes,
+    };
     await expect(
       expenses.update(TENANT, PESSOAL, payment!.id, { creditCardId: cardId } as never, R),
     ).resolves.toMatchObject({ id: payment!.id });
     const raw = (await setup.expense.findUnique({ where: { id: payment!.id } })) as Record<string, unknown> | null;
     expect(raw).not.toBeNull();
     expect(raw!.invoiceUndoState).toBe("PROCESSED_NONE");
+    expect(raw!.invoiceUndoParcelaCount).toBe(0);
+    expect(raw!.invoiceUndoDueMonth).toBeNull();
+    expect(raw!.invoiceUndoCardId).toBeNull();
+    expect(raw!.invoiceUndoTrailVersion).toBe(EXPECTED_TRAIL_VERSION);
+    expect(raw!.cardLast4).toBe(CARD);
     expect(await ledger().count({ where: { tenantId: TENANT, deletedAt: null } })).toBe(0);
+    expect(await setup.cashFlowEntry.findMany({
+      where: { tenantId: TENANT, expenseId: payment!.id, deletedAt: null },
+      select: { id: true, valor: true, tipo: true, status: true, data: true },
+      orderBy: { id: "asc" },
+    })).toEqual(paymentCashBefore);
+    const accountViewAfter = (await mo.getAccountView(
+      TENANT, PESSOAL, "2026-06", R as never,
+    )) as unknown as Record<string, unknown>;
+    expect({
+      caixaHoje: accountViewAfter.caixaHoje,
+      saiuMes: accountViewAfter.saiuMes,
+    }).toEqual(cashBefore);
+    expect(await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryId } }))
+      .toMatchObject({ status: "PLANEJADO", valor: 12_345 });
+    const detail = await bank.getImportDetail(TENANT, PESSOAL, accountId, commit.importId, R);
+    expect(detail).toMatchObject({ canUndo: true, blockReason: null });
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, commit.importId, R))
+      .resolves.toMatchObject({
+        ok: true,
+        revertedInvoiceParcelas: 0,
+        notRevertedInvoiceLiquidations: 0,
+      });
+    expect(await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryId } }))
+      .toMatchObject({ status: "PLANEJADO", valor: 12_345, deletedAt: null });
   });
 
   it("B5a DELETE da compra liquidada → 409 no remove; B5b DELETE do pagamento carimbado → 409", async () => {
@@ -382,7 +429,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     await expect(expenses.remove(TENANT, PESSOAL, paymentId, R)).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it("B6a ratear a compra EFETIVAMENTE liquidada (parcela PAGO) → 409 ConflictException em guardRateioParticipation [RED comportamental: o guard ainda não existe]", async () => {
+  it("B6a ratear a compra EFETIVAMENTE liquidada (parcela PAGO) → 409 ConflictException antes do rateio", async () => {
     // entrypoint REAL: ExpenseService.ratear → prisma.$transaction → ConciliacaoService.ratearSource.
     // NÃO tocar o delegate ausente (importedInvoiceLiquidation) antes do `act` — TypeError
     // mascararia o resultado do guard. Alvo = despesa PLANEJADO em OUTRO projeto PESSOAL
@@ -397,17 +444,50 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it("B6b [dependência futura PR1: modelo ImportedInvoiceLiquidation] a linha do ledger da fonte continua ATIVA após a tentativa de rateio", async () => {
+  it("B6b a linha exata do ledger e todos os participantes continuam intactos após a tentativa de rateio", async () => {
     const { purchaseId } = await importSettled(30_000);
     const target = await seedSinglePurchase(setup, {
       tenantId: TENANT, projectId: PESSOAL2, cardLast4: CARD, valorCents: 30_000,
       data: new Date("2026-07-01T12:00:00.000Z"), titulo: "alvo-rateio-2", status: "PLANEJADO",
     });
-    await expenses
-      .ratear(TENANT, PESSOAL, purchaseId, [{ targetExpenseId: target.id, allocation: 30_000 }] as never, R2 as never)
-      .catch(() => undefined);
-    // Toca o delegate ausente no schema atual → TypeError esperado (RED por ausência de modelo).
-    expect(await ledger().count({ where: { tenantId: TENANT, deletedAt: null } })).toBeGreaterThan(0);
+    const snapshot = async () => ({
+      source: await setup.expense.findUnique({ where: { id: purchaseId } }),
+      target: await setup.expense.findUnique({ where: { id: target.id } }),
+      entries: await setup.cashFlowEntry.findMany({
+        where: { expenseId: { in: [purchaseId, target.id] } }, orderBy: { id: "asc" },
+      }),
+      ledger: await setup.importedInvoiceLiquidation.findMany({
+        where: { tenantId: TENANT }, orderBy: { id: "asc" },
+      }),
+      allocations: await setup.rateioAllocation.findMany({
+        where: { tenantId: TENANT }, orderBy: { id: "asc" },
+      }),
+    });
+    const before = await snapshot();
+    expect(before.ledger).toHaveLength(1);
+    expect(before.ledger[0]).toMatchObject({
+      tenantId: TENANT,
+      purchaseExpenseId: purchaseId,
+      prevStatus: "PLANEJADO",
+      entryValorCents: 30_000,
+      dueMonth: "2026-07",
+      deletedAt: null,
+    });
+    let error: unknown;
+    try {
+      await expenses.ratear(
+        TENANT, PESSOAL, purchaseId,
+        [{ targetExpenseId: target.id, allocation: 30_000 }] as never,
+        R2 as never,
+      );
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as Error).message).toBe(
+      "Compra liquidada por pagamento importado; desfaça a importação primeiro.",
+    );
+    expect(await snapshot()).toEqual(before);
   });
 
   it("B9a PATCH tipoDespesa do PAGAMENTO_FATURA_CARTAO com carimbo ATIVO → 409 em hasProtectedChange; carimbo/importId/cardLast4 intactos", async () => {
