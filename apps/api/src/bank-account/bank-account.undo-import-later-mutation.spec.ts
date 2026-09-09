@@ -1,3 +1,7 @@
+// PR: PR 1 (degrau) — guards B1–B6/B9 nos writers + pre-check B2
+//     (`INVOICE_HAS_IMPORT_TRAIL`). PR 2 (feature) — o motivo ESPECÍFICO do drift no
+//     `undoImport` (B1b `DRIFT`, B2d `MANUAL_PAYMENT_OVERLAP`, B8 `LEGACY_OR_MIXED`);
+//     até o PR 2 esses casos já são 409 fail-closed genérico (trava).
 // #569 §6.4 — mutações/adoções posteriores sobre parcelas liquidadas por importação (tabela B).
 // Grupo A (RED por comportamento, executa e falha a asserção):
 //   B1 (JÁ 404 hoje quando importId != null — PASSA, é trava), B2/B2c (payInvoice REAL
@@ -106,7 +110,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     // parcela revertida fora de banda
     await setup.cashFlowEntry.update({ where: { id: entryId }, data: { status: "PLANEJADO" } });
     const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toBeInstanceOf(ConflictException);
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toThrow(/DRIFT/);
     const after = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
     expect(after).toEqual(before);
   });
@@ -120,7 +124,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
         { cardId, month: "2026-07", amountCents: 30_000, bankLast4: BANK, paymentDate: "2026-07-05" },
         ADMIN,
       ),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toThrow(/INVOICE_HAS_IMPORT_TRAIL/);
     expect(await setup.expense.count({ where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" } })).toBe(paymentsBefore);
     expect((await setup.cashFlowEntry.findUnique({ where: { id: entryId } }))?.status).toBe("PAGO");
     expect(await ledger().count({ where: { tenantId: TENANT, deletedAt: null } })).toBeGreaterThan(0);
@@ -155,7 +159,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
         { cardId, month: "2026-07", amountCents: 30_000, bankLast4: BANK, paymentDate: "2026-07-20" },
         ADMIN,
       ),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toThrow(/INVOICE_HAS_IMPORT_TRAIL/);
     expect(await setup.expense.count({ where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" } })).toBe(paymentsBefore);
     expect(await setup.cashFlowEntry.count({ where: { tenantId: TENANT, tipo: "DESPESA" } })).toBe(cashOutBefore);
   });
@@ -185,7 +189,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
       },
     });
     const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toBeInstanceOf(ConflictException);
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toThrow(/MANUAL_PAYMENT_OVERLAP/);
     expect(await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
   });
 
@@ -207,16 +211,20 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
   it("B4b PATCH creditCardId de pagamento PROCESSED_NONE sem cartão e sem itens → PERMITIDO; carimbo preservado; ledger continua vazio", async () => {
     const commit = await commitStatement(bank, {
       tenantId: TENANT, projectId: PESSOAL, accountId, bankLast4: BANK,
-      debitCents: 12_345, date: "20260630", period: "2026-06", memo: "PAGAMENTO DE FATURA", requester: R,
+      debitCents: 12_345, date: "20260630", period: "2026-06", memo: "PAGTO CART CRED", requester: R,
     });
     const payment = await setup.expense.findFirst({
       where: { tenantId: TENANT, importId: commit.importId, tipoDespesa: { in: ["PAGAMENTO_FATURA_CARTAO", "PAGAMENTO_FATURA_SEM_CARTAO"] } },
     });
+    // precondição: pagamento M8 sem cartão criado, carimbo PROCESSED_NONE, zero itens
+    expect(payment).not.toBeNull();
+    expect(payment!.cardLast4).toBeNull();
     await expect(
       expenses.update(TENANT, PESSOAL, payment!.id, { creditCardId: cardId } as never, R),
-    ).resolves.toBeDefined();
+    ).resolves.toMatchObject({ id: payment!.id });
     const raw = (await setup.expense.findUnique({ where: { id: payment!.id } })) as Record<string, unknown> | null;
-    expect(raw?.invoiceUndoState).toBe("PROCESSED_NONE");
+    expect(raw).not.toBeNull();
+    expect(raw!.invoiceUndoState).toBe("PROCESSED_NONE");
     expect(await ledger().count({ where: { tenantId: TENANT, deletedAt: null } })).toBe(0);
   });
 
@@ -227,13 +235,19 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
   });
 
   it("B6 ratear a compra liquidada → 409 em guardRateioParticipation", async () => {
-    await seedProjectReforma();
+    // entrypoint REAL: ExpenseService.ratear → prisma.$transaction → ConciliacaoService.ratearSource
+    // (o guard de ledger é adicionado em guardRateioParticipation nesse fluxo — §4 B6).
     const { purchaseId } = await importSettled();
+    const target = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, valorCents: 30_000,
+      data: new Date("2026-07-01T12:00:00.000Z"), titulo: "alvo-rateio",
+    });
+    const before = await ledger().count({ where: { tenantId: TENANT, deletedAt: null } });
     await expect(
-      (expenses as unknown as { ratearSource: (...a: unknown[]) => Promise<unknown> }).ratearSource?.(
-        TENANT, PESSOAL, purchaseId, { allocations: [{ projectId: REFORMA, valorCents: 30_000 }] }, R,
-      ) ?? expenses.update(TENANT, PESSOAL, purchaseId, { rateio: [{ projectId: REFORMA, valorCents: 30_000 }] } as never, R),
+      expenses.ratear(TENANT, PESSOAL, purchaseId, [{ targetExpenseId: target.id, allocation: 30_000 }] as never, R),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(await ledger().count({ where: { tenantId: TENANT, deletedAt: null } })).toBe(before);
+    expect(before).toBeGreaterThan(0);
   });
 
   it("B9a PATCH tipoDespesa do PAGAMENTO_FATURA_CARTAO com carimbo ATIVO → 409 em hasProtectedChange; carimbo/importId/cardLast4 intactos", async () => {
@@ -268,20 +282,14 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     const detail = (await (bank as unknown as { getImportDetail: (...a: unknown[]) => Promise<Record<string, unknown>> })
       .getImportDetail(TENANT, PESSOAL, accountId, imp.id, R)) as Record<string, unknown>;
     expect(detail.canUndo).toBe(false);
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, imp.id, R)).rejects.toBeInstanceOf(ConflictException);
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, imp.id, R)).rejects.toThrow(/LEGACY_OR_MIXED/);
   });
 
   it("drift por entry soft-deletada → 409, zero escrita; drift por settledByExpenseId posterior → 409", async () => {
     const a = await importSettled(30_000);
     await setup.cashFlowEntry.update({ where: { id: a.entryId }, data: { deletedAt: new Date() } });
     const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, a.importId, R)).rejects.toBeInstanceOf(ConflictException);
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, a.importId, R)).rejects.toThrow(/DRIFT/);
     expect(await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
   });
-
-  const REFORMA = "iul-mut-reforma";
-  async function seedProjectReforma() {
-    const exists = await setup.project.findUnique({ where: { id: REFORMA } });
-    if (!exists) await setup.project.create({ data: { id: REFORMA, tenantId: TENANT, type: "REFORMA", name: "Reforma" } });
-  }
 });

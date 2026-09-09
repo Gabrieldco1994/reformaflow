@@ -562,8 +562,31 @@ param já existente) nos casos por mês. **Sem `it.todo`/`describe.skip`** — c
 Materialização: os RED de §6.1–§6.8 já foram escritos e vistos VERMELHOS por
 `backend-expert` NESTA rodada (standalone, contra `origin/main`, ANTES de qualquer
 produção) — arquivos `apps/api/src/**/*.spec.ts` + helper
-`apps/api/src/bank-account/__tests__/invoice-undo.fixtures.ts`. O GREEN começa
-pelo PR 1 (degrau) e é trabalho posterior.
+`apps/api/src/bank-account/__tests__/invoice-undo.fixtures.ts`.
+
+**O GREEN é feito em 2 PRs (§3.3.1) — as duas listas são disjuntas:**
+
+- **PR 1 (degrau) — SÓ o registro real da liquidação + as proteções:** migração
+  aditiva (tabela `imported_invoice_liquidations` + índice único parcial + 5
+  colunas de carimbo); `INVOICE_UNDO_TRAIL_VERSION`; `applyPreparedSettlement`
+  devolvendo `flippedEntries` reais; `recordImportedLiquidations` /
+  `prepareRevertImportedLiquidations` / `applyRevertImportedLiquidations`; carimbo
+  derivado do `apply` no commit (ramos `matchedCard` **e** `matchedCard === null`);
+  guards B1–B6/B9 nos writers; pre-check B2 em `payInvoice`; guarda de versão
+  fail-closed; fail-closed da degrau ao encontrar `PROCESSED_SETTLED`. Cobre os RED
+  de §6.1, §6.2, §6.3 (rollback do `record…`), §6.4 (B1–B6/B9 + pre-check B2), §6.7.
+  Até o PR 1, `undoImport` de um lote com `PROCESSED_SETTLED` segue respondendo 409
+  fail-closed (a degrau não reverte via ledger).
+- **PR 2 (feature) — SÓ a habilitação do undo + UX, consome a trilha já gravada:**
+  `getImportDetail(…, requester)` + `settlement{ state, cardId, dueMonth, payments[] }`;
+  `undoImport` revertendo via ledger (estado 3); ACL por participante cross-project;
+  drift-check com motivos (`DRIFT` / `MANUAL_PAYMENT_OVERLAP`); concorrência (recount
+  import+itens na tx); `cardPaymentsPendingSettlement` no resumo do commit;
+  `InvoiceDetailPanel` / `ImportHistoryModal`. Cobre os RED de §6.5, §6.6, §6.8,
+  §6.3 (baseline `getAccountView` pós-undo) e §6.4 (motivo específico do drift em
+  B1b/B2d). **Nenhuma migração de dados.** Rollback = `git revert` do PR 2.
+
+Cada arquivo de spec carrega no cabeçalho a que PR ele pertence.
 
 Fixtures compartilhadas (helper `__tests__/invoice-undo.fixtures.ts`):
 - `seedCardWithClosingDue(prisma, { closingDay:20, dueDay:1 })` → projeto PESSOAL + `CreditCard`.
@@ -653,7 +676,7 @@ Um `it` por caminho de B:
 - `it('estado honesto: pagamento novo SEM cartão (M8) → state NO_SETTLEMENT, cardId null, canUndo:true; NÃO aparece como LEGACY_NO_TRAIL')`.
 - `it('idempotência ≠ reversibilidade: 2º undoImport é no-op (idempotente), mas lote com drift responde 409 (não reversível) — asserção explícita dos dois')`.
 
-### 6.9 Frontend (materializa `frontend-expert`) — `apps/web`
+### 6.9 Frontend (materializa `frontend-expert`) — `apps/web` — **tudo PR 2** (consome o `settlement{…}` que só o PR 2 expõe)
 - `InvoiceDetailPanel.test.tsx`: renderiza estados `SETTLED_BY_IMPORT` / `NO_SETTLEMENT` / `LEGACY_NO_TRAIL` / `DRIFT` (mais o `hint` best-effort quando presente, marcado como não-confiável na UI) a partir do contrato tipado (não do texto renderizado); CTA vem de `actions[]` do servidor, nunca sintetizado (Scar #499). **Nenhum estado promete "fatura já paga" ou "pagamento parcial"**; a única reversão financeira oferecida é "Desfazer a importação (LOTE inteiro)".
 - `ImportHistoryModal.test.tsx`: `canUndo:false` + `blockReason` ⇒ botão visível `disabled`+`aria-disabled`, ≥44px; texto de drift honesto, sem "ajuste manual" sem caminho.
 - QA de jornada (desktop + 375/390) fica com `journey-qa` independente.
@@ -708,17 +731,27 @@ undo responde 409 e o efeito financeiro do lote permanece. A UI não promete
 
 ## 8. Hand-off
 
-| peça | competência |
-|---|---|
-| migration aditiva + `model ImportedInvoiceLiquidation` + 5 colunas em `Expense` + back-relations + fixture de upgrade legado + `db:check` | **backend-expert** |
-| `applyPreparedSettlement` devolve `flippedEntries`; `prepareSettleInvoice` devolve `outcome`; `recordImportedLiquidations` / `prepareRevertImportedLiquidations` / `applyRevertImportedLiquidations` + `INVOICE_UNDO_TRAIL_VERSION` | **backend-expert** |
-| carimbo no commit (`bank-account.service.ts` ramo `matchedCard`) + `cardPaymentsPendingSettlement` no resumo | **backend-expert** |
-| `getImportDetail` recebe `requester` (controller `:71` + serviço) + revalidação na tx; `undoImport` reversão via ledger + ACL por participante + drift-check + concorrência | **backend-expert** |
-| guards B3–B6 em `assertCanMutateLinkedRows` / `guardRateioParticipation`; **B9** em `hasProtectedChange` (carimbo ativo + muda `tipoDespesa`/ownership) | **backend-expert** |
-| **B2**: pre-check em `payInvoice` (`monthly-overview.service.ts:~3340`, DEPOIS de `card` resolvido `:3322-3339`, dentro da `$transaction` `:3283`) — resolve `dueMonth` alvo **do DTO** (`resolveTargetDueMonth`/`caixaMonthForCardPurchase`, NÃO do `prepared` — que fica vazio quando a importação já liquidou tudo); 409 `INVOICE_HAS_IMPORT_TRAIL` SÓ quando há **parcela ATIVA no ledger** para `card.id` + `dueMonth` (`PROCESSED_SETTLED`); `PROCESSED_NONE` NÃO dispara; só não bloqueia quando NENHUM `dueMonth` é resolvível. Rede: `MANUAL_PAYMENT_OVERLAP` no drift-check do `undoImport` — **coordenar com a branch `fix/b0-invoice-mutation-scope` (`b8c5694e`), que mexe no escopo de mutação de fatura** | **backend-expert** |
-| materializar specs §6.1–6.8 e vê-los VERMELHOS antes do GREEN (PrismaService real) | **backend-expert** |
-| `InvoiceDetailPanel` (novo, aprovado), `ImportHistoryModal` (texto drift/`blockReason`), consumo de `settlement{cardId,payments[]}` e `actions[]` em `MovimentacoesSection`/`ContaAnoView`; specs §6.9 | **frontend-expert** |
-| **parecer entregue (§3.3.1)**: (B) release-degrau em 2 PRs (PR 1 grava a trilha real, PR 2 só a UX de undo), rollback forward-only; config Prisma = patch corretivo opcional dirigido por medição, não pré-requisito; runbook `DEPLOY.md` (revert do PR 2; `DROP` só com as 2 contagens = 0, medidas em prod, + backup + autorização do PO); 3 ações pendentes + 1 opcional com dono no tracker | **platform-sre** |
-| QA de jornada desktop + 375/390, login real + dados reais | **journey-qa** |
+> **Divisão em 2 PRs (§3.3.1) — não misturar.** PR 1 (degrau) = migração + registro
+> real da liquidação (`flippedEntries` + `recordImportedLiquidations` + carimbo) +
+> guards B1–B6/B9 + pre-check B2 + guarda de versão. PR 2 (feature) = `getImportDetail`
+> com `requester` + `settlement{…}` + `undoImport` via ledger + ACL por participante +
+> drift-check com motivos + concorrência + `cardPaymentsPendingSettlement` + UX.
+> `recordImportedLiquidations` **grava** no PR 1; `prepareRevert…`/`applyRevert…` são
+> **chamados** só pelo `undoImport` do PR 2 (podem ser introduzidos no PR 1 sem caller).
+
+| peça | competência | PR |
+|---|---|---|
+| migration aditiva + `model ImportedInvoiceLiquidation` + 5 colunas em `Expense` + back-relations + fixture de upgrade legado + `db:check` | **backend-expert** | 1 |
+| `applyPreparedSettlement` devolve `flippedEntries`; `prepareSettleInvoice` devolve `outcome`; `recordImportedLiquidations` + `INVOICE_UNDO_TRAIL_VERSION` (grava a trilha) | **backend-expert** | 1 |
+| `prepareRevertImportedLiquidations` / `applyRevertImportedLiquidations` (só consumidos pelo `undoImport` via ledger) | **backend-expert** | 2 |
+| carimbo no commit (`bank-account.service.ts` ramos `matchedCard` **e** `=== null`) + guarda de versão fail-closed | **backend-expert** | 1 |
+| `cardPaymentsPendingSettlement` no resumo do commit | **backend-expert** | 2 |
+| `getImportDetail` recebe `requester` (controller `:71` + serviço) + `settlement{…}` + revalidação na tx; `undoImport` reversão via ledger + ACL por participante + drift-check com motivos + concorrência | **backend-expert** | 2 |
+| guards B3–B6 em `assertCanMutateLinkedRows` / `guardRateioParticipation`; **B9** em `hasProtectedChange` (carimbo ativo + muda `tipoDespesa`/ownership) | **backend-expert** | 1 |
+| **B2**: pre-check em `payInvoice` (`monthly-overview.service.ts:~3340`, DEPOIS de `card` resolvido `:3322-3339`, dentro da `$transaction` `:3283`) — resolve `dueMonth` alvo **do DTO** (`resolveTargetDueMonth`/`caixaMonthForCardPurchase`, NÃO do `prepared` — que fica vazio quando a importação já liquidou tudo); 409 `INVOICE_HAS_IMPORT_TRAIL` SÓ quando há **parcela ATIVA no ledger** para `card.id` + `dueMonth` (`PROCESSED_SETTLED`); `PROCESSED_NONE` NÃO dispara; só não bloqueia quando NENHUM `dueMonth` é resolvível. Rede: `MANUAL_PAYMENT_OVERLAP` no drift-check do `undoImport` (motivo específico = PR 2) — **coordenar com a branch `fix/b0-invoice-mutation-scope` (`b8c5694e`), que mexe no escopo de mutação de fatura**. O pre-check `INVOICE_HAS_IMPORT_TRAIL` em si é PR 1. | **backend-expert** | 1 (pre-check) / 2 (rede `MANUAL_PAYMENT_OVERLAP`) |
+| materializar specs §6.1–6.8 e vê-los VERMELHOS antes do GREEN (PrismaService real) | **backend-expert** | — |
+| `InvoiceDetailPanel` (novo, aprovado), `ImportHistoryModal` (texto drift/`blockReason`), consumo de `settlement{cardId,payments[]}` e `actions[]` em `MovimentacoesSection`/`ContaAnoView`; specs §6.9 | **frontend-expert** | 2 |
+| **parecer entregue (§3.3.1)**: (B) release-degrau em 2 PRs (PR 1 grava a trilha real, PR 2 só a UX de undo), rollback forward-only; config Prisma = patch corretivo opcional dirigido por medição, não pré-requisito; runbook `DEPLOY.md` (revert do PR 2; `DROP` só com as 2 contagens = 0, medidas em prod, + backup + autorização do PO); 3 ações pendentes + 1 opcional com dono no tracker | **platform-sre** | — |
+| QA de jornada desktop + 375/390, login real + dados reais | **journey-qa** | 2 |
 
 **STOP.** Sem produção, migration, testes materializados, PR ou merge nesta rodada.

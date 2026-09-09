@@ -1,5 +1,7 @@
 // RED por ausência: depende do schema aditivo do PR 1 (degrau) — §3.3.1. NÃO aplicar migration nesta rodada (decisão do PO).
 //
+// PR: PR 1 (degrau) — a migração aditiva + fixture de upgrade legado + guarda de
+//     versão + fail-closed do legado. Nada aqui é PR 2.
 // #569 §6.7 — upgrade da fixture legada. A migração aditiva
 // (`imported_invoice_liquidations` + 5 colunas `invoice_undo_*` em `expenses` +
 // índice único parcial) NÃO está aplicada nesta rodada; estes `it` executam o
@@ -7,7 +9,6 @@
 // existem. O fail-closed do LEGADO (`getImportDetail` canUndo:false / `undoImport`
 // 409) já vale hoje e é asseverado como trava.
 import { PrismaClient } from "@prisma/client";
-import { ConflictException } from "@nestjs/common";
 import { PrismaService } from "./prisma.service";
 import {
   makeBankAccountService,
@@ -110,9 +111,12 @@ describe("#569 §6.7 — migration upgrade sobre fixture legada (RED)", () => {
     const detail = (await (bank as unknown as { getImportDetail: (...a: unknown[]) => Promise<Record<string, unknown>> })
       .getImportDetail(TENANT, PESSOAL, accountId, importId, R)) as Record<string, unknown>;
     expect(detail.canUndo).toBe(false);
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toBeInstanceOf(ConflictException);
+    expect(detail.blockReason).toMatch(/LEGACY/);
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toThrow(/LEGACY_OR_MIXED/);
     const payment = await setup.expense.findFirst({ where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" } });
-    expect((payment as unknown as Record<string, unknown>).invoiceUndoState ?? null).toBeNull();
+    expect(payment).not.toBeNull();
+    // pós-migração a coluna existe e é NULL para o legado (sem backfill)
+    expect((payment as unknown as Record<string, unknown>).invoiceUndoState).toBeNull();
   });
 
   it("carimbo com trail_version desconhecida → getImportDetail canUndo:false, undoImport 409 (guarda de versão)", async () => {
@@ -120,7 +124,7 @@ describe("#569 §6.7 — migration upgrade sobre fixture legada (RED)", () => {
     const detail = (await (bank as unknown as { getImportDetail: (...a: unknown[]) => Promise<Record<string, unknown>> })
       .getImportDetail(TENANT, PESSOAL, accountId, importId, R)) as Record<string, unknown>;
     expect(detail.canUndo).toBe(false);
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toBeInstanceOf(ConflictException);
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toThrow(/vers/i);
   });
 
   it("critério de DROP seguro: 0 linhas em imported_invoice_liquidations MAS ≥1 expense com invoice_undo_state = PROCESSED_NONE → o check de pré-condição de rollback destrutivo reprova (as duas contagens)", async () => {

@@ -1,3 +1,5 @@
+// PR: PR 2 (feature) — `getImportDetail(…, requester)` + ACL por participante
+//     cross-project no `undoImport`. Nada aqui é PR 1.
 // #569 §6.5 — ACL por participante cross-project + `requester` em `getImportDetail`.
 // Grupo A (RED por comportamento): hoje `getImportDetail(tenantId, projectId, accountId, importId)`
 // NÃO recebe `requester` (controller `bank-account.controller.ts:71` sem `@CurrentUser`)
@@ -97,7 +99,9 @@ describe("#569 §6.5 — undo-import authz (RED)", () => {
     importIdRef = await importWithReformaPurchase();
     const detail = await detailCall(PESSOAL_ONLY);
     expect(detail.canUndo).toBe(false);
-    expect(detail.blockReason ?? (detail as Record<string, unknown>).blockingReason).toBeDefined();
+    // motivo concreto: participante fora do escopo do requester (indistinguível de "sem trilha")
+    expect(typeof detail.blockReason).toBe("string");
+    expect(detail.blockReason).toMatch(/LEGACY_NO_TRAIL|PARTICIPANT/);
   });
 
   it("ADMIN vê todos os participantes → canUndo:true", async () => {

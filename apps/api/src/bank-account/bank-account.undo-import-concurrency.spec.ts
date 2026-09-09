@@ -1,5 +1,6 @@
 // RED por ausência: depende do schema aditivo do PR 1 (degrau) — §3.3.1. NÃO aplicar migration nesta rodada (decisão do PO).
 //
+// PR: PR 2 (feature) — `undoImport` revertendo via ledger + recount import+itens na tx.
 // #569 §6.6 — concorrência do undo via ledger (`PrismaService` real + SQLite real).
 // Hoje `undoImport` faz 409 fail-closed em qualquer lote com pagamento de fatura,
 // e `ImportedInvoiceLiquidation` / `invoiceUndoState` não existem — cada `it`
@@ -7,6 +8,7 @@
 // desfecho de contenção. O doc NÃO afirma ordem de write-lock; a asserção é a
 // disjunção do §2.4.
 import { PrismaClient } from "@prisma/client";
+import { ConflictException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   commitStatement,
@@ -59,7 +61,8 @@ describe("#569 §6.6 — undo-import concurrency (RED)", () => {
   async function importSettled() {
     const purchase = await seedInstallmentPurchase(setup, {
       tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 1, valorCents: 30_000,
-      primeiraData: new Date("2026-07-01T12:00:00.000Z"),
+      // ciclo que fecha 20/06 e vence 01/07 → dentro de {payMonth 2026-06, +1}
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
     });
     const commit = await commitStatement(bank, {
       tenantId: TENANT, projectId: PESSOAL, accountId, bankLast4: BANK, cardLast4: CARD,
@@ -77,14 +80,16 @@ describe("#569 §6.6 — undo-import concurrency (RED)", () => {
     const results = (await Promise.allSettled([
       bank.undoImport(TENANT, PESSOAL, accountId, importId, R),
       bank.undoImport(TENANT, PESSOAL, accountId, importId, R),
-    ])) as Array<{ status: string; value?: Record<string, unknown>; reason?: { constructor?: { name?: string } } }>;
+    ])) as Array<{ status: string; value?: Record<string, unknown>; reason?: unknown }>;
     const reverting = results.filter((r) => r.status === "fulfilled" && Number(r.value?.revertedInvoiceParcelas ?? 0) > 0);
-    expect(reverting.length).toBeLessThanOrEqual(1);
+    expect(reverting).toHaveLength(1);
     for (const r of results) {
       if (r.status === "fulfilled") {
         expect(Number(r.value?.revertedInvoiceParcelas ?? 0) > 0 || r.value?.alreadyUndone === true).toBe(true);
       } else {
-        expect(r.reason?.constructor?.name).toBeDefined();
+        // o perdedor cai na disjunção do §2.4: 409 com motivo específico
+        expect(r.reason).toBeInstanceOf(ConflictException);
+        expect((r.reason as Error).message).toMatch(/INCOMPLETE_TRAIL|ALREADY_UNDONE/);
       }
     }
     expect(await pagoCount()).toBe(0);
@@ -107,9 +112,7 @@ describe("#569 §6.6 — undo-import concurrency (RED)", () => {
       data: { deletedAt: new Date() },
     });
     const before = await setup.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toMatchObject({
-      constructor: expect.anything(),
-    });
+    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toThrow(/INCOMPLETE_TRAIL/);
     expect(await setup.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
   });
 
@@ -123,6 +126,7 @@ describe("#569 §6.6 — undo-import concurrency (RED)", () => {
     });
     const result = await bank.undoImport(TENANT, PESSOAL, accountId, importId, R).catch((e) => e);
     expect((result as { alreadyUndone?: boolean }).alreadyUndone).not.toBe(true);
-    expect(result).toBeInstanceOf(Error);
+    expect(result).toBeInstanceOf(ConflictException);
+    expect((result as Error).message).toMatch(/INCOMPLETE_TRAIL/);
   });
 });

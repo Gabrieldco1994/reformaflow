@@ -1,3 +1,4 @@
+// PR: PR 1 (degrau) — `outcome`/`flippedEntries`/carimbo derivados do `apply`.
 // #569 §6.2 — janelas de identificação/liquidação (Grupo A: as janelas 60d/±10d/
 // {m,m+1}/75d JÁ existem em `origin/main@e66e49c1`; estes `it` asseveram que
 // continuam pinadas). O `outcome: SETTLED | NO_SETTLEMENT` NÃO existe ainda —
@@ -59,13 +60,20 @@ describe("#569 §6.2 — janelas (RED)", () => {
     await setup.$disconnect();
   });
 
-  async function pay(debitCents: number, date: string, period: string, cardLast4 = CARD) {
+  async function pay(
+    debitCents: number,
+    date: string,
+    period: string,
+    cardLast4: string | undefined = CARD,
+    memo?: string,
+  ) {
     const commit = await commitStatement(bank, {
       tenantId: TENANT,
       projectId: PESSOAL,
       accountId,
       bankLast4: BANK,
       cardLast4,
+      memo,
       debitCents,
       date,
       period,
@@ -79,20 +87,27 @@ describe("#569 §6.2 — janelas (RED)", () => {
   }
 
   it("liquidação por vencimento usa janela de mês {payMonth, payMonth+1}: pagamento em 2026-06-30 fecha fatura com vencimento 2026-07-01", async () => {
+    // ARRANGE: compra ANTES do pagamento (10/06, dentro dos 60d) e no ciclo que
+    // fecha 20/06 → vence 01/07 (dueMonth "2026-07"), dentro de {payMonth=2026-06,
+    // payMonth+1=2026-07}. Data 01/07 cairia no ciclo de agosto e nunca liquidaria.
     const purchase = await seedInstallmentPurchase(setup, {
       tenantId: TENANT,
       projectId: PESSOAL,
       cardLast4: CARD,
       parcelas: 1,
       valorCents: 30_000,
-      primeiraData: new Date("2026-07-01T12:00:00.000Z"),
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
     });
     const { payment } = await pay(30_000, "20260630", "2026-06");
+    // precondição: o pagamento de fatura foi criado e o cartão identificado (last4)
+    expect(payment).not.toBeNull();
+    expect(payment!.cardLast4).toBe(CARD);
     const entry = await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } });
     expect(entry?.status).toBe("PAGO");
     const raw = await readExpenseRaw(setup, payment!.id);
-    expect(raw?.invoiceUndoState).toBe("PROCESSED_SETTLED");
-    expect(raw?.invoiceUndoDueMonth).toBe("2026-07");
+    expect(raw).not.toBeNull();
+    expect(raw!.invoiceUndoState).toBe("PROCESSED_SETTLED");
+    expect(raw!.invoiceUndoDueMonth).toBe("2026-07");
   });
 
   it("fallback findImportByTotal respeita 75 dias corridos: import criado há 76 dias NÃO casa; há 74 dias casa", async () => {
@@ -188,9 +203,12 @@ describe("#569 §6.2 — janelas (RED)", () => {
         data: compra,
         titulo: `id60-${label}`,
       });
-      const { payment } = await pay(30_000, "20260615", "2026-06");
+      // memo SEM last4 → identificação depende da janela de 60d, não do texto
+      const { payment } = await pay(30_000, "20260615", "2026-06", undefined, "PAGTO CART CRED");
+      expect(payment).not.toBeNull();
       const raw = await readExpenseRaw(setup, payment!.id);
-      expect(raw?.invoiceUndoCardId == null ? false : true).toBe(shouldMatch);
+      expect(raw).not.toBeNull();
+      expect(raw!.invoiceUndoCardId != null).toBe(shouldMatch);
       await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
       await setup.expense.deleteMany({ where: { tenantId: TENANT, tipoDespesa: { not: undefined } } });
       await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
@@ -214,9 +232,12 @@ describe("#569 §6.2 — janelas (RED)", () => {
         titulo: `strict-${label}`,
       });
       const y = payDate.toISOString().slice(0, 10).replace(/-/g, "");
-      const { payment } = await pay(33_333, y, "2026-06");
+      // memo SEM last4 → identificação depende do match estrito por valor (±10d)
+      const { payment } = await pay(33_333, y, "2026-06", undefined, "PAGTO CART CRED");
+      expect(payment).not.toBeNull();
       const raw = await readExpenseRaw(setup, payment!.id);
-      expect(raw?.invoiceUndoCardId == null ? false : true).toBe(shouldMatch);
+      expect(raw).not.toBeNull();
+      expect(raw!.invoiceUndoCardId != null).toBe(shouldMatch);
       await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
       await setup.expense.deleteMany({ where: { tenantId: TENANT, tipoDespesa: { not: undefined } } });
       await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
@@ -224,17 +245,19 @@ describe("#569 §6.2 — janelas (RED)", () => {
   });
 
   it("outcome SETTLED sse e só se flippedEntries.length > 0; caso contrário NO_SETTLEMENT", async () => {
+    // compra no ciclo que vence 01/07 (ver teste da janela {m,m+1})
     await seedInstallmentPurchase(setup, {
       tenantId: TENANT,
       projectId: PESSOAL,
       cardLast4: CARD,
       parcelas: 1,
       valorCents: 30_000,
-      primeiraData: new Date("2026-07-01T12:00:00.000Z"),
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
     });
     const settled = await pay(30_000, "20260630", "2026-06");
+    expect(settled.payment).not.toBeNull();
     const settledRaw = await readExpenseRaw(setup, settled.payment!.id);
-    expect(settledRaw?.invoiceUndoState).toBe("PROCESSED_SETTLED");
+    expect(settledRaw!.invoiceUndoState).toBe("PROCESSED_SETTLED");
     const detailSettled = (await (bank as unknown as { getImportDetail: (...a: unknown[]) => Promise<Record<string, unknown>> })
       .getImportDetail(TENANT, PESSOAL, accountId, settled.commit.importId, R)) as Record<string, unknown>;
     expect((detailSettled.settlement as Record<string, unknown> | undefined)?.state).toBe("SETTLED_BY_IMPORT");
@@ -243,10 +266,13 @@ describe("#569 §6.2 — janelas (RED)", () => {
   it("fatura já paga, diferença a menos, diferença a MAIS, nenhuma fatura → todos NO_SETTLEMENT; hint é best-effort e NÃO é asseverado como coluna persistida", async () => {
     // nenhuma fatura compatível
     const { payment } = await pay(99_999, "20260630", "2026-06");
+    expect(payment).not.toBeNull();
     const raw = await readExpenseRaw(setup, payment!.id);
-    expect(raw?.invoiceUndoState).toBe("PROCESSED_NONE");
+    expect(raw).not.toBeNull();
+    expect(raw!.invoiceUndoState).toBe("PROCESSED_NONE");
     expect(raw).not.toHaveProperty("invoiceUndoHint");
     expect(raw).not.toHaveProperty("hint");
-    expect(cardId).toBeTruthy();
+    // cartão identificado (last4 no memo) mas fatura não fechou → card_id preenchido
+    expect(raw!.invoiceUndoCardId).toBe(cardId);
   });
 });

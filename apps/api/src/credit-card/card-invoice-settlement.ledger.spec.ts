@@ -1,5 +1,8 @@
 // RED por ausência: depende do schema aditivo do PR 1 (degrau) — §3.3.1. NÃO aplicar migration nesta rodada (decisão do PO).
 //
+// PR: PR 1 (degrau) — trilha real + `flippedEntries` + `recordImportedLiquidations`
+//     + carimbo. `applyRevertImportedLiquidations`/`prepareRevert…` são introduzidos
+//     no PR 1 (sem caller); o caller `undoImport` via ledger é PR 2.
 // #569 §6.1 — trilha de liquidação por importação (`ImportedInvoiceLiquidation` +
 // `recordImportedLiquidations` / `applyRevertImportedLiquidations` + `flippedEntries`
 // no retorno de `applyPreparedSettlement`). Nenhuma dessas peças existe em
@@ -284,17 +287,21 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
       debitCents: 12_345,
       date: "20260201",
       period: "2026-02",
-      memo: "PAGAMENTO DE FATURA",
+      // memo classificado como pagamento de fatura mas SEM last4 (M8, #573)
+      memo: "PAGTO CART CRED",
       requester: REQUESTER,
     });
     const payment = await setup.expense.findFirst({
       where: { tenantId: TENANT, tipoDespesa: { in: ["PAGAMENTO_FATURA_CARTAO", "PAGAMENTO_FATURA_SEM_CARTAO"] }, importId: commit.importId },
     });
+    // precondição: o pagamento M8 (sem last4) FOI criado
     expect(payment).not.toBeNull();
+    expect(payment!.cardLast4).toBeNull();
     const raw = await readExpenseRaw(setup, payment!.id);
-    expect(raw?.invoiceUndoState).toBe("PROCESSED_NONE");
-    expect(raw?.invoiceUndoCardId).toBeNull();
-    expect(raw?.invoiceUndoParcelaCount).toBe(0);
+    expect(raw).not.toBeNull();
+    expect(raw!.invoiceUndoState).toBe("PROCESSED_NONE");
+    expect(raw!.invoiceUndoCardId).toBeNull();
+    expect(raw!.invoiceUndoParcelaCount).toBe(0);
     const detail = (await (bank as unknown as {
       getImportDetail: (...a: unknown[]) => Promise<Record<string, unknown>>;
     }).getImportDetail(TENANT, PESSOAL, accountId, commit.importId, REQUESTER)) as Record<string, unknown>;

@@ -1,3 +1,6 @@
+// PR: PR 1 (degrau) — rollback do lote quando `recordImportedLiquidations` estoura
+//     (itens 1–2 + regression). PR 2 (feature) — `getAccountView` volta ao baseline
+//     pós-`undoImport` via ledger (item 3, "pagar-por-import → undoImport …").
 // #569 §6.3 — atomicidade do commit/undo com a trilha.
 // RED por ausência (Grupo B) nos itens que semeiam/leem `ImportedInvoiceLiquidation`
 // — depende do schema aditivo do PR 1 (degrau), §3.3.1. NÃO aplicar migration
@@ -5,7 +8,6 @@
 // hoje `undoImport` faz 409 fail-closed no lote com pagamento de fatura, então
 // `getAccountView` nunca volta ao baseline.
 import { PrismaClient } from "@prisma/client";
-import { ConflictException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   baselineAccountView,
@@ -85,7 +87,7 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
       cardLast4: CARD,
       parcelas: 1,
       valorCents: 30_000,
-      primeiraData: new Date("2026-07-01T12:00:00.000Z"),
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
     });
     // força P2002: já existe uma liquidação ATIVA para a entry que o commit vai tocar
     await (setup as unknown as {
@@ -116,7 +118,7 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
         period: "2026-06",
         requester: R,
       }),
-    ).rejects.toBeDefined();
+    ).rejects.toThrow();
     const after = await counts();
     expect(after).toEqual({ ...before });
     const entry = await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } });
@@ -130,7 +132,7 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
       cardLast4: CARD,
       parcelas: 2,
       valorCents: 15_000,
-      primeiraData: new Date("2026-07-01T12:00:00.000Z"),
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
     });
     const commit = await commitStatement(bank, {
       tenantId: TENANT,
@@ -194,6 +196,5 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
     });
     const undo = await bank.undoImport(TENANT, PESSOAL, accountId, commit.importId, R);
     expect(undo).toMatchObject({ ok: true });
-    expect(ConflictException).toBeDefined();
   });
 });
