@@ -10,17 +10,14 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import {
-  baselineAccountView,
   commitStatement,
   makeBankAccountService,
-  makeMonthlyOverviewService,
   pessoalRequester,
   resetTenant,
   seedBankAccount,
   seedCardWithClosingDue,
   seedInstallmentPurchase,
   seedPessoal,
-  seedSinglePurchase,
 } from "./__tests__/invoice-undo.fixtures";
 
 const TENANT = "iul-atom-tenant";
@@ -34,7 +31,6 @@ const prisma = new PrismaService();
 
 describe("#569 §6.3 — undo-import atomicity (RED)", () => {
   let bank: ReturnType<typeof makeBankAccountService>;
-  let mo: ReturnType<typeof makeMonthlyOverviewService>;
   let accountId: string;
   let cardId: string;
 
@@ -52,7 +48,6 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
     }));
     ({ id: accountId } = await seedBankAccount(setup, { tenantId: TENANT, projectId: PESSOAL, last4: BANK }));
     bank = makeBankAccountService(prisma);
-    mo = makeMonthlyOverviewService(prisma);
   });
 
   afterEach(async () => {
@@ -125,71 +120,10 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
     expect(entry?.status).toBe("PLANEJADO");
   });
 
-  // DEPENDÊNCIA FUTURA (PR 2). Hoje `undoImport` faz fail-closed 409 (lote contém
-  // PAGAMENTO_FATURA_CARTAO) ANTES de qualquer laço de `cashFlowEntry.update`, então
-  // o rollback-de-undo-parcial nunca é exercido — um `.rejects` genérico aqui seria
-  // um FALSO PASS de atomicidade. Este `it` só passa a ter significado quando o
-  // `undoImport` via ledger (`applyRevertImportedLiquidations`) existir; até lá é RED
-  // porque o spy de `update` nunca é alcançado.
-  it("undoImport: falha forçada no update de uma entry no meio → rollback total, nenhuma outra entry/caixa/vínculo/import alterado", async () => {
-    const purchase = await seedInstallmentPurchase(setup, {
-      tenantId: TENANT,
-      projectId: PESSOAL,
-      cardLast4: CARD,
-      parcelas: 2,
-      valorCents: 15_000,
-      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
-    });
-    const commit = await commitStatement(bank, {
-      tenantId: TENANT,
-      projectId: PESSOAL,
-      accountId,
-      bankLast4: BANK,
-      cardLast4: CARD,
-      debitCents: 15_000,
-      date: "20260630",
-      period: "2026-06",
-      requester: R,
-    });
-    // simula item corrompido: apaga a entry alvo por baixo (FK RESTRICT deve barrar o update do undo)
-    const spy = jest
-      .spyOn(prisma.cashFlowEntry, "update")
-      .mockRejectedValueOnce(new Error("forced mid-loop failure"));
-    const before = await setup.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, commit.importId, R)).rejects.toThrow();
-    // RED (PR 2): o caminho de reversão via ledger tem de chegar ao laço de update.
-    // Hoje o 409 fail-closed dispara antes → spy nunca chamado → esta linha falha.
-    expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
-    const after = await setup.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    expect(after).toEqual(before);
-    expect((await setup.bankStatementImport.findUnique({ where: { id: commit.importId } }))?.deletedAt).toBeNull();
-  });
-
-  it("pagar-por-import → undoImport devolve getAccountView (caixaHoje, devoCartaoTotal, faturas[].pending, saidas[], comprasCartao[]) ao valor EXATO pré-import — deep-equal centavo a centavo", async () => {
-    await seedSinglePurchase(setup, {
-      tenantId: TENANT,
-      projectId: PESSOAL,
-      cardLast4: CARD,
-      valorCents: 30_000,
-      data: new Date("2026-06-05T12:00:00.000Z"),
-    });
-    const baseline = await baselineAccountView(mo, { tenantId: TENANT, projectId: PESSOAL, month: "2026-07", requester: R });
-    const commit = await commitStatement(bank, {
-      tenantId: TENANT,
-      projectId: PESSOAL,
-      accountId,
-      bankLast4: BANK,
-      cardLast4: CARD,
-      debitCents: 30_000,
-      date: "20260630",
-      period: "2026-06",
-      requester: R,
-    });
-    await bank.undoImport(TENANT, PESSOAL, accountId, commit.importId, R);
-    const restored = await baselineAccountView(mo, { tenantId: TENANT, projectId: PESSOAL, month: "2026-07", requester: R });
-    expect(restored).toEqual(baseline);
-  });
+  // Removidos desta branch (PR 1): os 2 `it` que exercitam `undoImport` revertendo
+  // via ledger ("falha forçada no update de uma entry no meio" e "pagar-por-import →
+  // undoImport devolve getAccountView ao baseline"). Ambos vivem inteiros em
+  // `test/569-pr2-red`. Undo via ledger é PR 2.
 
   it("regression: lote sem pagamento de fatura continua ConflictException-free e reversível", async () => {
     const commit = await commitStatement(bank, {

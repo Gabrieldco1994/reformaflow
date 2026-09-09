@@ -127,15 +127,12 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     expect(importId).toBeTruthy();
   });
 
-  it("B1b undoInvoicePayment reverteu uma parcela do ledger de OUTRO caminho antes do undo → undoImport 409 DRIFT, zero escrita", async () => {
-    const { entryId, importId } = await importSettled();
-    // parcela revertida fora de banda
-    await setup.cashFlowEntry.update({ where: { id: entryId }, data: { status: "PLANEJADO" } });
-    const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toThrow(/DRIFT/);
-    const after = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    expect(after).toEqual(before);
-  });
+  // Removidos desta branch (PR 1): `B1b` (undoImport 409 `DRIFT` por parcela
+  // revertida fora de banda), `B2d` (undoImport 409 `MANUAL_PAYMENT_OVERLAP`) e
+  // `drift por entry soft-deletada → 409 DRIFT` — todos asseveram o MOTIVO
+  // específico do drift-check do `undoImport` via ledger, que é PR 2. Vivem
+  // inteiros em `test/569-pr2-red`. As guardas de escrita PR 1 (B2/B2c pre-check,
+  // B3–B6/B9) permanecem abaixo.
 
   it("B2 payInvoice REAL (não fabrica carimbo): trilha PROCESSED_SETTLED + itens ATIVOS no card+dueMonth alvo → 409 INVOICE_HAS_IMPORT_TRAIL; zero PAGAMENTO_FATURA_CARTAO novo; entries seguem PAGO; ledger e carimbo intactos", async () => {
     const { entryId, paymentId } = await importSettled();
@@ -199,22 +196,6 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
       ADMIN,
     );
     expect(result).toMatchObject({ ok: true });
-  });
-
-  it("B2d pagamento manual pré-existente casado à fatura do carimbo → undoImport 409 MANUAL_PAYMENT_OVERLAP, zero escrita", async () => {
-    const { importId } = await importSettled();
-    // pagamento manual posterior semeado direto, casado por settlesInvoiceKey
-    await setup.expense.create({
-      data: {
-        tenantId: TENANT, projectId: PESSOAL, tipoDespesa: "PAGAMENTO_FATURA_CARTAO", titulo: "manual",
-        valor: 30_000, quantidade: 1, valorTotal: 30_000, formaPagamento: "A_VISTA",
-        dataPagamento: new Date("2026-07-15T12:00:00.000Z"), status: "PAGO",
-        cardLast4: CARD, settlesInvoiceKey: `${CARD}:2026-07`,
-      },
-    });
-    const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, importId, R)).rejects.toThrow(/MANUAL_PAYMENT_OVERLAP/);
-    expect(await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
   });
 
   it("B3 PATCH /expenses/:id muda valor da compra liquidada → 409 ConflictException no update; ledger intacto", async () => {
@@ -319,13 +300,5 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
       .getImportDetail(TENANT, PESSOAL, accountId, imp.id, R)) as Record<string, unknown>;
     expect(detail.canUndo).toBe(false);
     await expect(bank.undoImport(TENANT, PESSOAL, accountId, imp.id, R)).rejects.toThrow(/LEGACY_OR_MIXED/);
-  });
-
-  it("drift por entry soft-deletada → 409, zero escrita; drift por settledByExpenseId posterior → 409", async () => {
-    const a = await importSettled(30_000);
-    await setup.cashFlowEntry.update({ where: { id: a.entryId }, data: { deletedAt: new Date() } });
-    const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
-    await expect(bank.undoImport(TENANT, PESSOAL, accountId, a.importId, R)).rejects.toThrow(/DRIFT/);
-    expect(await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
   });
 });

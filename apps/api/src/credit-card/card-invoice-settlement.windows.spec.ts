@@ -276,27 +276,10 @@ describe("#569 §6.2 — janelas (RED)", () => {
     }
   });
 
-  it("outcome SETTLED sse e só se flippedEntries.length > 0; caso contrário NO_SETTLEMENT", async () => {
-    // compra no ciclo que vence 01/07 (ver teste da janela {m,m+1})
-    await seedInstallmentPurchase(setup, {
-      tenantId: TENANT,
-      projectId: PESSOAL,
-      cardLast4: CARD,
-      parcelas: 1,
-      valorCents: 30_000,
-      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
-    });
-    const settled = await pay(30_000, "20260630", "2026-06");
-    expect(settled.payment).not.toBeNull();
-    // REGRESSÃO (comportamento vigente): a parcela do ciclo virou PAGO.
-    const flipped = await setup.cashFlowEntry.findFirst({ where: { tenantId: TENANT, tipo: "DESPESA" } });
-    expect(flipped?.status).toBe("PAGO");
-    const settledRaw = await readExpenseRaw(setup, settled.payment!.id);
-    expect(settledRaw!.invoiceUndoState).toBe("PROCESSED_SETTLED");
-    const detailSettled = (await (bank as unknown as { getImportDetail: (...a: unknown[]) => Promise<Record<string, unknown>> })
-      .getImportDetail(TENANT, PESSOAL, accountId, settled.commit.importId, R)) as Record<string, unknown>;
-    expect((detailSettled.settlement as Record<string, unknown> | undefined)?.state).toBe("SETTLED_BY_IMPORT");
-  });
+  // Removido desta branch (PR 1): `it("outcome SETTLED …")` assertava
+  // `getImportDetail(...).settlement.state === "SETTLED_BY_IMPORT"` — `settlement{}`
+  // é PR 2. O `it` inteiro vive em `test/569-pr2-red`. O carimbo `PROCESSED_SETTLED`
+  // derivado do apply (PR 1) já é coberto pelo `it` da janela {m,m+1} acima.
 
   it("fatura já paga, diferença a menos, diferença a MAIS, nenhuma fatura → todos NO_SETTLEMENT; hint é best-effort e NÃO é asseverado como coluna persistida", async () => {
     // nenhuma fatura compatível
