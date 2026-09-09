@@ -309,7 +309,7 @@ Ordem, ANTES da 1ª escrita:
 | **2 undos simultâneos do MESMO lote** | exatamente um retorna `revertedInvoiceParcelas > 0`. O outro: **OU** `{ ok:true, alreadyUndone:true }` **OU** 409 (`INCOMPLETE_TRAIL` / `ALREADY_UNDONE`) — **nunca** reversão parcial, **nunca** dupla reversão. Contagem final de `CashFlowEntry` PAGO == baseline pós-undo; no máximo UMA chamada com `revertedInvoiceParcelas > 0`. | releitura de `importRecord.deletedAt` + `activeItems` DENTRO da `$transaction` (passos 1 e 3) — não pré-check externo. **O índice único parcial NÃO impede a 2ª tentativa** (as linhas já viram soft-deleted no 1º commit): a proteção é o **recount do import + itens na tx** — se o 2º entra após o 1º commitar, `importRecord.deletedAt != null` ⇒ no-op `alreadyUndone`; se entra antes, `activeItems.length !== parcela_count` (ou o índice, na re-gravação) ⇒ 409/rollback. O desfecho exato sob contenção é **asseverado por §6.6 com `PrismaService` real + SQLite real** dentro da disjunção acima — este doc **não** afirma ordem de write-lock. |
 | **re-undo serial** | 2ª chamada: `{ ok:true, alreadyUndone:true }`, zero parcelas revertidas de novo | `importRecord.deletedAt != null` relido na tx (passo 3) |
 | **item do ledger soft-deletado por fora entre commit e undo** | 409 `INCOMPLETE_TRAIL`, zero escrita | `activeItems.length (0) !== parcela_count (N)` recontado na tx |
-| **`SQLITE_BUSY` / contenção de escrita** | erro propaga → 5xx; operação idempotente ⇒ retry seguro | **Ação `platform-sre` (E):** confirmar `busy_timeout`/WAL do `PrismaService` cobre a contenção nova. Não presumir ordem de lock. |
+| **`SQLITE_BUSY` / contenção de escrita** | erro propaga → 5xx; operação idempotente ⇒ retry seguro | **Parecer SRE §3.3.1 item 4:** `PrismaService` hoje **não** define `busy_timeout`/WAL/`connection_limit` (`prisma.service.ts:12`, `super()` sem args). PR de config (WAL + `busy_timeout` ≥ p99 + `connection_limit=1`) exigido **antes do PR 2**. Não presumir ordem de lock — §6.6 assevera o desfecho com SQLite real. |
 
 ---
 
@@ -357,9 +357,11 @@ escrita pelo código novo — a imagem antiga nem toca nela), mas há **regress�
 silenciosa de funcionalidade**: os lotes importados durante a janela ficam
 permanentemente `canUndo:false` (lidos como legado, estado 1) quando o código novo volta.
 
-> **§3.3 ESTÁ PENDENTE DE PARECER `platform-sre`.** Enquanto o procedimento
-> abaixo não estiver fechado e revisado pelo SRE, este documento **NÃO declara
-> "rollback seguro"**. O texto abaixo é a proposta a revisar.
+> **PARECER `platform-sre` RECEBIDO** (ver §3.3.1). Recomendação: **(B) release-degrau
+> em 2 PRs**, política de rollback **forward-only** (`git revert` do PR da feature na
+> `main`, nunca deploy manual de imagem N-2). O `DROP` destrutivo futuro depende de
+> autorização explícita do PO + backup restaurável. As 4 ações SRE pendentes (§3.3.1
+> fim) precisam de dono no tracker antes do PR 2.
 
 **Por que "bloquear só o ramo `matchedCard`" NÃO basta:** desligar a
 liquidação-por-importação impede criar trilhas NOVAS sem carimbo, mas **não**
@@ -407,19 +409,90 @@ tabela + das 5 colunas só é seguro com **AMBAS** as contagens zeradas:
 **E** `SELECT count(*) FROM expenses WHERE invoice_undo_state IS NOT NULL = 0`.
 Documentar as duas no cabeçalho da migration como pré-condição do rollback destrutivo.
 
-**REQUER validação `platform-sre` (E) — §3.3 fica PENDENTE DE PARECER até isto ser decidido e registrado:**
-1. opção **(A) vs (B)** para a janela de rollback de imagem; se (A), o mecanismo de
-   bloqueio consumível pelas duas imagens e como/quando religar.
-2. duração máxima aceitável da janela e comunicação ao usuário
-   ("liquidação automática temporariamente indisponível").
-3. runbook: rollback de imagem = (A)/(B) + redeploy; `DROP` destrutivo **só** com as
-   **duas** contagens zeradas — nunca `migrate resolve --rolled-back` + `DROP` com
-   carimbos ou linhas presentes.
-4. ordem **migrate antes de deploy** (entrypoint migrate-first já garante — confirmar).
-5. **sem quiesce** — migration puramente aditiva, sem backfill, sem lock longo.
-6. contenção de escrita nova em `undoImport` sob `busy_timeout`/WAL — confirmar config
-   atual do `PrismaService`.
-7. gate de deploy stale-SHA + prova pós-deploy (regra da casa) inalterados.
+### 3.3.1 Parecer `platform-sre` (recebido)
+
+**1. (B) release-degrau, não (A).** O stale-SHA gate (`cancel-in-progress: false` +
+comparação do SHA completo com o HEAD de `main` antes de publicar e após checks — #629)
+faz **falhar** qualquer deploy de imagem que não seja o HEAD de `main`; repinar N-2
+manualmente também é vetado. O único rollback compatível com o pipeline é
+**forward-only**: `git revert` na `main` gera um novo HEAD que passa pelo mesmo gate.
+Logo o "estado de rollback" tem de ser um commit já são por si só — a release-degrau.
+(A) tem contradição operacional (a imagem antiga não conhece a flag) e não protege
+trilhas já gravadas dos demais writers; serve só como mitigação de curtíssimo prazo
+(teto ~24h, aviso "desfazer importação com liquidação temporariamente indisponível")
+se a degrau ainda não existir.
+
+**Estrutura obrigatória:** PR 1 = degrau (migração completa + carimbo `PROCESSED_NONE`
+sempre + checagens mínimas de "parcela ativa" nos writers + guarda de versão
+fail-closed; sem liquidação exata, sem reversão via ledger). PR 2 = feature completa.
+Rollback = `git revert` do PR 2. Nunca revert do PR 1 isolado. Sequência: degrau antes
+de ligar a liquidação exata; rollback nunca abaixo de N-1. **Com (B) não há degradação
+ao usuário** — importação segue funcionando; só o "desfazer importação com liquidação"
+responde fail-closed.
+
+**2. Writers da degrau** — a lista de §4 (B1–B6, B9) está correta. **Acréscimos
+obrigatórios que o texto acima não listava:**
+- **caminho de commit do extrato** (`bank-account.service.ts`, ramos `matchedCard` **e**
+  `matchedCard === null`): gravar carimbo `PROCESSED_NONE` em todo
+  `PAGAMENTO_FATURA_CARTAO` — sem isso a degrau reabre o estado-1 indevido;
+- **guarda de versão em `undoImport` E `getImportDetail`**: carimbo com
+  `invoice_undo_trail_version` não reconhecida ⇒ 409 fail-closed (rolar entre degrau e
+  feature nas duas direções);
+- **fail-closed da degrau sobre `PROCESSED_SETTLED`**: a degrau nunca cria esse estado
+  mas pode encontrá-lo se revertida a partir da feature ⇒ `getImportDetail`
+  `canUndo:false`, `undoImport` 409 (a degrau não sabe reverter via ledger).
+
+**3. Critério de `DROP` seguro** — as duas contagens são a base certa, insuficientes
+como escritas. Complementos:
+- medir **em produção** (`fly ssh console -a reformaflow-api -C "sqlite3 -readonly
+  /data/dev.db '<sql>'"`), nunca o `dev.db` local: `count(*) FROM
+  imported_invoice_liquidations` (sem filtro de `deleted_at` — históricas também são
+  trilha) **E** `count(*) FROM expenses WHERE invoice_undo_state IS NOT NULL`, ambas `= 0`;
+- **fechar o TOCTOU**: rodar as contagens imediatamente antes do `DROP`, com a
+  liquidação-por-importação desligada ou API quiesced;
+- backup restaurável timestamped + `PRAGMA integrity_check` logo antes;
+- `DROP` só via nova migração forward, nunca `migrate resolve --rolled-back` + `DROP`
+  manual;
+- **autorização explícita do PO** (mutação destrutiva de trilha);
+- documentar em: cabeçalho da migração aditiva, cabeçalho da futura migração de `DROP`
+  (as 2 queries + backup + PO), `DEPLOY.md` (runbook), nota curta no `CLAUDE.md`.
+
+**4. Ordem / quiesce / contenção:**
+- ordem confirmada pelo entrypoint migrate-first (Dockerfile) — **não** alterar;
+  máquina única (`auto_stop_machines=off`, `min_machines_running=1`) — o swap de máquina
+  do Fly dá o downtime breve já aceito;
+- **quiesce NÃO necessário**: `CREATE TABLE` nova + `CREATE INDEX` em tabela vazia +
+  `ALTER TABLE ADD COLUMN` de 5 colunas nullable sem default (metadado O(1) no SQLite,
+  sem rewrite); sem backfill;
+- **ACHADO — exige PR próprio antes do PR 2**: `PrismaService` chama `super()` sem args;
+  `DATABASE_URL` sem query params; **nenhum `PRAGMA busy_timeout`, `journal_mode`/WAL nem
+  `connection_limit`** em lugar nenhum (verificado em `apps/api/src/prisma/prisma.service.ts:12`).
+  A `$transaction` de lote ampliada (ACL loads + `findUnique` de drift + updates do ledger)
+  segura o write-lock por mais tempo ⇒ concorrente toma `SQLITE_BUSY` imediato. Ação:
+  `PRAGMA journal_mode=WAL` + `PRAGMA busy_timeout` (≥ p99 da tx de lote, sugestão inicial
+  10000 ms) no `onModuleInit`; `?connection_limit=1` na `DATABASE_URL` de produção;
+  documentar que `SQLITE_BUSY` → 5xx é retry seguro (operação idempotente). O desfecho sob
+  contenção é asseverado por §6.6 com `PrismaService` real + SQLite real, não por parecer.
+- gates stale-SHA + prova pós-deploy inalterados; **não** adicionar `/health` nem SHA build arg.
+
+**5. Fixture de upgrade legado** — origem: backup de produção sanitizado OU legada
+estruturalmente equivalente (passar só contra banco novo não é evidência — #629). No
+schema **pré-migração** deve conter: (a) `PAGAMENTO_FATURA_CARTAO` importado pré-#569 com
+`CashFlowEntry` já `PAGO` e zero ledger (estado 1); (b) lote misto (estado 4); (c)
+`PAGAMENTO_FATURA_CARTAO` com `cardLast4 = NULL` (M8); (d) pagamento manual
+(`importId IS NULL`, `PAGO`) casado por `settlesInvoiceKey`/janela `{payMonth,payMonth+1}`;
+(e) compra cross-project em cartão compartilhado (ACL-por-participante); (f) despesa
+adotada com `importId`/`externalId` carimbados (#672); (g) massa p/ `foreign_key_check`
+limpo (#628). Asserções pós `migrate deploy`: tabela+índice+5 colunas existem, ledger 0
+linhas, todas `invoice_undo_*` NULL; `db:check` 0 violações; `getImportDetail` do lote
+legado `canUndo:false`/`LEGACY_NO_TRAIL`, `undoImport` 409; registrar DB de origem,
+tamanho e tempo do `ALTER`; drill de backup/restore executado.
+
+**Ações SRE pendentes — registrar no tracker com dono antes do PR 2:**
+1. definir com o PO a sequência de 2 PRs (degrau → feature) e a política forward-only;
+2. PR de config Prisma (WAL + `busy_timeout` + `connection_limit=1`) antes do PR 2;
+3. `DEPLOY.md`: runbook de rollback (revert do PR 2) + pré-condição das 2 contagens p/ `DROP`; nota no `CLAUDE.md`;
+4. autorização do PO para a futura migração de `DROP`.
 
 ---
 
@@ -454,7 +527,7 @@ Princípio: **1 guard de escrita** (`assertCanMutateLinkedRows` +
 | **B** alterações posteriores / adoção | guard em `assertCanMutateLinkedRows` (`expense.service.ts:1465`) e `guardRateioParticipation` (`~:2014`) + drift-check de undo | B1 `monthly-overview.service.ts:3423`+`:3550`; B2 `monthly-overview.service.ts:~3340` (pre-check em `payInvoice`, após `card` `:3322-3339` + `prepared`, dentro da `$transaction` `:3283`); B3/B4 `expense.service.ts:1444`; B5 `:2190`; B6 `:2014`; B8 `bank-account.service.ts:1463`; **B9** `expense.service.ts:1509-1526` (`hasProtectedChange` — PATCH `tipoDespesa`/ownership de pagamento carimbado) | `later-mutation.spec` (§6.4): um caso por caminho B1–B6/B8/B9, cada um ⇒ bloqueio no write OU 409 no undo, zero escrita. **B2 executa `payInvoice` REAL.** |
 | **C** atomicidade / efeitos efetivos / autz / concorrência | `applyPreparedSettlement` devolve `flippedEntries`; `recordImportedLiquidations` NÃO capturado ⇒ rollback do lote (`$transaction` `:1151`); `getImportDetail` recebe `requester`; ambos revalidam na tx com ACL por participante cross-project; prova de "já desfeito" = import + itens na tx sob write-lock | `bank-account.service.ts:1151` (tx do lote), `:2497` (apply), `:1298/1416` (só `findAccount`), `card-invoice-settlement.service.ts:190` (`assertCanSettlePurchase`), `:613-628` (apply a mudar) | `atomicity.spec` (§6.3): falha forçada em `recordImportedLiquidations` ⇒ NADA persiste (import, despesas, caixa, itens); `authz.spec` (§6.5): requester sem ACL de projeto participante ⇒ 404, zero escrita; `concurrency.spec` (§6.6): 2 undos / re-undo / item removido no meio |
 | **D** janelas e estados honestos | documentar 60d / ±10d / {m,m+1} / 75d / ranking individualmente (nenhuma unificada); `outcome: SETTLED | NO_SETTLEMENT` é derivado de `flippedEntries` do **`apply`** (transições efetivas), nunca da contagem do `prepare`; diferença acima da tolerância pode ser pagamento **A MAIOR**, nunca rotulada `PARTIAL`; sub-motivo = `hint` **não-persistido/não-confiável**; identificação de cartão ≠ liquidação de fatura | `bank-account.service.ts:2822-2831` (60d + `tolerance=200`), `:2894` (±10d); `card-invoice-settlement.service.ts:257` ({m,m+1}), `:682` (75d), `:295` (tolerância) | `windows.spec` (§6.2): cada janela pina o seu valor; `outcome === NO_SETTLEMENT` para fatura já paga, diferença a menos, diferença a MAIS e nenhuma fatura — sem asseverar `hint` como coluna |
-| **E** migration / rollback | aditiva sem backfill; fixture legada + `db:check`; janela de rollback de imagem = **(A) bloqueio operacional OU (B) release-degrau** (`platform-sre` decide); `DROP` seguro **só** com `count(imported_invoice_liquidations)=0` **E** `count(expenses WHERE invoice_undo_state IS NOT NULL)=0`; guarda de versão; lista SRE ampliada | padrão `prisma/migrations/20260904120000_add_dedupe_keys` (índice parcial à mão) | `migration-upgrade.spec` (§6.7): deploy sobre fixture legada ⇒ 0 linhas, colunas NULL, `db:check` ok, legado segue 409 |
+| **E** migration / rollback | aditiva sem backfill; fixture legada + `db:check`; parecer SRE §3.3.1: **(B) release-degrau em 2 PRs**, rollback forward-only (`git revert` do PR 2), degrau conhece todos os writers B1–B6/B9 + carimbo sempre + guarda de versão + fail-closed sobre `PROCESSED_SETTLED`; `DROP` seguro **só** com `count(imported_invoice_liquidations)=0` **E** `count(expenses WHERE invoice_undo_state IS NOT NULL)=0` (prod, + backup + PO); PR de config Prisma (WAL/`busy_timeout`/`connection_limit=1`) antes do PR 2 | padrão `prisma/migrations/20260904120000_add_dedupe_keys` (índice parcial à mão) | `migration-upgrade.spec` (§6.7): deploy sobre fixture legada ⇒ 0 linhas, colunas NULL, `db:check` ok, legado segue 409; `it('DROP reprova com 0 linhas MAS ≥1 carimbo PROCESSED_NONE')` |
 | **F** UX sem promessas / operações implícitas | remover "fatura marcada paga quando compras entrarem"; `creditCardId` = cartão, não fatura; detalhe usa `cardId` estável + lista de pagamentos; "adicionar no contexto" mostra `dueMonth` DERIVADO por `caixaMonthForCardPurchase`; idempotência ≠ reversibilidade | texto atual do resumo `bank-account.service.ts:1240-1258`; `caixaMonthForCardPurchase` (domínio, usado em `card-invoice-settlement.service.ts:270`) | testes de contrato de resposta (§6.8): `getImportDetail.settlement` tem `cardId` (não `last4`) e `payments[]`; `canUndo`/`blockReason` corretos por estado |
 
 ---
@@ -620,7 +693,7 @@ undo responde 409 e o efeito financeiro do lote permanece. A UI não promete
 | **B2**: pre-check em `payInvoice` (`monthly-overview.service.ts:~3340`, DEPOIS de `card` resolvido `:3322-3339` e DEPOIS do `prepared`, dentro da `$transaction` `:3283`) — 409 `INVOICE_HAS_IMPORT_TRAIL` SÓ quando há **parcela ATIVA no ledger** para `card.id` + `dueMonth` alvo (`PROCESSED_SETTLED`); `PROCESSED_NONE` e `prepared` vazio NÃO disparam. Rede: `MANUAL_PAYMENT_OVERLAP` no drift-check do `undoImport` — **coordenar com a branch `fix/b0-invoice-mutation-scope` (`b8c5694e`), que mexe no escopo de mutação de fatura** | **backend-expert** |
 | materializar specs §6.1–6.8 e vê-los VERMELHOS antes do GREEN (PrismaService real) | **backend-expert** |
 | `InvoiceDetailPanel` (novo, aprovado), `ImportHistoryModal` (texto drift/`blockReason`), consumo de `settlement{cardId,payments[]}` e `actions[]` em `MovimentacoesSection`/`ContaAnoView`; specs §6.9 | **frontend-expert** |
-| ordem migrate/deploy; ausência de quiesce; **janela de rollback de imagem antiga — opção (A) bloqueio operacional vs (B) release-degrau (§3.3)**; runbook de rollback (nunca `DROP` a menos que `count(imported_invoice_liquidations)=0` **E** `count(expenses WHERE invoice_undo_state IS NOT NULL)=0`); `busy_timeout`/WAL para contenção de `undoImport`; gates de deploy | **platform-sre** |
+| **parecer entregue (§3.3.1)**: (B) release-degrau em 2 PRs, rollback forward-only; PR de config Prisma (WAL + `busy_timeout` + `connection_limit=1`) antes do PR 2; runbook `DEPLOY.md` (revert do PR 2; `DROP` só com as 2 contagens = 0, medidas em prod, + backup + autorização do PO); 4 ações pendentes com dono no tracker | **platform-sre** |
 | QA de jornada desktop + 375/390, login real + dados reais | **journey-qa** |
 
 **STOP.** Sem produção, migration, testes materializados, PR ou merge nesta rodada.
