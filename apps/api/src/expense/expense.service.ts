@@ -703,6 +703,11 @@ export class ExpenseService {
       newCardId?: string | null;
     },
   ): Promise<void> {
+    // `db` em produção é sempre `PrismaService`/`Prisma.TransactionClient` — o
+    // delegate existe e é tipado. O acesso opcional abaixo existe só para os
+    // unit tests de OUTRAS guardas que injetam um `db` parcial (sem este
+    // delegate); nesses mocks NÃO há trilha, então `0` é o estado correto. Em
+    // produção o ramo `: 0` é inalcançável (não é um "fail-open").
     const ledgerDelegate = (
       db as unknown as {
         importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
@@ -1192,13 +1197,16 @@ export class ExpenseService {
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
-    // #569 (degrau) — B6: ratear compra com parcela liquidada por importação.
-    await this.guardImportedInvoiceTrail(this.prisma, tenantId, source, {
-      changedFinancials: true,
-    });
 
-    const result = await this.prisma.$transaction(async (tx) =>
-      this.conciliacao.ratearSource(
+    const result = await this.prisma.$transaction(async (tx) => {
+      // #569 (degrau) — B6: ratear compra com parcela liquidada por importação.
+      // Lê o ledger DENTRO da tx (fecha o TOCTOU: um `commitImport` concorrente
+      // entre um check pré-tx e a escrita escaparia) antes de `ratearSource`
+      // transformar a fonte em espelho e realinhar o cronograma.
+      await this.guardImportedInvoiceTrail(tx, tenantId, source, {
+        changedFinancials: true,
+      });
+      return this.conciliacao.ratearSource(
         tx,
         {
           tenantId,
@@ -1206,8 +1214,8 @@ export class ExpenseService {
           allocations,
         },
         requester,
-      ),
-    );
+      );
+    });
     return { ok: true, sourceId: source.id, ...result };
   }
 
@@ -1280,12 +1288,21 @@ export class ExpenseService {
       // two rapid requests to create two mirror sets for the same source.
       const sourceInTx = await tx.expense.findFirst({
         where: { id: source.id, tenantId, projectId, deletedAt: null },
-        select: { id: true, linkedExpenseId: true },
+        select: { id: true, linkedExpenseId: true, invoiceUndoState: true, cardLast4: true },
       });
       if (!sourceInTx) throw new NotFoundException('Despesa não encontrada');
       if (sourceInTx.linkedExpenseId) {
         throw new BadRequestException('Esta despesa já está vinculada a outro projeto.');
       }
+      // #569 (degrau) — B6 (variante mixed): `ratear` já barra a fonte liquidada
+      // por importação (:~1200), mas o caminho mixed abria a compra sem a mesma
+      // guarda. `ratearSource` transforma a fonte em espelho e realinha o
+      // cronograma, o que dessincroniza `imported_invoice_liquidations`. Lê o
+      // estado do ledger DENTRO da tx (fecha o TOCTOU) e bloqueia antes de criar
+      // qualquer alvo novo ou escrever o rateio.
+      await this.guardImportedInvoiceTrail(tx, tenantId, sourceInTx, {
+        changedFinancials: true,
+      });
 
       await this.conciliacao.assertCanReverseSources(
         tx,
@@ -2122,12 +2139,47 @@ export class ExpenseService {
       dto.quantidade !== undefined ||
       dto.dataInicioParcela !== undefined;
 
+    // #569 (degrau) — só regeneramos o caixa da contraparte quando um insumo de
+    // `buildCashFlowEntries` de fato foi propagado. Um PATCH puramente descritivo
+    // (titulo/fornecedor) NÃO pode soft-deletar+recriar as `CashFlowEntry` da
+    // contraparte: isso orfanaria `imported_invoice_liquidations.cash_flow_entry_id`
+    // do par vinculado (ex.: a compra real liquidada por importação). Superset de
+    // `resetPaidParcelas`, incluindo tipo/categoria/overrides.
+    const changedCounterpartCashFlow =
+      shouldSyncInstallmentDateOverrides ||
+      dto.tipoDespesa !== undefined ||
+      dto.categoriaMaoDeObra !== undefined ||
+      dto.formaPagamento !== undefined ||
+      dto.quantidadeParcela !== undefined ||
+      dto.status !== undefined ||
+      dto.dataPagamento !== undefined ||
+      dto.dataInicioParcela !== undefined ||
+      dto.valor !== undefined ||
+      dto.quantidade !== undefined;
+
     for (const cid of counterpartIds) {
       const cp = await db.expense.findUnique({
         where: { id: cid },
-        select: { valor: true, quantidade: true },
+        select: {
+          id: true,
+          valor: true,
+          quantidade: true,
+          invoiceUndoState: true,
+          invoiceUndoCardId: true,
+          cardLast4: true,
+        },
       });
       if (!cp) continue;
+
+      // Se a mudança propagada mexe no caixa E a contraparte tem trilha de
+      // liquidação por importação ATIVA (como compra) ou é um pagamento
+      // carimbado, bloqueia — regenerar aqui corromperia o ledger. Descrições
+      // puras (não mexem no caixa) seguem permitidas e preservam os ids.
+      if (changedCounterpartCashFlow) {
+        await this.guardImportedInvoiceTrail(db, tenantId, cp, {
+          changedFinancials: true,
+        });
+      }
 
       const data: Record<string, unknown> = { ...shared };
       if (dto.valor !== undefined) data.valor = Math.round(dto.valor * 100);
@@ -2138,7 +2190,9 @@ export class ExpenseService {
       if (resetPaidParcelas) data.paidParcelas = null;
 
       await db.expense.update({ where: { id: cid }, data });
-      await this.regenerateCashFlow(cid, tx);
+      if (changedCounterpartCashFlow) {
+        await this.regenerateCashFlow(cid, tx);
+      }
     }
   }
 
@@ -2279,6 +2333,14 @@ export class ExpenseService {
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
       await this.guardRateioParticipation(tenantId, id, false, false, tx);
+      // #569 (degrau) — B2: alternar o status de uma parcela regenera TODO o
+      // caixa da compra (soft-delete + recria com ids novos). Se qualquer
+      // parcela desta compra tem linha de ledger de importação ATIVA, isso
+      // orfanaria `imported_invoice_liquidations.cash_flow_entry_id` e reabriria
+      // a parcela liquidada. Bloqueia com 409 ANTES de qualquer escrita.
+      await this.guardImportedInvoiceTrail(tx, tenantId, expense, {
+        changedFinancials: true,
+      });
       if (expense.settledByExpenseId) {
         throw new BadRequestException('Despesa já foi liquidada');
       }
