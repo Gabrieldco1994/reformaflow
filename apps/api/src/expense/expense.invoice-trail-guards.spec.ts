@@ -19,6 +19,7 @@ import {
   seedCardWithClosingDue,
   seedInstallmentPurchase,
   seedPessoal,
+  seedStatementImport,
 } from "../bank-account/__tests__/invoice-undo.fixtures";
 
 const TENANT = "iul-trail-guard-tenant";
@@ -51,6 +52,7 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
 
   afterEach(async () => {
     await setup.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
+    await setup.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setup.expense.deleteMany({ where: { tenantId: TENANT } });
     await setup.room.deleteMany({ where: { projectId: PESSOAL } });
@@ -245,6 +247,70 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
       const { id, idsBefore } = await seedParcelada();
       await expenses.update(TENANT, PESSOAL, id, { roomId: room.id } as never, R);
       await assertRegenerated(id, idsBefore);
+    });
+  });
+
+  // ── GAP 2 (#569): pino das guardas de PARTICIPANTE INDIRETO de
+  //    updateInstallmentDate. Só o alvo DIRETO (expense.service.ts:1794) tinha
+  //    teste; o loop de alvos de rateio (:1850) e o par vinculado (:1946) podiam
+  //    ser removidos com a suíte verde.
+  describe("updateInstallmentDate — guarda participantes indiretos", () => {
+    async function seedLedgerRowFor(purchaseExpenseId: string, entryId: string) {
+      const importId = await seedStatementImport(setup, {
+        tenantId: TENANT, accountId, id: `imp-gap2-${Math.random().toString(36).slice(2)}`,
+      });
+      await setup.importedInvoiceLiquidation.create({
+        data: {
+          tenantId: TENANT, paymentExpenseId: purchaseExpenseId, importId,
+          purchaseExpenseId, cashFlowEntryId: entryId,
+          cardId, prevStatus: "PLANEJADO", entryValorCents: 10_000, dueMonth: "2026-07",
+        },
+      });
+    }
+
+    it("2c-indireto — ALVO DE RATEIO com linha de ledger ATIVA → updateInstallmentDate na FONTE dá 409, zero regeneração", async () => {
+      const source = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+      });
+      const target = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"), titulo: "alvo-rateio",
+      });
+      await setup.rateioAllocation.create({
+        data: {
+          tenantId: TENANT, sourceExpenseId: source.id, targetExpenseId: target.id,
+          allocation: 20_000, plannedStatus: "PLANEJADO",
+        },
+      });
+      await seedLedgerRowFor(target.id, target.entryIds[0]);
+      const idsBefore = [...source.entryIds];
+      await expect(
+        expenses.updateInstallmentDate(TENANT, PESSOAL, source.id, 1, "2026-09-15", R),
+      ).rejects.toBeInstanceOf(ConflictException);
+      const after = await setup.cashFlowEntry.findMany({ where: { expenseId: source.id }, orderBy: { data: "asc" } });
+      expect(after.map((e) => e.id).sort()).toEqual([...idsBefore].sort());
+      expect(after.every((e) => !e.deletedAt)).toBe(true);
+    });
+
+    it("2c-indireto — PAR VINCULADO (linkedExpenseId) com linha de ledger ATIVA → updateInstallmentDate no head dá 409, zero regeneração", async () => {
+      const counterpart = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"), titulo: "par-vinculado",
+      });
+      const head = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"), titulo: "head",
+      });
+      await setup.expense.update({ where: { id: head.id }, data: { linkedExpenseId: counterpart.id } });
+      await seedLedgerRowFor(counterpart.id, counterpart.entryIds[0]);
+      const idsBefore = [...head.entryIds];
+      await expect(
+        expenses.updateInstallmentDate(TENANT, PESSOAL, head.id, 1, "2026-09-15", R),
+      ).rejects.toBeInstanceOf(ConflictException);
+      const after = await setup.cashFlowEntry.findMany({ where: { expenseId: head.id }, orderBy: { data: "asc" } });
+      expect(after.map((e) => e.id).sort()).toEqual([...idsBefore].sort());
+      expect(after.every((e) => !e.deletedAt)).toBe(true);
     });
   });
 });
