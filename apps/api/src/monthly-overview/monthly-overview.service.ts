@@ -3375,6 +3375,23 @@ export class MonthlyOverviewService {
         throw new BadRequestException('accountId e bankLast4 não correspondem à mesma conta.');
       }
 
+      // #569 (degrau, §4 B4 — SEC/ACL): a resolução AUTORIZADA precede o
+      // pré-check de trilha. `prepareSettleInvoice` carrega e autoriza o cartão
+      // e TODAS as compras candidatas (`cardLast4`) do requester — 404 fail-closed
+      // se qualquer candidato pertencer a projeto invisível. Rodá-la ANTES do
+      // `INVOICE_HAS_IMPORT_TRAIL` garante que uma compra OCULTA (projeto que o
+      // requester não vê) responda 404 e não vaze um 409 enganoso baseado em
+      // leitura tenant-wide. É read-only: nenhum efeito é aplicado até
+      // `applyPreparedSettlement`, então lançar depois não escreve nada.
+      const prepared = await this.cardSettlement.prepareSettleInvoice({
+        tenantId,
+        card,
+        amountCents,
+        paymentDate: effectiveDate,
+        tx,
+        requester,
+      });
+
       // #569 (degrau, §4 B2 — CORREÇÃO DO PLANO): a fatura EFETIVA que este
       // pagamento liquidaria já tem parcela ATIVA no ledger de liquidação por
       // importação ⇒ 409, zero escrita. O `dueMonth` alvo NÃO pode vir só de
@@ -3432,14 +3449,6 @@ export class MonthlyOverviewService {
         throw new BadRequestException('Este pagamento já foi registrado.');
       }
 
-      const prepared = await this.cardSettlement.prepareSettleInvoice({
-        tenantId,
-        card,
-        amountCents,
-        paymentDate: effectiveDate,
-        tx,
-        requester,
-      });
       const payment = await tx.expense.create({
         data: {
           tenantId,
