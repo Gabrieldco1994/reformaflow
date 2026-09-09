@@ -3627,6 +3627,38 @@ export class MonthlyOverviewService {
     // explícito, nunca `.delete()`, e com `deletedAt: null` no `where` (dentro
     // da tx o filtro do `$use` também não existe).
     const reverted = await this.prisma.$transaction(async (tx) => {
+      // #569 (degrau, §4 B1 — cross-project): o desfazer manual do cockpit não
+      // pode reabrir uma parcela que carrega reivindicação ATIVA de liquidação
+      // por importação — mesmo que a COMPRA/o import pertençam a OUTRO projeto do
+      // cartão compartilhado (sem filtro de projeto, só `tenantId`). Só
+      // `BankAccountService.undoImport` reverte o ledger.
+      const ledgerDelegate = (
+        tx as unknown as {
+          importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
+        }
+      ).importedInvoiceLiquidation;
+      if (ledgerDelegate?.count) {
+        const toFlip = await this.cardSettlement.prepareUnsettleInvoice({
+          tenantId,
+          card,
+          dueMonth,
+          tx,
+          requester,
+        });
+        for (const purchase of toFlip.purchases) {
+          for (const entry of purchase.entries) {
+            const claimed = await ledgerDelegate.count({
+              where: { tenantId, cashFlowEntryId: entry.id, deletedAt: null },
+            });
+            if (claimed > 0) {
+              throw new ConflictException(
+                'INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada ' +
+                  'por uma importação de extrato. Desfaça a importação para reabrir a fatura.',
+              );
+            }
+          }
+        }
+      }
       const result = await this.cardSettlement.unsettleInvoice({
         tenantId,
         card,

@@ -127,6 +127,40 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     expect(importId).toBeTruthy();
   });
 
+  it("B1 (cross-project) undoInvoicePayment manual NÃO reabre parcela com claim de importação ativo (cartão compartilhado; claim ancorado em OUTRO projeto) → 409, parcela segue PAGO", async () => {
+    const purchase = await seedInstallmentPurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 1, valorCents: 30_000,
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+    });
+    await setup.cashFlowEntry.update({ where: { id: purchase.entryIds[0] }, data: { status: "PAGO" } });
+    await setup.expense.update({ where: { id: purchase.id }, data: { status: "PAGO" } });
+    await setup.expense.create({
+      data: {
+        tenantId: TENANT, projectId: PESSOAL, tipoDespesa: "PAGAMENTO_FATURA_CARTAO", titulo: "manual",
+        valor: 30_000, quantidade: 1, valorTotal: 30_000, formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-28T12:00:00.000Z"), status: "PAGO",
+        cardLast4: CARD, bankLast4: BANK,
+      },
+    });
+    const foreign = await setup.expense.create({
+      data: {
+        tenantId: TENANT, projectId: PESSOAL2, tipoDespesa: "OUTROS", titulo: "foreign",
+        valor: 30_000, quantidade: 1, valorTotal: 30_000, formaPagamento: "A_VISTA", status: "PAGO",
+      },
+    });
+    await setup.importedInvoiceLiquidation.create({
+      data: {
+        tenantId: TENANT, paymentExpenseId: foreign.id, importId: "imp-cross-x",
+        purchaseExpenseId: foreign.id, cashFlowEntryId: purchase.entryIds[0],
+        cardId, prevStatus: "PLANEJADO", entryValorCents: 30_000, dueMonth: "2026-07",
+      },
+    });
+    await expect(
+      mo.undoInvoicePayment(TENANT, PESSOAL, { cardId, dueMonth: "2026-07" }, ADMIN),
+    ).rejects.toThrow(/INVOICE_HAS_IMPORT_TRAIL/);
+    expect((await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } }))?.status).toBe("PAGO");
+  });
+
   // Removidos desta branch (PR 1): `B1b` (undoImport 409 `DRIFT` por parcela
   // revertida fora de banda), `B2d` (undoImport 409 `MANUAL_PAYMENT_OVERLAP`) e
   // `drift por entry soft-deletada → 409 DRIFT` — todos asseveram o MOTIVO
