@@ -867,12 +867,25 @@ export class CardInvoiceSettlementService {
     const { tenantId, card, amountCents, paymentDate, tx } = params;
     const months = new Set<string>();
     const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
+    // SEC-3 (#569): dois cartões do mesmo tenant podem compartilhar `last4`.
+    // Filtrar só por `cardLast4` misturaria parcelas de OUTRO cartão e produziria
+    // um `dueMonth` efetivo alheio ⇒ 409 falso num `payInvoice` legítimo.
+    // Quando `card.id` está disponível, restringe às compras atribuíveis a ESTE
+    // cartão via `importId` (padrão de `findImportByTotal`); compras legadas sem
+    // vínculo de importação caem no fallback por `last4`.
+    const cardImportIds = (
+      await tx.creditCardStatementImport.findMany({
+        where: { cardId: card.id, tenantId, deletedAt: null },
+        select: { id: true },
+      })
+    ).map((i) => i.id);
     const purchases = (await tx.expense.findMany({
       where: {
         tenantId,
         cardLast4: card.last4,
         deletedAt: null,
         tipoDespesa: { notIn: neutral },
+        OR: [{ importId: null }, { importId: { in: cardImportIds } }],
       },
       select: { id: true, importId: true },
     })) as Array<{ id: string; importId: string | null }>;

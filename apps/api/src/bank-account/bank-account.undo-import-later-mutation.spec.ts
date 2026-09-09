@@ -26,6 +26,7 @@ import {
   seedPessoal,
   seedProject,
   seedSinglePurchase,
+  seedStatementImport,
 } from "./__tests__/invoice-undo.fixtures";
 
 const TENANT = "iul-mut-tenant";
@@ -148,6 +149,7 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
         valor: 30_000, quantidade: 1, valorTotal: 30_000, formaPagamento: "A_VISTA", status: "PAGO",
       },
     });
+    await seedStatementImport(setup, { tenantId: TENANT, accountId, id: "imp-cross-x" });
     await setup.importedInvoiceLiquidation.create({
       data: {
         tenantId: TENANT, paymentExpenseId: foreign.id, importId: "imp-cross-x",
@@ -231,6 +233,43 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
       ),
     ).rejects.toThrow(/INVOICE_HAS_IMPORT_TRAIL/);
     expect(await setup.expense.count({ where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" } })).toBe(paymentsBefore);
+  });
+
+  it("SEC-3 payInvoice legítimo no cartão B NÃO é bloqueado por trilha de OUTRO cartão de mesmo last4 (resolveEffectiveDueMonths filtra por importId do cartão)", async () => {
+    // dois cartões do MESMO tenant com last4 idêntico ao CARD
+    const SHARED = "4477";
+    const { id: cardA } = await seedCardWithClosingDue(setup, {
+      tenantId: TENANT, projectId: PESSOAL, last4: SHARED, closingDay: 20, dueDay: 1, nickname: "A-shared",
+    });
+    const { id: cardB } = await seedCardWithClosingDue(setup, {
+      tenantId: TENANT, projectId: PESSOAL, last4: SHARED, closingDay: 20, dueDay: 1, nickname: "B-shared",
+    });
+    // compra do cartão A, importada (importId != null) → fatura dueMonth 2026-09
+    const purchaseA = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: SHARED, valorCents: 40_000,
+      data: new Date("2026-08-05T12:00:00.000Z"), status: "PAGO", titulo: "compra-A-importada",
+    });
+    await seedStatementImport(setup, { tenantId: TENANT, accountId, id: "imp-sec3-A" });
+    await setup.expense.update({ where: { id: purchaseA.id }, data: { importId: "imp-sec3-A" } });
+    // trilha ATIVA atribuída (por ambiguidade de last4) ao cartão B, dueMonth 2026-09
+    await setup.importedInvoiceLiquidation.create({
+      data: {
+        tenantId: TENANT, paymentExpenseId: purchaseA.id, importId: "imp-sec3-A",
+        purchaseExpenseId: purchaseA.id, cashFlowEntryId: purchaseA.entryId,
+        cardId: cardB, prevStatus: "PLANEJADO", entryValorCents: 40_000, dueMonth: "2026-09",
+      },
+    });
+    // pagamento legítimo da fatura 2026-10 do cartão B; paymentDate 25/09 → janela {2026-09,2026-10}
+    // faz resolveEffectiveDueMonths (pré-fix) vazar o 2026-09 da compra do cartão A.
+    const result = await mo.payInvoice(
+      TENANT, PESSOAL,
+      { cardId: cardB, month: "2026-10", amountCents: 40_000, bankLast4: BANK, paymentDate: "2026-09-25" },
+      ADMIN,
+    );
+    expect(result).toMatchObject({ ok: true });
+    expect(cardA).toBeTruthy();
+    // os cartões extras (last4 4477) são limpos pelo resetTenant do afterAll;
+    // a linha de ledger (card_id RESTRICT) é removida antes, no afterEach.
   });
 
   it("B2c-neg payInvoice REAL: cartão sem closingDay/dueDay e sem match de valor → nenhum dueMonth alvo resolvível → pre-check não dispara (a rede é MANUAL_PAYMENT_OVERLAP no undoImport)", async () => {
