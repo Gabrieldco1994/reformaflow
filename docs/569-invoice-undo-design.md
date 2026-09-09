@@ -358,10 +358,12 @@ silenciosa de funcionalidade**: os lotes importados durante a janela ficam
 permanentemente `canUndo:false` (lidos como legado, estado 1) quando o código novo volta.
 
 > **PARECER `platform-sre` RECEBIDO** (ver §3.3.1). Recomendação: **(B) release-degrau
-> em 2 PRs**, política de rollback **forward-only** (`git revert` do PR da feature na
-> `main`, nunca deploy manual de imagem N-2). O `DROP` destrutivo futuro depende de
-> autorização explícita do PO + backup restaurável. As 4 ações SRE pendentes (§3.3.1
-> fim) precisam de dono no tracker antes do PR 2.
+> em 2 PRs** — **PR 1 (degrau) grava a trilha REAL da liquidação** (`PROCESSED_SETTLED`
+> + itens quando liquidou), PR 2 = só a habilitação do undo + UX. Rollback **forward-only**
+> (`git revert` do PR 2, nunca deploy manual de imagem N-2). O `DROP` destrutivo futuro
+> depende de autorização explícita do PO + backup restaurável. Config Prisma
+> (`busy_timeout`/WAL) **não** é pré-requisito — `busy_timeout=5000` já ativo por default;
+> vira patch corretivo se a medição pedir. 3 ações SRE pendentes + 1 opcional (§3.3.1 fim).
 
 **Por que "bloquear só o ramo `matchedCard`" NÃO basta:** desligar a
 liquidação-por-importação impede criar trilhas NOVAS sem carimbo, mas **não**
