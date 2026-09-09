@@ -52,6 +52,9 @@ describe("#569 §6.2 — janelas (RED)", () => {
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setup.expense.deleteMany({ where: { tenantId: TENANT } });
     await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
+    await (setup as unknown as {
+      creditCardStatementImport: { deleteMany: (a: unknown) => Promise<unknown> };
+    }).creditCardStatementImport.deleteMany({ where: { tenantId: TENANT } });
   });
 
   afterAll(async () => {
@@ -114,48 +117,46 @@ describe("#569 §6.2 — janelas (RED)", () => {
     expect(raw!.invoiceUndoDueMonth).toBe("2026-07");
   });
 
-  it("fallback findImportByTotal respeita 75 dias corridos: import criado há 76 dias NÃO casa; há 74 dias casa", async () => {
+  // Fronteira dos 75 dias corridos do fallback `findImportByTotal`. Cada fronteira
+  // é um `it` independente: a asserção de REGRESSÃO (a parcela liquida ou não,
+  // comportamento vigente) roda para 76d E para 74d, sem depender do campo futuro
+  // `invoiceUndoState` — se a asserção de carimbo (RED) estoura num caso, o outro
+  // caso continua executando.
+  async function runFallback75dBoundary(last4: string, ageDays: number, shouldSettle: boolean) {
     const noCycle = await seedCardWithClosingDue(setup, {
-      tenantId: TENANT,
-      projectId: PESSOAL,
-      last4: "4275",
-      closingDay: null,
-      dueDay: null,
+      tenantId: TENANT, projectId: PESSOAL, last4, closingDay: null, dueDay: null,
     });
     const cci = (setup as unknown as {
       creditCardStatementImport: { create: (a: unknown) => Promise<{ id: string }>; deleteMany: (a: unknown) => Promise<unknown> };
     }).creditCardStatementImport;
     const payDate = new Date("2026-06-15T12:00:00.000Z");
-    for (const [label, ageDays, shouldSettle] of [
-      ["76d", 76, false],
-      ["74d", 74, true],
-    ] as const) {
-      const p = await seedSinglePurchase(setup, {
-        tenantId: TENANT,
-        projectId: PESSOAL,
-        cardLast4: "4275",
-        valorCents: 20_000,
-        data: new Date("2026-04-01T12:00:00.000Z"),
-        titulo: `fb-${label}`,
-      });
-      const created = new Date(payDate);
-      created.setDate(created.getDate() - ageDays);
-      const imp = await cci.create({
-        data: { tenantId: TENANT, cardId: noCycle.id, periodLabel: "2026-04", source: "OFX", totalAmountCents: 20_000, createdAt: created },
-      });
-      // estratégia 2 (fallback por fatura importada) só considera compras com
-      // Expense.importId == CreditCardStatementImport.id (service :224).
-      await setup.expense.update({ where: { id: p.id }, data: { importId: imp.id } });
-      const { payment } = await pay(20_000, "20260615", "2026-06", "4275");
-      const entry = await setup.cashFlowEntry.findFirst({ where: { expenseId: p.id } });
-      expect(entry?.status).toBe(shouldSettle ? "PAGO" : "PLANEJADO");
-      const raw = await readExpenseRaw(setup, payment!.id);
-      expect(raw?.invoiceUndoState).toBe(shouldSettle ? "PROCESSED_SETTLED" : "PROCESSED_NONE");
-      await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
-      await setup.expense.deleteMany({ where: { tenantId: TENANT, tipoDespesa: { not: undefined } } });
-      await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
-      await cci.deleteMany({ where: { tenantId: TENANT } });
-    }
+    const p = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: last4, valorCents: 20_000,
+      data: new Date("2026-04-01T12:00:00.000Z"), titulo: `fb-${ageDays}d`,
+    });
+    const created = new Date(payDate);
+    created.setDate(created.getDate() - ageDays);
+    const imp = await cci.create({
+      data: { tenantId: TENANT, cardId: noCycle.id, periodLabel: "2026-04", source: "OFX", totalAmountCents: 20_000, createdAt: created },
+    });
+    // estratégia 2 (fallback por fatura importada) só considera compras com
+    // Expense.importId == CreditCardStatementImport.id (service :224).
+    await setup.expense.update({ where: { id: p.id }, data: { importId: imp.id } });
+    const { payment } = await pay(20_000, "20260615", "2026-06", last4);
+    const entry = await setup.cashFlowEntry.findFirst({ where: { expenseId: p.id } });
+    // REGRESSÃO (passa hoje): a janela de 75d decide se a parcela liquida.
+    expect(entry?.status).toBe(shouldSettle ? "PAGO" : "PLANEJADO");
+    // RED comportamental: carimbo derivado do apply (campo do PR1, ainda ausente).
+    const raw = await readExpenseRaw(setup, payment!.id);
+    expect(raw?.invoiceUndoState).toBe(shouldSettle ? "PROCESSED_SETTLED" : "PROCESSED_NONE");
+  }
+
+  it("fallback findImportByTotal: import criado há 76 dias (> 75) NÃO casa — parcela segue PLANEJADO", async () => {
+    await runFallback75dBoundary("4275", 76, false);
+  });
+
+  it("fallback findImportByTotal: import criado há 74 dias (< 75) casa — parcela vira PAGO", async () => {
+    await runFallback75dBoundary("4277", 74, true);
   });
 
   it("fallback tolera ±R$2 no totalAmountCents e recusa ±R$2,01", async () => {

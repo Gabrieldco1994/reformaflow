@@ -143,7 +143,9 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     await expect(
       mo.payInvoice(
         TENANT, PESSOAL,
-        { cardId, month: "2026-07", amountCents: 30_000, bankLast4: BANK, paymentDate: "2026-07-05" },
+        // 06/07 ≠ 05/07 da importação: evita a deduplicação de pagamento idêntico
+        // (mesma data+valor) e força o caminho até o pre-check ausente.
+        { cardId, month: "2026-07", amountCents: 30_000, bankLast4: BANK, paymentDate: "2026-07-06" },
         ADMIN,
       ),
     ).rejects.toThrow(/INVOICE_HAS_IMPORT_TRAIL/);
