@@ -184,6 +184,22 @@ export class MonthlyOverviewService {
   ) {}
 
   /**
+   * #569 — acesso ao delegate `importedInvoiceLiquidation` a partir de um
+   * `tx`/`PrismaService` sem depender do tipo gerado (o modelo pode não existir
+   * em ambientes pré-migração). Centraliza o cast repetido nos pre-checks de
+   * `payInvoice`/`undoInvoicePayment`.
+   */
+  private importedLiquidationDelegate(tx: unknown):
+    | { count?: (a: unknown) => Promise<number> }
+    | undefined {
+    return (
+      tx as {
+        importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
+      }
+    ).importedInvoiceLiquidation;
+  }
+
+  /**
    * Resolves the PESSOAL Hub scope ONCE per request/entry-point:
    *  1. 404 — the anchor project doesn't exist in this tenant (absent/deleted/cross-tenant).
    *  2. 403 — the anchor exists but sits outside the requester's authorized scope.
@@ -3366,11 +3382,7 @@ export class MonthlyOverviewService {
       // `caixaMonthForCardPurchase(paymentDate)` (recebe data de COMPRA). Reusa
       // `resolveEffectiveDueMonths` — MESMA resolução de `prepareSettleInvoice`
       // (compras/total/data/valor). `PROCESSED_NONE` não cria linha ⇒ não dispara.
-      const ledgerDelegate = (
-        tx as unknown as {
-          importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
-        }
-      ).importedInvoiceLiquidation;
+      const ledgerDelegate = this.importedLiquidationDelegate(tx);
       if (ledgerDelegate?.count) {
         const effectiveDueMonths = await this.cardSettlement.resolveEffectiveDueMonths({
           tenantId,
@@ -3632,11 +3644,7 @@ export class MonthlyOverviewService {
       // por importação — mesmo que a COMPRA/o import pertençam a OUTRO projeto do
       // cartão compartilhado (sem filtro de projeto, só `tenantId`). Só
       // `BankAccountService.undoImport` reverte o ledger.
-      const ledgerDelegate = (
-        tx as unknown as {
-          importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
-        }
-      ).importedInvoiceLiquidation;
+      const ledgerDelegate = this.importedLiquidationDelegate(tx);
       if (ledgerDelegate?.count) {
         // SEC-1 (#569): a reivindicação ATIVA pode estar ancorada SÓ numa compra
         // de projeto invisível ao requester. `prepareUnsettleInvoice` lançaria um
