@@ -847,6 +847,74 @@ export class CardInvoiceSettlementService {
     });
   }
 
+  /**
+   * #569 (degrau, §4 B2 — CORREÇÃO DO PLANO): resolve o(s) `dueMonth` que um
+   * pagamento manual EFETIVAMENTE liquidaria, pela MESMA lógica de
+   * `prepareSettleInvoice` (compras + total + data + valor, janela
+   * `{payMonth, payMonth+1}` / fallback por fatura importada em 75d ±R$2) —
+   * **nunca** por `caixaMonthForCardPurchase(paymentDate)`, que recebe data de
+   * COMPRA e produziria o mês errado ao quitar uma fatura de mês anterior.
+   * Read-only: não escreve, não exige `PLANEJADO` (funciona quando a importação
+   * já deixou tudo PAGO). Consumido pelo pre-check `INVOICE_HAS_IMPORT_TRAIL`.
+   */
+  async resolveEffectiveDueMonths(params: {
+    tenantId: string;
+    card: SettleCard;
+    amountCents: number;
+    paymentDate: Date;
+    tx: Prisma.TransactionClient;
+  }): Promise<string[]> {
+    const { tenantId, card, amountCents, paymentDate, tx } = params;
+    const months = new Set<string>();
+    const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
+    const purchases = (await tx.expense.findMany({
+      where: {
+        tenantId,
+        cardLast4: card.last4,
+        deletedAt: null,
+        tipoDespesa: { notIn: neutral },
+      },
+      select: { id: true, importId: true },
+    })) as Array<{ id: string; importId: string | null }>;
+
+    if (card.closingDay != null && card.dueDay != null) {
+      const target = await this.resolveTargetDueMonth(
+        tx,
+        purchases as unknown as SettlementExpenseRow[],
+        card,
+        amountCents,
+        paymentDate,
+      );
+      if (target) months.add(target);
+    }
+
+    const matchedImport = await this.findImportByTotal(
+      tx,
+      tenantId,
+      card.id,
+      amountCents,
+      paymentDate,
+    );
+    if (matchedImport) {
+      const importPurchaseIds = purchases
+        .filter((p) => p.importId === matchedImport.id)
+        .map((p) => p.id);
+      if (importPurchaseIds.length > 0) {
+        const entries = (await tx.cashFlowEntry.findMany({
+          where: { expenseId: { in: importPurchaseIds }, deletedAt: null },
+          select: { data: true },
+        })) as Array<{ data: Date }>;
+        for (const e of entries) {
+          months.add(
+            caixaMonthForCardPurchase(e.data, card.closingDay, card.dueDay),
+          );
+        }
+      }
+    }
+
+    return [...months];
+  }
+
   private async findImportByTotal(
     tx: Prisma.TransactionClient,
     tenantId: string,

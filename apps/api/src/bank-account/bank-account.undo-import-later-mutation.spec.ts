@@ -185,6 +185,20 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
     expect(await setup.cashFlowEntry.count({ where: { tenantId: TENANT, tipo: "DESPESA" } })).toBe(cashOutBefore);
   });
 
+  it("B2 (CORREÇÃO DO PLANO) payInvoice com dto.month ERRADO ('2026-08') mas cuja resolução real por valor/compras/data fecha a fatura 2026-07 já liquidada → 409 INVOICE_HAS_IMPORT_TRAIL; zero pagamento novo", async () => {
+    await importSettled(); // liquida a fatura dueMonth 2026-07 (total 30_000)
+    const paymentsBefore = await setup.expense.count({ where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" } });
+    await expect(
+      mo.payInvoice(
+        TENANT, PESSOAL,
+        // month mentiroso; paymentDate 25/06 → janela {2026-06,2026-07} + valor exato ⇒ resolve 2026-07
+        { cardId, month: "2026-08", amountCents: 30_000, bankLast4: BANK, paymentDate: "2026-06-25" },
+        ADMIN,
+      ),
+    ).rejects.toThrow(/INVOICE_HAS_IMPORT_TRAIL/);
+    expect(await setup.expense.count({ where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO" } })).toBe(paymentsBefore);
+  });
+
   it("B2c-neg payInvoice REAL: cartão sem closingDay/dueDay e sem match de valor → nenhum dueMonth alvo resolvível → pre-check não dispara (a rede é MANUAL_PAYMENT_OVERLAP no undoImport)", async () => {
     await seedSinglePurchase(setup, {
       tenantId: TENANT, projectId: PESSOAL, cardLast4: "4499", valorCents: 12_000,

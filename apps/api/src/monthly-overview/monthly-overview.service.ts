@@ -3359,19 +3359,39 @@ export class MonthlyOverviewService {
         throw new BadRequestException('accountId e bankLast4 não correspondem à mesma conta.');
       }
 
-      // #569 (degrau) — B2 pre-check: a fatura alvo (card + dueMonth do DTO,
-      // NÃO do `prepared`, que vem vazio quando a importação já liquidou tudo)
-      // já tem parcela ATIVA no ledger de liquidação por importação ⇒ 409, zero
-      // escrita. `PROCESSED_NONE` não cria linha de ledger ⇒ não dispara.
+      // #569 (degrau, §4 B2 — CORREÇÃO DO PLANO): a fatura EFETIVA que este
+      // pagamento liquidaria já tem parcela ATIVA no ledger de liquidação por
+      // importação ⇒ 409, zero escrita. O `dueMonth` alvo NÃO pode vir só de
+      // `dto.month` (o cliente pode mandar o mês errado) nem de
+      // `caixaMonthForCardPurchase(paymentDate)` (recebe data de COMPRA). Reusa
+      // `resolveEffectiveDueMonths` — MESMA resolução de `prepareSettleInvoice`
+      // (compras/total/data/valor). `PROCESSED_NONE` não cria linha ⇒ não dispara.
       const ledgerDelegate = (
         tx as unknown as {
           importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
         }
       ).importedInvoiceLiquidation;
-      if (month && ledgerDelegate?.count) {
-        const importTrail = await ledgerDelegate.count({
-          where: { tenantId, cardId: card.id, dueMonth: month, deletedAt: null },
+      if (ledgerDelegate?.count) {
+        const effectiveDueMonths = await this.cardSettlement.resolveEffectiveDueMonths({
+          tenantId,
+          card,
+          amountCents,
+          paymentDate: effectiveDate,
+          tx,
         });
+        const trailMonths = [
+          ...new Set([...(month ? [month] : []), ...effectiveDueMonths]),
+        ];
+        const importTrail = trailMonths.length
+          ? await ledgerDelegate.count({
+              where: {
+                tenantId,
+                cardId: card.id,
+                dueMonth: { in: trailMonths },
+                deletedAt: null,
+              },
+            })
+          : 0;
         if (importTrail > 0) {
           throw new ConflictException(
             'INVOICE_HAS_IMPORT_TRAIL: esta fatura já foi liquidada por uma ' +
