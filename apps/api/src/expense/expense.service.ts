@@ -1582,10 +1582,15 @@ export class ExpenseService {
         links.linkedExpenseId !== (existing.linkedExpenseId ?? null)) ||
       (links.settlesInvoiceKey !== undefined &&
         links.settlesInvoiceKey !== (existing.settlesInvoiceKey ?? null));
+    const changedTipoDespesa =
+      dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa;
     const changedToNeutralType =
-      dto.tipoDespesa !== undefined &&
-      dto.tipoDespesa !== existing.tipoDespesa &&
-      isNeutralExpenseType(dto.tipoDespesa);
+      changedTipoDespesa && isNeutralExpenseType(dto.tipoDespesa as string);
+    const changedCategoriaMaoDeObra =
+      dto.categoriaMaoDeObra !== undefined &&
+      (dto.categoriaMaoDeObra ?? null) !== (existing.categoriaMaoDeObra ?? null);
+    const changedRoom =
+      dto.roomId !== undefined && (dto.roomId ?? null) !== (existing.roomId ?? null);
     const hasProtectedChange =
       changedFormaPagamento ||
       changedDataPagamento ||
@@ -1722,7 +1727,28 @@ export class ExpenseService {
       include: { room: true },
     });
 
-    await this.regenerateCashFlow(expense.id, tx);
+    // #569 (degrau, §2b/#1) — `regenerateCashFlow` soft-deleta+recria as
+    // `CashFlowEntry` com ids novos; rodar num PATCH puramente descritivo
+    // (titulo/fornecedor/link/imagem) orfana `imported_invoice_liquidations.
+    // cash_flow_entry_id` (FK RESTRICT só barra hard-delete) e gera drift
+    // silencioso. Só regenera quando algum insumo de `buildCashFlowEntries`
+    // de fato mudou (superset de `resetPaidParcelas`).
+    const shouldRegenerateCashFlow =
+      changedValor ||
+      changedQuantidade ||
+      changedQuantidadeParcela ||
+      changedDataPagamento ||
+      changedDataInicioParcela ||
+      changedFormaPagamento ||
+      changedStatus ||
+      changedTipoDespesa ||
+      changedCategoriaMaoDeObra ||
+      changedRoom ||
+      changedOwnership ||
+      shouldNormalizeInstallmentDateOverrides;
+    if (shouldRegenerateCashFlow) {
+      await this.regenerateCashFlow(expense.id, tx);
+    }
 
     // "Uma coisa só": se esta despesa faz parte de um par cross-project (canônico
     // na obra + espelho no PESSOAL, criado pelo fluxo de obra paga com caixa

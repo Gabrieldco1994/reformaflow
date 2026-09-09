@@ -113,4 +113,51 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
       expenses.update(TENANT, PESSOAL, paymentId, { status: "PLANEJADO" } as never, R),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it("2b — PATCH puramente descritivo ({ titulo }) numa compra parcelada liquidada NÃO regenera CashFlowEntry: mesmos ids/valores/status; linhas do ledger intactas", async () => {
+    const { purchaseId, entryIds } = await importSettled(2, 30_000);
+    const entriesBefore = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchaseId }, orderBy: { data: "asc" },
+    });
+    const ledgerBefore = await setup.importedInvoiceLiquidation.findMany({
+      where: { tenantId: TENANT }, orderBy: { id: "asc" },
+    });
+    expect(entriesBefore.every((e) => !e.deletedAt)).toBe(true);
+
+    await expenses.update(TENANT, PESSOAL, purchaseId, { titulo: "renomeada" } as never, R);
+
+    const entriesAfter = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchaseId }, orderBy: { data: "asc" },
+    });
+    // ids preservados (regenerate teria trocado todos)
+    expect(entriesAfter.map((e) => e.id).sort()).toEqual([...entryIds].sort());
+    expect(entriesAfter.every((e) => !e.deletedAt)).toBe(true);
+    expect(entriesAfter.map((e) => [e.valor, e.status, e.parcela])).toEqual(
+      entriesBefore.map((e) => [e.valor, e.status, e.parcela]),
+    );
+    // a linha do ledger continua apontando para a mesma (viva) CashFlowEntry
+    const ledgerAfter = await setup.importedInvoiceLiquidation.findMany({
+      where: { tenantId: TENANT }, orderBy: { id: "asc" },
+    });
+    expect(ledgerAfter).toEqual(ledgerBefore);
+    const claimedEntry = await setup.cashFlowEntry.findUnique({
+      where: { id: ledgerAfter[0].cashFlowEntryId },
+    });
+    expect(claimedEntry?.deletedAt).toBeNull();
+    expect(claimedEntry?.status).toBe("PAGO");
+  });
+
+  it("2b — PATCH que muda a config de parcelamento ({ quantidadeParcela }) numa compra SEM trilha ainda regenera o caixa (não quebrou o caminho comum)", async () => {
+    const purchase = await seedInstallmentPurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+    });
+    const idsBefore = purchase.entryIds;
+    await expenses.update(TENANT, PESSOAL, purchase.id, { quantidadeParcela: 3 } as never, R);
+    const after = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchase.id, deletedAt: null }, orderBy: { data: "asc" },
+    });
+    expect(after).toHaveLength(3);
+    expect(after.some((e) => idsBefore.includes(e.id))).toBe(false);
+  });
 });
