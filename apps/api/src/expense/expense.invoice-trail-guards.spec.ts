@@ -53,6 +53,7 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
     await setup.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setup.expense.deleteMany({ where: { tenantId: TENANT } });
+    await setup.room.deleteMany({ where: { projectId: PESSOAL } });
     await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
   });
 
@@ -192,5 +193,58 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
     await expect(expenses.remove(TENANT, PESSOAL, head.id, R)).rejects.toBeInstanceOf(ConflictException);
     expect(await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
     expect((await setup.cashFlowEntry.findUnique({ where: { id: entryIds[0] } }))?.deletedAt).toBeNull();
+  });
+
+  // ── GAP 1 (#569): pino de mutação do gate comum `shouldRegenerateCashFlow`
+  //    (expense.service.ts:1736). Só `changedQuantidadeParcela` estava coberto
+  //    (2b acima). Cada termo abaixo isola SEU insumo: se removido do OR, o PATCH
+  //    correspondente deixa de regenerar ⇒ o respectivo `it` fica VERMELHO
+  //    (verificado por mutação). `changedFormaPagamento`/`changedDataPagamento`
+  //    não são isolados aqui porque o recálculo de parcelamento já regenera por
+  //    outro caminho para esses DTOs — pino desses fica p/ um cenário dedicado.
+  describe("gate comum shouldRegenerateCashFlow — pino por termo (compra SEM trilha)", () => {
+    async function seedParcelada() {
+      const p = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+      });
+      return { id: p.id, idsBefore: [...p.entryIds] };
+    }
+
+    async function assertRegenerated(purchaseId: string, idsBefore: string[]) {
+      const all = await setup.cashFlowEntry.findMany({ where: { expenseId: purchaseId }, orderBy: { data: "asc" } });
+      const live = all.filter((e) => !e.deletedAt);
+      const old = all.filter((e) => idsBefore.includes(e.id));
+      // todas as entries antigas viraram deletedAt != null
+      expect(old.every((e) => e.deletedAt != null)).toBe(true);
+      // nasceram entries novas (ids diferentes)
+      expect(live.length).toBeGreaterThan(0);
+      expect(live.some((e) => idsBefore.includes(e.id))).toBe(false);
+    }
+
+    it("changedValor — PATCH { valor } regenera o caixa", async () => {
+      const { id, idsBefore } = await seedParcelada();
+      await expenses.update(TENANT, PESSOAL, id, { valor: 123.45 } as never, R);
+      await assertRegenerated(id, idsBefore);
+    });
+
+    it("changedStatus — PATCH { status } regenera o caixa", async () => {
+      const { id, idsBefore } = await seedParcelada();
+      await expenses.update(TENANT, PESSOAL, id, { status: "PAGO" } as never, R);
+      await assertRegenerated(id, idsBefore);
+    });
+
+    it("changedTipoDespesa — PATCH { tipoDespesa } regenera o caixa", async () => {
+      const { id, idsBefore } = await seedParcelada();
+      await expenses.update(TENANT, PESSOAL, id, { tipoDespesa: "MATERIAL" } as never, R);
+      await assertRegenerated(id, idsBefore);
+    });
+
+    it("changedRoom — PATCH { roomId } regenera o caixa", async () => {
+      const room = await setup.room.create({ data: { projectId: PESSOAL, name: `Sala ${Math.random()}` } });
+      const { id, idsBefore } = await seedParcelada();
+      await expenses.update(TENANT, PESSOAL, id, { roomId: room.id } as never, R);
+      await assertRegenerated(id, idsBefore);
+    });
   });
 });
