@@ -890,6 +890,14 @@ export class CardInvoiceSettlementService {
       select: { id: true, importId: true },
     })) as Array<{ id: string; importId: string | null }>;
 
+    // Precedência IDÊNTICA à de `prepareSettleInvoice`: a estratégia por
+    // VENCIMENTO decide QUAL fatura o pagamento fecha; a fatura importada é só
+    // FALLBACK, para cartões sem ciclo (ou quando nada casou por vencimento).
+    // Rodar o fallback SEMPRE unia os meses de TODA a importação do cartão à
+    // resolução primária — assim uma fatura anterior já liquidada (ex.: a de
+    // setembro) vazava para o pré-check e bloqueava o pagamento legítimo do mês
+    // corrente que a resolução primária circunscreve a um único `dueMonth`.
+    let targetResolved = false;
     if (card.closingDay != null && card.dueDay != null) {
       const target = await this.resolveTargetDueMonth(
         tx,
@@ -898,29 +906,34 @@ export class CardInvoiceSettlementService {
         amountCents,
         paymentDate,
       );
-      if (target) months.add(target);
+      if (target) {
+        months.add(target);
+        targetResolved = true;
+      }
     }
 
-    const matchedImport = await this.findImportByTotal(
-      tx,
-      tenantId,
-      card.id,
-      amountCents,
-      paymentDate,
-    );
-    if (matchedImport) {
-      const importPurchaseIds = purchases
-        .filter((p) => p.importId === matchedImport.id)
-        .map((p) => p.id);
-      if (importPurchaseIds.length > 0) {
-        const entries = (await tx.cashFlowEntry.findMany({
-          where: { expenseId: { in: importPurchaseIds }, deletedAt: null },
-          select: { data: true },
-        })) as Array<{ data: Date }>;
-        for (const e of entries) {
-          months.add(
-            caixaMonthForCardPurchase(e.data, card.closingDay, card.dueDay),
-          );
+    if (!targetResolved) {
+      const matchedImport = await this.findImportByTotal(
+        tx,
+        tenantId,
+        card.id,
+        amountCents,
+        paymentDate,
+      );
+      if (matchedImport) {
+        const importPurchaseIds = purchases
+          .filter((p) => p.importId === matchedImport.id)
+          .map((p) => p.id);
+        if (importPurchaseIds.length > 0) {
+          const entries = (await tx.cashFlowEntry.findMany({
+            where: { expenseId: { in: importPurchaseIds }, deletedAt: null },
+            select: { data: true },
+          })) as Array<{ data: Date }>;
+          for (const e of entries) {
+            months.add(
+              caixaMonthForCardPurchase(e.data, card.closingDay, card.dueDay),
+            );
+          }
         }
       }
     }
