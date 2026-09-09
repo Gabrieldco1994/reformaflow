@@ -18,6 +18,7 @@ import {
   seedCardWithClosingDue,
   seedInstallmentPurchase,
   seedPessoal,
+  seedStatementImport,
 } from "./__tests__/invoice-undo.fixtures";
 
 const TENANT = "iul-atom-tenant";
@@ -85,6 +86,7 @@ describe("#569 §6.3 — undo-import atomicity (RED)", () => {
       primeiraData: new Date("2026-06-10T12:00:00.000Z"),
     });
     // força P2002: já existe uma liquidação ATIVA para a entry que o commit vai tocar
+    await seedStatementImport(setup, { tenantId: TENANT, accountId, id: "pre-existing" });
     await (setup as unknown as {
       importedInvoiceLiquidation: { create: (a: unknown) => Promise<unknown> };
     }).importedInvoiceLiquidation.create({

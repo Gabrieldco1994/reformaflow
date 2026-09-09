@@ -25,6 +25,7 @@ import {
   seedInstallmentPurchase,
   seedPessoal,
   seedSinglePurchase,
+  seedStatementImport,
   readExpenseRaw,
 } from "../bank-account/__tests__/invoice-undo.fixtures";
 
@@ -62,6 +63,13 @@ describe("#569 §6.1 — card-invoice-settlement ledger (RED)", () => {
     }));
     bank = makeBankAccountService(prisma);
     settlement = makeSettlementService(prisma);
+  });
+
+  beforeEach(async () => {
+    // FK import_id → bank_statement_imports: garante os ids sintéticos usados abaixo
+    for (const id of ["imp-x", "imp-y", "imp-1", "imp-2"]) {
+      await seedStatementImport(setup, { tenantId: TENANT, accountId, id });
+    }
   });
 
   afterEach(async () => {

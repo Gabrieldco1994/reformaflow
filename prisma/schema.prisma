@@ -473,7 +473,7 @@ model ImportedInvoiceLiquidation {
   payment       Expense       @relation("ImportedInvoiceLiquidationPayment", fields: [paymentExpenseId], references: [id])
   purchase      Expense       @relation("ImportedInvoiceLiquidationPurchase", fields: [purchaseExpenseId], references: [id])
   cashFlowEntry CashFlowEntry @relation(fields: [cashFlowEntryId], references: [id])
-  import        CreditCardStatementImport @relation(fields: [importId], references: [id])
+  import        BankStatementImport @relation(fields: [importId], references: [id])
   card          CreditCard    @relation(fields: [cardId], references: [id])
 
   @@index([importId])
@@ -1008,7 +1008,6 @@ model CreditCardStatementImport {
   deletedAt        DateTime? @map("deleted_at")
 
   card CreditCard @relation(fields: [cardId], references: [id])
-  importedInvoiceLiquidations ImportedInvoiceLiquidation[]
 
   @@index([cardId])
   @@index([tenantId])
@@ -1084,6 +1083,7 @@ model BankStatementImport {
   deletedAt        DateTime? @map("deleted_at")
 
   account BankAccount @relation(fields: [accountId], references: [id])
+  importedInvoiceLiquidations ImportedInvoiceLiquidation[]
 
   @@index([accountId])
   @@index([tenantId])

@@ -168,7 +168,7 @@ describe("#569 §6.7 — upgrade legado REAL (seed no schema antigo, depois migr
     expect(Number(ledger[0].c)).toBe(0);
   });
 
-  it("PRAGMA foreign_key_check zero violações; as 5 FKs (incl. credit_card_imports e credit_cards) existem em PRAGMA foreign_key_list", async () => {
+  it("PRAGMA foreign_key_check zero violações; as 5 FKs (incl. bank_statement_imports e credit_cards) existem em PRAGMA foreign_key_list", async () => {
     const fk = (await db.$queryRawUnsafe("PRAGMA foreign_key_check")) as unknown[];
     expect(fk).toHaveLength(0);
     const list = (await db.$queryRawUnsafe(
@@ -177,32 +177,28 @@ describe("#569 §6.7 — upgrade legado REAL (seed no schema antigo, depois migr
     expect(list).toHaveLength(5);
     const targets = list.map((r) => r.table).sort();
     expect(targets).toEqual([
+      "bank_statement_imports",
       "cash_flow_entries",
-      "credit_card_imports",
       "credit_cards",
       "expenses",
       "expenses",
     ]);
   });
 
-  it("hard-delete FK-OFF-style não é o caminho: RESTRICT bloqueia apagar um import com liquidação ativa via ORM", async () => {
-    // linhas reais que as novas FKs (card_id, import_id) exigem
+  it("hard-delete FK-OFF-style não é o caminho: RESTRICT bloqueia apagar o import (bank_statement_imports) com liquidação ativa via ORM", async () => {
+    // linha real que a nova FK card_id exige (import_id reusa o bank_statement_imports legado)
     await db.$executeRawUnsafe(
       `INSERT OR IGNORE INTO credit_cards (id, project_id, tenant_id, institution, brand, nickname, last4, created_at, updated_at)
        VALUES ('card-569-restrict', '${legacy.project}', '${legacy.tenant}', 'OUTROS', 'Outros', 'restrict', '4700', datetime('now'), datetime('now'))`,
     );
-    await db.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO credit_card_imports (id, card_id, tenant_id, period_label, source, created_at, updated_at)
-       VALUES ('cc-imp-569-restrict', 'card-569-restrict', '${legacy.tenant}', '2025-12', 'OFX', datetime('now'), datetime('now'))`,
-    );
-    // materializa uma liquidação apontando para esse import
+    // materializa uma liquidação apontando para o import legado (bank_statement_imports)
     await db.$executeRawUnsafe(
       `INSERT INTO imported_invoice_liquidations
          (id, tenant_id, payment_expense_id, import_id, purchase_expense_id, cash_flow_entry_id, card_id, prev_status, entry_valor_cents, due_month, created_at)
-       VALUES ('iil-restrict-569', '${legacy.tenant}', '${legacy.paymentLegacy}', 'cc-imp-569-restrict', '${legacy.purchaseLegacy}', '${legacy.entryLegacy}', 'card-569-restrict', 'PLANEJADO', 30000, '2025-12', datetime('now'))`,
+       VALUES ('iil-restrict-569', '${legacy.tenant}', '${legacy.paymentLegacy}', '${legacy.importLegacy}', '${legacy.purchaseLegacy}', '${legacy.entryLegacy}', 'card-569-restrict', 'PLANEJADO', 30000, '2025-12', datetime('now'))`,
     );
     await expect(
-      db.$executeRawUnsafe(`DELETE FROM credit_card_imports WHERE id = 'cc-imp-569-restrict'`),
+      db.$executeRawUnsafe(`DELETE FROM bank_statement_imports WHERE id = '${legacy.importLegacy}'`),
     ).rejects.toThrow();
     await db.$executeRawUnsafe(`DELETE FROM imported_invoice_liquidations WHERE id = 'iil-restrict-569'`);
   });

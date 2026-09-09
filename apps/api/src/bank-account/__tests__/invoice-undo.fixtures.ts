@@ -146,6 +146,28 @@ export async function seedBankAccount(
 }
 
 /**
+ * Cria (ou garante) um `BankStatementImport` real — necessário desde a FK
+ * `imported_invoice_liquidations.import_id → bank_statement_imports(id)` (#569 SEC-2).
+ */
+export async function seedStatementImport(
+  setup: PrismaClient,
+  opts: { tenantId: string; accountId: string; id: string; periodLabel?: string },
+): Promise<string> {
+  await setup.bankStatementImport.upsert({
+    where: { id: opts.id },
+    update: {},
+    create: {
+      id: opts.id,
+      tenantId: opts.tenantId,
+      accountId: opts.accountId,
+      periodLabel: opts.periodLabel ?? "2026-01",
+      source: "OFX",
+    },
+  });
+  return opts.id;
+}
+
+/**
  * Compra PARCELADA + N `CashFlowEntry` PLANEJADO, uma por parcela, com `parcela`
  * "k/N" e datas mensais a partir de `primeiraData`.
  */
