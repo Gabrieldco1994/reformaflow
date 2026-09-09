@@ -37,7 +37,9 @@ CREATE TABLE "imported_invoice_liquidations" (
     "deleted_at" DATETIME,
     CONSTRAINT "imported_invoice_liquidations_payment_expense_id_fkey" FOREIGN KEY ("payment_expense_id") REFERENCES "expenses" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "imported_invoice_liquidations_purchase_expense_id_fkey" FOREIGN KEY ("purchase_expense_id") REFERENCES "expenses" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "imported_invoice_liquidations_cash_flow_entry_id_fkey" FOREIGN KEY ("cash_flow_entry_id") REFERENCES "cash_flow_entries" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "imported_invoice_liquidations_cash_flow_entry_id_fkey" FOREIGN KEY ("cash_flow_entry_id") REFERENCES "cash_flow_entries" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "imported_invoice_liquidations_import_id_fkey" FOREIGN KEY ("import_id") REFERENCES "credit_card_imports" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "imported_invoice_liquidations_card_id_fkey" FOREIGN KEY ("card_id") REFERENCES "credit_cards" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateIndex (UNIQUE PARCIAL — Prisma não expressa `WHERE`, escrito à mão)
