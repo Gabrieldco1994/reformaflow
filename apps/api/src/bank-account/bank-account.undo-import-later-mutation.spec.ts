@@ -43,6 +43,17 @@ const R2 = {
   allowedModules: ["expenses", "creditCards", "monthlyOverview", "bankAccounts"],
 };
 const ADMIN: MonthlyOverviewMutationRequester = { id: "iul-mut-admin", role: "ADMIN" };
+/** Requester USER escopado SÓ a PESSOAL (não enxerga PESSOAL2). */
+const USER_A: MonthlyOverviewMutationRequester = {
+  id: "iul-mut-user-a",
+  role: "USER",
+  allowedProjects: [PESSOAL],
+  allowedProjectTypes: ["PESSOAL"],
+  allowedModules: ["expenses", "creditCards", "monthlyOverview", "bankAccounts"],
+} as unknown as MonthlyOverviewMutationRequester;
+const GENERIC_IMPORT_TRAIL_MESSAGE =
+  "INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada " +
+  "por uma importação de extrato. Desfaça a importação para reabrir a fatura.";
 
 const setup = new PrismaClient();
 const prisma = new PrismaService();
@@ -161,6 +172,51 @@ describe("#569 §6.4 — later-mutation guards (RED)", () => {
       mo.undoInvoicePayment(TENANT, PESSOAL, { cardId, dueMonth: "2026-07" }, ADMIN),
     ).rejects.toThrow(/INVOICE_HAS_IMPORT_TRAIL/);
     expect((await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } }))?.status).toBe("PAGO");
+  });
+
+  it("SEC-1 undoInvoicePayment: claim ancorado SÓ em compra de projeto invisível → 409 INVOICE_HAS_IMPORT_TRAIL (não 404 enganoso); zero escrita; mensagem sem menção ao projeto B", async () => {
+    // compra VISÍVEL (A) — fecha a fatura 2026-07, casa com o pagamento manual
+    const visible = await seedInstallmentPurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 1, valorCents: 30_000,
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+    });
+    await setup.cashFlowEntry.update({ where: { id: visible.entryIds[0] }, data: { status: "PAGO" } });
+    await setup.expense.update({ where: { id: visible.id }, data: { status: "PAGO" } });
+    // compra INVISÍVEL (B, PESSOAL2) — parcela PAGO no MESMO dueMonth, carrega o claim
+    const hidden = await seedInstallmentPurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL2, cardLast4: CARD, parcelas: 1, valorCents: 15_000,
+      primeiraData: new Date("2026-06-12T12:00:00.000Z"),
+    });
+    await setup.cashFlowEntry.update({ where: { id: hidden.entryIds[0] }, data: { status: "PAGO" } });
+    await setup.expense.update({ where: { id: hidden.id }, data: { status: "PAGO" } });
+    // pagamento MANUAL em A (importId null) casando com a fatura 2026-07
+    await setup.expense.create({
+      data: {
+        tenantId: TENANT, projectId: PESSOAL, tipoDespesa: "PAGAMENTO_FATURA_CARTAO", titulo: "manual-A",
+        valor: 30_000, quantidade: 1, valorTotal: 30_000, formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-28T12:00:00.000Z"), status: "PAGO",
+        cardLast4: CARD, bankLast4: BANK,
+      },
+    });
+    await seedStatementImport(setup, { tenantId: TENANT, accountId, id: "imp-sec1-B" });
+    await setup.importedInvoiceLiquidation.create({
+      data: {
+        tenantId: TENANT, paymentExpenseId: hidden.id, importId: "imp-sec1-B",
+        purchaseExpenseId: hidden.id, cashFlowEntryId: hidden.entryIds[0],
+        cardId, prevStatus: "PLANEJADO", entryValorCents: 15_000, dueMonth: "2026-07",
+      },
+    });
+    let caught: Error | null = null;
+    try {
+      await mo.undoInvoicePayment(TENANT, PESSOAL, { cardId, dueMonth: "2026-07" }, USER_A);
+    } catch (e) {
+      caught = e as Error;
+    }
+    expect(caught).toBeInstanceOf(ConflictException);
+    expect(caught?.message).toBe(GENERIC_IMPORT_TRAIL_MESSAGE);
+    expect(caught?.message).not.toMatch(/PESSOAL2|projectId|slug|15|30/i);
+    expect((await setup.cashFlowEntry.findUnique({ where: { id: visible.entryIds[0] } }))?.status).toBe("PAGO");
+    expect((await setup.cashFlowEntry.findUnique({ where: { id: hidden.entryIds[0] } }))?.status).toBe("PAGO");
   });
 
   // Removidos desta branch (PR 1): `B1b` (undoImport 409 `DRIFT` por parcela

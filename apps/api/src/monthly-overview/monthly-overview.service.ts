@@ -3638,6 +3638,42 @@ export class MonthlyOverviewService {
         }
       ).importedInvoiceLiquidation;
       if (ledgerDelegate?.count) {
+        // SEC-1 (#569): a reivindicação ATIVA pode estar ancorada SÓ numa compra
+        // de projeto invisível ao requester. `prepareUnsettleInvoice` lançaria um
+        // 404 genérico ("nenhum pagamento encontrado") ANTES do check de ledger —
+        // mensagem enganosa e divergente do contrato. Enumera as CashFlowEntry da
+        // fatura-alvo por `tenantId` + cartão + `dueMonth` (sem visibilidade de
+        // projeto) e responde 409 `INVOICE_HAS_IMPORT_TRAIL` antes do 404.
+        const invoiceEntries = (await tx.cashFlowEntry.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            tipo: 'DESPESA',
+            expense: { deletedAt: null, cardLast4: card.last4 },
+          },
+          select: { id: true, data: true },
+        })) as Array<{ id: string; data: Date }>;
+        const dueMonthEntryIds = invoiceEntries
+          .filter(
+            (entry) =>
+              caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === dueMonth,
+          )
+          .map((entry) => entry.id);
+        if (dueMonthEntryIds.length > 0) {
+          const anchoredClaims = await ledgerDelegate.count({
+            where: {
+              tenantId,
+              cashFlowEntryId: { in: dueMonthEntryIds },
+              deletedAt: null,
+            },
+          });
+          if (anchoredClaims > 0) {
+            throw new ConflictException(
+              'INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada ' +
+                'por uma importação de extrato. Desfaça a importação para reabrir a fatura.',
+            );
+          }
+        }
         const toFlip = await this.cardSettlement.prepareUnsettleInvoice({
           tenantId,
           card,
