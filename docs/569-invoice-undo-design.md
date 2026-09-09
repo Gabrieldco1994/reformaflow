@@ -309,7 +309,7 @@ Ordem, ANTES da 1ª escrita:
 | **2 undos simultâneos do MESMO lote** | exatamente um retorna `revertedInvoiceParcelas > 0`. O outro: **OU** `{ ok:true, alreadyUndone:true }` **OU** 409 (`INCOMPLETE_TRAIL` / `ALREADY_UNDONE`) — **nunca** reversão parcial, **nunca** dupla reversão. Contagem final de `CashFlowEntry` PAGO == baseline pós-undo; no máximo UMA chamada com `revertedInvoiceParcelas > 0`. | releitura de `importRecord.deletedAt` + `activeItems` DENTRO da `$transaction` (passos 1 e 3) — não pré-check externo. **O índice único parcial NÃO impede a 2ª tentativa** (as linhas já viram soft-deleted no 1º commit): a proteção é o **recount do import + itens na tx** — se o 2º entra após o 1º commitar, `importRecord.deletedAt != null` ⇒ no-op `alreadyUndone`; se entra antes, `activeItems.length !== parcela_count` (ou o índice, na re-gravação) ⇒ 409/rollback. O desfecho exato sob contenção é **asseverado por §6.6 com `PrismaService` real + SQLite real** dentro da disjunção acima — este doc **não** afirma ordem de write-lock. |
 | **re-undo serial** | 2ª chamada: `{ ok:true, alreadyUndone:true }`, zero parcelas revertidas de novo | `importRecord.deletedAt != null` relido na tx (passo 3) |
 | **item do ledger soft-deletado por fora entre commit e undo** | 409 `INCOMPLETE_TRAIL`, zero escrita | `activeItems.length (0) !== parcela_count (N)` recontado na tx |
-| **`SQLITE_BUSY` / contenção de escrita** | erro propaga → 5xx; operação idempotente ⇒ retry seguro | **Parecer SRE §3.3.1 item 4:** `PrismaService` hoje **não** define `busy_timeout`/WAL/`connection_limit` (`prisma.service.ts:12`, `super()` sem args). PR de config (WAL + `busy_timeout` ≥ p99 + `connection_limit=1`) exigido **antes do PR 2**. Não presumir ordem de lock — §6.6 assevera o desfecho com SQLite real. |
+| **`SQLITE_BUSY` / contenção de escrita** | erro propaga → 5xx; operação idempotente ⇒ retry seguro | **Sem PR de config obrigatório.** Contraprova local com `PrismaService` real mediu `PRAGMA busy_timeout = 5000` já ativo por default do engine — a hipótese de erro imediato não se sustenta. Qualquer ajuste (WAL, `busy_timeout` maior, `connection_limit`) depende de **medição específica** da contenção nova e pode entrar como patch corretivo próprio (o gate de SHA aceita novo HEAD compatível por revert ou patch). §6.6 assevera o desfecho com `PrismaService` + SQLite reais; não presumir ordem de lock. |
 
 ---
 
@@ -372,10 +372,15 @@ conhece o carimbo nem o índice único parcial na imagem N-1 crua. Uma imagem de
 rollback só é compatível se **preservar essas proteções**.
 
 **Release-degrau (opção B) — o que a versão intermediária PRECISA conter** (o
-mínimo para não corromper, sem a feature exata):
+mínimo para não corromper e **não perder efeito de liquidação**, sem a UX de undo):
 - a migração inteira (tabela `imported_invoice_liquidations` + índice único
   parcial + 5 colunas de carimbo);
-- carimbo `PROCESSED_NONE` em **todo** `PAGAMENTO_FATURA_CARTAO` que ela criar;
+- **o REGISTRO CORRETO dos efeitos** em todo `PAGAMENTO_FATURA_CARTAO` que ela criar:
+  `applyPreparedSettlement` devolvendo `flippedEntries` reais + `recordImportedLiquidations`
+  + carimbo derivado do `apply` — `PROCESSED_SETTLED` (`N` itens) quando há parcela
+  liquidada, `PROCESSED_NONE` (0 itens) **só** quando `flippedEntries.length === 0` de
+  fato. `PROCESSED_NONE` sempre é ERRADO: apaga a trilha da liquidação que a própria
+  degrau executou;
 - a checagem "há parcela ATIVA no ledger para este `card_id` + `due_month`?" (ou
   "esta compra/este pagamento tem item de ledger ativo?") nos writers:
   `payInvoice` (pre-check B2), `ExpenseService.update` e `ExpenseService.remove`
@@ -384,6 +389,13 @@ mínimo para não corromper, sem a feature exata):
   `MANUAL_PAYMENT_OVERLAP`.
   Sem isso a imagem-degrau volta a permitir mutação silenciosa de parcela
   liquidada.
+
+**O que fica SÓ no PR 2 (habilitação do undo + UX), nunca o registro dos efeitos:**
+`getImportDetail` com `requester` + `settlement{...}` exposto; `undoImport` revertendo
+via ledger (estado 3); `InvoiceDetailPanel`/`ImportHistoryModal`; o resumo de commit
+com `cardPaymentsPendingSettlement`. Até o PR 2, um lote com `PROCESSED_SETTLED`
+responde `undoImport` 409 fail-closed (a degrau não sabe reverter), mas a trilha
+**já está gravada corretamente** e o PR 2 a consome sem migração de dados.
 
 **Duas opções — `platform-sre` decide qual, preservando 100% da proveniência já gravada:**
 
@@ -394,10 +406,10 @@ mínimo para não corromper, sem a feature exata):
   `PAGAMENTO_FATURA_SEM_CARTAO`; **nenhum `PAGAMENTO_FATURA_CARTAO` sem carimbo é criado**.
   Custo: liquidação automática indisponível na janela.
 - **(B) Versão de rollback intermediária compatível.** Uma release N-1 que já contém a
-  migração (tabela + colunas) e **grava carimbo `PROCESSED_NONE` em todo
-  `PAGAMENTO_FATURA_CARTAO`**, mas não faz a liquidação exata. Reverter para N-1 (nunca
-  para N-2) nunca cria linha sem carimbo. Exige planejar a sequência de deploy com uma
-  release-degrau antes de ligar a liquidação exata.
+  migração (tabela + colunas) **e grava a trilha real** (`PROCESSED_SETTLED` + itens
+  quando liquidou, `PROCESSED_NONE` só quando não liquidou nada), mas não expõe a UX de
+  undo. Reverter para N-1 (nunca para N-2) nunca cria trilha ausente nem incorreta.
+  Exige planejar a sequência de deploy com a degrau antes de ligar a UX de undo.
 
 **Critério de `DROP TABLE` seguro — MUDOU.** "Zero linhas em `imported_invoice_liquidations`"
 **não basta**: um pagamento processado com 0 liquidações carrega carimbo `PROCESSED_NONE`
@@ -422,19 +434,23 @@ trilhas já gravadas dos demais writers; serve só como mitigação de curtíssi
 (teto ~24h, aviso "desfazer importação com liquidação temporariamente indisponível")
 se a degrau ainda não existir.
 
-**Estrutura obrigatória:** PR 1 = degrau (migração completa + carimbo `PROCESSED_NONE`
-sempre + checagens mínimas de "parcela ativa" nos writers + guarda de versão
-fail-closed; sem liquidação exata, sem reversão via ledger). PR 2 = feature completa.
-Rollback = `git revert` do PR 2. Nunca revert do PR 1 isolado. Sequência: degrau antes
-de ligar a liquidação exata; rollback nunca abaixo de N-1. **Com (B) não há degradação
+**Estrutura obrigatória:** PR 1 = degrau (migração completa + **registro correto dos
+efeitos**: `flippedEntries` reais do `apply` + `recordImportedLiquidations` + carimbo
+`PROCESSED_SETTLED`/`PROCESSED_NONE` derivado do `apply` — nunca `PROCESSED_NONE`
+sempre + checagens de "parcela ativa" nos writers + guarda de versão fail-closed;
+**sem** a UX de undo e sem `getImportDetail.settlement`). PR 2 = habilitação do undo +
+UX (consome a trilha já gravada, sem migração de dados). Rollback = `git revert` do
+PR 2. Nunca revert do PR 1 isolado. Sequência: degrau antes de ligar a UX de undo;
+rollback nunca abaixo de N-1. **Com (B) não há degradação
 ao usuário** — importação segue funcionando; só o "desfazer importação com liquidação"
 responde fail-closed.
 
 **2. Writers da degrau** — a lista de §4 (B1–B6, B9) está correta. **Acréscimos
 obrigatórios que o texto acima não listava:**
 - **caminho de commit do extrato** (`bank-account.service.ts`, ramos `matchedCard` **e**
-  `matchedCard === null`): gravar carimbo `PROCESSED_NONE` em todo
-  `PAGAMENTO_FATURA_CARTAO` — sem isso a degrau reabre o estado-1 indevido;
+  `matchedCard === null`): gravar carimbo em todo `PAGAMENTO_FATURA_CARTAO` — derivado
+  do `apply` (`PROCESSED_SETTLED` se liquidou, `PROCESSED_NONE` se não), nunca
+  `PROCESSED_NONE` fixo — sem isso a degrau reabre o estado-1 indevido ou apaga a trilha;
 - **guarda de versão em `undoImport` E `getImportDetail`**: carimbo com
   `invoice_undo_trail_version` não reconhecida ⇒ 409 fail-closed (rolar entre degrau e
   feature nas duas direções);
@@ -464,15 +480,17 @@ como escritas. Complementos:
 - **quiesce NÃO necessário**: `CREATE TABLE` nova + `CREATE INDEX` em tabela vazia +
   `ALTER TABLE ADD COLUMN` de 5 colunas nullable sem default (metadado O(1) no SQLite,
   sem rewrite); sem backfill;
-- **ACHADO — exige PR próprio antes do PR 2**: `PrismaService` chama `super()` sem args;
-  `DATABASE_URL` sem query params; **nenhum `PRAGMA busy_timeout`, `journal_mode`/WAL nem
-  `connection_limit`** em lugar nenhum (verificado em `apps/api/src/prisma/prisma.service.ts:12`).
-  A `$transaction` de lote ampliada (ACL loads + `findUnique` de drift + updates do ledger)
-  segura o write-lock por mais tempo ⇒ concorrente toma `SQLITE_BUSY` imediato. Ação:
-  `PRAGMA journal_mode=WAL` + `PRAGMA busy_timeout` (≥ p99 da tx de lote, sugestão inicial
-  10000 ms) no `onModuleInit`; `?connection_limit=1` na `DATABASE_URL` de produção;
-  documentar que `SQLITE_BUSY` → 5xx é retry seguro (operação idempotente). O desfecho sob
-  contenção é asseverado por §6.6 com `PrismaService` real + SQLite real, não por parecer.
+- **Contenção `undoImport` — NÃO exige PR de config obrigatório.** `PrismaService` chama
+  `super()` sem args e a `DATABASE_URL` não tem query params (`prisma.service.ts:12`),
+  mas contraprova local com `PrismaService` real mediu **`PRAGMA busy_timeout = 5000`**
+  já ativo por default do engine Prisma — a hipótese de "concorrente toma `SQLITE_BUSY`
+  imediato" **não se sustenta**. A `$transaction` de lote ampliada segura o write-lock
+  por mais tempo, mas o segundo escritor **aguarda** até 5 s antes de qualquer erro.
+  Qualquer ajuste (WAL, `busy_timeout` maior, `connection_limit=1`) depende de **medição
+  específica** da contenção nova — não de suposição — e pode entrar depois como **patch
+  corretivo próprio** (o gate de SHA aceita novo HEAD compatível por revert ou patch;
+  não bloqueia o PR 2). `SQLITE_BUSY` → 5xx segue retry seguro (idempotente). O desfecho
+  sob contenção é asseverado por §6.6 com `PrismaService` + SQLite reais, não por parecer.
 - gates stale-SHA + prova pós-deploy inalterados; **não** adicionar `/health` nem SHA build arg.
 
 **5. Fixture de upgrade legado** — origem: backup de produção sanitizado OU legada
@@ -490,9 +508,9 @@ tamanho e tempo do `ALTER`; drill de backup/restore executado.
 
 **Ações SRE pendentes — registrar no tracker com dono antes do PR 2:**
 1. definir com o PO a sequência de 2 PRs (degrau → feature) e a política forward-only;
-2. PR de config Prisma (WAL + `busy_timeout` + `connection_limit=1`) antes do PR 2;
-3. `DEPLOY.md`: runbook de rollback (revert do PR 2) + pré-condição das 2 contagens p/ `DROP`; nota no `CLAUDE.md`;
-4. autorização do PO para a futura migração de `DROP`.
+2. `DEPLOY.md`: runbook de rollback (revert do PR 2) + pré-condição das 2 contagens p/ `DROP`; nota no `CLAUDE.md`;
+3. autorização do PO para a futura migração de `DROP`;
+4. **opcional / dirigido por medição:** se §6.6 (ou telemetria pós-deploy) mostrar contenção real acima do `busy_timeout` default de 5 s, patch corretivo de config Prisma — não é pré-requisito do PR 2.
 
 ---
 
@@ -504,7 +522,7 @@ tratamento → ponto concreto a mudar.
 | # | caminho | o que faz às parcelas | tratamento mínimo | ponto concreto |
 |---|---|---|---|---|
 | B1 | `MonthlyOverviewService.undoInvoicePayment` `monthly-overview.service.ts:3423` (cockpit manual) | reverte `CashFlowEntry` PAGO→PLANEJADO por `dueMonth`/`settlesInvoiceKey` | **drift-check passo 5** pega `status !== 'PAGO'` ⇒ 409 `DRIFT`, zero escrita. Além disso: pagamento com `importId != null` já é 404 no cockpit (§16.4) — manter. | nenhuma mudança nova; teste trava a interação |
-| B2 | `MonthlyOverviewService.payInvoice` `monthly-overview.service.ts:3283` (cockpit manual) | criaria um 2º `PAGAMENTO_FATURA_CARTAO` / `settlesInvoiceKey` sobre uma fatura já liquidada por importação | **pre-check novo DENTRO da `$transaction` de `payInvoice`**, DEPOIS de `card` resolvido (`:3322-3339`) e DEPOIS do `prepared` (para ter o `dueMonth` alvo): dispara SÓ quando há **parcela ATIVA no ledger** (`imported_invoice_liquidations`, `deleted_at IS NULL`) para `card.id` + `dueMonth` alvo — equivalentemente: existe `PAGAMENTO_FATURA_CARTAO` com `importId != null` **E** `invoice_undo_state = 'PROCESSED_SETTLED'` **E** `invoice_undo_card_id = card.id` **E** `invoice_undo_due_month = dueMonth`. ⇒ **409 `INVOICE_HAS_IMPORT_TRAIL`**, zero escrita. Um carimbo `PROCESSED_NONE` (zero liquidações) **NÃO** dispara — pagamento manual legítimo da mesma fatura é permitido. **Fallback:** `prepared` vazio (sem `dueMonth` alvo) ⇒ pre-check não tem alvo, **não dispara**; a rede é `MANUAL_PAYMENT_OVERLAP` no drift-check do `undoImport` (§2.3 passo 5). | +pre-check em `payInvoice` (`monthly-overview.service.ts:~3340`, após `card`+`prepared`, dentro da tx) |
+| B2 | `MonthlyOverviewService.payInvoice` `monthly-overview.service.ts:3283` (cockpit manual) | criaria um 2º `PAGAMENTO_FATURA_CARTAO` / `settlesInvoiceKey` sobre uma fatura já liquidada por importação | **pre-check novo DENTRO da `$transaction` de `payInvoice`**, DEPOIS de `card` resolvido (`:3322-3339`): resolve o `dueMonth` alvo do **DTO** (`resolveTargetDueMonth(card, effectiveDate, amountCents)` / `caixaMonthForCardPurchase` — **independente do `prepared`**, que pode vir vazio JUSTAMENTE porque todas as parcelas já estão `PAGO` pela importação; `prepared` vazio ≠ ausência de fatura-alvo). Com o `dueMonth` resolvido, dispara SÓ quando há **parcela ATIVA no ledger** (`imported_invoice_liquidations`, `deleted_at IS NULL`) para `card.id` + `dueMonth` — equivalentemente: existe `PAGAMENTO_FATURA_CARTAO` com `importId != null` **E** `invoice_undo_state = 'PROCESSED_SETTLED'` **E** `invoice_undo_card_id = card.id` **E** `invoice_undo_due_month = dueMonth`. ⇒ **409 `INVOICE_HAS_IMPORT_TRAIL`**, zero escrita, **mesmo com `prepared` vazio**. Um carimbo `PROCESSED_NONE` (zero liquidações) **NÃO** dispara — pagamento manual legítimo da mesma fatura é permitido. **Único caso sem bloqueio:** nenhum `dueMonth` alvo resolvível do DTO (cartão sem `closingDay`/`dueDay` e sem match de valor) — aí a rede é `MANUAL_PAYMENT_OVERLAP` no drift-check do `undoImport` (§2.3 passo 5). | +pre-check em `payInvoice` (`monthly-overview.service.ts:~3340`, após `card` resolvido, dentro da tx; resolve `dueMonth` do DTO, não do `prepared`) |
 | B3 | `ExpenseService.update` `expense.service.ts:1444` — PATCH da COMPRA (valor/quantidade/parcelas) | regenera `CashFlowEntry` ⇒ muda `valor`/`parcela` | **bloquear no `assertCanMutateLinkedRows`** (`expense.service.ts:1465`): se a compra tem item de ledger ATIVO e o DTO muda `valor`/`quantidade`/`quantidadeParcela`/datas ⇒ `ConflictException` "compra liquidada por pagamento importado; desfaça a importação primeiro". | +cheque em `assertCanMutateLinkedRows` |
 | B4 | `ExpenseService.update` — PATCH do PAGAMENTO `{ creditCardId }` | escolhe CARTÃO, não fatura (F) | **carimbo `PROCESSED_NONE` + `invoiceUndoCardId IS NULL` + zero itens ativos** (estado 2b, M8 "confirme qual cartão") ⇒ PATCH de `creditCardId` **PERMITIDO**: associa o cartão, **NÃO liquida parcela alguma**, o carimbo/proveniência permanece (opcionalmente atualiza `invoiceUndoCardId`). **Carimbo com itens ATIVOS (`PROCESSED_SETTLED`)** e o `creditCardId` novo ≠ `invoiceUndoCardId` ⇒ `ConflictException` (o carimbo/itens apontam para o cartão antigo). | +cheque em `assertCanMutateLinkedRows` |
 | B9 | `ExpenseService.update` — PATCH do PAGAMENTO `{ tipoDespesa }` / ownership / `cardLast4` / `bankLast4` / `settlesInvoiceKey` | tiraria a proveniência que faz o par derivar (§1.2) | pagamento **com carimbo ATIVO** (`invoice_undo_state IS NOT NULL`, e para `PROCESSED_SETTLED` com itens no ledger) ⇒ `hasProtectedChange`/`changedToNeutralType` (`expense.service.ts:1509-1526`) retorna true ⇒ `ConflictException`. Um `PROCESSED_NONE` sem itens **não** bloqueia a associação de cartão (isso é B4). | +ramo em `hasProtectedChange` (carimbo ativo + muda `tipoDespesa`/ownership/`*Last4`/`settlesInvoiceKey`) |
@@ -527,7 +545,7 @@ Princípio: **1 guard de escrita** (`assertCanMutateLinkedRows` +
 | **B** alterações posteriores / adoção | guard em `assertCanMutateLinkedRows` (`expense.service.ts:1465`) e `guardRateioParticipation` (`~:2014`) + drift-check de undo | B1 `monthly-overview.service.ts:3423`+`:3550`; B2 `monthly-overview.service.ts:~3340` (pre-check em `payInvoice`, após `card` `:3322-3339` + `prepared`, dentro da `$transaction` `:3283`); B3/B4 `expense.service.ts:1444`; B5 `:2190`; B6 `:2014`; B8 `bank-account.service.ts:1463`; **B9** `expense.service.ts:1509-1526` (`hasProtectedChange` — PATCH `tipoDespesa`/ownership de pagamento carimbado) | `later-mutation.spec` (§6.4): um caso por caminho B1–B6/B8/B9, cada um ⇒ bloqueio no write OU 409 no undo, zero escrita. **B2 executa `payInvoice` REAL.** |
 | **C** atomicidade / efeitos efetivos / autz / concorrência | `applyPreparedSettlement` devolve `flippedEntries`; `recordImportedLiquidations` NÃO capturado ⇒ rollback do lote (`$transaction` `:1151`); `getImportDetail` recebe `requester`; ambos revalidam na tx com ACL por participante cross-project; prova de "já desfeito" = import + itens na tx sob write-lock | `bank-account.service.ts:1151` (tx do lote), `:2497` (apply), `:1298/1416` (só `findAccount`), `card-invoice-settlement.service.ts:190` (`assertCanSettlePurchase`), `:613-628` (apply a mudar) | `atomicity.spec` (§6.3): falha forçada em `recordImportedLiquidations` ⇒ NADA persiste (import, despesas, caixa, itens); `authz.spec` (§6.5): requester sem ACL de projeto participante ⇒ 404, zero escrita; `concurrency.spec` (§6.6): 2 undos / re-undo / item removido no meio |
 | **D** janelas e estados honestos | documentar 60d / ±10d / {m,m+1} / 75d / ranking individualmente (nenhuma unificada); `outcome: SETTLED | NO_SETTLEMENT` é derivado de `flippedEntries` do **`apply`** (transições efetivas), nunca da contagem do `prepare`; diferença acima da tolerância pode ser pagamento **A MAIOR**, nunca rotulada `PARTIAL`; sub-motivo = `hint` **não-persistido/não-confiável**; identificação de cartão ≠ liquidação de fatura | `bank-account.service.ts:2822-2831` (60d + `tolerance=200`), `:2894` (±10d); `card-invoice-settlement.service.ts:257` ({m,m+1}), `:682` (75d), `:295` (tolerância) | `windows.spec` (§6.2): cada janela pina o seu valor; `outcome === NO_SETTLEMENT` para fatura já paga, diferença a menos, diferença a MAIS e nenhuma fatura — sem asseverar `hint` como coluna |
-| **E** migration / rollback | aditiva sem backfill; fixture legada + `db:check`; parecer SRE §3.3.1: **(B) release-degrau em 2 PRs**, rollback forward-only (`git revert` do PR 2), degrau conhece todos os writers B1–B6/B9 + carimbo sempre + guarda de versão + fail-closed sobre `PROCESSED_SETTLED`; `DROP` seguro **só** com `count(imported_invoice_liquidations)=0` **E** `count(expenses WHERE invoice_undo_state IS NOT NULL)=0` (prod, + backup + PO); PR de config Prisma (WAL/`busy_timeout`/`connection_limit=1`) antes do PR 2 | padrão `prisma/migrations/20260904120000_add_dedupe_keys` (índice parcial à mão) | `migration-upgrade.spec` (§6.7): deploy sobre fixture legada ⇒ 0 linhas, colunas NULL, `db:check` ok, legado segue 409; `it('DROP reprova com 0 linhas MAS ≥1 carimbo PROCESSED_NONE')` |
+| **E** migration / rollback | aditiva sem backfill; fixture legada + `db:check`; parecer SRE §3.3.1: **(B) release-degrau em 2 PRs**, rollback forward-only (`git revert` do PR 2); **a degrau registra a trilha REAL** (`flippedEntries` do `apply` + `PROCESSED_SETTLED` quando liquidou, `PROCESSED_NONE` só quando não) + conhece todos os writers B1–B6/B9 + guarda de versão + fail-closed sobre `PROCESSED_SETTLED`; PR 2 = só habilitação do undo + UX; `DROP` seguro **só** com `count(imported_invoice_liquidations)=0` **E** `count(expenses WHERE invoice_undo_state IS NOT NULL)=0` (prod, + backup + PO); config Prisma = patch corretivo opcional dirigido por medição (`busy_timeout` default 5 s já ativo), não pré-requisito | padrão `prisma/migrations/20260904120000_add_dedupe_keys` (índice parcial à mão) | `migration-upgrade.spec` (§6.7): deploy sobre fixture legada ⇒ 0 linhas, colunas NULL, `db:check` ok, legado segue 409; `it('DROP reprova com 0 linhas MAS ≥1 carimbo PROCESSED_NONE')` |
 | **F** UX sem promessas / operações implícitas | remover "fatura marcada paga quando compras entrarem"; `creditCardId` = cartão, não fatura; detalhe usa `cardId` estável + lista de pagamentos; "adicionar no contexto" mostra `dueMonth` DERIVADO por `caixaMonthForCardPurchase`; idempotência ≠ reversibilidade | texto atual do resumo `bank-account.service.ts:1240-1258`; `caixaMonthForCardPurchase` (domínio, usado em `card-invoice-settlement.service.ts:270`) | testes de contrato de resposta (§6.8): `getImportDetail.settlement` tem `cardId` (não `last4`) e `payments[]`; `canUndo`/`blockReason` corretos por estado |
 
 ---
@@ -589,7 +607,8 @@ Um `it` por caminho de B:
 - `it('B1b undoInvoicePayment reverteu uma parcela do ledger de OUTRO caminho antes do undo → undoImport 409 DRIFT, zero escrita')`.
 - `it('B2 payInvoice REAL (não fabrica carimbo): trilha PROCESSED_SETTLED + itens ATIVOS no card+dueMonth alvo → 409 INVOICE_HAS_IMPORT_TRAIL; zero PAGAMENTO_FATURA_CARTAO novo; entries seguem PAGO; ledger e carimbo intactos')`.
 - `it('B2b payInvoice REAL: trilha PROCESSED_NONE (zero liquidações) no MESMO card+dueMonth → payInvoice PERMITE (não 409); cria o PAGAMENTO_FATURA_CARTAO manual normalmente')`.
-- `it('B2c payInvoice REAL: prepared vazio (sem dueMonth alvo) → pre-check não dispara; a rede é MANUAL_PAYMENT_OVERLAP no undoImport (ver B2d)')`.
+- `it('B2c importar+liquidar a fatura inteira (todas as parcelas → PAGO) → prepared do payInvoice fica VAZIO; tentar payInvoice manual no MESMO cartão em OUTRA data de pagamento → 409 INVOICE_HAS_IMPORT_TRAIL (dueMonth resolvido do DTO, não do prepared); zero PAGAMENTO_FATURA_CARTAO novo; nenhuma saída nova no caixa')`.
+- `it('B2c-neg payInvoice REAL: cartão sem closingDay/dueDay e sem match de valor → nenhum dueMonth alvo resolvível → pre-check não dispara; a rede é MANUAL_PAYMENT_OVERLAP no undoImport (ver B2d)')`.
 - `it('B2d pagamento manual pré-existente (imagem sem o pre-check, semeado direto) casado à fatura do carimbo → undoImport 409 MANUAL_PAYMENT_OVERLAP, zero escrita')`.
 - `it('B3 PATCH /expenses/:id muda valor da compra liquidada → 409 ConflictException no update; ledger intacto')`.
 - `it('B4a PATCH creditCardId de pagamento PROCESSED_SETTLED (itens ativos) para outro cartão → 409 ConflictException; ledger intacto')`.
@@ -690,10 +709,10 @@ undo responde 409 e o efeito financeiro do lote permanece. A UI não promete
 | carimbo no commit (`bank-account.service.ts` ramo `matchedCard`) + `cardPaymentsPendingSettlement` no resumo | **backend-expert** |
 | `getImportDetail` recebe `requester` (controller `:71` + serviço) + revalidação na tx; `undoImport` reversão via ledger + ACL por participante + drift-check + concorrência | **backend-expert** |
 | guards B3–B6 em `assertCanMutateLinkedRows` / `guardRateioParticipation`; **B9** em `hasProtectedChange` (carimbo ativo + muda `tipoDespesa`/ownership) | **backend-expert** |
-| **B2**: pre-check em `payInvoice` (`monthly-overview.service.ts:~3340`, DEPOIS de `card` resolvido `:3322-3339` e DEPOIS do `prepared`, dentro da `$transaction` `:3283`) — 409 `INVOICE_HAS_IMPORT_TRAIL` SÓ quando há **parcela ATIVA no ledger** para `card.id` + `dueMonth` alvo (`PROCESSED_SETTLED`); `PROCESSED_NONE` e `prepared` vazio NÃO disparam. Rede: `MANUAL_PAYMENT_OVERLAP` no drift-check do `undoImport` — **coordenar com a branch `fix/b0-invoice-mutation-scope` (`b8c5694e`), que mexe no escopo de mutação de fatura** | **backend-expert** |
+| **B2**: pre-check em `payInvoice` (`monthly-overview.service.ts:~3340`, DEPOIS de `card` resolvido `:3322-3339`, dentro da `$transaction` `:3283`) — resolve `dueMonth` alvo **do DTO** (`resolveTargetDueMonth`/`caixaMonthForCardPurchase`, NÃO do `prepared` — que fica vazio quando a importação já liquidou tudo); 409 `INVOICE_HAS_IMPORT_TRAIL` SÓ quando há **parcela ATIVA no ledger** para `card.id` + `dueMonth` (`PROCESSED_SETTLED`); `PROCESSED_NONE` NÃO dispara; só não bloqueia quando NENHUM `dueMonth` é resolvível. Rede: `MANUAL_PAYMENT_OVERLAP` no drift-check do `undoImport` — **coordenar com a branch `fix/b0-invoice-mutation-scope` (`b8c5694e`), que mexe no escopo de mutação de fatura** | **backend-expert** |
 | materializar specs §6.1–6.8 e vê-los VERMELHOS antes do GREEN (PrismaService real) | **backend-expert** |
 | `InvoiceDetailPanel` (novo, aprovado), `ImportHistoryModal` (texto drift/`blockReason`), consumo de `settlement{cardId,payments[]}` e `actions[]` em `MovimentacoesSection`/`ContaAnoView`; specs §6.9 | **frontend-expert** |
-| **parecer entregue (§3.3.1)**: (B) release-degrau em 2 PRs, rollback forward-only; PR de config Prisma (WAL + `busy_timeout` + `connection_limit=1`) antes do PR 2; runbook `DEPLOY.md` (revert do PR 2; `DROP` só com as 2 contagens = 0, medidas em prod, + backup + autorização do PO); 4 ações pendentes com dono no tracker | **platform-sre** |
+| **parecer entregue (§3.3.1)**: (B) release-degrau em 2 PRs (PR 1 grava a trilha real, PR 2 só a UX de undo), rollback forward-only; config Prisma = patch corretivo opcional dirigido por medição, não pré-requisito; runbook `DEPLOY.md` (revert do PR 2; `DROP` só com as 2 contagens = 0, medidas em prod, + backup + autorização do PO); 3 ações pendentes + 1 opcional com dono no tracker | **platform-sre** |
 | QA de jornada desktop + 375/390, login real + dados reais | **journey-qa** |
 
 **STOP.** Sem produção, migration, testes materializados, PR ou merge nesta rodada.
