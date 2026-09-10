@@ -890,51 +890,88 @@ export class CardInvoiceSettlementService {
       select: { id: true, importId: true },
     })) as Array<{ id: string; importId: string | null }>;
 
-    // Precedência IDÊNTICA à de `prepareSettleInvoice`: a estratégia por
-    // VENCIMENTO decide QUAL fatura o pagamento fecha; a fatura importada é só
-    // FALLBACK, para cartões sem ciclo (ou quando nada casou por vencimento).
-    // Rodar o fallback SEMPRE unia os meses de TODA a importação do cartão à
-    // resolução primária — assim uma fatura anterior já liquidada (ex.: a de
-    // setembro) vazava para o pré-check e bloqueava o pagamento legítimo do mês
-    // corrente que a resolução primária circunscreve a um único `dueMonth`.
-    let targetResolved = false;
+    // Precedência IDÊNTICA à de `prepareSettleInvoice`, REUSANDO a MESMA
+    // preparação autorizada (sem uma segunda resolução paralela que duplicaria
+    // ou uniria histórico):
+    //   1. por VENCIMENTO — só é a fatura EFETIVA quando há parcela PLANEJADO a
+    //      virar naquele `dueMonth` (espelha o `if (prepared.length > 0) return`
+    //      de `prepareSettleInvoice`); sem PLANEJADO, cai no fallback, igual à
+    //      preparação real (um alvo já PAGO não pode fixar o mês);
+    //   2. FALLBACK por fatura importada — seleciona só a PRIMEIRA parcela
+    //      PLANEJADO de cada compra (`prepareEarliestSettlement`), NUNCA todas as
+    //      CFEs do histórico, que vazariam uma fatura anterior já liquidada e
+    //      bloqueariam o pagamento legítimo seguinte;
+    //   3. RECUPERAÇÃO — quando nada tem PLANEJADO a virar (fatura já integral-
+    //      mente PAGA pela importação), o pagamento não faz flip, mas o pré-check
+    //      ainda precisa da identidade da fatura que ele quitaria para barrar um
+    //      duplicado. Vem do alvo por vencimento (quando resolvido) e do PRIMEIRO
+    //      lançamento de cada compra da importação casada.
+    const settlementRows = purchases as unknown as SettlementExpenseRow[];
+    const collectMonths = (prepared: SettlePurchase[]): void => {
+      for (const item of prepared) {
+        for (const entry of item.entries) {
+          months.add(
+            caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay),
+          );
+        }
+      }
+    };
+
+    // ── Estratégia 1: por vencimento ────────────────────────────────
+    let targetMonth: string | null = null;
     if (card.closingDay != null && card.dueDay != null) {
-      const target = await this.resolveTargetDueMonth(
+      targetMonth = await this.resolveTargetDueMonth(
         tx,
-        purchases as unknown as SettlementExpenseRow[],
+        settlementRows,
         card,
         amountCents,
         paymentDate,
       );
-      if (target) {
-        months.add(target);
-        targetResolved = true;
+      if (targetMonth) {
+        const prepared = await this.prepareDueMonthSettlement(
+          tx,
+          settlementRows,
+          card,
+          targetMonth,
+        );
+        if (prepared.length > 0) {
+          collectMonths(prepared);
+          return [...months];
+        }
       }
     }
 
-    if (!targetResolved) {
-      const matchedImport = await this.findImportByTotal(
-        tx,
-        tenantId,
-        card.id,
-        amountCents,
-        paymentDate,
-      );
-      if (matchedImport) {
-        const importPurchaseIds = purchases
-          .filter((p) => p.importId === matchedImport.id)
-          .map((p) => p.id);
-        if (importPurchaseIds.length > 0) {
-          const entries = (await tx.cashFlowEntry.findMany({
-            where: { expenseId: { in: importPurchaseIds }, deletedAt: null },
-            select: { data: true },
-          })) as Array<{ data: Date }>;
-          for (const e of entries) {
-            months.add(
-              caixaMonthForCardPurchase(e.data, card.closingDay, card.dueDay),
-            );
-          }
-        }
+    // ── Estratégia 2 (fallback): por fatura importada ───────────────
+    const matchedImport = await this.findImportByTotal(
+      tx,
+      tenantId,
+      card.id,
+      amountCents,
+      paymentDate,
+    );
+    const importPurchases = matchedImport
+      ? settlementRows.filter((p) => p.importId === matchedImport.id)
+      : [];
+    if (matchedImport) {
+      const prepared = await this.prepareEarliestSettlement(tx, importPurchases);
+      if (prepared.length > 0) {
+        collectMonths(prepared);
+        return [...months];
+      }
+    }
+
+    // ── Recuperação de identidade: fatura já PAGA, sem parcela a virar ──
+    if (targetMonth) months.add(targetMonth);
+    for (const purchase of importPurchases) {
+      const earliest = (await tx.cashFlowEntry.findFirst({
+        where: { expenseId: purchase.id, deletedAt: null },
+        orderBy: { data: 'asc' },
+        select: { data: true },
+      })) as { data: Date } | null;
+      if (earliest) {
+        months.add(
+          caixaMonthForCardPurchase(earliest.data, card.closingDay, card.dueDay),
+        );
       }
     }
 

@@ -173,6 +173,81 @@ async function importedPayment(
   return { committed, payment, claims };
 }
 
+/**
+ * Vincula a compra a um `CreditCardStatementImport` REAL do cartão (total = uma
+ * fatura de R$100), habilitando a Estratégia 2 (fallback por fatura importada)
+ * de `prepareSettleInvoice`/`resolveEffectiveDueMonths`. `createdAt` controla a
+ * janela de 75d de `findImportByTotal`.
+ */
+async function linkCurrentStatement(purchaseId: string, createdAtIso: string) {
+  const ccImport = await setup.creditCardStatementImport.create({
+    data: {
+      id: `iul-blockers-cc-${purchaseId}`,
+      tenantId: TENANT,
+      cardId,
+      source: "OFX",
+      status: "COMPLETED",
+      inserted: 1,
+      periodLabel: "cc-statement",
+      totalAmountCents: 10_000,
+      createdAt: new Date(createdAtIso),
+    },
+  });
+  await setup.expense.update({
+    where: { id: purchaseId },
+    data: { importId: ccImport.id },
+  });
+  return ccImport;
+}
+
+type ResolveCard = {
+  id: string;
+  last4: string;
+  closingDay: number | null;
+  dueDay: number | null;
+};
+
+/** `resolveEffectiveDueMonths` REAL, ordenado, contra PrismaService real. */
+async function effectiveMonths(
+  card: ResolveCard,
+  amountCents: number,
+  paymentDate: Date,
+) {
+  const months = await prisma.$transaction((tx) =>
+    settlement.resolveEffectiveDueMonths({
+      tenantId: TENANT,
+      card,
+      amountCents,
+      paymentDate,
+      tx,
+    }),
+  );
+  return [...months].sort();
+}
+
+/**
+ * A resolução AUTORIZADA REAL (`prepareSettleInvoice`) — os ids das parcelas que
+ * um pagamento EFETIVAMENTE viraria. `resolveEffectiveDueMonths` tem de espelhar
+ * ESTA seleção (mesma precedência vencimento→fallback), nunca o histórico todo.
+ */
+async function preparedEntryIds(
+  card: ResolveCard,
+  amountCents: number,
+  paymentDate: Date,
+) {
+  const prepared = await prisma.$transaction((tx) =>
+    settlement.prepareSettleInvoice({
+      tenantId: TENANT,
+      card,
+      amountCents,
+      paymentDate,
+      tx,
+      requester: ADMIN,
+    }),
+  );
+  return prepared.purchases.flatMap((item) => item.entries.map((e) => e.id));
+}
+
 beforeAll(async () => {
   await setup.$connect();
   await prisma.onModuleInit();
@@ -392,4 +467,137 @@ it("B4 hidden manual purchase: matching and nonmatching amounts both return 404 
     expect(await fullSnapshot()).toEqual(before);
   }
   expect(statuses).toEqual([404, 404]);
+});
+
+// ── B3 (mesma raiz) — precedência IDÊNTICA a prepareSettleInvoice ────────────
+// (1) alvo por vencimento só interrompe o resolver quando há parcela PLANEJADO
+//     real (senão cai no fallback, igual a `if (prepared.length > 0) return`);
+// (2) fallback seleciona só a PRIMEIRA parcela PLANEJADO de cada compra
+//     (`prepareEarliestSettlement`), nunca TODAS as CFEs do histórico.
+
+it("no-ciclo: uma parcela histórica já liquidada NÃO pode bloquear o pagamento da SEGUNDA (resolver espelha prepareEarliestSettlement, não enumera todas as CFEs)", async () => {
+  await setup.creditCard.update({
+    where: { id: cardId },
+    data: { closingDay: null, dueDay: null },
+  });
+  const card: ResolveCard = { id: cardId, last4: CARD, closingDay: null, dueDay: null };
+  // Compra parcelada sem ciclo: dueMonth = mês da própria CFE (jul/ago/set).
+  const p = await purchase(A, "2026-07-05T12:00:00.000Z");
+  await linkCurrentStatement(p.id, "2026-07-01T12:00:00.000Z");
+  // Import REAL deixa a PRIMEIRA parcela paga (claim de julho, da data real da CFE).
+  const first = await importedPayment(p.id, p.entryIds[0], "20260705", "2026-07");
+  expect(first.claims[0].dueMonth).toBe("2026-07");
+  expect(
+    (
+      await setup.cashFlowEntry.findMany({
+        where: { expenseId: p.id },
+        orderBy: { data: "asc" },
+      })
+    ).map((e) => e.status),
+  ).toEqual(["PAGO", "PLANEJADO", "PLANEJADO"]);
+
+  const paymentDate = new Date("2026-08-05T00:00:00.000Z");
+  // Preparação REAL seguinte seleciona SÓ a segunda parcela.
+  expect(await preparedEntryIds(card, 10_000, paymentDate)).toEqual([p.entryIds[1]]);
+  // O resolver deve devolver SÓ agosto — não o histórico {jul, ago, set}.
+  expect(await effectiveMonths(card, 10_000, paymentDate)).toEqual(["2026-08"]);
+
+  const before = await fullSnapshot();
+  const outcome = await observe(() =>
+    monthly.payInvoice(
+      TENANT,
+      A,
+      { cardId, accountId, month: "2026-08", amountCents: 10_000, paymentDate: "2026-08-05" },
+      ADMIN,
+    ),
+  );
+  diagnostic("no-ciclo second payment", outcome.error);
+  expect(outcome.error).toBeNull();
+  expect(outcome.value).toMatchObject({ ok: true, settledParcelas: 1, settledExpenses: 1 });
+  expect(
+    (
+      await setup.cashFlowEntry.findMany({
+        where: { expenseId: p.id },
+        orderBy: { data: "asc" },
+      })
+    ).map((e) => e.status),
+  ).toEqual(["PAGO", "PAGO", "PLANEJADO"]);
+  const after = await fullSnapshot();
+  // Claim de julho preservado; um novo PAGAMENTO_FATURA_CARTAO.
+  expect(after.ledger).toEqual(before.ledger);
+  expect(
+    after.expenses.filter((e) => e.tipoDespesa === "PAGAMENTO_FATURA_CARTAO"),
+  ).toHaveLength(2);
+});
+
+it("com ciclo: alvo por vencimento resolvido MAS sem parcela PLANEJADO cai no fallback — o resolver NÃO pode fixar o mês já pago", async () => {
+  const card: ResolveCard = { id: cardId, last4: CARD, closingDay: 20, dueDay: 1 };
+  // Compra 08-10/09-10/10-10 → caixa set/out/nov (fecha 20, vence dia 1).
+  const p = await purchase(A, "2026-08-10T12:00:00.000Z");
+  await linkCurrentStatement(p.id, "2026-08-20T12:00:00.000Z");
+  // Import REAL fecha a fatura de SETEMBRO (parcela 1). Claim dueMonth 2026-09.
+  const september = await importedPayment(p.id, p.entryIds[0], "20260905", "2026-09");
+  expect(september.claims[0].dueMonth).toBe("2026-09");
+
+  // paymentDate 06/09 (≠ 05/09 da importação: evita a dedup de pagamento
+  // idêntico) + valor exato → janela {2026-09, 2026-10}; empate resolve ALVO
+  // 2026-09, que já está PAGO (0 PLANEJADO) → prepare real cai no fallback e
+  // seleciona a parcela de OUTUBRO.
+  const paymentDate = new Date("2026-09-06T00:00:00.000Z");
+  expect(await preparedEntryIds(card, 10_000, paymentDate)).toEqual([p.entryIds[1]]);
+  // O resolver tem de acompanhar o fallback → 2026-10 (não o alvo pago 2026-09).
+  expect(await effectiveMonths(card, 10_000, paymentDate)).toEqual(["2026-10"]);
+
+  const before = await fullSnapshot();
+  const outcome = await observe(() =>
+    monthly.payInvoice(
+      TENANT,
+      A,
+      { cardId, accountId, month: "2026-10", amountCents: 10_000, paymentDate: "2026-09-06" },
+      ADMIN,
+    ),
+  );
+  diagnostic("ciclo target-paid falls to fallback", outcome.error);
+  expect(outcome.error).toBeNull();
+  expect(outcome.value).toMatchObject({ ok: true, settledParcelas: 1, settledExpenses: 1 });
+  expect(
+    (
+      await setup.cashFlowEntry.findMany({
+        where: { expenseId: p.id },
+        orderBy: { data: "asc" },
+      })
+    ).map((e) => e.status),
+  ).toEqual(["PAGO", "PAGO", "PLANEJADO"]);
+  const after = await fullSnapshot();
+  expect(after.ledger).toEqual(before.ledger); // claim de setembro intacto
+});
+
+it("no-ciclo: fatura JÁ integralmente paga por importação segue bloqueada pela identidade recuperada mesmo com dto.month mentiroso (recupera identity quando as CFEs PAGO não têm flip)", async () => {
+  await setup.creditCard.update({
+    where: { id: cardId },
+    data: { closingDay: null, dueDay: null },
+  });
+  const card: ResolveCard = { id: cardId, last4: CARD, closingDay: null, dueDay: null };
+  const p = await purchase(A, "2026-07-05T12:00:00.000Z", 1);
+  await linkCurrentStatement(p.id, "2026-07-01T12:00:00.000Z");
+  await importedPayment(p.id, p.entryIds[0], "20260705", "2026-07"); // paga tudo
+
+  const paymentDate = new Date("2026-07-20T00:00:00.000Z");
+  // Nada a virar; o resolver recupera a identidade (2026-07) para o pré-check.
+  expect(await preparedEntryIds(card, 10_000, paymentDate)).toEqual([]);
+  expect(await effectiveMonths(card, 10_000, paymentDate)).toEqual(["2026-07"]);
+
+  const before = await fullSnapshot();
+  const outcome = await observe(() =>
+    monthly.payInvoice(
+      TENANT,
+      A,
+      // dto.month MENTE ('2026-11'); o bloqueio tem de vir da identidade recuperada.
+      { cardId, accountId, month: "2026-11", amountCents: 10_000, paymentDate: "2026-07-20" },
+      ADMIN,
+    ),
+  );
+  diagnostic("no-ciclo fully-paid stays blocked", outcome.error);
+  expect(errorStatus(outcome.error)).toBe(409);
+  expect(await fullSnapshot()).toEqual(before); // zero escrita
 });
