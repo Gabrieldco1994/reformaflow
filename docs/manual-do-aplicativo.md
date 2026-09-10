@@ -1034,6 +1034,12 @@ O [design de #569](569-invoice-undo-design.md) separa este degrau do PR 2 futuro
   Conciliar ou desconciliar uma parcela também é bloqueado quando a operação
   recriaria parcelas protegidas da mesma compra. Tentar pagar manualmente a mesma
   fatura com trilha ativa também é bloqueado, sem nova saída.
+- **Faturas com valores iguais:** no pagamento manual, a fatura selecionada
+  desempata valores igualmente próximos dentro da janela de pagamento e da
+  tolerância permitidas. Assim, pagar a próxima fatura não é bloqueado pela
+  trilha da anterior apenas por terem o mesmo valor. Selecionar a fatura já
+  liquidada continua bloqueado; um mês fora da janela ou com pior correspondência
+  de valor não substitui a fatura efetiva.
 - **Edição descritiva continua permitida:** corrigir título, fornecedor, link ou
   imagem, sem mudança financeira ou de vínculo, preserva a identidade das
   parcelas e a trilha; não recria as parcelas nem desfaz o pagamento.

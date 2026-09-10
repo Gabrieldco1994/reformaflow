@@ -491,6 +491,13 @@ errada. Quem quer pagar clica na **linha da fatura** na lista; a linha carimba o
 `dueMonth` dela, o app troca para a visão daquele **mês** e só então abre o diálogo
 (`onInvoiceAction` em `ContaAnoView` → `page.tsx`). Lá o número é o da fatura real.
 
+No pagamento manual, o `dueMonth` selecionado desempata candidatos com a mesma
+menor diferença de valor, somente dentro da janela `{payMonth, payMonth+1}` e da
+tolerância da própria fatura selecionada. Não substitui um casamento de valor
+melhor nem altera a data do pagamento. Sem uma seleção elegível, inclusive na
+importação automática, permanece o desempate pelo vencimento mais antigo.
+A guarda de #569 continua verificando a fatura efetiva, não apenas o mês informado.
+
 ### 13.4 A lista do ano é a lista do mês (uma tela só)
 
 `MovimentacoesSection` ganhou `mode` (`'mes'` default | `'ano'`). No `'ano'`:
