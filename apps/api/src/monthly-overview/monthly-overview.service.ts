@@ -1076,6 +1076,27 @@ export class MonthlyOverviewService {
       list.push({ expenseId: payment.expenseId, importId: payment.importId });
       assignmentsByInvoice.set(invoiceKey, list);
     }
+    // #569 — pagamentos manuais de fatura CARIMBADOS (identidade real resolvida
+    // em `settlesInvoiceKey` pelo `payInvoice`) entram na MESMA elegibilidade de
+    // undo dos implícitos legados. Discriminador manual: `PAGAMENTO_FATURA_CARTAO`
+    // pago via conta (`bankLast4`), sem import, com chave. Assim um carimbado + um
+    // implícito na mesma fatura contam 2 (ambíguo → sem CTA), sem que a prioridade
+    // de um ramo esconda o outro; e o carimbado nunca é contado duas vezes (ele
+    // já saiu de `implicitPaymentsDetailed`, que exige chave nula).
+    for (const expense of expenses) {
+      if (
+        expense.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' &&
+        !!expense.settlesInvoiceKey &&
+        !!expense.bankLast4 &&
+        expense.importId == null &&
+        expense.status === 'PAGO'
+      ) {
+        const invoiceKey = settlesInvoiceKeyToInternal(expense.settlesInvoiceKey as string);
+        const list = assignmentsByInvoice.get(invoiceKey) ?? [];
+        list.push({ expenseId: expense.id, importId: null });
+        assignmentsByInvoice.set(invoiceKey, list);
+      }
+    }
     const implicitPaymentByInvoice = new Map<string, string>();
     for (const [invoiceKey, group] of assignmentsByInvoice) {
       if (group.length === 1 && group[0].importId == null) {
@@ -3452,6 +3473,24 @@ export class MonthlyOverviewService {
       });
       const settled = await this.cardSettlement.applyPreparedSettlement(tx, prepared);
 
+      // #569 — carimba a identidade REALMENTE resolvida: o mês da fatura que
+      // ESTE pagamento efetivamente liquidou (derivado das parcelas viradas em
+      // `flippedEntries`), nunca o `dto.month` cego. Só quando a liquidação
+      // recaiu sobre UM único mês. Liquidação vazia (pagamento parcial, nada
+      // virou) ou que atinja MAIS de um mês preserva o comportamento implícito
+      // legado (chave nula → atribuição por janela do leitor/undo), sem inventar
+      // identidade. Sem efeito de caixa: `PAGAMENTO_FATURA_CARTAO` é neutro.
+      const resolvedDueMonths = new Set(
+        settled.flippedEntries.map((flipped) => flipped.dueMonth),
+      );
+      if (resolvedDueMonths.size === 1) {
+        const [resolvedDueMonth] = resolvedDueMonths;
+        await tx.expense.update({
+          where: { id: payment.id },
+          data: { settlesInvoiceKey: `${card.last4}:${resolvedDueMonth}` },
+        });
+      }
+
       return {
         ok: true,
         paymentExpenseId: payment.id,
@@ -3469,15 +3508,22 @@ export class MonthlyOverviewService {
   /**
    * Desfaz um pagamento manual de fatura de cartão (`payInvoice`).
    *
-   * Segurança: só desfaz quando existe EXATAMENTE UM pagamento implícito
-   * (`PAGAMENTO_FATURA_CARTAO`, PAGO, com `bankLast4`, sem `settlesInvoiceKey`)
-   * casado com a fatura-alvo — reaproveita `assignImplicitPayments` sobre a
-   * lista de TODAS as faturas do cartão (`buildCardInvoiceAggregates`, a MESMA
-   * agregação que decide `card.status` em `getAccountView`). Precisa ser a
-   * lista inteira, não só a fatura-alvo: `assignImplicitPayments` decide por
-   * DISPUTA entre faturas candidatas na janela `{payMonth, payMonth+1}` de cada
-   * pagamento — com uma fatura só, pagamentos de OUTROS meses "vazam" pra cá.
-   * 0 casamentos → 404. 2+ (ambíguo) → 400 com a lista dos pagamentos casados.
+   * Segurança: só desfaz quando existe EXATAMENTE UM pagamento manual elegível
+   * casado com a fatura-alvo. São dois canais que somam para a mesma contagem
+   * de ambiguidade:
+   *  - CARIMBADO (#569): `PAGAMENTO_FATURA_CARTAO`, PAGO, com `bankLast4`, sem
+   *    import, cuja `settlesInvoiceKey` aponta diretamente esta fatura — a
+   *    identidade REAL resolvida no `payInvoice`.
+   *  - IMPLÍCITO legado: `PAGAMENTO_FATURA_CARTAO`, PAGO, com `bankLast4`, SEM
+   *    chave — reaproveita `assignImplicitPayments` sobre a lista de TODAS as
+   *    faturas do cartão (`buildCardInvoiceAggregates`, a MESMA agregação que
+   *    decide `card.status` em `getAccountView`). Precisa ser a lista inteira,
+   *    não só a fatura-alvo: `assignImplicitPayments` decide por DISPUTA entre
+   *    faturas candidatas na janela `{payMonth, payMonth+1}` de cada pagamento —
+   *    com uma fatura só, pagamentos de OUTROS meses "vazam" pra cá.
+   * 0 casamentos → 404. 2+ (ambíguo, inclusive carimbado+implícito na mesma
+   * fatura) → 400 com a lista dos pagamentos casados. Pagamento IMPORTADO casando
+   * a fatura → 404 (só `undoImport` o reverte); nunca desfaz por aqui.
    *
    * `requester` (B0 #447) é OBRIGATÓRIO pela mesma razão de `payInvoice` — com o
    * param de rota renomeado (`:pessoalProjectId`) o guard global não cobre esta
@@ -3590,13 +3636,12 @@ export class MonthlyOverviewService {
       (assignment) => assignment.invoiceKey === targetKey,
     );
 
-    if (assignments.length === 0) {
-      throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
-    }
     // #569: o desfazer do cockpit só alcança pagamento MANUAL. Se QUALQUER
-    // pagamento casado com a fatura veio de importação (`importId != null`), a
-    // ação não existe aqui — só `BankAccountService.undoImport` o remove — e a
-    // chamada direta falha sem escrita.
+    // pagamento IMPLÍCITO casado com a fatura veio de importação (`importId != null`),
+    // a ação não existe aqui — só `BankAccountService.undoImport` o remove — e a
+    // chamada direta falha sem escrita. Checado ANTES de compor os candidatos
+    // manuais para manter a proteção de import mesmo com carimbado presente
+    // (os dois não coexistem: `payInvoice` recusa manual sobre fatura com trilha).
     const importedMatched = assignments.some((assignment) => {
       const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
       return candidate?.importId != null;
@@ -3604,26 +3649,69 @@ export class MonthlyOverviewService {
     if (importedMatched) {
       throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
     }
-    if (assignments.length > 1) {
+
+    // #569 — pagamentos manuais CARIMBADOS na fatura alvo: identidade explícita
+    // resolvida por `payInvoice` (`settlesInvoiceKey = "{last4}:{dueMonth}"`). O
+    // discriminador (conta + sem import + chave) exclui cartão-paga-cartão e
+    // pagamentos importados. Não desempata por janela — a chave JÁ é a fatura.
+    const stampedKey = `${card.last4}:${dueMonth}`;
+    const explicitCandidates = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        cardLast4: card.last4,
+        status: 'PAGO',
+        bankLast4: { not: null },
+        importId: null,
+        settlesInvoiceKey: stampedKey,
+        deletedAt: null,
+      },
+      select: { id: true, valorTotal: true, dataPagamento: true, createdAt: true },
+    });
+
+    // Candidatos MANUAIS elegíveis = implícitos legados (não importados) + carimbados.
+    // Ambos juntos numa mesma fatura contam para a ambiguidade (2 = beco → 400),
+    // sem que a prioridade de um ramo esconda o outro.
+    const manualCandidates: Array<{ id: string; amountCents: number; data: Date | null }> = [
+      ...assignments
+        .filter((assignment) => {
+          const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
+          return candidate?.importId == null;
+        })
+        .map((assignment) => {
+          const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
+          return {
+            id: assignment.payment.expenseId,
+            amountCents: assignment.payment.amount,
+            data: candidate?.dataPagamento ?? candidate?.createdAt ?? null,
+          };
+        }),
+      ...explicitCandidates.map((candidate) => ({
+        id: candidate.id,
+        amountCents: candidate.valorTotal,
+        data: candidate.dataPagamento ?? candidate.createdAt ?? null,
+      })),
+    ];
+
+    if (manualCandidates.length === 0) {
+      throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
+    }
+    if (manualCandidates.length > 1) {
       // Beco sem saída vira diagnóstico: devolve QUAIS pagamentos foram casados
       // (data, valor, id) pra UI mostrar — usuário reconhece "cliquei duas vezes"
       // ou "veio do import" e decide o que fazer manualmente.
-      const matchedPayments = assignments.map((assignment) => {
-        const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
-        const date = candidate?.dataPagamento ?? candidate?.createdAt ?? null;
-        return {
-          id: assignment.payment.expenseId,
-          amountCents: assignment.payment.amount,
-          data: date ? date.toISOString() : null,
-        };
-      });
       throw new BadRequestException({
         message: 'Há mais de um pagamento para essa fatura — o desfazer automático não é seguro nesse caso.',
-        payments: matchedPayments,
+        payments: manualCandidates.map((candidate) => ({
+          id: candidate.id,
+          amountCents: candidate.amountCents,
+          data: candidate.data ? candidate.data.toISOString() : null,
+        })),
       });
     }
 
-    const paymentExpenseId = assignments[0].payment.expenseId;
+    const paymentExpenseId = manualCandidates[0].id;
 
     // Soft-delete + TOCTOU (regra de ouro #4): o middleware `$use` RODA dentro da
     // `$transaction` (Scar 2026-08-25) — `tx.expense.delete(...)` NÃO seria hard
