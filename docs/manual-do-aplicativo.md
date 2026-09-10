@@ -1028,7 +1028,10 @@ O [design de #569](569-invoice-undo-design.md) separa este degrau do PR 2 futuro
 - **Proteção contra alterações incompatíveis:** compras/parcelas liquidadas e seu
   pagamento ficam protegidos contra mudanças financeiras ou de identidade que
   invalidem essa trilha — por exemplo, trocar valor, datas, status ou cartão,
-  excluir ou refazer um rateio que altere as parcelas protegidas. Tentar pagar
+  mudar tipo, categoria ou sala quando isso recria as parcelas, excluir ou
+  refazer um rateio que altere as parcelas protegidas. Desfazer um rateio também
+  é bloqueado se uma importação posterior liquidou parcelas de um participante.
+  Tentar pagar
   manualmente a mesma fatura com trilha ativa também é bloqueado, sem nova saída.
 - **Edição descritiva continua permitida:** corrigir título, fornecedor, link ou
   imagem, sem mudança financeira ou de vínculo, preserva a identidade das
