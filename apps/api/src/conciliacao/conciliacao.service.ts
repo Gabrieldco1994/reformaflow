@@ -865,6 +865,26 @@ export class ConciliacaoService {
     const rows = await tx.rateioAllocation.findMany({ where: { tenantId, sourceExpenseId } });
     if (rows.length === 0) return { targets: [] };
 
+    // #569 (degrau) — CORE de reversão de rateio: reabre o status dos alvos e
+    // chama `regenerateTargetCashflow`, que soft-deleta+recria as `CashFlowEntry`
+    // do alvo. Se, DEPOIS do rateio, uma importação real liquidou a parcela de um
+    // participante, essa regeneração órfãozaria `imported_invoice_liquidations.
+    // cash_flow_entry_id` ATIVO. Protege o CONJUNTO EFETIVAMENTE mutado (fonte —
+    // `linkedExpenseId` — e todos os alvos), lido DENTRO da tx (fecha o TOCTOU com
+    // um `commitImport` concorrente), APÓS a ACL (`assertCanReverseSources` acima,
+    // que nega participante oculto antes de tocar o ledger) e ANTES da primeira
+    // escrita: 409 com zero efeitos. Como é o core, cobre `desratear`,
+    // `reverseSourceLinks` e o cleanup do `ratearSource` sem espalhar guardas nos
+    // callers. Reversões legítimas (sem claim) seguem normalmente.
+    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
+      tx,
+      tenantId,
+      [sourceExpenseId, ...rows.map((r) => r.targetExpenseId)],
+    );
+    if (claimedParticipants.size > 0) {
+      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+    }
+
     const targets: string[] = [];
     for (const r of rows) {
       const target = await tx.expense.findFirst({

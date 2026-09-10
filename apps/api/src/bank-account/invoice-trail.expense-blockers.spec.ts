@@ -784,3 +784,157 @@ it('A-unclaimed a categoria edit on an UNCLAIMED purchase still regenerates its 
   expect(live).toHaveLength(3);
   expect(live.every((e) => !p.entryIds.includes(e.id))).toBe(true);
 });
+
+// ── Finding B: desratear/unratearSource must not orphan an import claim ──
+// `ConciliacaoService.unratearSource` é o CORE de reversão de rateio (chamado por
+// `Expense.desratear`, `reverseSourceLinks`, e como cleanup do próprio
+// `ratearSource`). Ele reabre o status dos alvos e chama `regenerateTargetCashflow`,
+// que soft-deleta+recria as `CashFlowEntry` do alvo — órfãozando um
+// `imported_invoice_liquidations.cash_flow_entry_id` ATIVO se, DEPOIS do rateio,
+// uma importação real liquidou a parcela do alvo. A guarda vive no core, após a
+// ACL e ANTES da primeira escrita, cobrindo todos os callers.
+
+/**
+ * Monta o cenário: FONTE PESSOAL parcelada (A, sem cartão) rateada 1:1 num ALVO
+ * parcelado no cartão (B); DEPOIS uma importação REAL liquida a 1ª parcela do
+ * alvo. Retorna os ids e a entrada reivindicada (viva) do alvo.
+ */
+async function ratearThenClaimTarget() {
+  const target = await purchase(B, '2026-06-10T12:00:00.000Z');
+  const source = await expenses.create(
+    TENANT,
+    A,
+    {
+      tipoDespesa: 'MATERIAL',
+      valor: 300,
+      quantidade: 1,
+      titulo: 'fonte pessoal parcelada a ratear',
+      formaPagamento: 'PARCELADO',
+      quantidadeParcela: 3,
+      dataInicioParcela: '2026-06-10',
+      dataCompra: '2026-06-10',
+      status: 'PLANEJADO',
+    },
+    null,
+    undefined,
+    ADMIN,
+  );
+  expect(source).toMatchObject({ projectId: A, valorTotal: 30_000, cardLast4: null });
+
+  await expenses.ratear(
+    TENANT,
+    A,
+    source.id,
+    [{ targetExpenseId: target.id, allocation: 30_000 }],
+    ADMIN,
+  );
+
+  // Após o rateio o alvo foi realinhado ao cronograma da fonte (3x, datas da
+  // fonte): novas entradas vivas. A 1ª (2026-06-10) cai na fatura 2026-07.
+  const liveEntries = await setup.cashFlowEntry.findMany({
+    where: { expenseId: target.id, deletedAt: null },
+    orderBy: { data: 'asc' },
+  });
+  expect(liveEntries).toHaveLength(3);
+  const claimedEntryId = liveEntries[0].id;
+
+  await importedPayment(target.id, claimedEntryId);
+  const claim = await setup.importedInvoiceLiquidation.findMany({
+    where: { tenantId: TENANT, purchaseExpenseId: target.id, deletedAt: null },
+  });
+  expect(claim).toHaveLength(1);
+  expect(claim[0].cashFlowEntryId).toBe(claimedEntryId);
+
+  return { source, target, claimedEntryId };
+}
+
+it('Bunratear desratear a source whose rateio target was later settled by a real import is rejected with 409, zero writes, and the claim stays live', async () => {
+  const { source, target, claimedEntryId } = await ratearThenClaimTarget();
+  const before = await fullSnapshot();
+  expect(before.allocations).toHaveLength(1);
+  console.log('Bunratear ARRANGE_OK: rateio then real import claim on target');
+
+  const outcome = await observeWrites(() =>
+    expenses.desratear(TENANT, A, source.id, ADMIN),
+  );
+  const after = await fullSnapshot();
+  diagnostic('Bunratear ACT', outcome.error);
+  console.log('Bunratear WRITE_ATTEMPTS', writeAttempts);
+  console.log('Bunratear POST', {
+    claimedEntryDeleted:
+      after.entries.find((e) => e.id === claimedEntryId)?.deletedAt !== null,
+    liveClaims: after.ledger.filter((l) => l.deletedAt === null).length,
+    allocations: after.allocations.length,
+  });
+  expect(errorStatus(outcome.error)).toBe(409);
+  // PREFLIGHT no core: guarda roda após a ACL e ANTES da primeira escrita.
+  expect(writeAttempts).toEqual([]);
+  expect(after).toEqual(before);
+  // O claim ativo continua apontando para a entrada VIVA do alvo.
+  expect(after.entries.find((e) => e.id === claimedEntryId)?.deletedAt).toBeNull();
+  expect(target.id).toBeDefined();
+});
+
+it('Bunratear-acl a requester who cannot see the target project is denied by ACL (404) BEFORE the ledger is consulted', async () => {
+  const { source, claimedEntryId } = await ratearThenClaimTarget();
+  const before = await fullSnapshot();
+  console.log('Bunratear-acl ARRANGE_OK: claimed target, requester scoped to A only');
+
+  // pessoalRequester(A) não enxerga o projeto B (alvo): `assertCanReverseSources`
+  // nega em 404 antes de qualquer consulta ao ledger — nunca vira 409.
+  const outcome = await observeWrites(() =>
+    expenses.desratear(TENANT, A, source.id, pessoalRequester(A)),
+  );
+  const after = await fullSnapshot();
+  diagnostic('Bunratear-acl ACT', outcome.error);
+  expect(errorStatus(outcome.error)).toBe(404);
+  expect(writeAttempts).toEqual([]);
+  expect(after).toEqual(before);
+  expect(after.entries.find((e) => e.id === claimedEntryId)?.deletedAt).toBeNull();
+});
+
+it('Bunratear-ok desratear a source with NO import claim still reverts normally — the guard does not over-block', async () => {
+  const target = await purchase(B, '2026-06-10T12:00:00.000Z');
+  const source = await expenses.create(
+    TENANT,
+    A,
+    {
+      tipoDespesa: 'MATERIAL',
+      valor: 300,
+      quantidade: 1,
+      titulo: 'fonte pessoal a ratear (ok)',
+      formaPagamento: 'PARCELADO',
+      quantidadeParcela: 3,
+      dataInicioParcela: '2026-06-10',
+      dataCompra: '2026-06-10',
+      status: 'PLANEJADO',
+    },
+    null,
+    undefined,
+    ADMIN,
+  );
+  await expenses.ratear(
+    TENANT,
+    A,
+    source.id,
+    [{ targetExpenseId: target.id, allocation: 30_000 }],
+    ADMIN,
+  );
+  expect(
+    await setup.importedInvoiceLiquidation.count({ where: { tenantId: TENANT, deletedAt: null } }),
+  ).toBe(0);
+  expect(
+    await setup.rateioAllocation.count({ where: { tenantId: TENANT, sourceExpenseId: source.id } }),
+  ).toBe(1);
+  console.log('Bunratear-ok ARRANGE_OK: clean rateio, no import claim');
+
+  const outcome = await observe(() => expenses.desratear(TENANT, A, source.id, ADMIN));
+  diagnostic('Bunratear-ok ACT', outcome.error);
+  expect(outcome.error).toBeNull();
+  expect(
+    await setup.rateioAllocation.count({ where: { tenantId: TENANT, sourceExpenseId: source.id } }),
+  ).toBe(0);
+  expect(
+    (await setup.expense.findUniqueOrThrow({ where: { id: source.id } })).linkedExpenseId,
+  ).toBeNull();
+});
