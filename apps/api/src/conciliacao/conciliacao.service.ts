@@ -373,6 +373,33 @@ export class ConciliacaoService {
     const existingSettlement = await tx.crossProjectSettlement.findUnique({
       where: { targetExpenseId_parcelaIndex: { targetExpenseId, parcelaIndex } },
     });
+
+    // #569 (degrau, SIBLING do rateio) — nenhum participante EFETIVO da
+    // conciliação por parcela pode ter trilha de liquidação por importação ATIVA
+    // como COMPRA. `regenerateTargetCashflow` (abaixo) soft-deleta+recria TODAS as
+    // `CashFlowEntry` do ALVO — inclusive as de parcelas IRMÃS já reivindicadas por
+    // um `commitImport` real — órfãozando `imported_invoice_liquidations.
+    // cash_flow_entry_id`. Cobre o ALVO, a FONTE (espelho) e o ESPELHO ANTIGO que
+    // seria soft-deletado quando esta parcela troca de source (`existingSettlement`).
+    // Lido DENTRO da tx (fecha o TOCTOU com um `commitImport` concorrente), APÓS a
+    // ACL (`assertCanSettleTargets`) e ANTES da primeira escrita (softDeleteMirror/
+    // upsert): 409 com zero efeitos. Conciliações limpas seguem normalmente.
+    const settleParticipants = [sourceExpenseId, targetExpenseId];
+    if (
+      existingSettlement?.sourceExpenseId &&
+      existingSettlement.sourceExpenseId !== sourceExpenseId
+    ) {
+      settleParticipants.push(existingSettlement.sourceExpenseId);
+    }
+    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
+      tx,
+      tenantId,
+      settleParticipants,
+    );
+    if (claimedParticipants.size > 0) {
+      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+    }
+
     if (
       existingSettlement?.sourceExpenseId &&
       existingSettlement.sourceExpenseId !== sourceExpenseId
@@ -516,6 +543,23 @@ export class ConciliacaoService {
       where: { tenantId, sourceExpenseId },
     });
     if (rows.length === 0) return { targets: [] };
+
+    // #569 (degrau, SIBLING do rateio) — CORE de reversão de settlement (chamado
+    // por `reverseSourceLinks` ⇐ `desconciliar`/desfazer importação). O loop
+    // abaixo chama `regenerateTargetCashflow`, que soft-deleta+recria TODAS as
+    // `CashFlowEntry` de cada ALVO — órfãozando uma parcela IRMÃ já reivindicada
+    // por um `commitImport` real (`imported_invoice_liquidations.cash_flow_entry_id`
+    // ATIVO). Protege a FONTE e TODOS os alvos, DENTRO da tx (fecha o TOCTOU com um
+    // `commitImport` concorrente), APÓS a ACL (`assertCanReverseSources` acima) e
+    // ANTES da primeira escrita: 409 com zero efeitos. Reversões limpas seguem.
+    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
+      tx,
+      tenantId,
+      [sourceExpenseId, ...rows.map((r) => r.targetExpenseId)],
+    );
+    if (claimedParticipants.size > 0) {
+      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+    }
 
     const byTarget = new Map<string, typeof rows>();
     for (const r of rows) {

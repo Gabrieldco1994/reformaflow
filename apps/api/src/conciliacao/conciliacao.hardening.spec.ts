@@ -79,6 +79,13 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      // #569 — sem trilha de importação neste harness unitário: a guarda de
+      // settlement (findExpensesWithActivePurchaseTrail) lê zero claims e não
+      // bloqueia. Delegate mínimo só para o `findMany` da guarda existir.
+      importedInvoiceLiquidation: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
       _settlements: settlementStore,
     };
     return installAclProjectMocks(p);

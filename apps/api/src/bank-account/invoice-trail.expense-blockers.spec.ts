@@ -938,3 +938,211 @@ it('Bunratear-ok desratear a source with NO import claim still reverts normally 
     (await setup.expense.findUniqueOrThrow({ where: { id: source.id } })).linkedExpenseId,
   ).toBeNull();
 });
+
+// ── Finding S: conciliar/desconciliar por parcela (settlement) não pode ──────
+// órfãozar um claim de importação — SIBLING do rateio (Btgt/Bunratear).
+// `ConciliacaoService.settleTargetParcela` (via `Expense.conciliarParcela`) e
+// `ConciliacaoService.unsettleBySource` (CORE de reversão de settlement, chamado
+// por `reverseSourceLinks` ⇐ `Expense.desconciliar` / desfazer importação) ambos
+// chamam `regenerateTargetCashflow`, que soft-deleta+recria TODAS as
+// `CashFlowEntry` do alvo. Se o alvo (compra de cartão em OUTRO projeto) já é
+// COMPRA de uma liquidação por importação ATIVA numa parcela IRMÃ, essa
+// regeneração órfãoza `imported_invoice_liquidations.cash_flow_entry_id`. O
+// rateio já é blindado (findExpensesWithActivePurchaseTrail); o settlement não
+// era. A guarda deve viver no core do settlement, após a ACL e ANTES da primeira
+// escrita, cobrindo os dois sentidos.
+
+/** Fonte PESSOAL (projeto A, sem cartão) à vista que fecha UMA parcela. */
+async function pessoalMirrorSource(titulo: string, valorCents = 10_000) {
+  const source = await expenses.create(
+    TENANT,
+    A,
+    {
+      tipoDespesa: 'MATERIAL',
+      valor: valorCents / 100,
+      quantidade: 1,
+      titulo,
+      formaPagamento: 'A_VISTA',
+      dataCompra: '2026-06-10',
+      status: 'PLANEJADO',
+    },
+    null,
+    undefined,
+    ADMIN,
+  );
+  expect(source).toMatchObject({ projectId: A, valorTotal: valorCents, cardLast4: null });
+  return source;
+}
+
+it('Ssettle conciliar-parcela onto an import-claimed cross-project purchase (sibling parcela) is rejected with 409, zero writes, and the claim stays live', async () => {
+  // ALVO: compra 3x no cartão (B); import REAL reivindica a parcela 0 (fatura
+  // Julho). Conciliar a parcela 1 regeneraria o caixa do alvo e órfãozaria o
+  // claim da parcela 0 (entry viva).
+  const target = await purchase(B, '2026-06-10T12:00:00.000Z');
+  await importedPayment(target.id, target.entryIds[0]);
+  const claimedEntryId = target.entryIds[0];
+  const source = await pessoalMirrorSource('espelho conciliação (claimed target)');
+
+  const before = await fullSnapshot();
+  expect(before.settlements).toHaveLength(0);
+  expect(before.ledger.filter((l) => l.deletedAt === null)).toHaveLength(1);
+  console.log('Ssettle ARRANGE_OK: claimed cross-project purchase (parcela 0), clean source');
+
+  const outcome = await observeWrites(() =>
+    expenses.conciliarParcela(
+      TENANT,
+      A,
+      source.id,
+      { targetExpenseId: target.id, parcelaIndex: 1, realValor: 10_000 },
+      ADMIN,
+    ),
+  );
+  const after = await fullSnapshot();
+  diagnostic('Ssettle ACT', outcome.error);
+  console.log('Ssettle WRITE_ATTEMPTS', writeAttempts);
+  console.log('Ssettle POST', {
+    claimedEntryDeleted: after.entries.find((e) => e.id === claimedEntryId)?.deletedAt !== null,
+    liveClaims: after.ledger.filter((l) => l.deletedAt === null).length,
+    settlements: after.settlements.length,
+  });
+  expect(errorStatus(outcome.error)).toBe(409);
+  // PREFLIGHT: guarda roda após a ACL e ANTES da primeira escrita (zero attempts).
+  expect(writeAttempts).toEqual([]);
+  expect(after).toEqual(before);
+  expect(after.entries.find((e) => e.id === claimedEntryId)?.deletedAt).toBeNull();
+});
+
+it('Ssettle-ok conciliar-parcela onto a clean (unclaimed) cross-project purchase still succeeds — the guard does not over-block', async () => {
+  const target = await purchase(B, '2026-06-10T12:00:00.000Z');
+  expect(
+    await setup.importedInvoiceLiquidation.count({ where: { tenantId: TENANT, deletedAt: null } }),
+  ).toBe(0);
+  const source = await pessoalMirrorSource('espelho conciliação (clean target)');
+  console.log('Ssettle-ok ARRANGE_OK: clean cross-project purchase, no ledger');
+
+  const outcome = await observe(() =>
+    expenses.conciliarParcela(
+      TENANT,
+      A,
+      source.id,
+      { targetExpenseId: target.id, parcelaIndex: 1, realValor: 10_000 },
+      ADMIN,
+    ),
+  );
+  diagnostic('Ssettle-ok ACT', outcome.error);
+  expect(outcome.error).toBeNull();
+  const settlements = await setup.crossProjectSettlement.findMany({
+    where: { tenantId: TENANT, sourceExpenseId: source.id },
+  });
+  expect(settlements.map((s) => s.parcelaIndex)).toEqual([1]);
+  expect(
+    (await setup.expense.findUniqueOrThrow({ where: { id: source.id } })).linkedExpenseId,
+  ).toBe(target.id);
+});
+
+/**
+ * Monta o cenário SIBLING de reversão: fonte PESSOAL concilia a parcela 2 do
+ * alvo (cartão, B) — NÃO a que o import reivindicará; DEPOIS uma importação REAL
+ * reivindica a parcela 0 (fatura Julho). Retorna a entrada reivindicada (viva).
+ */
+async function settleThenClaimSibling() {
+  const target = await purchase(B, '2026-06-10T12:00:00.000Z');
+  const source = await pessoalMirrorSource('espelho conciliação (parcela 2)');
+  await expenses.conciliarParcela(
+    TENANT,
+    A,
+    source.id,
+    { targetExpenseId: target.id, parcelaIndex: 2, realValor: 10_000 },
+    ADMIN,
+  );
+
+  // Após o settle o caixa do alvo foi regenerado; parcela 2 PAGO, 0 e 1 abertas.
+  const liveEntries = await setup.cashFlowEntry.findMany({
+    where: { expenseId: target.id, deletedAt: null },
+    orderBy: { data: 'asc' },
+  });
+  expect(liveEntries).toHaveLength(3);
+  expect(liveEntries.map((e) => e.status)).toEqual(['PLANEJADO', 'PLANEJADO', 'PAGO']);
+  const claimedEntryId = liveEntries[0].id; // parcela 0 (fatura Julho)
+
+  await importedPayment(target.id, claimedEntryId);
+  const claim = await setup.importedInvoiceLiquidation.findMany({
+    where: { tenantId: TENANT, purchaseExpenseId: target.id, deletedAt: null },
+  });
+  expect(claim).toHaveLength(1);
+  expect(claim[0].cashFlowEntryId).toBe(claimedEntryId);
+
+  return { source, target, claimedEntryId };
+}
+
+it('Sunsettle desconciliar a source whose sibling parcela of the target was later claimed by a real import is rejected with 409, zero writes, and the claim stays live', async () => {
+  const { source, target, claimedEntryId } = await settleThenClaimSibling();
+  const before = await fullSnapshot();
+  expect(before.settlements).toHaveLength(1);
+  expect(before.ledger.filter((l) => l.deletedAt === null)).toHaveLength(1);
+  console.log('Sunsettle ARRANGE_OK: settlement on parcela 2 + real import claim on parcela 0');
+
+  const outcome = await observeWrites(() => expenses.desconciliar(TENANT, A, source.id, ADMIN));
+  const after = await fullSnapshot();
+  diagnostic('Sunsettle ACT', outcome.error);
+  console.log('Sunsettle WRITE_ATTEMPTS', writeAttempts);
+  console.log('Sunsettle POST', {
+    claimedEntryDeleted: after.entries.find((e) => e.id === claimedEntryId)?.deletedAt !== null,
+    liveClaims: after.ledger.filter((l) => l.deletedAt === null).length,
+    settlements: after.settlements.length,
+  });
+  expect(errorStatus(outcome.error)).toBe(409);
+  expect(writeAttempts).toEqual([]);
+  expect(after).toEqual(before);
+  expect(after.entries.find((e) => e.id === claimedEntryId)?.deletedAt).toBeNull();
+  expect(target.id).toBeDefined();
+});
+
+it('Sunsettle-acl a requester who cannot see the target project is denied by ACL (404) BEFORE the ledger is consulted', async () => {
+  const { source, claimedEntryId } = await settleThenClaimSibling();
+  const before = await fullSnapshot();
+  console.log('Sunsettle-acl ARRANGE_OK: claimed target, requester scoped to A only');
+
+  const outcome = await observeWrites(() =>
+    expenses.desconciliar(TENANT, A, source.id, pessoalRequester(A)),
+  );
+  const after = await fullSnapshot();
+  diagnostic('Sunsettle-acl ACT', outcome.error);
+  expect(errorStatus(outcome.error)).toBe(404);
+  expect(writeAttempts).toEqual([]);
+  expect(after).toEqual(before);
+  expect(after.entries.find((e) => e.id === claimedEntryId)?.deletedAt).toBeNull();
+});
+
+it('Sunsettle-ok desconciliar a settlement with NO import claim still reverts normally — the guard does not over-block', async () => {
+  const target = await purchase(B, '2026-06-10T12:00:00.000Z');
+  const source = await pessoalMirrorSource('espelho conciliação (ok)');
+  await expenses.conciliarParcela(
+    TENANT,
+    A,
+    source.id,
+    { targetExpenseId: target.id, parcelaIndex: 2, realValor: 10_000 },
+    ADMIN,
+  );
+  expect(
+    await setup.importedInvoiceLiquidation.count({ where: { tenantId: TENANT, deletedAt: null } }),
+  ).toBe(0);
+  expect(
+    await setup.crossProjectSettlement.count({
+      where: { tenantId: TENANT, sourceExpenseId: source.id },
+    }),
+  ).toBe(1);
+  console.log('Sunsettle-ok ARRANGE_OK: clean settlement, no import claim');
+
+  const outcome = await observe(() => expenses.desconciliar(TENANT, A, source.id, ADMIN));
+  diagnostic('Sunsettle-ok ACT', outcome.error);
+  expect(outcome.error).toBeNull();
+  expect(
+    await setup.crossProjectSettlement.count({
+      where: { tenantId: TENANT, sourceExpenseId: source.id },
+    }),
+  ).toBe(0);
+  expect(
+    (await setup.expense.findUniqueOrThrow({ where: { id: source.id } })).deletedAt,
+  ).not.toBeNull();
+});

@@ -75,6 +75,10 @@ function makePrismaMock() {
     },
     importedInvoiceLiquidation: {
       create: jest.fn().mockResolvedValue({}),
+      // #569 — guarda de settlement (findExpensesWithActivePurchaseTrail) lê a
+      // trilha DENTRO da tx; sem claim neste harness ⇒ findMany vazio, não bloqueia.
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(),
     $queryRaw: jest.fn().mockResolvedValue([]),
