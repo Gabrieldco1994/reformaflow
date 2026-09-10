@@ -790,6 +790,66 @@ it("TIE guard: mês selecionado que NÃO casa o valor não sobrepõe o casamento
   expect(after.ledger).toEqual(before.ledger);
 });
 
+it("TIE tolerância: a preferência do mês selecionado exige que ELE caia na PRÓPRIA tolerância — empate de diff onde outubro é INVÁLIDO mantém setembro (válido)", async () => {
+  const card = { id: cardId, last4: CARD, closingDay: 20, dueDay: 1 };
+  // Setembro: total 50250 → diff 250, tol max(200,round(251.25))=251 → VÁLIDO.
+  const sep = await seedInstallmentPurchase(setup, {
+    tenantId: TENANT,
+    projectId: A,
+    cardLast4: CARD,
+    parcelas: 1,
+    valorCents: 50_250,
+    primeiraData: new Date("2026-08-05T12:00:00.000Z"), // fecha 20/08 → set
+  });
+  await setup.expense.update({ where: { id: sep.id }, data: { valor: 50_250 } });
+  // Outubro: total 49750 → diff 250, tol max(200,round(248.75))=249 → INVÁLIDO.
+  const oct = await seedInstallmentPurchase(setup, {
+    tenantId: TENANT,
+    projectId: A,
+    cardLast4: CARD,
+    parcelas: 1,
+    valorCents: 49_750,
+    primeiraData: new Date("2026-09-05T12:00:00.000Z"), // fecha 20/09 → out
+  });
+  await setup.expense.update({ where: { id: oct.id }, data: { valor: 49_750 } });
+
+  const paymentDate = new Date("2026-09-10T00:00:00.000Z"); // janela {set, out}
+  // Seleciona OUTUBRO, mas no EMPATE de diff (250=250) outubro está FORA da sua
+  // própria tolerância (250 > 249). A preferência NÃO pode roubar setembro, que
+  // fecha dentro da sua (250 ≤ 251) — senão o resolver devolveria null e nada
+  // seria liquidado, apesar de existir fatura fechável.
+  const prepared = await prisma.$transaction((tx) =>
+    settlement.prepareSettleInvoice({
+      tenantId: TENANT,
+      card,
+      amountCents: 50_000,
+      paymentDate,
+      tx,
+      requester: ADMIN,
+      selectedDueMonth: "2026-10",
+    }),
+  );
+  expect(prepared.purchases.flatMap((p) => p.entries.map((e) => e.id))).toEqual([
+    sep.entryIds[0],
+  ]);
+
+  // Controle: caminho de importação (SEM preferência) escolhe o MESMO setembro
+  // (global best por diff → mais antigo → válido). O fix não altera isso.
+  const noPref = await prisma.$transaction((tx) =>
+    settlement.prepareSettleInvoice({
+      tenantId: TENANT,
+      card,
+      amountCents: 50_000,
+      paymentDate,
+      tx,
+      requester: ADMIN,
+    }),
+  );
+  expect(noPref.purchases.flatMap((p) => p.entries.map((e) => e.id))).toEqual([
+    sep.entryIds[0],
+  ]);
+});
+
 it("no-ciclo: fatura JÁ integralmente paga por importação segue bloqueada pela identidade recuperada mesmo com dto.month mentiroso (recupera identity quando as CFEs PAGO não têm flip)", async () => {
   await setup.creditCard.update({
     where: { id: cardId },

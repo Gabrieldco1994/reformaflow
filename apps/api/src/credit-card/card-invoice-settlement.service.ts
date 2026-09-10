@@ -326,8 +326,23 @@ export class CardInvoiceSettlementService {
     // Empate de VALOR (mesma `diff`): prefere o mês selecionado no cockpit
     // (contexto manual); sem ele — ou fora do empate — mantém o mais antigo.
     // Nunca vence um `diff` melhor: só entra quando as diferenças são iguais.
+    //
+    // A preferência SÓ vale se o mês selecionado for ELE PRÓPRIO uma fatura
+    // fechável (dentro da SUA tolerância). Sem esta condição, um empate de
+    // `diff` em que o selecionado está FORA da tolerância dele roubaria o alvo
+    // de um mês VÁLIDO e mais antigo — a checagem final (contra `best.total`)
+    // devolveria null e NADA seria liquidado, apesar de existir fatura fechável.
+    // Só qualifica a preferência: o best global por `diff`+mais-antigo (caminho
+    // de importação / sem preferência) permanece inalterado.
+    const selectedTotal =
+      selectedDueMonth != null ? totalByMonth.get(selectedDueMonth) : undefined;
+    const selectedEligible =
+      selectedDueMonth != null &&
+      selectedTotal != null &&
+      selectedTotal > 0 &&
+      Math.abs(selectedTotal - amountCents) <= invoiceMatchTolerance(selectedTotal);
     const preferred = (a: string, b: string): boolean => {
-      if (selectedDueMonth) {
+      if (selectedEligible) {
         if (a === selectedDueMonth && b !== selectedDueMonth) return true;
         if (b === selectedDueMonth && a !== selectedDueMonth) return false;
       }
