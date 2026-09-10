@@ -1040,6 +1040,13 @@ O [design de #569](569-invoice-undo-design.md) separa este degrau do PR 2 futuro
   trilha da anterior apenas por terem o mesmo valor. Selecionar a fatura já
   liquidada continua bloqueado; um mês fora da janela ou com pior correspondência
   de valor não substitui a fatura efetiva.
+- **Pagamento manual e desfazer:** quando **Pagar fatura** liquida parcelas de
+  uma única fatura, o pagamento mantém a identidade do cartão e do mês realmente
+  quitado. A indicação de pago e **Desfazer pagamento** usam essa mesma identidade,
+  mesmo se outra fatura tiver valor igual. Para alterar financeiramente ou excluir
+  esse pagamento, use **Desfazer pagamento** na fatura; corrigir o título continua
+  permitido. Declarações genéricas de quitação e pagamentos importados não ganham
+  essa ação. Pagamentos antigos não recebem identificação retroativa.
 - **Edição descritiva continua permitida:** corrigir título, fornecedor, link ou
   imagem, sem mudança financeira ou de vínculo, preserva a identidade das
   parcelas e a trilha; não recria as parcelas nem desfaz o pagamento.

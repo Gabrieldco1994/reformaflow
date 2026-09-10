@@ -498,6 +498,23 @@ melhor nem altera a data do pagamento. Sem uma seleção elegível, inclusive na
 importação automática, permanece o desempate pelo vencimento mais antigo.
 A guarda de #569 continua verificando a fatura efetiva, não apenas o mês informado.
 
+Quando o pagamento manual vira parcelas de um único mês, `payInvoice` grava em
+`Expense.settlesInvoiceKey` a identidade reservada
+`m1:{cardId}:{cardLast4}:{dueMonth}`, derivada das parcelas efetivamente liquidadas.
+Leitura, elegibilidade da ação e undo manual usam essa identidade; uma chave
+legada `{cardLast4}:{dueMonth}` de declaração geral não prova essa origem.
+Somente o servidor pode cunhar `m1`; a rota genérica de despesas não pode forjar,
+limpar ou alterar financeiramente esse pagamento, nem removê-lo. A reversão é
+**Desfazer pagamento** na fatura. O prefixo reservado continua protegido se a
+chave estiver malformada, mas leitura e undo exigem um conteúdo válido.
+
+Isso não reutiliza `invoiceUndo*` nem cria `ImportedInvoiceLiquidation` para
+pagamentos manuais. Sem parcelas viradas, ou com vários meses efetivamente
+liquidados, mantém-se o comportamento implícito anterior; não se inventa uma
+identidade nem se faz backfill de pagamentos antigos. O agrupamento legado de
+cartões com finais duplicados não muda; o undo `m1` exige a chave com o `cardId`
+resolvido, não apenas o final do cartão.
+
 ### 13.4 A lista do ano é a lista do mês (uma tela só)
 
 `MovimentacoesSection` ganhou `mode` (`'mes'` default | `'ano'`). No `'ano'`:
