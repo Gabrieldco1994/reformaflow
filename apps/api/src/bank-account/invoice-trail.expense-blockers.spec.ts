@@ -49,6 +49,41 @@ async function observe<T>(operation: () => Promise<T>) {
   }
 }
 
+// Spy PASSIVO de escritas: um `$use` adicional que apenas REGISTRA a ação e
+// segue o pipeline (`next`). Registrado após o middleware de soft-delete (que o
+// construtor do PrismaService instala), enxerga a ação já normalizada e roda
+// inclusive dentro de `$transaction`. Gated por `recordWrites` para não custar
+// nada fora do ato observado. Prova a diferença entre PREFLIGHT (zero escritas
+// sequer TENTADAS) e ROLLBACK (escrita tentada e depois desfeita) — snapshot
+// intacto não distingue os dois.
+const WRITE_ACTIONS = new Set([
+  'create',
+  'createMany',
+  'update',
+  'updateMany',
+  'delete',
+  'deleteMany',
+  'upsert',
+]);
+let recordWrites = false;
+const writeAttempts: string[] = [];
+prisma.$use(async (params, next) => {
+  if (recordWrites && WRITE_ACTIONS.has(params.action)) {
+    writeAttempts.push(`${params.model ?? '?'}.${params.action}`);
+  }
+  return next(params);
+});
+
+async function observeWrites<T>(operation: () => Promise<T>) {
+  writeAttempts.length = 0;
+  recordWrites = true;
+  try {
+    return await observe(operation);
+  } finally {
+    recordWrites = false;
+  }
+}
+
 function errorStatus(error: unknown) {
   return error instanceof HttpException ? error.getStatus() : null;
 }
@@ -459,6 +494,133 @@ it('Btgt-ok ratear into a clean (unclaimed) cross-project target still succeeds 
   expect(
     (await setup.expense.findUniqueOrThrow({ where: { id: source.id } })).linkedExpenseId,
   ).toBe(target.id);
+});
+
+it('Bmix-existing ratearMixed with an import-claimed EXISTING target + a NEW target is rejected BEFORE the first write (409, zero writes attempted, snapshot intact)', async () => {
+  // ALVO EXISTENTE: compra parcelada 3x em B (cross-project), parcela 0 liquidada
+  // por importação REAL — trilha ativa como COMPRA. Já existe ANTES da operação,
+  // portanto é conhecido no preflight; os alvos NOVOS só nascem depois.
+  const existingTarget = await purchase(B, '2026-06-10T12:00:00.000Z');
+  await importedPayment(existingTarget.id, existingTarget.entryIds[0]);
+  const claimed = await setup.importedInvoiceLiquidation.findMany({
+    where: { tenantId: TENANT, purchaseExpenseId: existingTarget.id, deletedAt: null },
+  });
+  expect(claimed).toHaveLength(1);
+
+  // FONTE limpa (sem cartão; o import não a toca). valorTotal fecha a soma
+  // integral do rateio: existente 30k + novo 20k = 50k (Sobra=0).
+  const source = await expenses.create(
+    TENANT,
+    A,
+    {
+      tipoDespesa: 'MATERIAL',
+      valor: 500,
+      quantidade: 1,
+      titulo: 'fonte mixed a ratear',
+      formaPagamento: 'A_VISTA',
+      dataCompra: '2026-06-10',
+      status: 'PLANEJADO',
+    },
+    null,
+    undefined,
+    ADMIN,
+  );
+  expect(source).toMatchObject({ projectId: A, valorTotal: 50_000, cardLast4: null });
+
+  const before = await fullSnapshot();
+  expect(before.allocations).toHaveLength(0);
+  console.log('Bmix-existing ARRANGE_OK: claimed existing target (1/3 paid by real import) + clean source + pending new target');
+
+  const outcome = await observeWrites(() =>
+    expenses.ratearMixed(
+      TENANT,
+      A,
+      source.id,
+      {
+        newTargets: [
+          {
+            targetProjectId: B,
+            tipoDespesa: 'MATERIAL',
+            valor: 200,
+            quantidade: 1,
+            allocation: 20_000,
+          },
+        ],
+        existing: [{ targetExpenseId: existingTarget.id, allocation: 30_000 }],
+      },
+      ADMIN.id,
+      ADMIN,
+    ),
+  );
+  const after = await fullSnapshot();
+  diagnostic('Bmix-existing ACT', outcome.error);
+  console.log('Bmix-existing WRITE_ATTEMPTS', writeAttempts);
+  expect(errorStatus(outcome.error)).toBe(409);
+  // PREFLIGHT: o alvo NOVO não chegou a ser criado — zero escritas TENTADAS no
+  // ato (não é rollback pós-escrita). Sem o preflight, `Expense.create` do alvo
+  // novo é tentado antes de `ratearSource` dar 409 e desfazer tudo.
+  expect(writeAttempts).toEqual([]);
+  expect(after).toEqual(before);
+});
+
+it('Bmix-existing-ok ratearMixed with a CLEAN existing target + a NEW target still succeeds — the preflight does not over-block', async () => {
+  // Alvo existente LIMPO (sem trilha) + fonte limpa: mixed legítimo continua
+  // permitido, criando o alvo novo e o par de alocações.
+  const existingTarget = await purchase(B, '2026-06-10T12:00:00.000Z');
+  expect(
+    await setup.importedInvoiceLiquidation.count({ where: { tenantId: TENANT, deletedAt: null } }),
+  ).toBe(0);
+
+  const source = await expenses.create(
+    TENANT,
+    A,
+    {
+      tipoDespesa: 'MATERIAL',
+      valor: 500,
+      quantidade: 1,
+      titulo: 'fonte mixed a ratear (ok)',
+      formaPagamento: 'A_VISTA',
+      dataCompra: '2026-06-10',
+      status: 'PLANEJADO',
+    },
+    null,
+    undefined,
+    ADMIN,
+  );
+  console.log('Bmix-existing-ok ARRANGE_OK: clean existing target + clean source + new target');
+
+  const outcome = await observe(() =>
+    expenses.ratearMixed(
+      TENANT,
+      A,
+      source.id,
+      {
+        newTargets: [
+          {
+            targetProjectId: B,
+            tipoDespesa: 'MATERIAL',
+            valor: 200,
+            quantidade: 1,
+            allocation: 20_000,
+          },
+        ],
+        existing: [{ targetExpenseId: existingTarget.id, allocation: 30_000 }],
+      },
+      ADMIN.id,
+      ADMIN,
+    ),
+  );
+  diagnostic('Bmix-existing-ok ACT', outcome.error);
+  expect(outcome.error).toBeNull();
+  const allocations = await setup.rateioAllocation.findMany({
+    where: { tenantId: TENANT, sourceExpenseId: source.id },
+    orderBy: { targetExpenseId: 'asc' },
+  });
+  expect(allocations).toHaveLength(2);
+  expect(new Set(allocations.map((a) => a.targetExpenseId))).toContain(existingTarget.id);
+  expect(
+    (await setup.expense.findUniqueOrThrow({ where: { id: source.id } })).linkedExpenseId,
+  ).not.toBeNull();
 });
 
 it('B5-none removing a PROCESSED_NONE stamped card payment (carimbo, zero itens) is rejected with 409 and zero writes', async () => {

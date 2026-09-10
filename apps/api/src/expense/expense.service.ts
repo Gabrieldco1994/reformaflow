@@ -21,7 +21,11 @@ import {
   resolveAccessibleProjectScope,
   EXPENSE_MODULE,
 } from '../common/access-rules';
-import { countActivePurchaseTrail } from '../common/imported-invoice-trail';
+import {
+  countActivePurchaseTrail,
+  findExpensesWithActivePurchaseTrail,
+  IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE,
+} from '../common/imported-invoice-trail';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
@@ -1334,6 +1338,22 @@ export class ExpenseService {
         },
         requester,
       );
+
+      // #569 (degrau) — PREFLIGHT dos alvos EXISTENTES com trilha de importação
+      // ativa: `ratearSource` (:~1418) só roda DEPOIS de criar os alvos novos,
+      // então sua guarda daria 409 por rollback — writes já tentados. Os alvos
+      // existentes já são conhecidos aqui e sua autorização acabou de ser
+      // validada acima; consulta o claim ANTES da primeira escrita para 409 sem
+      // criar nada. Alvos novos ainda não existem (não têm claim); o conjunto
+      // completo continua coberto por `ratearSource`.
+      const claimedExistingTargets = await findExpensesWithActivePurchaseTrail(
+        tx,
+        tenantId,
+        existing.map((item) => item.targetExpenseId),
+      );
+      if (claimedExistingTargets.size > 0) {
+        throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+      }
 
       const targetProjectIds = [...new Set(newTargets.map((item) => item.targetProjectId))];
       const targetProjects = await tx.project.findMany({
