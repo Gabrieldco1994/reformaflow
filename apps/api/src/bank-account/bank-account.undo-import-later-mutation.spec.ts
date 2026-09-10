@@ -174,7 +174,14 @@ describe("#569 §6.4 — later-mutation guards (PR 1)", () => {
     expect((await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } }))?.status).toBe("PAGO");
   });
 
-  it("SEC-1 undoInvoicePayment: claim ancorado SÓ em compra de projeto invisível → 409 INVOICE_HAS_IMPORT_TRAIL (não 404 enganoso); zero escrita; mensagem sem menção ao projeto B", async () => {
+  it("SEC-1 undoInvoicePayment: compra PAGA do ciclo em projeto INVISÍVEL — ator RESTRITO recebe 404 de ACL (idêntico com/sem claim, sem oráculo); ator AUTORIZADO recebe 409 INVOICE_HAS_IMPORT_TRAIL; zero escrita nos dois", async () => {
+    // CONTRATO REVISADO (#569 SEC-1): a autorização (`prepareUnsettleInvoice`)
+    // precede a consulta de trilha. A versão anterior deste teste esperava 409
+    // TAMBÉM para o ator restrito (USER_A) — isso vazava a EXISTÊNCIA de uma
+    // liquidação ancorada em projeto invisível: o requester sem ACL distinguia
+    // "compra oculta liquidada" (409) de "sem liquidação/ACL" (404), um oráculo.
+    // Agora quem NÃO enxerga a compra recebe SEMPRE o mesmo 404 `Fatura não
+    // encontrada`; só quem a enxerga (R2 identificado / ADMIN) chega ao 409.
     // compra VISÍVEL (A) — fecha a fatura 2026-07, casa com o pagamento manual
     const visible = await seedInstallmentPurchase(setup, {
       tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 1, valorCents: 30_000,
@@ -206,17 +213,36 @@ describe("#569 §6.4 — later-mutation guards (PR 1)", () => {
         cardId, prevStatus: "PLANEJADO", entryValorCents: 15_000, dueMonth: "2026-07",
       },
     });
-    let caught: Error | null = null;
+
+    // ── ator RESTRITO (USER_A NÃO enxerga PESSOAL2) → 404 de ACL, mensagem
+    //    genérica que não menciona a compra/liquidação oculta.
+    let restricted: Error | null = null;
     try {
       await mo.undoInvoicePayment(TENANT, PESSOAL, { cardId, dueMonth: "2026-07" }, USER_A);
     } catch (e) {
-      caught = e as Error;
+      restricted = e as Error;
     }
-    expect(caught).toBeInstanceOf(ConflictException);
-    expect(caught?.message).toBe(GENERIC_IMPORT_TRAIL_MESSAGE);
-    expect(caught?.message).not.toMatch(/PESSOAL2|projectId|slug|15|30/i);
+    expect(restricted).toBeInstanceOf(NotFoundException);
+    expect(restricted?.message).toBe("Fatura não encontrada");
+    expect(restricted?.message).not.toMatch(/IMPORT_TRAIL|liquidad|import|PESSOAL2|projectId|15|30/i);
+
+    // ── ator AUTORIZADO (R2 identificado enxerga PESSOAL2) → a claim
+    //    cross-project bloqueia o desfazer manual ⇒ 409 genérico.
+    const R2_IDENTIFIED = { ...R2, id: "iul-mut-user-r2" } as unknown as MonthlyOverviewMutationRequester;
+    let authorized: Error | null = null;
+    try {
+      await mo.undoInvoicePayment(TENANT, PESSOAL, { cardId, dueMonth: "2026-07" }, R2_IDENTIFIED);
+    } catch (e) {
+      authorized = e as Error;
+    }
+    expect(authorized).toBeInstanceOf(ConflictException);
+    expect(authorized?.message).toBe(GENERIC_IMPORT_TRAIL_MESSAGE);
+    expect(authorized?.message).not.toMatch(/PESSOAL2|projectId|slug|15|30/i);
+
+    // ── zero escrita nos DOIS caminhos: parcelas seguem PAGO, claim intacto.
     expect((await setup.cashFlowEntry.findUnique({ where: { id: visible.entryIds[0] } }))?.status).toBe("PAGO");
     expect((await setup.cashFlowEntry.findUnique({ where: { id: hidden.entryIds[0] } }))?.status).toBe("PAGO");
+    expect(await ledger().count({ where: { tenantId: TENANT, deletedAt: null } })).toBe(1);
   });
 
   // Removidos desta branch (PR 1): `B1b` (undoImport 409 `DRIFT` por parcela

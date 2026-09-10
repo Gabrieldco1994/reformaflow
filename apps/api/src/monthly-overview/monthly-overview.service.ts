@@ -3623,23 +3623,36 @@ export class MonthlyOverviewService {
 
     const paymentExpenseId = assignments[0].payment.expenseId;
 
-    // ARMADILHA (regra de ouro #4): `$transaction` ignora o middleware `$use`
-    // de soft-delete. `tx.expense.delete(...)` seria HARD DELETE de verdade —
-    // por isso o soft-delete abaixo é um `updateMany({ data: { deletedAt } })`
-    // explícito, nunca `.delete()`, e com `deletedAt: null` no `where` (dentro
-    // da tx o filtro do `$use` também não existe).
+    // Soft-delete + TOCTOU (regra de ouro #4): o middleware `$use` RODA dentro da
+    // `$transaction` (Scar 2026-08-25) — `tx.expense.delete(...)` NÃO seria hard
+    // delete: o `$use` o interceptaria e viraria um `update { deletedAt }` (a linha
+    // sobrevive). Ainda assim o soft-delete abaixo é um `updateMany({ where,
+    // data: { deletedAt } })` porque a transição precisa ser um UPDATE condicional
+    // ATÔMICO (B1b) e `updateMany` NÃO é interceptado pelo `$use` — por isso o
+    // `deletedAt: null` no `where` é explícito (o middleware não injeta o filtro em
+    // update/updateMany).
     const reverted = await this.prisma.$transaction(async (tx) => {
-      // #569 (degrau, §4 B1 — cross-project): o desfazer manual do cockpit não
-      // pode reabrir uma parcela que carrega reivindicação ATIVA de liquidação
+      // #569 (degrau, §4 B1 / SEC-1 — cross-project): o desfazer manual do cockpit
+      // não pode reabrir uma parcela que carrega reivindicação ATIVA de liquidação
       // por importação — mesmo que a COMPRA/o import pertençam a OUTRO projeto do
       // cartão compartilhado (sem filtro de projeto, só `tenantId`). Só
       // `BankAccountService.undoImport` reverte o ledger.
-      // SEC-1 (#569): a reivindicação ATIVA pode estar ancorada SÓ numa compra
-      // de projeto invisível ao requester. `prepareUnsettleInvoice` lançaria um
-      // 404 genérico ("nenhum pagamento encontrado") ANTES do check de ledger —
-      // mensagem enganosa e divergente do contrato. Enumera as CashFlowEntry da
-      // fatura-alvo por `tenantId` + cartão + `dueMonth` (sem visibilidade de
-      // projeto) e responde 409 `INVOICE_HAS_IMPORT_TRAIL` antes do 404.
+      //
+      // SEC-1 (#569) — AUTORIZAÇÃO ANTES DA CONSULTA DE CLAIMS: `prepareUnsettleInvoice`
+      // aplica a ACL do cartão/compra e lança 404 `INVOICE_NOT_FOUND` quando o requester
+      // não enxerga ALGUMA compra PAGA desta fatura. Rodando-a PRIMEIRO, um ator SEM ACL
+      // recebe o MESMO 404 — byte a byte, com ou sem claim oculta —, sem oráculo da
+      // existência de uma liquidação ancorada em projeto invisível. A consulta
+      // tenant-wide de trilha (409 `INVOICE_HAS_IMPORT_TRAIL`) só é alcançada por um
+      // requester AUTORIZADO a ver as compras da fatura (ADMIN/ACL total cross-project).
+      // A ordem antiga priorizava o 409 ANTES do 404 e vazava essa existência.
+      const prepared = await this.cardSettlement.prepareUnsettleInvoice({
+        tenantId,
+        card,
+        dueMonth,
+        tx,
+        requester,
+      });
       const invoiceEntries = (await tx.cashFlowEntry.findMany({
         where: {
           tenantId,
@@ -3670,33 +3683,11 @@ export class MonthlyOverviewService {
           );
         }
       }
-      const toFlip = await this.cardSettlement.prepareUnsettleInvoice({
-        tenantId,
-        card,
-        dueMonth,
+      const result = await this.cardSettlement.applyPreparedUnsettlement(
         tx,
+        prepared,
         requester,
-      });
-      for (const purchase of toFlip.purchases) {
-        for (const entry of purchase.entries) {
-          const claimed = await tx.importedInvoiceLiquidation.count({
-            where: { tenantId, cashFlowEntryId: entry.id, deletedAt: null },
-          });
-          if (claimed > 0) {
-            throw new ConflictException(
-              'INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada ' +
-                'por uma importação de extrato. Desfaça a importação para reabrir a fatura.',
-            );
-          }
-        }
-      }
-      const result = await this.cardSettlement.unsettleInvoice({
-        tenantId,
-        card,
-        dueMonth,
-        tx,
-        requester,
-      });
+      );
       // B1b (#448) — releitura no commit: o pagamento foi escolhido FORA da
       // transação (`assignImplicitPayments` sobre candidatos lidos antes). Um
       // `update({ where: { id } })` cru reverteria a fatura e "desfaria" um

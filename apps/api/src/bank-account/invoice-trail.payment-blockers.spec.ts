@@ -35,6 +35,11 @@ const A = "iul-blockers-project-a";
 const B = "iul-blockers-project-b";
 const CARD = "5721";
 const BANK = "5722";
+const BANKB = "5723";
+const GENERIC_INVOICE_NOT_FOUND = "Fatura não encontrada";
+const GENERIC_IMPORT_TRAIL_MESSAGE =
+  "INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada " +
+  "por uma importação de extrato. Desfaça a importação para reabrir a fatura.";
 const ADMIN = { id: ADMIN_REQUESTER.id, role: "ADMIN" as const };
 const ONLY_A = { ...pessoalRequester(A), id: "iul-blockers-restricted-a" };
 const setup = new PrismaClient();
@@ -600,4 +605,131 @@ it("no-ciclo: fatura JÁ integralmente paga por importação segue bloqueada pel
   diagnostic("no-ciclo fully-paid stays blocked", outcome.error);
   expect(errorStatus(outcome.error)).toBe(409);
   expect(await fullSnapshot()).toEqual(before); // zero escrita
+});
+
+// ── SEC-1 (#569, §4 B1 cross-project) — desfazer manual do cockpit ───────────
+// `undoInvoicePayment` autoriza (ACL da compra) ANTES de consultar a trilha de
+// importação. Um ator SEM ACL sobre a compra PAGA de OUTRO projeto do cartão
+// compartilhado recebe o MESMO 404 com ou sem claim ativa — a divergência
+// 404/409 vazaria a existência de uma liquidação em projeto invisível (oráculo).
+// A trilha (claim) sai de um `commitImport` REAL do dono do projeto oculto.
+it("SEC-1 undoInvoicePayment: compra PAGA do ciclo em projeto INVISÍVEL ⇒ ator restrito 404 IDÊNTICO com e sem claim de importação (sem oráculo); ADMIN autorizado 409; zero escrita", async () => {
+  // O dono do projeto B tem a PRÓPRIA conta e importa o PRÓPRIO extrato.
+  const { id: accountIdB } = await seedBankAccount(setup, {
+    tenantId: TENANT,
+    projectId: B,
+    last4: BANKB,
+  });
+
+  // Compra VISÍVEL (A) da fatura 2026-07, quitada por um pagamento manual.
+  const visible = await purchase(A, "2026-06-10T12:00:00.000Z", 1);
+  await setup.cashFlowEntry.update({
+    where: { id: visible.entryIds[0] },
+    data: { status: "PAGO" },
+  });
+  await setup.expense.update({
+    where: { id: visible.id },
+    data: { status: "PAGO" },
+  });
+
+  // Compra OCULTA (B = REFORMA, invisível a um requester só-A) no MESMO ciclo.
+  const hidden = await purchase(B, "2026-06-12T12:00:00.000Z", 1);
+
+  // Liquidação REAL: o dono de B importa o extrato (R$200 = fatura A+B do ciclo).
+  // Só a parcela AINDA PLANEJADO (a de B) vira PAGO ⇒ 1 claim ancorada SÓ em B.
+  const committed = await commitStatement(bank, {
+    tenantId: TENANT,
+    projectId: B,
+    accountId: accountIdB,
+    bankLast4: BANKB,
+    cardLast4: CARD,
+    debitCents: 20_000,
+    date: "20260705",
+    period: "2026-07",
+    requester: ADMIN,
+    fitId: "iul-sec1-hidden-B",
+  });
+  const claim = await setup.importedInvoiceLiquidation.findFirstOrThrow({
+    where: { tenantId: TENANT, deletedAt: null },
+  });
+  expect(claim).toMatchObject({
+    purchaseExpenseId: hidden.id,
+    cashFlowEntryId: hidden.entryIds[0],
+    dueMonth: "2026-07",
+  });
+  const importPayment = await setup.expense.findFirstOrThrow({
+    where: {
+      tenantId: TENANT,
+      importId: committed.importId,
+      tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+    },
+  });
+  // O pagamento importado nasce em B (não é candidato do desfazer manual de A).
+  expect(importPayment.projectId).toBe(B);
+  expect(
+    (await setup.cashFlowEntry.findUniqueOrThrow({ where: { id: hidden.entryIds[0] } }))
+      .status,
+  ).toBe("PAGO");
+
+  // Pagamento MANUAL legítimo do ciclo, em A (importId null) — casa com 2026-07.
+  await setup.expense.create({
+    data: {
+      tenantId: TENANT,
+      projectId: A,
+      tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+      titulo: "pagamento manual A",
+      valor: 10_000,
+      quantidade: 1,
+      valorTotal: 10_000,
+      formaPagamento: "A_VISTA",
+      dataPagamento: new Date("2026-06-28T12:00:00.000Z"),
+      status: "PAGO",
+      cardLast4: CARD,
+      bankLast4: BANK,
+    },
+  });
+
+  expect(ONLY_A.allowedProjects).toEqual([A]);
+  expect(
+    (await setup.project.findUniqueOrThrow({ where: { id: B } })).type,
+  ).toBe("REFORMA");
+  console.log(
+    "SEC-1 ARRANGE_OK: real import claim on hidden B; manual payment in A; requester only A",
+  );
+
+  // CONTROLE: ator com ACL TOTAL (ADMIN) enxerga a compra PAGA de B; a claim
+  // cross-project bloqueia o desfazer manual ⇒ 409 genérico; zero escrita.
+  const beforeAdmin = await fullSnapshot();
+  const admin = await observe(() =>
+    monthly.undoInvoicePayment(TENANT, A, { cardId, dueMonth: "2026-07" }, ADMIN),
+  );
+  diagnostic("SEC-1 ADMIN autorizado", admin.error);
+  expect(errorStatus(admin.error)).toBe(409);
+  expect((admin.error as Error).message).toBe(GENERIC_IMPORT_TRAIL_MESSAGE);
+  expect(await fullSnapshot()).toEqual(beforeAdmin);
+
+  // MUNDO 1 (claim PRESENTE): ator restrito não enxerga a compra PAGA de B ⇒
+  // 404 de ACL — a autorização precede a consulta de trilha, então NUNCA 409.
+  const before1 = await fullSnapshot();
+  const world1 = await observe(() =>
+    monthly.undoInvoicePayment(TENANT, A, { cardId, dueMonth: "2026-07" }, ONLY_A),
+  );
+  diagnostic("SEC-1 restrito COM claim", world1.error);
+  expect(await fullSnapshot()).toEqual(before1);
+
+  // MUNDO 2 (claim AUSENTE, compra de B AINDA paga): remove só a trilha.
+  await setup.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
+  const before2 = await fullSnapshot();
+  const world2 = await observe(() =>
+    monthly.undoInvoicePayment(TENANT, A, { cardId, dueMonth: "2026-07" }, ONLY_A),
+  );
+  diagnostic("SEC-1 restrito SEM claim", world2.error);
+  expect(await fullSnapshot()).toEqual(before2);
+
+  // Dois mundos comparáveis: MESMO 404, MESMA mensagem genérica (sem oráculo de
+  // existência da liquidação oculta).
+  expect([errorStatus(world1.error), errorStatus(world2.error)]).toEqual([404, 404]);
+  expect((world1.error as Error).message).toBe((world2.error as Error).message);
+  expect((world1.error as Error).message).toBe(GENERIC_INVOICE_NOT_FOUND);
+  expect((world1.error as Error).message).not.toMatch(/IMPORT_TRAIL|liquidad|import/i);
 });
