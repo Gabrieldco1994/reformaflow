@@ -887,8 +887,12 @@ export class CardInvoiceSettlementService {
         tipoDespesa: { notIn: neutral },
         OR: [{ importId: null }, { importId: { in: cardImportIds } }],
       },
-      select: { id: true, importId: true },
-    })) as Array<{ id: string; importId: string | null }>;
+      include: {
+        project: {
+          select: { id: true, type: true, tenantId: true, deletedAt: true },
+        },
+      },
+    })) as SettlementExpenseRow[];
 
     // Precedência IDÊNTICA à de `prepareSettleInvoice`, REUSANDO a MESMA
     // preparação autorizada (sem uma segunda resolução paralela que duplicaria
@@ -906,7 +910,7 @@ export class CardInvoiceSettlementService {
     //      ainda precisa da identidade da fatura que ele quitaria para barrar um
     //      duplicado. Vem do alvo por vencimento (quando resolvido) e do PRIMEIRO
     //      lançamento de cada compra da importação casada.
-    const settlementRows = purchases as unknown as SettlementExpenseRow[];
+    const settlementRows = purchases;
     const collectMonths = (prepared: SettlePurchase[]): void => {
       for (const item of prepared) {
         for (const entry of item.entries) {
