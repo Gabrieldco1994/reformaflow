@@ -192,6 +192,12 @@ export class CardInvoiceSettlementService {
     requester: RateioRequester;
     /** Ver `assertCanAccessCard.requiredModule` (#480 SEC-1). */
     requiredModule?: string;
+    /**
+     * #569 — `dueMonth` da linha selecionada no cockpit (contexto manual). Só
+     * desempata faturas de MESMO valor dentro da janela/tolerância; nunca burla
+     * um casamento de valor melhor. Ausente nos callers de importação.
+     */
+    selectedDueMonth?: string;
   }): Promise<PreparedInvoiceSettlement> {
     assertRateioRequester(params.requester);
     const { tenantId, card, amountCents, paymentDate, tx, requester } = params;
@@ -240,6 +246,7 @@ export class CardInvoiceSettlementService {
         card,
         amountCents,
         paymentDate,
+        params.selectedDueMonth,
       );
       if (target) {
         const prepared = await this.prepareDueMonthSettlement(
@@ -292,6 +299,7 @@ export class CardInvoiceSettlementService {
     card: SettleCard,
     amountCents: number,
     paymentDate: Date,
+    selectedDueMonth?: string,
   ): Promise<string | null> {
     const payMonth = this.yearMonth(paymentDate);
     const windowMonths = new Set([payMonth, addMonthsToMonthKey(payMonth, 1)]);
@@ -315,13 +323,23 @@ export class CardInvoiceSettlementService {
     }
 
     let best: { dueMonth: string; total: number; diff: number } | null = null;
+    // Empate de VALOR (mesma `diff`): prefere o mês selecionado no cockpit
+    // (contexto manual); sem ele — ou fora do empate — mantém o mais antigo.
+    // Nunca vence um `diff` melhor: só entra quando as diferenças são iguais.
+    const preferred = (a: string, b: string): boolean => {
+      if (selectedDueMonth) {
+        if (a === selectedDueMonth && b !== selectedDueMonth) return true;
+        if (b === selectedDueMonth && a !== selectedDueMonth) return false;
+      }
+      return a.localeCompare(b) < 0;
+    };
     for (const [dueMonth, total] of totalByMonth) {
       if (total <= 0) continue;
       const diff = Math.abs(total - amountCents);
       if (
         best == null ||
         diff < best.diff ||
-        (diff === best.diff && dueMonth.localeCompare(best.dueMonth) < 0)
+        (diff === best.diff && preferred(dueMonth, best.dueMonth))
       ) {
         best = { dueMonth, total, diff };
       }
@@ -863,6 +881,8 @@ export class CardInvoiceSettlementService {
     amountCents: number;
     paymentDate: Date;
     tx: Prisma.TransactionClient;
+    /** Ver `prepareSettleInvoice.selectedDueMonth` (#569). */
+    selectedDueMonth?: string;
   }): Promise<string[]> {
     const { tenantId, card, amountCents, paymentDate, tx } = params;
     const months = new Set<string>();
@@ -930,6 +950,7 @@ export class CardInvoiceSettlementService {
         card,
         amountCents,
         paymentDate,
+        params.selectedDueMonth,
       );
       if (targetMonth) {
         const prepared = await this.prepareDueMonthSettlement(

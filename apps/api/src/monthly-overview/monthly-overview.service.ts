@@ -3374,6 +3374,7 @@ export class MonthlyOverviewService {
         paymentDate: effectiveDate,
         tx,
         requester,
+        selectedDueMonth: month,
       });
 
       // #569 (degrau, §4 B2 — CORREÇÃO DO PLANO): a fatura EFETIVA que este
@@ -3389,6 +3390,7 @@ export class MonthlyOverviewService {
         amountCents,
         paymentDate: effectiveDate,
         tx,
+        selectedDueMonth: month,
       });
       const trailMonths = [
         ...new Set([...(month ? [month] : []), ...effectiveDueMonths]),

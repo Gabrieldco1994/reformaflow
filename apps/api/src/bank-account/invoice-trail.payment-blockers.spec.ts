@@ -253,6 +253,39 @@ async function preparedEntryIds(
   return prepared.purchases.flatMap((item) => item.entries.map((e) => e.id));
 }
 
+/**
+ * #569 runtime tie — compra 90000 = 3×30000 (08-05/09-10/10-10, fecha 20 vence
+ * 1) → faturas set/out/nov de 30000 cada. Espelha `purchase`, mas com o valor
+ * do runtime real (design §hipótese). `valor × quantidade = valorTotal`.
+ */
+async function tiePurchase() {
+  const seeded = await seedInstallmentPurchase(setup, {
+    tenantId: TENANT,
+    projectId: A,
+    cardLast4: CARD,
+    parcelas: 3,
+    valorCents: 30_000,
+    primeiraData: new Date("2026-08-05T12:00:00.000Z"),
+  });
+  await setup.expense.update({
+    where: { id: seeded.id },
+    data: { valor: 90_000 },
+  });
+  const row = await setup.expense.findUniqueOrThrow({ where: { id: seeded.id } });
+  expect(row.valor * row.quantidade).toBe(row.valorTotal);
+  expect(row.valorTotal).toBe(90_000);
+  const entries = await setup.cashFlowEntry.findMany({
+    where: { expenseId: seeded.id },
+    orderBy: { data: "asc" },
+  });
+  expect(entries.map((e) => [e.valor, e.status])).toEqual([
+    [30_000, "PLANEJADO"],
+    [30_000, "PLANEJADO"],
+    [30_000, "PLANEJADO"],
+  ]);
+  return seeded;
+}
+
 beforeAll(async () => {
   await setup.$connect();
   await prisma.onModuleInit();
@@ -575,6 +608,186 @@ it("com ciclo: alvo por vencimento resolvido MAS sem parcela PLANEJADO cai no fa
   ).toEqual(["PAGO", "PAGO", "PLANEJADO"]);
   const after = await fullSnapshot();
   expect(after.ledger).toEqual(before.ledger); // claim de setembro intacto
+});
+
+// ── #569 TIE (raiz do runtime) — pagar OUTUBRO com data em SETEMBRO ──────────
+// A fatura de setembro (30000) foi liquidada por importação; o usuário paga a
+// fatura de OUTUBRO (30000) com data 10/09 → janela {2026-09, 2026-10} e EMPATE
+// exato de valor. SEM CreditCardStatementImport casável no fallback, o empate
+// antigo (mês mais antigo) fixa SETEMBRO (já pago) e a identidade recuperada
+// dispara 409 falso. `selectedDueMonth` (dto.month = 2026-10) desempata para
+// OUTUBRO, que não tem trilha, e a parcela de outubro é liquidada.
+it("TIE: outubro pago com data de setembro (empate set/out) liquida OUTUBRO, não dispara 409 da trilha de setembro", async () => {
+  const p = await tiePurchase();
+  // Importação REAL (28/08) fecha SÓ a fatura de SETEMBRO (parcela 1).
+  const sept = await commitStatement(bank, {
+    tenantId: TENANT,
+    projectId: A,
+    accountId,
+    bankLast4: BANK,
+    cardLast4: CARD,
+    debitCents: 30_000,
+    date: "20260828",
+    period: "2026-09",
+    requester: ADMIN,
+    fitId: "iul-tie-sept",
+  });
+  const septClaims = await setup.importedInvoiceLiquidation.findMany({
+    where: { tenantId: TENANT, deletedAt: null },
+  });
+  expect(septClaims).toHaveLength(1);
+  expect(septClaims[0]).toMatchObject({
+    purchaseExpenseId: p.id,
+    cashFlowEntryId: p.entryIds[0],
+    dueMonth: "2026-09",
+    entryValorCents: 30_000,
+  });
+  expect(
+    (await setup.cashFlowEntry.findUniqueOrThrow({ where: { id: p.entryIds[0] } }))
+      .status,
+  ).toBe("PAGO");
+  // Sem CreditCardStatementImport algum ⇒ fallback por fatura importada é vazio.
+  expect(
+    await setup.creditCardStatementImport.count({ where: { tenantId: TENANT } }),
+  ).toBe(0);
+
+  const before = await fullSnapshot();
+  const outcome = await observe(() =>
+    monthly.payInvoice(
+      TENANT,
+      A,
+      {
+        cardId,
+        accountId,
+        month: "2026-10",
+        amountCents: 30_000,
+        paymentDate: "2026-09-10",
+      },
+      ADMIN,
+    ),
+  );
+  diagnostic("TIE october-paid-in-september", outcome.error);
+  expect(outcome.error).toBeNull();
+  expect(outcome.value).toMatchObject({
+    ok: true,
+    settledParcelas: 1,
+    settledExpenses: 1,
+  });
+
+  const entriesAfter = await setup.cashFlowEntry.findMany({
+    where: { expenseId: p.id },
+    orderBy: { data: "asc" },
+  });
+  // set PAGO (import intacto), out PAGO (novo pagamento manual), nov PLANEJADO;
+  // ids das CFEs inalterados.
+  expect(entriesAfter.map((e) => [e.id, e.valor, e.status])).toEqual([
+    [p.entryIds[0], 30_000, "PAGO"],
+    [p.entryIds[1], 30_000, "PAGO"],
+    [p.entryIds[2], 30_000, "PLANEJADO"],
+  ]);
+  const after = await fullSnapshot();
+  // Ledger de setembro byte-idêntico (nada tocado).
+  expect(after.ledger).toEqual(before.ledger);
+  // Exatamente 1 novo PAGAMENTO_FATURA_CARTAO (import de set + manual de out).
+  const payments = after.expenses.filter(
+    (e) => e.tipoDespesa === "PAGAMENTO_FATURA_CARTAO",
+  );
+  expect(payments).toHaveLength(2);
+  const manual = payments.find((e) => e.importId === null);
+  expect(manual).toMatchObject({ valor: 30_000, valorTotal: 30_000 });
+  expect(manual?.dataPagamento?.toISOString()).toBe("2026-09-10T00:00:00.000Z");
+  // O import de setembro existiu de fato (âncora do 409 antigo).
+  expect(sept.importId).toBeTruthy();
+});
+
+it("TIE negativo: selecionar SETEMBRO (já importada) continua 409 sem escrita alguma", async () => {
+  const p = await tiePurchase();
+  await commitStatement(bank, {
+    tenantId: TENANT,
+    projectId: A,
+    accountId,
+    bankLast4: BANK,
+    cardLast4: CARD,
+    debitCents: 30_000,
+    date: "20260828",
+    period: "2026-09",
+    requester: ADMIN,
+    fitId: "iul-tie-sept-neg",
+  });
+  expect(
+    (await setup.cashFlowEntry.findUniqueOrThrow({ where: { id: p.entryIds[0] } }))
+      .status,
+  ).toBe("PAGO");
+
+  const before = await fullSnapshot();
+  const outcome = await observe(() =>
+    monthly.payInvoice(
+      TENANT,
+      A,
+      {
+        cardId,
+        accountId,
+        month: "2026-09",
+        amountCents: 30_000,
+        paymentDate: "2026-09-10",
+      },
+      ADMIN,
+    ),
+  );
+  diagnostic("TIE negative select-september", outcome.error);
+  expect(errorStatus(outcome.error)).toBe(409);
+  expect(await fullSnapshot()).toEqual(before); // zero escrita
+});
+
+it("TIE guard: mês selecionado que NÃO casa o valor não sobrepõe o casamento de valor elegível", async () => {
+  // Fatura de OUTUBRO inflada por uma compra extra (30000 parcela + 20000 avulsa
+  // = 50000). Pagamento de 30000/10-09 casa EXATO só SETEMBRO. Selecionar
+  // OUTUBRO (mês inflado) NÃO pode roubar o alvo: diff de out é pior, então o
+  // resolver mantém setembro (nenhuma importação/trilha aqui).
+  const p = await tiePurchase();
+  const extra = await seedInstallmentPurchase(setup, {
+    tenantId: TENANT,
+    projectId: A,
+    cardLast4: CARD,
+    parcelas: 1,
+    valorCents: 20_000,
+    primeiraData: new Date("2026-09-05T12:00:00.000Z"), // fecha 20/09 → out
+  });
+  await setup.expense.update({
+    where: { id: extra.id },
+    data: { valor: 20_000 },
+  });
+
+  const before = await fullSnapshot();
+  const outcome = await observe(() =>
+    monthly.payInvoice(
+      TENANT,
+      A,
+      {
+        cardId,
+        accountId,
+        month: "2026-10", // seleciona outubro, mas 30000 casa setembro
+        amountCents: 30_000,
+        paymentDate: "2026-09-10",
+      },
+      ADMIN,
+    ),
+  );
+  diagnostic("TIE guard select-oct-amount-matches-sept", outcome.error);
+  expect(outcome.error).toBeNull();
+  expect(outcome.value).toMatchObject({ ok: true, settledParcelas: 1 });
+  // Setembro (parcela 1) é o alvo pelo VALOR; outubro/nov ficam PLANEJADO.
+  const entriesAfter = await setup.cashFlowEntry.findMany({
+    where: { expenseId: p.id },
+    orderBy: { data: "asc" },
+  });
+  expect(entriesAfter.map((e) => e.status)).toEqual([
+    "PAGO",
+    "PLANEJADO",
+    "PLANEJADO",
+  ]);
+  const after = await fullSnapshot();
+  expect(after.ledger).toEqual(before.ledger);
 });
 
 it("no-ciclo: fatura JÁ integralmente paga por importação segue bloqueada pela identidade recuperada mesmo com dto.month mentiroso (recupera identity quando as CFEs PAGO não têm flip)", async () => {
