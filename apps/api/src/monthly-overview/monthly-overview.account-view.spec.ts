@@ -58,11 +58,13 @@ describe("MonthlyOverviewService.getAccountView", () => {
         delete: jest.fn(),
       },
       bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
+      importedInvoiceLiquidation: { count: jest.fn().mockResolvedValue(0) },
       $transaction: jest.fn(async (callback: any) => callback(prisma)),
     };
 
     settlement = {
       prepareSettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }),
+      resolveEffectiveDueMonths: jest.fn().mockResolvedValue([]),
       applyPreparedSettlement: jest
         .fn()
         .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }),

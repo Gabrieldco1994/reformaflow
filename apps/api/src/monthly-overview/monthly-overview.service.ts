@@ -184,22 +184,6 @@ export class MonthlyOverviewService {
   ) {}
 
   /**
-   * #569 — acesso ao delegate `importedInvoiceLiquidation` a partir de um
-   * `tx`/`PrismaService` sem depender do tipo gerado (o modelo pode não existir
-   * em ambientes pré-migração). Centraliza o cast repetido nos pre-checks de
-   * `payInvoice`/`undoInvoicePayment`.
-   */
-  private importedLiquidationDelegate(tx: unknown):
-    | { count?: (a: unknown) => Promise<number> }
-    | undefined {
-    return (
-      tx as {
-        importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
-      }
-    ).importedInvoiceLiquidation;
-  }
-
-  /**
    * Resolves the PESSOAL Hub scope ONCE per request/entry-point:
    *  1. 404 — the anchor project doesn't exist in this tenant (absent/deleted/cross-tenant).
    *  2. 403 — the anchor exists but sits outside the requester's authorized scope.
@@ -3399,35 +3383,32 @@ export class MonthlyOverviewService {
       // `caixaMonthForCardPurchase(paymentDate)` (recebe data de COMPRA). Reusa
       // `resolveEffectiveDueMonths` — MESMA resolução de `prepareSettleInvoice`
       // (compras/total/data/valor). `PROCESSED_NONE` não cria linha ⇒ não dispara.
-      const ledgerDelegate = this.importedLiquidationDelegate(tx);
-      if (ledgerDelegate?.count) {
-        const effectiveDueMonths = await this.cardSettlement.resolveEffectiveDueMonths({
-          tenantId,
-          card,
-          amountCents,
-          paymentDate: effectiveDate,
-          tx,
-        });
-        const trailMonths = [
-          ...new Set([...(month ? [month] : []), ...effectiveDueMonths]),
-        ];
-        const importTrail = trailMonths.length
-          ? await ledgerDelegate.count({
-              where: {
-                tenantId,
-                cardId: card.id,
-                dueMonth: { in: trailMonths },
-                deletedAt: null,
-              },
-            })
-          : 0;
-        if (importTrail > 0) {
-          throw new ConflictException(
-            'INVOICE_HAS_IMPORT_TRAIL: esta fatura já foi liquidada por uma ' +
-              'importação de extrato. Desfaça a importação para registrar um ' +
-              'pagamento manual.',
-          );
-        }
+      const effectiveDueMonths = await this.cardSettlement.resolveEffectiveDueMonths({
+        tenantId,
+        card,
+        amountCents,
+        paymentDate: effectiveDate,
+        tx,
+      });
+      const trailMonths = [
+        ...new Set([...(month ? [month] : []), ...effectiveDueMonths]),
+      ];
+      const importTrail = trailMonths.length
+        ? await tx.importedInvoiceLiquidation.count({
+            where: {
+              tenantId,
+              cardId: card.id,
+              dueMonth: { in: trailMonths },
+              deletedAt: null,
+            },
+          })
+        : 0;
+      if (importTrail > 0) {
+        throw new ConflictException(
+          'INVOICE_HAS_IMPORT_TRAIL: esta fatura já foi liquidada por uma ' +
+            'importação de extrato. Desfaça a importação para registrar um ' +
+            'pagamento manual.',
+        );
       }
 
       // Idempotência por payload exato, relida na mesma transação da escrita.
@@ -3653,62 +3634,59 @@ export class MonthlyOverviewService {
       // por importação — mesmo que a COMPRA/o import pertençam a OUTRO projeto do
       // cartão compartilhado (sem filtro de projeto, só `tenantId`). Só
       // `BankAccountService.undoImport` reverte o ledger.
-      const ledgerDelegate = this.importedLiquidationDelegate(tx);
-      if (ledgerDelegate?.count) {
-        // SEC-1 (#569): a reivindicação ATIVA pode estar ancorada SÓ numa compra
-        // de projeto invisível ao requester. `prepareUnsettleInvoice` lançaria um
-        // 404 genérico ("nenhum pagamento encontrado") ANTES do check de ledger —
-        // mensagem enganosa e divergente do contrato. Enumera as CashFlowEntry da
-        // fatura-alvo por `tenantId` + cartão + `dueMonth` (sem visibilidade de
-        // projeto) e responde 409 `INVOICE_HAS_IMPORT_TRAIL` antes do 404.
-        const invoiceEntries = (await tx.cashFlowEntry.findMany({
+      // SEC-1 (#569): a reivindicação ATIVA pode estar ancorada SÓ numa compra
+      // de projeto invisível ao requester. `prepareUnsettleInvoice` lançaria um
+      // 404 genérico ("nenhum pagamento encontrado") ANTES do check de ledger —
+      // mensagem enganosa e divergente do contrato. Enumera as CashFlowEntry da
+      // fatura-alvo por `tenantId` + cartão + `dueMonth` (sem visibilidade de
+      // projeto) e responde 409 `INVOICE_HAS_IMPORT_TRAIL` antes do 404.
+      const invoiceEntries = (await tx.cashFlowEntry.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          tipo: 'DESPESA',
+          expense: { deletedAt: null, cardLast4: card.last4 },
+        },
+        select: { id: true, data: true },
+      })) as Array<{ id: string; data: Date }>;
+      const dueMonthEntryIds = invoiceEntries
+        .filter(
+          (entry) =>
+            caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === dueMonth,
+        )
+        .map((entry) => entry.id);
+      if (dueMonthEntryIds.length > 0) {
+        const anchoredClaims = await tx.importedInvoiceLiquidation.count({
           where: {
             tenantId,
+            cashFlowEntryId: { in: dueMonthEntryIds },
             deletedAt: null,
-            tipo: 'DESPESA',
-            expense: { deletedAt: null, cardLast4: card.last4 },
           },
-          select: { id: true, data: true },
-        })) as Array<{ id: string; data: Date }>;
-        const dueMonthEntryIds = invoiceEntries
-          .filter(
-            (entry) =>
-              caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === dueMonth,
-          )
-          .map((entry) => entry.id);
-        if (dueMonthEntryIds.length > 0) {
-          const anchoredClaims = await ledgerDelegate.count({
-            where: {
-              tenantId,
-              cashFlowEntryId: { in: dueMonthEntryIds },
-              deletedAt: null,
-            },
+        });
+        if (anchoredClaims > 0) {
+          throw new ConflictException(
+            'INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada ' +
+              'por uma importação de extrato. Desfaça a importação para reabrir a fatura.',
+          );
+        }
+      }
+      const toFlip = await this.cardSettlement.prepareUnsettleInvoice({
+        tenantId,
+        card,
+        dueMonth,
+        tx,
+        requester,
+      });
+      for (const purchase of toFlip.purchases) {
+        for (const entry of purchase.entries) {
+          const claimed = await tx.importedInvoiceLiquidation.count({
+            where: { tenantId, cashFlowEntryId: entry.id, deletedAt: null },
           });
-          if (anchoredClaims > 0) {
+          if (claimed > 0) {
             throw new ConflictException(
               'INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada ' +
                 'por uma importação de extrato. Desfaça a importação para reabrir a fatura.',
             );
-          }
-        }
-        const toFlip = await this.cardSettlement.prepareUnsettleInvoice({
-          tenantId,
-          card,
-          dueMonth,
-          tx,
-          requester,
-        });
-        for (const purchase of toFlip.purchases) {
-          for (const entry of purchase.entries) {
-            const claimed = await ledgerDelegate.count({
-              where: { tenantId, cashFlowEntryId: entry.id, deletedAt: null },
-            });
-            if (claimed > 0) {
-              throw new ConflictException(
-                'INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada ' +
-                  'por uma importação de extrato. Desfaça a importação para reabrir a fatura.',
-              );
-            }
           }
         }
       }
