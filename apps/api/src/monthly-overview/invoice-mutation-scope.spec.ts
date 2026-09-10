@@ -124,7 +124,7 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
       resolveEffectiveDueMonths: jest.fn().mockResolvedValue([]),
       applyPreparedSettlement: jest
         .fn()
-        .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }),
+        .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0, flippedEntries: [] }),
       prepareUnsettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }),
       unsettleInvoice: jest
         .fn()
