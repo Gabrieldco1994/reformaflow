@@ -1645,6 +1645,26 @@ export class ExpenseService {
       (dto.categoriaMaoDeObra ?? null) !== (existing.categoriaMaoDeObra ?? null);
     const changedRoom =
       dto.roomId !== undefined && (dto.roomId ?? null) !== (existing.roomId ?? null);
+    // #569 (degrau, §2b/#1) — superset EXATO dos insumos que fazem
+    // `regenerateCashFlow` (adiante) soft-deletar+recriar as `CashFlowEntry` com
+    // IDs novos. Precisa ser derivado ANTES da guarda: para uma COMPRA com claim
+    // de importação ATIVO, QUALQUER mutação regeneradora (não só a financeira)
+    // órfãozaria `imported_invoice_liquidations.cash_flow_entry_id`. Deriva a
+    // proteção de um único predicado coerente com o que substitui as CFEs — não
+    // um subconjunto menor. `shouldNormalizeInstallmentDateOverrides` é redundante
+    // aqui (é subconjunto de forma/data/parcela, já incluídas abaixo).
+    const shouldRegenerateCashFlow =
+      changedValor ||
+      changedQuantidade ||
+      changedQuantidadeParcela ||
+      changedDataPagamento ||
+      changedDataInicioParcela ||
+      changedFormaPagamento ||
+      changedStatus ||
+      changedTipoDespesa ||
+      changedCategoriaMaoDeObra ||
+      changedRoom ||
+      changedOwnership;
     const hasProtectedChange =
       changedFormaPagamento ||
       changedDataPagamento ||
@@ -1676,14 +1696,12 @@ export class ExpenseService {
     // #569 (degrau) — B3/B4/B9: mutação posterior sobre parcela/pagamento
     // liquidado por importação.
     await this.guardImportedInvoiceTrail(db, tenantId, existing, {
-      changedFinancials:
-        changedValor ||
-        changedQuantidade ||
-        changedQuantidadeParcela ||
-        changedDataPagamento ||
-        changedDataInicioParcela ||
-        changedStatus ||
-        changedFormaPagamento,
+      // Para uma COMPRA com claim ATIVO, o gatilho de corrupção é a REGENERAÇÃO
+      // do caixa (soft-delete+recria as CFEs reivindicadas), não apenas a mudança
+      // de campos financeiros. Passa o predicado coerente com `regenerateCashFlow`
+      // — que inclui categoria, sala, tipo e ownership — senão um PATCH de sala/
+      // categoria válido passava a guarda e órfãozava o ledger.
+      changedFinancials: shouldRegenerateCashFlow,
       changedProtectedPaymentFields:
         changedOwnership ||
         (dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa) ||
@@ -1790,21 +1808,9 @@ export class ExpenseService {
     // `CashFlowEntry` com ids novos; rodar num PATCH puramente descritivo
     // (titulo/fornecedor/link/imagem) orfana `imported_invoice_liquidations.
     // cash_flow_entry_id` (FK RESTRICT só barra hard-delete) e gera drift
-    // silencioso. Só regenera quando algum insumo de `buildCashFlowEntries`
-    // de fato mudou (superset de `resetPaidParcelas`).
-    const shouldRegenerateCashFlow =
-      changedValor ||
-      changedQuantidade ||
-      changedQuantidadeParcela ||
-      changedDataPagamento ||
-      changedDataInicioParcela ||
-      changedFormaPagamento ||
-      changedStatus ||
-      changedTipoDespesa ||
-      changedCategoriaMaoDeObra ||
-      changedRoom ||
-      changedOwnership ||
-      shouldNormalizeInstallmentDateOverrides;
+    // silencioso. `shouldRegenerateCashFlow` (derivado acima, ANTES da guarda) é
+    // o predicado único que decide tanto o bloqueio da compra reivindicada quanto
+    // a regeneração — não podem divergir.
     if (shouldRegenerateCashFlow) {
       await this.regenerateCashFlow(expense.id, tx);
     }
