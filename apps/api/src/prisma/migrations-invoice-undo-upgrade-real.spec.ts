@@ -1,7 +1,8 @@
 // PR 1 (degrau) — upgrade legado REAL e drill restaurável de backup.
 // O alvo é sempre um SQLite descartável validado por scripts/test-db-env.cjs.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { ConflictException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
@@ -28,11 +29,16 @@ const REAL_MIGRATIONS = path.join(REPO_ROOT, "prisma/migrations");
 const REAL_SCHEMA = path.join(REPO_ROOT, "prisma/schema.prisma");
 const TARGET_MIGRATION = "20260909120000_imported_invoice_liquidations";
 
-const RUN = `569up-${process.pid}`;
-const TMP_DIR = path.join(REPO_ROOT, "prisma", `.tmp-${RUN}`);
+const SAFETY_CHILD = process.env.INVOICE_UNDO_UPGRADE_SAFETY_CHILD === "1";
+const SAFETY_RUN = "569up-safety-child";
+const RUN = SAFETY_CHILD ? SAFETY_RUN : `569up-${process.pid}`;
+const RESOURCE_DIR =
+  process.env.INVOICE_UNDO_UPGRADE_RESOURCE_DIR ??
+  path.join(REPO_ROOT, "prisma");
+const TMP_DIR = path.join(RESOURCE_DIR, `.tmp-${RUN}`);
 const TMP_MIGRATIONS = path.join(TMP_DIR, "migrations");
-const DB_FILE = path.join(REPO_ROOT, "prisma", `test-${RUN}.db`);
-const RESTORE_FILE = path.join(REPO_ROOT, "prisma", `test-${RUN}-restore.db`);
+const DB_FILE = path.join(RESOURCE_DIR, `test-${RUN}.db`);
+const RESTORE_FILE = path.join(RESOURCE_DIR, `test-${RUN}-restore.db`);
 const BACKUP_FILE = `${DB_FILE}.bak`;
 const DB_URL = `file:${DB_FILE}`;
 const RESTORE_URL = `file:${RESTORE_FILE}`;
@@ -75,6 +81,10 @@ function assertSafeDatabaseUrl(url: string, expectedPath: string): void {
   expect(path.relative(dbGuard.REAL_REPO_ROOT, realPath!)).not.toMatch(
     /^(?:\.\.(?:\/|$)|\/)/,
   );
+}
+
+function assertSafeHarnessPath(file: string): void {
+  assertSafeDatabaseUrl(`file:${file}`, file);
 }
 
 async function withExplicitDatabaseUrl<T>(
@@ -313,23 +323,31 @@ async function seedLegacyData(seed: PrismaClient): Promise<void> {
 }
 
 describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
+  let seed: PrismaClient | undefined;
   let db: PrismaClient;
   let restored: PrismaClient;
   let servicePrisma: PrismaService;
   let bank: ReturnType<typeof makeBankAccountService>;
   let beforeMigration: Awaited<ReturnType<typeof legacyDataSnapshot>>;
   let seedForeignKeys = 0;
+  let pathsValidated = false;
+  let ownsTmpDir = false;
+  let ownsDbFile = false;
+  let ownsBackupFile = false;
+  let ownsRestoreFile = false;
 
   beforeAll(async () => {
     // PRIMEIRO ato: validar os dois overrides antes de qualquer FS, CLI ou client.
     assertSafeDatabaseUrl(DB_URL, DB_FILE);
     assertSafeDatabaseUrl(RESTORE_URL, RESTORE_FILE);
+    pathsValidated = true;
 
-    fs.rmSync(TMP_DIR, { recursive: true, force: true });
-    for (const file of [DB_FILE, RESTORE_FILE, BACKUP_FILE]) {
-      fs.rmSync(file, { force: true });
-    }
-    fs.mkdirSync(TMP_MIGRATIONS, { recursive: true });
+    fs.mkdirSync(TMP_DIR);
+    ownsTmpDir = true;
+    fs.mkdirSync(TMP_MIGRATIONS);
+    const dbFileHandle = fs.openSync(DB_FILE, "wx");
+    ownsDbFile = true;
+    fs.closeSync(dbFileHandle);
     fs.copyFileSync(
       path.join(REAL_MIGRATIONS, "migration_lock.toml"),
       path.join(TMP_MIGRATIONS, "migration_lock.toml"),
@@ -357,7 +375,7 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
     }
     deploy(DB_URL);
 
-    const seed = new PrismaClient({ datasources: { db: { url: DB_URL } } });
+    seed = new PrismaClient({ datasources: { db: { url: DB_URL } } });
     await seed.$connect();
     await seed.$executeRawUnsafe("PRAGMA foreign_keys = ON");
     const pragma = (await seed.$queryRawUnsafe(
@@ -368,9 +386,12 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
     await seedLegacyData(seed);
     beforeMigration = await legacyDataSnapshot(seed);
     await seed.$disconnect();
+    seed = undefined;
 
-    fs.copyFileSync(DB_FILE, BACKUP_FILE);
-    fs.copyFileSync(BACKUP_FILE, RESTORE_FILE);
+    fs.copyFileSync(DB_FILE, BACKUP_FILE, fs.constants.COPYFILE_EXCL);
+    ownsBackupFile = true;
+    fs.copyFileSync(BACKUP_FILE, RESTORE_FILE, fs.constants.COPYFILE_EXCL);
+    ownsRestoreFile = true;
     restored = new PrismaClient({
       datasources: { db: { url: RESTORE_URL } },
     });
@@ -389,28 +410,48 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
 
     db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
     await db.$connect();
-    servicePrisma = await withExplicitDatabaseUrl(DB_URL, async () => {
-      const connected = new PrismaService();
-      await connected.onModuleInit();
-      return connected;
+    await withExplicitDatabaseUrl(DB_URL, async () => {
+      servicePrisma = new PrismaService();
+      await servicePrisma.onModuleInit();
     });
     bank = makeBankAccountService(servicePrisma);
   }, 120_000);
 
   afterAll(async () => {
-    if (servicePrisma) await servicePrisma.onModuleDestroy();
-    if (db) await db.$disconnect();
-    if (restored) await restored.$disconnect();
-    fs.rmSync(TMP_DIR, { recursive: true, force: true });
-    for (const file of [
-      DB_FILE,
-      RESTORE_FILE,
-      BACKUP_FILE,
-      `${DB_FILE}-journal`,
-      `${RESTORE_FILE}-journal`,
-    ]) {
-      fs.rmSync(file, { force: true });
+    const disconnects: Array<Promise<void>> = [];
+    if (servicePrisma) disconnects.push(servicePrisma.onModuleDestroy());
+    if (db) disconnects.push(db.$disconnect());
+    if (restored) disconnects.push(restored.$disconnect());
+    if (seed) disconnects.push(seed.$disconnect());
+    const disconnectResults = await Promise.allSettled(disconnects);
+    const failedDisconnect = disconnectResults.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+
+    if (!pathsValidated) {
+      if (failedDisconnect) throw failedDisconnect.reason;
+      return;
     }
+
+    const ownedPaths = [
+      ...(ownsTmpDir ? [TMP_DIR] : []),
+      ...(ownsDbFile ? [DB_FILE, `${DB_FILE}-journal`] : []),
+      ...(ownsRestoreFile ? [RESTORE_FILE, `${RESTORE_FILE}-journal`] : []),
+      ...(ownsBackupFile ? [BACKUP_FILE] : []),
+    ];
+    for (const file of ownedPaths) assertSafeHarnessPath(file);
+
+    if (ownsTmpDir) fs.rmSync(TMP_DIR, { recursive: true });
+    if (ownsDbFile) {
+      fs.rmSync(DB_FILE, { force: true });
+      fs.rmSync(`${DB_FILE}-journal`, { force: true });
+    }
+    if (ownsRestoreFile) {
+      fs.rmSync(RESTORE_FILE, { force: true });
+      fs.rmSync(`${RESTORE_FILE}-journal`, { force: true });
+    }
+    if (ownsBackupFile) fs.rmSync(BACKUP_FILE, { force: true });
+    if (failedDisconnect) throw failedDisconnect.reason;
   });
 
   it("prova URL/realpath seguros e foreign_keys=1 antes do seed", () => {
@@ -420,6 +461,107 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
     expect(fs.statSync(BACKUP_FILE).size).toBeGreaterThan(0);
     expect(fs.statSync(RESTORE_FILE).size).toBe(fs.statSync(BACKUP_FILE).size);
   });
+
+  (SAFETY_CHILD ? it.skip : it)(
+    "hooks reais: symlink externo rejeitado não altera nem remove canários",
+    () => {
+      const holder = fs.mkdtempSync(
+        path.join(REPO_ROOT, "prisma", ".tmp-569-safety-holder-"),
+      );
+      const outside = fs.mkdtempSync(
+        path.join(os.tmpdir(), "qa-569-upgrade-safety-"),
+      );
+      const resourceDir = path.join(holder, "redirected-prisma");
+      const childTmp = path.join(outside, `.tmp-${SAFETY_RUN}`);
+      fs.mkdirSync(childTmp);
+      const canaries = [
+        path.join(outside, `test-${SAFETY_RUN}.db`),
+        path.join(outside, `test-${SAFETY_RUN}-restore.db`),
+        path.join(outside, `test-${SAFETY_RUN}.db.bak`),
+        path.join(outside, `test-${SAFETY_RUN}.db-journal`),
+        path.join(outside, `test-${SAFETY_RUN}-restore.db-journal`),
+        path.join(childTmp, "must-survive.txt"),
+      ].map((file, index) => {
+        const content = Buffer.from(`synthetic harness canary ${index}\n`);
+        fs.writeFileSync(file, content, { flag: "wx" });
+        return { file, content };
+      });
+      fs.symlinkSync(outside, resourceDir, "dir");
+
+      const childEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        INVOICE_UNDO_UPGRADE_RESOURCE_DIR: resourceDir,
+        INVOICE_UNDO_UPGRADE_SAFETY_CHILD: "1",
+      };
+      delete childEnv.JEST_WORKER_ID;
+      const childConfig = JSON.stringify({
+        rootDir: path.join(REPO_ROOT, "apps/api/src"),
+        testEnvironment: "node",
+        transform: { "^.+\\.(t|j)s$": require.resolve("ts-jest") },
+        moduleNameMapper: {
+          "^@reformaflow/domain/dist/(.*)$": path.join(
+            REPO_ROOT,
+            "packages/domain/dist/$1",
+          ),
+          "^@reformaflow/domain(.*)$": path.join(
+            REPO_ROOT,
+            "packages/domain/src$1",
+          ),
+        },
+      });
+      const child = spawnSync(
+        process.execPath,
+        [
+          require.resolve("jest/bin/jest"),
+          "--config",
+          childConfig,
+          "--runInBand",
+          "--runTestsByPath",
+          __filename,
+          "--no-cache",
+        ],
+        {
+          cwd: path.join(REPO_ROOT, "apps/api"),
+          env: childEnv,
+          encoding: "utf8",
+          timeout: 60_000,
+        },
+      );
+      const after = canaries.map(({ file }) =>
+        fs.existsSync(file) ? fs.readFileSync(file) : null,
+      );
+      const outsideEntriesAfter = fs.readdirSync(outside).sort();
+      const childTmpEntriesAfter = fs.existsSync(childTmp)
+        ? fs.readdirSync(childTmp).sort()
+        : null;
+      const resourceLinkSurvived = fs.lstatSync(resourceDir).isSymbolicLink();
+
+      fs.unlinkSync(resourceDir);
+      for (const { file } of canaries) fs.rmSync(file, { force: true });
+      if (fs.existsSync(childTmp)) fs.rmdirSync(childTmp);
+      fs.rmdirSync(outside);
+      fs.rmdirSync(holder);
+
+      expect(child.error).toBeUndefined();
+      expect(child.signal).toBeNull();
+      expect(child.status).toBe(1);
+      expect(`${child.stdout}\n${child.stderr}`).toContain(
+        "escapa do worktree atual por symlink",
+      );
+      expect(after).toEqual(canaries.map(({ content }) => content));
+      expect(outsideEntriesAfter).toEqual([
+        `.tmp-${SAFETY_RUN}`,
+        `test-${SAFETY_RUN}-restore.db`,
+        `test-${SAFETY_RUN}-restore.db-journal`,
+        `test-${SAFETY_RUN}.db`,
+        `test-${SAFETY_RUN}.db-journal`,
+        `test-${SAFETY_RUN}.db.bak`,
+      ]);
+      expect(childTmpEntriesAfter).toEqual(["must-survive.txt"]);
+      expect(resourceLinkSurvived).toBe(true);
+    },
+    75_000,
+  );
 
   it("drill de restore: backup restaurado abre, passa integrity/FK e preserva snapshot legado completo", async () => {
     const integrity = (await restored.$queryRawUnsafe(
