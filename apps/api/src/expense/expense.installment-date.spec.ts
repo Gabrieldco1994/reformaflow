@@ -93,6 +93,10 @@ function makeHarness(expense: ExpenseFixture = baseExpense) {
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
     },
+    importedInvoiceLiquidation: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     cashFlowEntry: {
       updateMany: jest.fn().mockResolvedValue({ count: 3 }),
       createMany: jest.fn().mockResolvedValue({ count: 3 }),

@@ -21,6 +21,7 @@ import {
   resolveAccessibleProjectScope,
   EXPENSE_MODULE,
 } from '../common/access-rules';
+import { countActivePurchaseTrail } from '../common/imported-invoice-trail';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
@@ -704,21 +705,15 @@ export class ExpenseService {
       newCardId?: string | null;
     },
   ): Promise<void> {
-    // `db` em produção é sempre `PrismaService`/`Prisma.TransactionClient` — o
-    // delegate existe e é tipado. O acesso opcional abaixo existe só para os
-    // unit tests de OUTRAS guardas que injetam um `db` parcial (sem este
-    // delegate); nesses mocks NÃO há trilha, então `0` é o estado correto. Em
-    // produção o ramo `: 0` é inalcançável (não é um "fail-open").
-    const ledgerDelegate = (
-      db as unknown as {
-        importedInvoiceLiquidation?: { count?: (a: unknown) => Promise<number> };
-      }
-    ).importedInvoiceLiquidation;
-    const activeAsPurchase = ledgerDelegate?.count
-      ? await ledgerDelegate.count({
-          where: { tenantId, purchaseExpenseId: existing.id, deletedAt: null },
-        })
-      : 0;
+    // Lê o ledger real (`imported_invoice_liquidations`) DENTRO da tx do caller
+    // pelo delegate tipado — sem casts. `db` é sempre
+    // `PrismaService | Prisma.TransactionClient` (ambos expõem o delegate; o
+    // `$use` roda inclusive dentro da tx).
+    const activeAsPurchase = await countActivePurchaseTrail(
+      db,
+      tenantId,
+      existing.id,
+    );
     const state = existing.invoiceUndoState ?? null;
     const settledPayment = state === 'PROCESSED_SETTLED';
     // #569 B5/B9 — a PROVENIÊNCIA durável do pagamento é o próprio carimbo

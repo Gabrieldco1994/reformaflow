@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   buildInstallments,
@@ -20,6 +20,10 @@ import {
   userCanAccessProject,
   userCanAccessProjectModule,
 } from '../common/access-rules';
+import {
+  IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE,
+  findExpensesWithActivePurchaseTrail,
+} from '../common/imported-invoice-trail';
 
 type Tx = Prisma.TransactionClient;
 
@@ -757,6 +761,24 @@ export class ConciliacaoService {
       if (existing && existing.sourceExpenseId !== sourceExpenseId) {
         throw new BadRequestException('A planejada já está rateada por outra compra.');
       }
+    }
+
+    // #569 (degrau) — NENHUM participante EFETIVO do rateio pode ter trilha de
+    // liquidação por importação ATIVA como COMPRA: `regenerateRateioTargetCashflow`
+    // (alvos) e a transformação da fonte em espelho regeneram o caixa e
+    // órfãozariam o claim (`imported_invoice_liquidations`). O conjunto cobre a
+    // FONTE, o espelho atual (`source.linkedExpenseId`), os alvos ANTIGOS ainda
+    // vinculados (`currentRows`) e os alvos pedidos (`allocations`, já em
+    // `targetIds`). Lido DENTRO da tx (fecha o TOCTOU com um `commitImport`
+    // concorrente) e ANTES da primeira escrita — 409 com zero efeitos. Rateios
+    // legítimos (sem claim) seguem normalmente.
+    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
+      tx,
+      tenantId,
+      [sourceExpenseId, ...targetIds],
+    );
+    if (claimedParticipants.size > 0) {
+      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
     }
 
     // limpa rateio anterior somente depois de autorizar e validar o conjunto todo

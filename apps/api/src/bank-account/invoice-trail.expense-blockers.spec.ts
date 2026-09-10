@@ -364,6 +364,103 @@ it('Bmix ratearMixed rejects splitting an import-claimed purchase with 409 and z
   expect(after).toEqual(before);
 });
 
+it('Btgt ratear into a target whose installment was partially settled by a real import is rejected with 409 and zero writes', async () => {
+  // ALVO: compra parcelada 3x no cartão, em OUTRO projeto (B), parcialmente
+  // liquidada por importação REAL — parcela 0 PAGO, 1 e 2 PLANEJADO. É um alvo
+  // de rateio VÁLIDO em tudo o mais (cross-project, não-neutro, não conciliado);
+  // só a trilha ativa como COMPRA o barra.
+  const target = await purchase(B, '2026-06-10T12:00:00.000Z');
+  await importedPayment(target.id, target.entryIds[0]);
+  const claimed = await setup.importedInvoiceLiquidation.findMany({
+    where: { tenantId: TENANT, purchaseExpenseId: target.id, deletedAt: null },
+  });
+  expect(claimed).toHaveLength(1);
+  const targetEntries = await setup.cashFlowEntry.findMany({
+    where: { expenseId: target.id },
+    orderBy: { data: 'asc' },
+  });
+  expect(targetEntries.map((e) => e.status)).toEqual(['PAGO', 'PLANEJADO', 'PLANEJADO']);
+
+  // FONTE: despesa PESSOAL sem cartão (o import não a toca), valorTotal fecha o
+  // alvo. Criada pelo caminho de produção real.
+  const source = await expenses.create(
+    TENANT,
+    A,
+    {
+      tipoDespesa: 'MATERIAL',
+      valor: 300,
+      quantidade: 1,
+      titulo: 'compra pessoal a ratear',
+      formaPagamento: 'A_VISTA',
+      dataCompra: '2026-06-10',
+      status: 'PLANEJADO',
+    },
+    null,
+    undefined,
+    ADMIN,
+  );
+  expect(source).toMatchObject({ projectId: A, valorTotal: 30_000, cardLast4: null });
+
+  const before = await fullSnapshot();
+  expect(before.allocations).toHaveLength(0);
+  console.log('Btgt ARRANGE_OK: claimed cross-project target (1/3 paid by real import), clean source');
+
+  const outcome = await observe(() =>
+    expenses.ratear(TENANT, A, source.id, [{ targetExpenseId: target.id, allocation: 30_000 }], ADMIN),
+  );
+  const after = await fullSnapshot();
+  diagnostic('Btgt ACT', outcome.error);
+  console.log('Btgt POST', {
+    liveClaimIds: after.ledger.filter((l) => l.deletedAt === null).map((l) => l.id),
+    targetEntryStatuses: after.entries
+      .filter((e) => e.expenseId === target.id && !e.deletedAt)
+      .map((e) => e.status),
+    allocations: after.allocations.length,
+  });
+  expect(errorStatus(outcome.error)).toBe(409);
+  expect(after).toEqual(before);
+});
+
+it('Btgt-ok ratear into a clean (unclaimed) cross-project target still succeeds — the guard does not over-block', async () => {
+  // Alvo LIMPO, sem qualquer trilha de importação. Prova que a guarda de #569
+  // não bloqueia rateios legítimos.
+  const target = await purchase(B, '2026-06-10T12:00:00.000Z');
+  expect(
+    await setup.importedInvoiceLiquidation.count({ where: { tenantId: TENANT, deletedAt: null } }),
+  ).toBe(0);
+
+  const source = await expenses.create(
+    TENANT,
+    A,
+    {
+      tipoDespesa: 'MATERIAL',
+      valor: 300,
+      quantidade: 1,
+      titulo: 'compra pessoal a ratear (ok)',
+      formaPagamento: 'A_VISTA',
+      dataCompra: '2026-06-10',
+      status: 'PLANEJADO',
+    },
+    null,
+    undefined,
+    ADMIN,
+  );
+  console.log('Btgt-ok ARRANGE_OK: clean cross-project target, no ledger');
+
+  const outcome = await observe(() =>
+    expenses.ratear(TENANT, A, source.id, [{ targetExpenseId: target.id, allocation: 30_000 }], ADMIN),
+  );
+  diagnostic('Btgt-ok ACT', outcome.error);
+  expect(outcome.error).toBeNull();
+  const allocations = await setup.rateioAllocation.findMany({
+    where: { tenantId: TENANT, sourceExpenseId: source.id },
+  });
+  expect(allocations.map((a) => a.targetExpenseId)).toEqual([target.id]);
+  expect(
+    (await setup.expense.findUniqueOrThrow({ where: { id: source.id } })).linkedExpenseId,
+  ).toBe(target.id);
+});
+
 it('B5-none removing a PROCESSED_NONE stamped card payment (carimbo, zero itens) is rejected with 409 and zero writes', async () => {
   const { payment } = await importedNonePayment();
   const before = await fullSnapshot();

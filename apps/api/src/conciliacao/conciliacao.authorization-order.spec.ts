@@ -223,6 +223,11 @@ function buildTx(
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
     },
+    // #569 — leitura (não-write) da trilha de importação: sem claim nestes mocks.
+    importedInvoiceLiquidation: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     cashFlowEntry: {
       updateMany: jest.fn(async ({ where }: any) => {
         writes.push(`cashFlowEntry.updateMany:${where.expenseId}`);
