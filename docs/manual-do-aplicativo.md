@@ -1031,8 +1031,9 @@ O [design de #569](569-invoice-undo-design.md) separa este degrau do PR 2 futuro
   mudar tipo, categoria ou sala quando isso recria as parcelas, excluir ou
   refazer um rateio que altere as parcelas protegidas. Desfazer um rateio também
   é bloqueado se uma importação posterior liquidou parcelas de um participante.
-  Tentar pagar
-  manualmente a mesma fatura com trilha ativa também é bloqueado, sem nova saída.
+  Conciliar ou desconciliar uma parcela também é bloqueado quando a operação
+  recriaria parcelas protegidas da mesma compra. Tentar pagar manualmente a mesma
+  fatura com trilha ativa também é bloqueado, sem nova saída.
 - **Edição descritiva continua permitida:** corrigir título, fornecedor, link ou
   imagem, sem mudança financeira ou de vínculo, preserva a identidade das
   parcelas e a trilha; não recria as parcelas nem desfaz o pagamento.
