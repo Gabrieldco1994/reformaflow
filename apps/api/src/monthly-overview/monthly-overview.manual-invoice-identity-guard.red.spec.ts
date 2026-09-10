@@ -16,26 +16,24 @@ import {
 } from '../bank-account/__tests__/invoice-undo.fixtures';
 
 /**
- * #569 — RED LOCK do contrato de IDENTIDADE do desfazer manual (revisão do
- * architect ao sanity da metadata; #569 requiredChecks §4).
+ * #569 — LOCK do contrato de IDENTIDADE do desfazer manual (revisão do architect
+ * ao sanity da metadata; #569 requiredChecks §4).
  *
- * PROVA EXECUTÁVEL de que reusar `settlesInvoiceKey = "{last4}:{dueMonth}"` como
- * discriminador do NOVO caminho de undo é SHAPE, não CONTRATO:
+ * Reusar `settlesInvoiceKey = "{last4}:{dueMonth}"` (2 partes) como discriminador
+ * do undo manual era SHAPE, não CONTRATO. A correção introduz o namespace
+ * RESERVADO `m1:{cardId}:{cardLast4}:{dueMonth}`, cunhado SOMENTE pelo `payInvoice`
+ * (proveniência do servidor), parseado estritamente por `common/manual-invoice-key.ts`:
  *
- *  - RED-A (buraco NOVO, introduzido pelo ramo explícito por chave): uma despesa
- *    GERAL `PAGAMENTO_FATURA_CARTAO` com conta + `settlesInvoiceKey` + sem import,
- *    criada pela rota comum de despesas (PIX/"quita fatura de outro cartão"), que
- *    NUNCA virou parcela (sem claim de liquidação), é oferecida com `undo` e é
- *    APAGADA por `undoInvoicePayment`. O caminho LEGADO (`settlesInvoiceKey: null`)
- *    nunca alcançava linhas com chave — logo isto é regressão do ramo novo.
+ *  - RED-A (buraco que a chave `m1` FECHA): uma despesa GERAL
+ *    `PAGAMENTO_FATURA_CARTAO` com conta + `settlesInvoiceKey` LEGADO de 2 partes
+ *    + sem import, criada pela rota comum de despesas (PIX/"quita fatura de outro
+ *    cartão"), que NUNCA virou parcela, NÃO parseia como `m1` ⇒ nunca é oferecida
+ *    com `undo` nem é apagável por `undoInvoicePayment`. Só o pagamento manual REAL
+ *    do cockpit (chave `m1`) é elegível.
  *
- * Contrato correto (o que este teste EXIGE): só um pagamento manual REAL de
- * `payInvoice` (com claim de liquidação/flip) é elegível ao undo do cockpit; uma
- * declaração geral de quitação NÃO é apagável por essa rota. Amarrar isso exige
- * a identidade dedicada (`invoiceUndo*`, id ESTÁVEL de cartão) — cujo produtor/
- * guarda vivem em `expense.service.ts` (fora do escopo deste degrau) — ou um
- * campo novo (schema). Enquanto a decisão de contrato não for tomada, este LOCK
- * fica VERMELHO de propósito e barra o merge do atalho por shape.
+ * Contrato (o que este teste EXIGE, INDEPENDENTE da implementação): uma declaração
+ * geral de quitação NÃO é elegível ao undo do cockpit — nem CTA, nem apagamento.
+ * As asserções abaixo não mudam com a abordagem escolhida.
  */
 
 const TENANT = 'mii-guard-tenant';

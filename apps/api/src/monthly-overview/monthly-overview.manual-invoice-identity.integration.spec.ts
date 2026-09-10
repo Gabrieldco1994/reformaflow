@@ -118,9 +118,10 @@ describe('#569 — identidade REAL do pagamento manual de fatura (empate Set/Out
     );
     expect(pay).toMatchObject({ ok: true, month: '2026-10', settledParcelas: 1 });
 
-    // Identidade REALMENTE resolvida persistida (não `dto.month` cego).
+    // Identidade REALMENTE resolvida persistida no namespace reservado `m1`
+    // (com o cardId ESTÁVEL), não `dto.month` cego nem chave legada de 2 partes.
     const payment = await readExpenseRaw(setup, pay.paymentExpenseId);
-    expect(payment?.settlesInvoiceKey).toBe('5555:2026-10');
+    expect(payment?.settlesInvoiceKey).toBe(`m1:${card.id}:5555:2026-10`);
 
     // Setembro: NÃO liquidado, ainda pagável.
     const sep = await overview.getAccountView(TENANT, PESSOAL, '2026-09', REQ);
@@ -192,7 +193,7 @@ describe('#569 — identidade REAL do pagamento manual de fatura (empate Set/Out
   });
 
   it('T3: import Setembro + adiantamento manual Outubro → ambos pagos; manual Out undo OK, import Set undo bloqueado, ledger de Set idêntico', async () => {
-    const { purchase } = await seedTie('6666');
+    const { card: card6666, purchase } = await seedTie('6666');
     await seedStatementImport(setup, { tenantId: TENANT, accountId, id: 'mii-imp-sep' });
 
     // Import de extrato liquida Setembro (empate → mais antigo, sem mês selecionado).
@@ -235,7 +236,10 @@ describe('#569 — identidade REAL do pagamento manual de fatura (empate Set/Out
     );
     expect(pay).toMatchObject({ ok: true, settledParcelas: 1 });
     const octPayment = await readExpenseRaw(setup, pay.paymentExpenseId);
-    expect(octPayment?.settlesInvoiceKey).toBe('6666:2026-10');
+    expect(octPayment?.settlesInvoiceKey).toBe(`m1:${card6666.id}:6666:2026-10`);
+    // Pagamento MANUAL nunca carimba a trilha de importação.
+    expect(octPayment?.invoiceUndoState ?? null).toBeNull();
+    expect(octPayment?.importId ?? null).toBeNull();
 
     // Ambas as faturas pagas.
     const oct = await overview.getAccountView(TENANT, PESSOAL, '2026-10', REQ);
@@ -338,5 +342,90 @@ describe('#569 — identidade REAL do pagamento manual de fatura (empate Set/Out
     await expect(
       overview.undoInvoicePayment(TENANT, PESSOAL, { cardId: card.id, cardLast4: '4444', dueMonth: '2026-10' }, REQ),
     ).rejects.toThrow(/mais de um pagamento/);
+  });
+
+  it('T6: caso REVERSO — paga Setembro no empate → só Setembro PAGO, Outubro segue pendente, sem vazamento', async () => {
+    const { card } = await seedTie('2020');
+    const pay = await overview.payInvoice(
+      TENANT,
+      PESSOAL,
+      {
+        cardId: card.id,
+        cardLast4: '2020',
+        month: '2026-09',
+        amountCents: 10000,
+        accountId,
+        bankLast4: BANK_LAST4,
+        paymentDate: '2026-09-05',
+      },
+      REQ,
+    );
+    const payment = await readExpenseRaw(setup, pay.paymentExpenseId);
+    expect(payment?.settlesInvoiceKey).toBe(`m1:${card.id}:2020:2026-09`);
+
+    const sep = await overview.getAccountView(TENANT, PESSOAL, '2026-09', REQ);
+    const sepInvoice = invoiceRow(sep, '2020', '2026-09');
+    expect(sepInvoice?.status).toBe('PAGO');
+    expect(sepInvoice?.actions).toContain('undo');
+    expect(sepInvoice?.id).toBe(pay.paymentExpenseId);
+
+    const oct = await overview.getAccountView(TENANT, PESSOAL, '2026-10', REQ);
+    const octInvoice = invoiceRow(oct, '2020', '2026-10');
+    expect(octInvoice?.status).toBe('PLANEJADO');
+    expect(octInvoice?.actions).toContain('pay');
+    expect(octInvoice?.actions).not.toContain('undo');
+  });
+
+  it('T7: colisão de last4 — undo com cardId A NÃO consome o pagamento do cartão B (chave m1 é card-bound)', async () => {
+    // Dois cartões ATIVOS de MESMO last4 (dado legado): compra 5555 é compartilhada.
+    const cardA = await setup.creditCard.create({
+      data: { tenantId: TENANT, projectId: PESSOAL, institution: 'ITAU', brand: 'Visa', nickname: 'A', last4: '1212', closingDay: 25, dueDay: 10 },
+    });
+    const cardB = await setup.creditCard.create({
+      data: { tenantId: TENANT, projectId: PESSOAL, institution: 'NUBANK', brand: 'MC', nickname: 'B', last4: '1212', closingDay: 25, dueDay: 10 },
+    });
+    await seedInstallmentPurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: '1212', parcelas: 1, valorCents: 10000,
+      primeiraData: new Date('2026-09-05T00:00:00.000Z'),
+    });
+
+    // Paga via cardId B → chave m1 com o id de B.
+    const pay = await overview.payInvoice(
+      TENANT, PESSOAL,
+      { cardId: cardB.id, month: '2026-10', amountCents: 10000, accountId, bankLast4: BANK_LAST4, paymentDate: '2026-09-06' },
+      REQ,
+    );
+    expect((await readExpenseRaw(setup, pay.paymentExpenseId))?.settlesInvoiceKey).toBe(`m1:${cardB.id}:1212:2026-10`);
+
+    // Undo com cardId A (cartão ERRADO): NÃO casa a chave de B → 404, ZERO efeito.
+    await expect(
+      overview.undoInvoicePayment(TENANT, PESSOAL, { cardId: cardA.id, dueMonth: '2026-10' }, REQ),
+    ).rejects.toThrow(/Nenhum pagamento encontrado/);
+    expect((await readExpenseRaw(setup, pay.paymentExpenseId))?.deletedAt ?? null).toBeNull();
+
+    // Undo com o cartão CORRETO (B) desfaz normalmente.
+    const undo = await overview.undoInvoicePayment(TENANT, PESSOAL, { cardId: cardB.id, dueMonth: '2026-10' }, REQ);
+    expect(undo).toMatchObject({ ok: true, undonePaymentExpenseId: pay.paymentExpenseId });
+    expect((await readExpenseRaw(setup, pay.paymentExpenseId))?.deletedAt).not.toBeNull();
+  });
+
+  it('T8: pagamento que NÃO fecha uma fatura única → NENHUMA identidade forjada (chave nula)', async () => {
+    const card = await seedCardWithClosingDue(setup, {
+      tenantId: TENANT, projectId: PESSOAL, last4: '3030', closingDay: 25, dueDay: 10, nickname: 'multi',
+    });
+    // 2 parcelas (Set + Out) R$100 cada. Pagar R$200 não fecha NENHUMA das duas
+    // faturas de R$100 (fora da tolerância) ⇒ nada é liquidado ⇒ sem identidade.
+    await seedInstallmentPurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: '3030', parcelas: 2, valorCents: 10000,
+      primeiraData: new Date('2026-08-05T00:00:00.000Z'),
+    });
+    const pay = await overview.payInvoice(
+      TENANT, PESSOAL,
+      { cardId: card.id, month: '2026-10', amountCents: 20000, accountId, bankLast4: BANK_LAST4, paymentDate: '2026-09-05' },
+      REQ,
+    );
+    expect(pay.settledParcelas).toBe(0);
+    const payment = await readExpenseRaw(setup, pay.paymentExpenseId);
+    expect(payment?.settlesInvoiceKey ?? null).toBeNull();
   });
 });
