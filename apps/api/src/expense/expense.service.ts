@@ -21,6 +21,7 @@ import {
   resolveAccessibleProjectScope,
   EXPENSE_MODULE,
 } from '../common/access-rules';
+import { parseManualInvoiceKey } from '../common/manual-invoice-key';
 import {
   countActivePurchaseTrail,
   findExpensesWithActivePurchaseTrail,
@@ -700,6 +701,10 @@ export class ExpenseService {
       invoiceUndoState?: string | null;
       invoiceUndoCardId?: string | null;
       cardLast4?: string | null;
+      // #569 — chave `m1` do pagamento manual do cockpit (proveniência do servidor).
+      // OBRIGATÓRIO no snapshot de TODO caller para que a proteção manual não se
+      // perca por um `select` que esqueceu a coluna (participantes indiretos inclusos).
+      settlesInvoiceKey: string | null;
     },
     opts: {
       isRemove?: boolean;
@@ -726,6 +731,32 @@ export class ExpenseService {
     // (estados 2a/2b, inclui M8 sem cartão) É uma linha de trilha real e não pode
     // ser removido nem reclassificado para um tipo incompatível pela porta genérica.
     const stampedPayment = state !== null;
+
+    // #569 — PAGAMENTO MANUAL de fatura registrado pelo COCKPIT (`payInvoice`),
+    // identificado pela chave RESERVADA `m1` em `settlesInvoiceKey`. Proveniência
+    // INDEPENDENTE da trilha de importação: um pagamento manual mantém
+    // `invoice_undo_state` NULL, então NÃO contamina os ramos de importação abaixo
+    // (nem eles a ele). A porta genérica de despesas não pode FORJAR, LIMPAR,
+    // RE-ASSOCIAR (cartão/conta), editar financeiramente, mudar status,
+    // reclassificar nem REMOVER um pagamento manual — a reversão correta é o UNDO
+    // DO COCKPIT ("desfaça o pagamento na fatura"), nunca "desfaça a importação".
+    // Edições puramente descritivas (título/fornecedor/link/imagem) seguem livres.
+    const isManualInvoicePayment =
+      parseManualInvoiceKey(existing.settlesInvoiceKey) !== null;
+    if (isManualInvoicePayment) {
+      if (
+        opts.isRemove ||
+        opts.changedProtectedPaymentFields ||
+        opts.changedFinancials ||
+        opts.changedToIncompatibleType
+      ) {
+        throw new ConflictException(
+          'Este é um pagamento de fatura registrado no cockpit. Desfaça o ' +
+            'pagamento na fatura antes de alterá-lo ou removê-lo.',
+        );
+      }
+      return;
+    }
 
     // B5 — remoção da COMPRA liquidada OU do PAGAMENTO carimbado (qualquer
     // estado do carimbo). O undo do lote deleta via `updateMany` direto (não passa
@@ -1309,7 +1340,7 @@ export class ExpenseService {
       // two rapid requests to create two mirror sets for the same source.
       const sourceInTx = await tx.expense.findFirst({
         where: { id: source.id, tenantId, projectId, deletedAt: null },
-        select: { id: true, linkedExpenseId: true, invoiceUndoState: true, cardLast4: true },
+        select: { id: true, linkedExpenseId: true, invoiceUndoState: true, cardLast4: true, settlesInvoiceKey: true },
       });
       if (!sourceInTx) throw new NotFoundException('Despesa não encontrada');
       if (sourceInTx.linkedExpenseId) {
@@ -1900,6 +1931,7 @@ export class ExpenseService {
               projectId: true,
               tenantId: true,
               deletedAt: true,
+              settlesInvoiceKey: true,
               project: {
                 select: { id: true, type: true, tenantId: true, deletedAt: true },
               },
@@ -1915,7 +1947,7 @@ export class ExpenseService {
         await this.guardImportedInvoiceTrail(
           tx,
           tenantId,
-          { id: target.id },
+          { id: target.id, settlesInvoiceKey: target.settlesInvoiceKey },
           { changedFinancials: true },
         );
         if (
@@ -2011,7 +2043,7 @@ export class ExpenseService {
           await this.guardImportedInvoiceTrail(
             tx,
             tenantId,
-            { id: counterpart.id, invoiceUndoState: counterpart.invoiceUndoState },
+            { id: counterpart.id, invoiceUndoState: counterpart.invoiceUndoState, settlesInvoiceKey: counterpart.settlesInvoiceKey },
             { changedFinancials: true },
           );
           preparedCounterparts.push({
@@ -2215,6 +2247,7 @@ export class ExpenseService {
           invoiceUndoState: true,
           invoiceUndoCardId: true,
           cardLast4: true,
+          settlesInvoiceKey: true,
         },
       });
       if (!cp) continue;
@@ -2566,7 +2599,7 @@ export class ExpenseService {
         if (cascadeId === id) continue; // já checado acima
         const cascadeExpense = await tx.expense.findUnique({
           where: { id: cascadeId },
-          select: { id: true, invoiceUndoState: true, cardLast4: true },
+          select: { id: true, invoiceUndoState: true, cardLast4: true, settlesInvoiceKey: true },
         });
         if (cascadeExpense) {
           await this.guardImportedInvoiceTrail(tx, tenantId, cascadeExpense, {
