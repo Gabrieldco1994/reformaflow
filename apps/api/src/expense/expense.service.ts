@@ -21,7 +21,7 @@ import {
   resolveAccessibleProjectScope,
   EXPENSE_MODULE,
 } from '../common/access-rules';
-import { parseManualInvoiceKey } from '../common/manual-invoice-key';
+import { MANUAL_INVOICE_KEY_VERSION } from '../common/manual-invoice-key';
 import {
   countActivePurchaseTrail,
   findExpensesWithActivePurchaseTrail,
@@ -733,16 +733,22 @@ export class ExpenseService {
     const stampedPayment = state !== null;
 
     // #569 — PAGAMENTO MANUAL de fatura registrado pelo COCKPIT (`payInvoice`),
-    // identificado pela chave RESERVADA `m1` em `settlesInvoiceKey`. Proveniência
-    // INDEPENDENTE da trilha de importação: um pagamento manual mantém
-    // `invoice_undo_state` NULL, então NÃO contamina os ramos de importação abaixo
-    // (nem eles a ele). A porta genérica de despesas não pode FORJAR, LIMPAR,
-    // RE-ASSOCIAR (cartão/conta), editar financeiramente, mudar status,
-    // reclassificar nem REMOVER um pagamento manual — a reversão correta é o UNDO
-    // DO COCKPIT ("desfaça o pagamento na fatura"), nunca "desfaça a importação".
-    // Edições puramente descritivas (título/fornecedor/link/imagem) seguem livres.
-    const isManualInvoicePayment =
-      parseManualInvoiceKey(existing.settlesInvoiceKey) !== null;
+    // identificado pelo NAMESPACE RESERVADO `m1:` em `settlesInvoiceKey`. A porta
+    // genérica protege o PREFIXO reservado, INCLUSIVE um descritor `m1` MALFORMED:
+    // um `m1` corrompido não pode "cair" na rota ordinária (state NULL/claim 0) e
+    // virar editável/removível — a proveniência é o prefixo, não o parse. (Já o
+    // reader/undo só AGEM sobre um parse ESTRITO válido.) A chave LEGADA de 2 partes
+    // (`{last4}:{dueMonth}` — cartão-paga-cartão/PIX) não tem o prefixo e segue livre
+    // pela rota ordinária. Proveniência INDEPENDENTE da trilha de importação: um
+    // pagamento manual mantém `invoice_undo_state` NULL, então NÃO contamina os ramos
+    // de importação abaixo (nem eles a ele). Não pode FORJAR, LIMPAR, RE-ASSOCIAR
+    // (cartão/conta), editar financeiramente, mudar status, reclassificar nem REMOVER
+    // um pagamento manual — a reversão correta é o UNDO DO COCKPIT ("desfaça o
+    // pagamento na fatura"), nunca "desfaça a importação". Edições puramente
+    // descritivas (título/fornecedor/link/imagem) seguem livres.
+    const isManualInvoicePayment = (existing.settlesInvoiceKey ?? '').startsWith(
+      `${MANUAL_INVOICE_KEY_VERSION}:`,
+    );
     if (isManualInvoicePayment) {
       if (
         opts.isRemove ||

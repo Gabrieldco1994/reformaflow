@@ -136,11 +136,13 @@ describe('#569 — pagamento manual m1 é inforjável pela rota genérica de des
     expect(parseManualInvoiceKey(key)).toBeNull();
   });
 
-  it('injeção de settlesInvoiceDueMonth com ":" não consegue forjar m1 no create (formato validado)', async () => {
-    await mintManualPayment();
-    // O DTO valida settlesInvoiceDueMonth como YYYY-MM; um valor com ":" é rejeitado
-    // ANTES de compor a chave — mas mesmo se passasse, o produtor usa {last4}:{mês}.
-    const res = await cap(() => expenses.create(TENANT, PESSOAL, {
+  it('injeção de settlesInvoiceDueMonth NÃO cunha m1 no create (produtor prefixa o last4 do cartão quitado)', async () => {
+    await mintManualPayment(); // (re)semeia tenant + card 7070 + conta + 1 pagamento m1 legítimo
+    // Chamada de SERVIÇO direta (sem ValidationPipe): o `create` retém o input cru,
+    // mas o PRODUTOR compõe a chave como `{last4}:{settlesInvoiceDueMonth}` — o
+    // resultado começa por `7070:`, NUNCA pelo prefixo reservado `m1:`. O atacante
+    // não consegue cunhar um `m1:` real por esta rota.
+    const created = await expenses.create(TENANT, PESSOAL, {
       tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
       titulo: 'forja',
       valor: 100,
@@ -151,13 +153,42 @@ describe('#569 — pagamento manual m1 é inforjável pela rota genérica de des
       bankAccountId: accountId,
       settlesInvoiceCardId: card.id,
       settlesInvoiceDueMonth: `m1:${card.id}:7070:2026-10`,
-    } as never, REQ.id, undefined, REQ));
-    // Ou falha de validação, ou cria mas SEM chave m1.
-    if ((res as any).ok) {
-      const row = await setup.expense.findUnique({ where: { id: (res as any).ok.id } });
-      expect(isManualInvoiceKey((row as any)?.settlesInvoiceKey)).toBe(false);
-    } else {
-      expect((res as any).status ?? 400).toBeGreaterThanOrEqual(400);
-    }
+    } as never, REQ.id, undefined, REQ);
+    const row = await setup.expense.findUnique({ where: { id: (created as { id: string }).id } });
+    const key = (row as any)?.settlesInvoiceKey as string;
+    // Resultado EXATO observado.
+    expect(key).toBe(`7070:m1:${card.id}:7070:2026-10`);
+    expect(key.startsWith('m1:')).toBe(false);
+    expect(isManualInvoiceKey(key)).toBe(false);
+    // Nenhuma chave NOVA com o prefixo reservado foi criada — só o mint legítimo.
+    const all = await setup.expense.findMany({
+      where: { tenantId: TENANT, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
+      select: { settlesInvoiceKey: true },
+    });
+    expect(all.filter((r) => (r.settlesInvoiceKey ?? '').startsWith('m1:'))).toHaveLength(1);
+  });
+
+  it('chave m1 MALFORMED continua protegida pela rota genérica (prefixo reservado, não o parse)', async () => {
+    const id = await mintManualPayment();
+    // Corrompe a identidade no banco descartável mantendo o PREFIXO reservado.
+    await setup.expense.update({ where: { id }, data: { settlesInvoiceKey: 'm1:corrompido' } });
+    expect(isManualInvoiceKey('m1:corrompido')).toBe(false); // parse ESTRITO recusa
+    const before = await setup.expense.findUnique({ where: { id } });
+
+    // Financeiro → 409 (prefixo reservado protege o m1 malformado), ZERO escrita.
+    const patch = await cap(() => expenses.update(TENANT, PESSOAL, id, { valor: 500 } as never, REQ));
+    expect((patch as any).status).toBe(409);
+    expect((patch as any).msg).not.toMatch(/importa/i);
+    expect(await setup.expense.findUnique({ where: { id } })).toEqual(before);
+
+    // Remoção → 409, pagamento intacto.
+    const rm = await cap(() => expenses.remove(TENANT, PESSOAL, id, REQ));
+    expect((rm as any).status).toBe(409);
+    expect((await setup.expense.findUnique({ where: { id } }) as any)?.deletedAt ?? null).toBeNull();
+
+    // Descritivo (título) segue permitido.
+    const desc = await cap(() => expenses.update(TENANT, PESSOAL, id, { titulo: 'ok desc' } as never, REQ));
+    expect((desc as any).ok).toBeTruthy();
+    expect((await setup.expense.findUnique({ where: { id } }) as any)?.titulo).toBe('ok desc');
   });
 });
