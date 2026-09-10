@@ -115,14 +115,17 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
       },
       cashFlowEntry: { findMany: jest.fn().mockResolvedValue([]) },
       invoiceAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      importedInvoiceLiquidation: { count: jest.fn().mockResolvedValue(0) },
       $transaction: jest.fn(async (callback: any) => callback(prisma)),
     };
 
     settlement = {
       prepareSettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }),
+      resolveEffectiveDueMonths: jest.fn().mockResolvedValue([]),
       applyPreparedSettlement: jest
         .fn()
-        .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }),
+        .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0, flippedEntries: [] }),
+      prepareUnsettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }),
       unsettleInvoice: jest
         .fn()
         .mockResolvedValue({ revertedExpenses: 0, revertedParcelas: 0 }),

@@ -23,6 +23,10 @@ const makePrismaMock = () => {
     expense: expenseMock,
     rateioAllocation: { findMany: jest.fn().mockResolvedValue([]) },
     crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
+    importedInvoiceLiquidation: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn(),
   };
   // $transaction roda o callback com o próprio mock (representa `tx`).

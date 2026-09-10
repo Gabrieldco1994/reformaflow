@@ -970,13 +970,19 @@ visões de Mês/Ano.
   - Importações **sem pagamento de fatura de cartão** são revertidas
     normalmente: despesas, recebimentos e entradas de caixa do lote são
     removidos e os vínculos cross-project são desfeitos.
-  - Importações que **contêm um pagamento de fatura de cartão** não podem ser
+  - Importações com pagamento de fatura **legado sem trilha**, ou com
+    **liquidação registrada pelo PR 1 de #569 (em validação)**, não podem ser
     desfeitas automaticamente: o preview mostra "**Não é possível desfazer
     automaticamente**", a ação "Desfazer importação" fica visível mas
     desabilitada, e o lote inteiro permanece intacto — nada é removido nem
     alterado. Não há desfazer manual para esse pagamento.
   - Recorrências já propagadas (Casa/Carro) continuam sendo um efeito não
     revertido pelo desfazer.
+  - Na implementação do **PR 1 de #569 em validação**, um pagamento novo
+    registrado como **nenhuma parcela liquidada** (`PROCESSED_NONE`, inclusive
+    sem cartão identificado) não bloqueia, por si só, o desfazer normal do lote.
+    Legado, versão de trilha desconhecida ou outro pagamento que tenha liquidado
+    parcelas continuam impedindo o desfazer do lote inteiro.
 - Quando há mais de uma conta, o deep-link sem uma conta específica pede uma
   escolha explícita. Um `accountId` inválido mostra erro em vez de editar outra.
 - **Prévia do extrato — categoria e origem da sugestão:** cada lançamento de
@@ -1008,6 +1014,54 @@ visões de Mês/Ano.
   `/conta?focus=openingBalance`, abrindo a criação, a conta única ou o seletor.
 - Links antigos para `/bank-accounts` continuam compatíveis: redirecionam para
   `/conta` preservando todos os parâmetros da URL.
+
+#### #569 — Proteções da liquidação por extrato (PR 1 em validação)
+
+**Status em 2026-09-09:** efeitos acordados para o PR 1, com implementação e
+validação em andamento; **não é anúncio de merge ou disponibilidade em produção**.
+O [design de #569](569-invoice-undo-design.md) separa este degrau do PR 2 futuro.
+
+- **Trilha exata:** quando o pagamento importado liquida compras, registra quais
+  parcelas realmente passaram de planejadas a pagas, ligadas ao pagamento e à
+  importação. Identificar o cartão, sozinho, não prova que a fatura foi liquidada.
+  Se nenhuma parcela mudou, registra esse resultado sem inventar uma quitação.
+- **Proteção contra alterações incompatíveis:** compras/parcelas liquidadas e seu
+  pagamento ficam protegidos contra mudanças financeiras ou de identidade que
+  invalidem essa trilha — por exemplo, trocar valor, datas, status ou cartão,
+  mudar tipo, categoria ou sala quando isso recria as parcelas, excluir ou
+  refazer um rateio que altere as parcelas protegidas. Desfazer um rateio também
+  é bloqueado se uma importação posterior liquidou parcelas de um participante.
+  Conciliar ou desconciliar uma parcela também é bloqueado quando a operação
+  recriaria parcelas protegidas da mesma compra. Tentar pagar manualmente a mesma
+  fatura com trilha ativa também é bloqueado, sem nova saída.
+- **Faturas com valores iguais:** no pagamento manual, a fatura selecionada
+  desempata valores igualmente próximos dentro da janela de pagamento e da
+  tolerância permitidas. Assim, pagar a próxima fatura não é bloqueado pela
+  trilha da anterior apenas por terem o mesmo valor. Selecionar a fatura já
+  liquidada continua bloqueado; um mês fora da janela ou com pior correspondência
+  de valor não substitui a fatura efetiva.
+- **Pagamento manual e desfazer:** quando **Pagar fatura** liquida parcelas de
+  uma única fatura, o pagamento mantém a identidade do cartão e do mês realmente
+  quitado. A indicação de pago e **Desfazer pagamento** usam essa mesma identidade,
+  mesmo se outra fatura tiver valor igual. Para alterar financeiramente ou excluir
+  esse pagamento, use **Desfazer pagamento** na fatura; corrigir o título continua
+  permitido. Declarações genéricas de quitação e pagamentos importados não ganham
+  essa ação. Pagamentos antigos não recebem identificação retroativa.
+- **Edição descritiva continua permitida:** corrigir título, fornecedor, link ou
+  imagem, sem mudança financeira ou de vínculo, preserva a identidade das
+  parcelas e a trilha; não recria as parcelas nem desfaz o pagamento.
+- **Cross-project existente permanece:** vincular uma despesa elegível ou usar a
+  ação já existente **Criar despesa em outro projeto e vincular** (§4.4) continua
+  sujeito às permissões e proteções dos participantes. O PR 1 não entrega uma
+  nova criação direta/inline cross-project na prévia de importação. Origem e
+  destino continuam respeitando suas regras de gasto, com **uma única saída de
+  caixa**, não uma segunda saída no destino.
+- **Limite do PR 1:** a trilha de uma liquidação (`PROCESSED_SETTLED`) já é
+  gravada, mas **desfazer esse lote continua indisponível**. Não há novo painel
+  de fatura nem leitura detalhada de settlement; esses recursos e a reversão
+  exata ficam no **PR 2**. Se a mensagem de bloqueio pedir para “desfazer a
+  importação primeiro”, isso não significa que o PR 1 já permita essa ação;
+  não exclua nem altere parcelas manualmente para contornar a proteção.
 
 #### 4.8.1 Importar para Carteira (sem conta vinculada)
 

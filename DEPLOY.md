@@ -74,6 +74,14 @@ Antes de publicar uma migration sobre schema persistido:
 2. crie backup restaurável e teste o restore;
 3. confirme inventário antes/depois e que o entrypoint normal termina com a API saudável.
 
+Para o rollback de releases que carregam migração aditiva com trilha e guards (ex.: **#569 PR1**, em
+validação), o critério de reversão vive no design — ver §3.3 de
+[docs/569-invoice-undo-design.md](docs/569-invoice-undo-design.md). Em resumo: rollback é forward-only,
+exige um novo HEAD compatível (por `git revert` ou fix) que preserve a trilha e os guards e passe o
+pipeline SHA-strict; uma imagem antiga sem os guards não serve como alvo de rollback, mesmo com o ramo
+`matchedCard` desativado. O `DROP` destrutivo da tabela/colunas não está autorizado; as pré-condições
+ficam no design.
+
 #### Runbook de recuperação de migration falha
 
 O CLI-fonte é `node scripts/normalize-external-id-duplicates.mjs`; como a imagem runtime não contém

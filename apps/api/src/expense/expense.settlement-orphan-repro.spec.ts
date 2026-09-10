@@ -146,6 +146,10 @@ function makeHarness() {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
     },
+    importedInvoiceLiquidation: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     crossProjectSettlement: {
       findUnique: jest.fn(async ({ where }: any) => {
         const k = `${where.targetExpenseId_parcelaIndex.targetExpenseId}|${where.targetExpenseId_parcelaIndex.parcelaIndex}`;

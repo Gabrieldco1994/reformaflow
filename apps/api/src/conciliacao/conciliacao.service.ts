@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   buildInstallments,
@@ -20,6 +20,10 @@ import {
   userCanAccessProject,
   userCanAccessProjectModule,
 } from '../common/access-rules';
+import {
+  IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE,
+  findExpensesWithActivePurchaseTrail,
+} from '../common/imported-invoice-trail';
 
 type Tx = Prisma.TransactionClient;
 
@@ -369,6 +373,33 @@ export class ConciliacaoService {
     const existingSettlement = await tx.crossProjectSettlement.findUnique({
       where: { targetExpenseId_parcelaIndex: { targetExpenseId, parcelaIndex } },
     });
+
+    // #569 (degrau, SIBLING do rateio) — nenhum participante EFETIVO da
+    // conciliação por parcela pode ter trilha de liquidação por importação ATIVA
+    // como COMPRA. `regenerateTargetCashflow` (abaixo) soft-deleta+recria TODAS as
+    // `CashFlowEntry` do ALVO — inclusive as de parcelas IRMÃS já reivindicadas por
+    // um `commitImport` real — órfãozando `imported_invoice_liquidations.
+    // cash_flow_entry_id`. Cobre o ALVO, a FONTE (espelho) e o ESPELHO ANTIGO que
+    // seria soft-deletado quando esta parcela troca de source (`existingSettlement`).
+    // Lido DENTRO da tx (fecha o TOCTOU com um `commitImport` concorrente), APÓS a
+    // ACL (`assertCanSettleTargets`) e ANTES da primeira escrita (softDeleteMirror/
+    // upsert): 409 com zero efeitos. Conciliações limpas seguem normalmente.
+    const settleParticipants = [sourceExpenseId, targetExpenseId];
+    if (
+      existingSettlement?.sourceExpenseId &&
+      existingSettlement.sourceExpenseId !== sourceExpenseId
+    ) {
+      settleParticipants.push(existingSettlement.sourceExpenseId);
+    }
+    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
+      tx,
+      tenantId,
+      settleParticipants,
+    );
+    if (claimedParticipants.size > 0) {
+      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+    }
+
     if (
       existingSettlement?.sourceExpenseId &&
       existingSettlement.sourceExpenseId !== sourceExpenseId
@@ -512,6 +543,23 @@ export class ConciliacaoService {
       where: { tenantId, sourceExpenseId },
     });
     if (rows.length === 0) return { targets: [] };
+
+    // #569 (degrau, SIBLING do rateio) — CORE de reversão de settlement (chamado
+    // por `reverseSourceLinks` ⇐ `desconciliar`/desfazer importação). O loop
+    // abaixo chama `regenerateTargetCashflow`, que soft-deleta+recria TODAS as
+    // `CashFlowEntry` de cada ALVO — órfãozando uma parcela IRMÃ já reivindicada
+    // por um `commitImport` real (`imported_invoice_liquidations.cash_flow_entry_id`
+    // ATIVO). Protege a FONTE e TODOS os alvos, DENTRO da tx (fecha o TOCTOU com um
+    // `commitImport` concorrente), APÓS a ACL (`assertCanReverseSources` acima) e
+    // ANTES da primeira escrita: 409 com zero efeitos. Reversões limpas seguem.
+    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
+      tx,
+      tenantId,
+      [sourceExpenseId, ...rows.map((r) => r.targetExpenseId)],
+    );
+    if (claimedParticipants.size > 0) {
+      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+    }
 
     const byTarget = new Map<string, typeof rows>();
     for (const r of rows) {
@@ -759,6 +807,24 @@ export class ConciliacaoService {
       }
     }
 
+    // #569 (degrau) — NENHUM participante EFETIVO do rateio pode ter trilha de
+    // liquidação por importação ATIVA como COMPRA: `regenerateRateioTargetCashflow`
+    // (alvos) e a transformação da fonte em espelho regeneram o caixa e
+    // órfãozariam o claim (`imported_invoice_liquidations`). O conjunto cobre a
+    // FONTE, o espelho atual (`source.linkedExpenseId`), os alvos ANTIGOS ainda
+    // vinculados (`currentRows`) e os alvos pedidos (`allocations`, já em
+    // `targetIds`). Lido DENTRO da tx (fecha o TOCTOU com um `commitImport`
+    // concorrente) e ANTES da primeira escrita — 409 com zero efeitos. Rateios
+    // legítimos (sem claim) seguem normalmente.
+    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
+      tx,
+      tenantId,
+      [sourceExpenseId, ...targetIds],
+    );
+    if (claimedParticipants.size > 0) {
+      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+    }
+
     // limpa rateio anterior somente depois de autorizar e validar o conjunto todo
     await this.unratearSource(tx, { tenantId, sourceExpenseId }, requester);
 
@@ -842,6 +908,26 @@ export class ConciliacaoService {
     );
     const rows = await tx.rateioAllocation.findMany({ where: { tenantId, sourceExpenseId } });
     if (rows.length === 0) return { targets: [] };
+
+    // #569 (degrau) — CORE de reversão de rateio: reabre o status dos alvos e
+    // chama `regenerateTargetCashflow`, que soft-deleta+recria as `CashFlowEntry`
+    // do alvo. Se, DEPOIS do rateio, uma importação real liquidou a parcela de um
+    // participante, essa regeneração órfãozaria `imported_invoice_liquidations.
+    // cash_flow_entry_id` ATIVO. Protege o CONJUNTO EFETIVAMENTE mutado (fonte —
+    // `linkedExpenseId` — e todos os alvos), lido DENTRO da tx (fecha o TOCTOU com
+    // um `commitImport` concorrente), APÓS a ACL (`assertCanReverseSources` acima,
+    // que nega participante oculto antes de tocar o ledger) e ANTES da primeira
+    // escrita: 409 com zero efeitos. Como é o core, cobre `desratear`,
+    // `reverseSourceLinks` e o cleanup do `ratearSource` sem espalhar guardas nos
+    // callers. Reversões legítimas (sem claim) seguem normalmente.
+    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
+      tx,
+      tenantId,
+      [sourceExpenseId, ...rows.map((r) => r.targetExpenseId)],
+    );
+    if (claimedParticipants.size > 0) {
+      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+    }
 
     const targets: string[] = [];
     for (const r of rows) {

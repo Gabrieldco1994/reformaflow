@@ -1,0 +1,316 @@
+// PR: PR 1 (degrau) — completa as guardas de `ExpenseService.update` sobre a
+// trilha de liquidação por importação (#569 §4 B3/B9 + §2b/#1).
+// RED por comportamento: hoje `changedFinancials` passado a
+// `guardImportedInvoiceTrail` NÃO inclui `changedStatus`/`changedFormaPagamento`,
+// então PATCH { status } da compra liquidada e PATCH { formaPagamento } do
+// pagamento carimbado resolvem sem 409; e `regenerateCashFlow` roda incondicional
+// num PATCH puramente descritivo, trocando os ids das `CashFlowEntry` e orfanando
+// `imported_invoice_liquidations.cash_flow_entry_id`.
+import { PrismaClient } from "@prisma/client";
+import { ConflictException } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import {
+  commitStatement,
+  makeBankAccountService,
+  makeExpenseService,
+  pessoalRequester,
+  resetTenant,
+  seedBankAccount,
+  seedCardWithClosingDue,
+  seedInstallmentPurchase,
+  seedPessoal,
+  seedStatementImport,
+} from "../bank-account/__tests__/invoice-undo.fixtures";
+
+const TENANT = "iul-trail-guard-tenant";
+const PESSOAL = "iul-trail-guard-pessoal";
+const CARD = "4600";
+const BANK = "8600";
+const R = pessoalRequester(PESSOAL);
+
+const setup = new PrismaClient();
+const prisma = new PrismaService();
+
+describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagamento/descritivo)", () => {
+  let bank: ReturnType<typeof makeBankAccountService>;
+  let expenses: ReturnType<typeof makeExpenseService>;
+  let accountId: string;
+  let cardId: string;
+
+  beforeAll(async () => {
+    await setup.$connect();
+    await prisma.onModuleInit();
+    await resetTenant(setup, TENANT);
+    await seedPessoal(setup, { tenantId: TENANT, projectId: PESSOAL });
+    ({ id: cardId } = await seedCardWithClosingDue(setup, {
+      tenantId: TENANT, projectId: PESSOAL, last4: CARD, closingDay: 20, dueDay: 1,
+    }));
+    ({ id: accountId } = await seedBankAccount(setup, { tenantId: TENANT, projectId: PESSOAL, last4: BANK }));
+    bank = makeBankAccountService(prisma);
+    expenses = makeExpenseService(prisma);
+  });
+
+  afterEach(async () => {
+    await setup.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
+    await setup.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
+    await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+    await setup.expense.deleteMany({ where: { tenantId: TENANT } });
+    await setup.room.deleteMany({ where: { projectId: PESSOAL } });
+    await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
+  });
+
+  afterAll(async () => {
+    await resetTenant(setup, TENANT);
+    await prisma.onModuleDestroy();
+    await setup.$disconnect();
+  });
+
+  /**
+   * Compra 1x no ciclo que fecha 20/06 e vence 2026-07 + pagamento importado em
+   * julho com o total exato → a parcela vira PAGO e grava a trilha
+   * `PROCESSED_SETTLED` (1 item ativo). Precondição financeira asseverada.
+   */
+  async function importSettled(parcelas = 1, valorCents = 30_000) {
+    const purchase = await seedInstallmentPurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas, valorCents,
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+    });
+    const commit = await commitStatement(bank, {
+      tenantId: TENANT, projectId: PESSOAL, accountId, bankLast4: BANK, cardLast4: CARD,
+      debitCents: valorCents, date: "20260705", period: "2026-07", requester: R,
+      fitId: `s-${Math.random()}`,
+    });
+    const payment = await setup.expense.findFirst({
+      where: { tenantId: TENANT, tipoDespesa: "PAGAMENTO_FATURA_CARTAO", importId: commit.importId },
+    });
+    const entry0 = await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } });
+    expect(entry0?.status).toBe("PAGO");
+    expect(await setup.importedInvoiceLiquidation.count({ where: { tenantId: TENANT, deletedAt: null } })).toBeGreaterThan(0);
+    return { purchaseId: purchase.id, entryIds: purchase.entryIds, paymentId: payment!.id, importId: commit.importId };
+  }
+
+  const activeLedger = () =>
+    setup.importedInvoiceLiquidation.count({ where: { tenantId: TENANT, deletedAt: null } });
+
+  it("2a — PATCH { status } da COMPRA liquidada → 409 ConflictException, zero escrita no ledger", async () => {
+    const { purchaseId } = await importSettled();
+    const ledgerBefore = await activeLedger();
+    await expect(
+      expenses.update(TENANT, PESSOAL, purchaseId, { status: "PLANEJADO" } as never, R),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(await activeLedger()).toBe(ledgerBefore);
+  });
+
+  it("2a — PATCH { formaPagamento } do PAGAMENTO carimbado (PROCESSED_SETTLED) → 409 ConflictException", async () => {
+    const { paymentId } = await importSettled();
+    const ledgerBefore = await activeLedger();
+    await expect(
+      expenses.update(TENANT, PESSOAL, paymentId, { formaPagamento: "PARCELADO" } as never, R),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(await activeLedger()).toBe(ledgerBefore);
+  });
+
+  it("2a — PATCH { status } do PAGAMENTO carimbado → 409 ConflictException", async () => {
+    const { paymentId } = await importSettled();
+    await expect(
+      expenses.update(TENANT, PESSOAL, paymentId, { status: "PLANEJADO" } as never, R),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("2b — PATCH puramente descritivo ({ titulo }) numa compra parcelada liquidada NÃO regenera CashFlowEntry: mesmos ids/valores/status; linhas do ledger intactas", async () => {
+    const { purchaseId, entryIds } = await importSettled(2, 30_000);
+    const entriesBefore = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchaseId }, orderBy: { data: "asc" },
+    });
+    const ledgerBefore = await setup.importedInvoiceLiquidation.findMany({
+      where: { tenantId: TENANT }, orderBy: { id: "asc" },
+    });
+    expect(entriesBefore.every((e) => !e.deletedAt)).toBe(true);
+
+    await expenses.update(TENANT, PESSOAL, purchaseId, { titulo: "renomeada" } as never, R);
+
+    const entriesAfter = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchaseId }, orderBy: { data: "asc" },
+    });
+    // ids preservados (regenerate teria trocado todos)
+    expect(entriesAfter.map((e) => e.id).sort()).toEqual([...entryIds].sort());
+    expect(entriesAfter.every((e) => !e.deletedAt)).toBe(true);
+    expect(entriesAfter.map((e) => [e.valor, e.status, e.parcela])).toEqual(
+      entriesBefore.map((e) => [e.valor, e.status, e.parcela]),
+    );
+    // a linha do ledger continua apontando para a mesma (viva) CashFlowEntry
+    const ledgerAfter = await setup.importedInvoiceLiquidation.findMany({
+      where: { tenantId: TENANT }, orderBy: { id: "asc" },
+    });
+    expect(ledgerAfter).toEqual(ledgerBefore);
+    const claimedEntry = await setup.cashFlowEntry.findUnique({
+      where: { id: ledgerAfter[0].cashFlowEntryId },
+    });
+    expect(claimedEntry?.deletedAt).toBeNull();
+    expect(claimedEntry?.status).toBe("PAGO");
+  });
+
+  it("2b — PATCH que muda a config de parcelamento ({ quantidadeParcela }) numa compra SEM trilha ainda regenera o caixa (não quebrou o caminho comum)", async () => {
+    const purchase = await seedInstallmentPurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+    });
+    const idsBefore = purchase.entryIds;
+    await expenses.update(TENANT, PESSOAL, purchase.id, { quantidadeParcela: 3 } as never, R);
+    const after = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchase.id, deletedAt: null }, orderBy: { data: "asc" },
+    });
+    expect(after).toHaveLength(3);
+    expect(after.some((e) => idsBefore.includes(e.id))).toBe(false);
+  });
+
+  it("2c — updateInstallmentDate numa compra parcelada com parcela liquidada por importação → 409, zero regeneração de caixa", async () => {
+    const { purchaseId, entryIds } = await importSettled(2, 20_000);
+    const entriesBefore = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchaseId }, orderBy: { data: "asc" },
+    });
+    await expect(
+      expenses.updateInstallmentDate(TENANT, PESSOAL, purchaseId, 1, "2026-09-15", R),
+    ).rejects.toBeInstanceOf(ConflictException);
+    const entriesAfter = await setup.cashFlowEntry.findMany({
+      where: { expenseId: purchaseId }, orderBy: { data: "asc" },
+    });
+    expect(entriesAfter.map((e) => e.id).sort()).toEqual([...entryIds].sort());
+    expect(entriesAfter.map((e) => [e.valor, e.status])).toEqual(
+      entriesBefore.map((e) => [e.valor, e.status]),
+    );
+  });
+
+  it("2c — remove() cujo cascade arrastaria um ESPELHO (linkedExpenseId) liquidado por importação → 409, zero escrita", async () => {
+    const { purchaseId: mirrorId, entryIds } = await importSettled(1, 25_000);
+    // despesa comum que aponta para o espelho liquidado via linkedExpenseId
+    const head = await setup.expense.create({
+      data: {
+        tenantId: TENANT, projectId: PESSOAL, tipoDespesa: "OUTROS", titulo: "cabeca",
+        valor: 25_000, quantidade: 1, valorTotal: 25_000, formaPagamento: "A_VISTA",
+        status: "PLANEJADO", linkedExpenseId: mirrorId,
+      },
+    });
+    const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
+    await expect(expenses.remove(TENANT, PESSOAL, head.id, R)).rejects.toBeInstanceOf(ConflictException);
+    expect(await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
+    expect((await setup.cashFlowEntry.findUnique({ where: { id: entryIds[0] } }))?.deletedAt).toBeNull();
+  });
+
+  // ── GAP 1 (#569): pino de mutação do gate comum `shouldRegenerateCashFlow`
+  //    (expense.service.ts:1736). Só `changedQuantidadeParcela` estava coberto
+  //    (2b acima). Cada termo abaixo isola SEU insumo: se removido do OR, o PATCH
+  //    correspondente deixa de regenerar ⇒ o respectivo `it` fica VERMELHO
+  //    (verificado por mutação). `changedFormaPagamento`/`changedDataPagamento`
+  //    não são isolados aqui porque o recálculo de parcelamento já regenera por
+  //    outro caminho para esses DTOs — pino desses fica p/ um cenário dedicado.
+  describe("gate comum shouldRegenerateCashFlow — pino por termo (compra SEM trilha)", () => {
+    async function seedParcelada() {
+      const p = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+      });
+      return { id: p.id, idsBefore: [...p.entryIds] };
+    }
+
+    async function assertRegenerated(purchaseId: string, idsBefore: string[]) {
+      const all = await setup.cashFlowEntry.findMany({ where: { expenseId: purchaseId }, orderBy: { data: "asc" } });
+      const live = all.filter((e) => !e.deletedAt);
+      const old = all.filter((e) => idsBefore.includes(e.id));
+      // todas as entries antigas viraram deletedAt != null
+      expect(old.every((e) => e.deletedAt != null)).toBe(true);
+      // nasceram entries novas (ids diferentes)
+      expect(live.length).toBeGreaterThan(0);
+      expect(live.some((e) => idsBefore.includes(e.id))).toBe(false);
+    }
+
+    it("changedValor — PATCH { valor } regenera o caixa", async () => {
+      const { id, idsBefore } = await seedParcelada();
+      await expenses.update(TENANT, PESSOAL, id, { valor: 123.45 } as never, R);
+      await assertRegenerated(id, idsBefore);
+    });
+
+    it("changedStatus — PATCH { status } regenera o caixa", async () => {
+      const { id, idsBefore } = await seedParcelada();
+      await expenses.update(TENANT, PESSOAL, id, { status: "PAGO" } as never, R);
+      await assertRegenerated(id, idsBefore);
+    });
+
+    it("changedTipoDespesa — PATCH { tipoDespesa } regenera o caixa", async () => {
+      const { id, idsBefore } = await seedParcelada();
+      await expenses.update(TENANT, PESSOAL, id, { tipoDespesa: "MATERIAL" } as never, R);
+      await assertRegenerated(id, idsBefore);
+    });
+
+    it("changedRoom — PATCH { roomId } regenera o caixa", async () => {
+      const room = await setup.room.create({ data: { projectId: PESSOAL, name: `Sala ${Math.random()}` } });
+      const { id, idsBefore } = await seedParcelada();
+      await expenses.update(TENANT, PESSOAL, id, { roomId: room.id } as never, R);
+      await assertRegenerated(id, idsBefore);
+    });
+  });
+
+  // ── GAP 2 (#569): pino das guardas de PARTICIPANTE INDIRETO de
+  //    updateInstallmentDate. Só o alvo DIRETO (expense.service.ts:1794) tinha
+  //    teste; o loop de alvos de rateio (:1850) e o par vinculado (:1946) podiam
+  //    ser removidos com a suíte verde.
+  describe("updateInstallmentDate — guarda participantes indiretos", () => {
+    async function seedLedgerRowFor(purchaseExpenseId: string, entryId: string) {
+      const importId = await seedStatementImport(setup, {
+        tenantId: TENANT, accountId, id: `imp-gap2-${Math.random().toString(36).slice(2)}`,
+      });
+      await setup.importedInvoiceLiquidation.create({
+        data: {
+          tenantId: TENANT, paymentExpenseId: purchaseExpenseId, importId,
+          purchaseExpenseId, cashFlowEntryId: entryId,
+          cardId, prevStatus: "PLANEJADO", entryValorCents: 10_000, dueMonth: "2026-07",
+        },
+      });
+    }
+
+    it("2c-indireto — ALVO DE RATEIO com linha de ledger ATIVA → updateInstallmentDate na FONTE dá 409, zero regeneração", async () => {
+      const source = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+      });
+      const target = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"), titulo: "alvo-rateio",
+      });
+      await setup.rateioAllocation.create({
+        data: {
+          tenantId: TENANT, sourceExpenseId: source.id, targetExpenseId: target.id,
+          allocation: 20_000, plannedStatus: "PLANEJADO",
+        },
+      });
+      await seedLedgerRowFor(target.id, target.entryIds[0]);
+      const idsBefore = [...source.entryIds];
+      await expect(
+        expenses.updateInstallmentDate(TENANT, PESSOAL, source.id, 1, "2026-09-15", R),
+      ).rejects.toBeInstanceOf(ConflictException);
+      const after = await setup.cashFlowEntry.findMany({ where: { expenseId: source.id }, orderBy: { data: "asc" } });
+      expect(after.map((e) => e.id).sort()).toEqual([...idsBefore].sort());
+      expect(after.every((e) => !e.deletedAt)).toBe(true);
+    });
+
+    it("2c-indireto — PAR VINCULADO (linkedExpenseId) com linha de ledger ATIVA → updateInstallmentDate no head dá 409, zero regeneração", async () => {
+      const counterpart = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"), titulo: "par-vinculado",
+      });
+      const head = await seedInstallmentPurchase(setup, {
+        tenantId: TENANT, projectId: PESSOAL, cardLast4: CARD, parcelas: 2, valorCents: 10_000,
+        primeiraData: new Date("2026-06-10T12:00:00.000Z"), titulo: "head",
+      });
+      await setup.expense.update({ where: { id: head.id }, data: { linkedExpenseId: counterpart.id } });
+      await seedLedgerRowFor(counterpart.id, counterpart.entryIds[0]);
+      const idsBefore = [...head.entryIds];
+      await expect(
+        expenses.updateInstallmentDate(TENANT, PESSOAL, head.id, 1, "2026-09-15", R),
+      ).rejects.toBeInstanceOf(ConflictException);
+      const after = await setup.cashFlowEntry.findMany({ where: { expenseId: head.id }, orderBy: { data: "asc" } });
+      expect(after.map((e) => e.id).sort()).toEqual([...idsBefore].sort());
+      expect(after.every((e) => !e.deletedAt)).toBe(true);
+    });
+  });
+});

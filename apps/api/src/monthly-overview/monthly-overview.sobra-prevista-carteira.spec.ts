@@ -118,7 +118,7 @@ describe("MonthlyOverviewService.getAccountView — #519 carteira na sobra previ
       prepareSettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }),
       applyPreparedSettlement: jest
         .fn()
-        .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }),
+        .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0, flippedEntries: [] }),
     };
 
     const module: TestingModule = await Test.createTestingModule({

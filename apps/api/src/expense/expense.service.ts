@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
@@ -21,6 +21,12 @@ import {
   resolveAccessibleProjectScope,
   EXPENSE_MODULE,
 } from '../common/access-rules';
+import { MANUAL_INVOICE_KEY_VERSION } from '../common/manual-invoice-key';
+import {
+  countActivePurchaseTrail,
+  findExpensesWithActivePurchaseTrail,
+  IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE,
+} from '../common/imported-invoice-trail';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
@@ -682,6 +688,137 @@ export class ExpenseService {
    * qualquer escrita nos pontos de mutação (`update`, `unlinkCrossProject`).
    * A guarda também cobre alvos, para centralizar todas as mutações genéricas.
    */
+  /**
+   * #569 (degrau) — bloqueia mutações posteriores sobre parcelas liquidadas por
+   * importação (tabela B: B3/B4/B5/B6/B9). Defesa em profundidade: filtra por
+   * `tenantId` (Scar #498). Lê o estado do ledger DENTRO da tx do caller.
+   */
+  private async guardImportedInvoiceTrail(
+    db: ExpenseDb,
+    tenantId: string,
+    existing: {
+      id: string;
+      invoiceUndoState?: string | null;
+      invoiceUndoCardId?: string | null;
+      cardLast4?: string | null;
+      // #569 — chave `m1` do pagamento manual do cockpit (proveniência do servidor).
+      // OBRIGATÓRIO no snapshot de TODO caller para que a proteção manual não se
+      // perca por um `select` que esqueceu a coluna (participantes indiretos inclusos).
+      settlesInvoiceKey: string | null;
+    },
+    opts: {
+      isRemove?: boolean;
+      changedFinancials?: boolean;
+      changedProtectedPaymentFields?: boolean;
+      changedToIncompatibleType?: boolean;
+      newCardId?: string | null;
+    },
+  ): Promise<void> {
+    // Lê o ledger real (`imported_invoice_liquidations`) DENTRO da tx do caller
+    // pelo delegate tipado — sem casts. `db` é sempre
+    // `PrismaService | Prisma.TransactionClient` (ambos expõem o delegate; o
+    // `$use` roda inclusive dentro da tx).
+    const activeAsPurchase = await countActivePurchaseTrail(
+      db,
+      tenantId,
+      existing.id,
+    );
+    const state = existing.invoiceUndoState ?? null;
+    const settledPayment = state === 'PROCESSED_SETTLED';
+    // #569 B5/B9 — a PROVENIÊNCIA durável do pagamento é o próprio carimbo
+    // (`invoice_undo_state IS NOT NULL`, §1.2 do design), NÃO só o estado
+    // `PROCESSED_SETTLED`. Um `PAGAMENTO_FATURA_CARTAO` carimbado `PROCESSED_NONE`
+    // (estados 2a/2b, inclui M8 sem cartão) É uma linha de trilha real e não pode
+    // ser removido nem reclassificado para um tipo incompatível pela porta genérica.
+    const stampedPayment = state !== null;
+
+    // #569 — PAGAMENTO MANUAL de fatura registrado pelo COCKPIT (`payInvoice`),
+    // identificado pelo NAMESPACE RESERVADO `m1:` em `settlesInvoiceKey`. A porta
+    // genérica protege o PREFIXO reservado, INCLUSIVE um descritor `m1` MALFORMED:
+    // um `m1` corrompido não pode "cair" na rota ordinária (state NULL/claim 0) e
+    // virar editável/removível — a proveniência é o prefixo, não o parse. (Já o
+    // reader/undo só AGEM sobre um parse ESTRITO válido.) A chave LEGADA de 2 partes
+    // (`{last4}:{dueMonth}` — cartão-paga-cartão/PIX) não tem o prefixo e segue livre
+    // pela rota ordinária. Proveniência INDEPENDENTE da trilha de importação: um
+    // pagamento manual mantém `invoice_undo_state` NULL, então NÃO contamina os ramos
+    // de importação abaixo (nem eles a ele). Não pode FORJAR, LIMPAR, RE-ASSOCIAR
+    // (cartão/conta), editar financeiramente, mudar status, reclassificar nem REMOVER
+    // um pagamento manual — a reversão correta é o UNDO DO COCKPIT ("desfaça o
+    // pagamento na fatura"), nunca "desfaça a importação". Edições puramente
+    // descritivas (título/fornecedor/link/imagem) seguem livres.
+    const isManualInvoicePayment = (existing.settlesInvoiceKey ?? '').startsWith(
+      `${MANUAL_INVOICE_KEY_VERSION}:`,
+    );
+    if (isManualInvoicePayment) {
+      if (
+        opts.isRemove ||
+        opts.changedProtectedPaymentFields ||
+        opts.changedFinancials ||
+        opts.changedToIncompatibleType
+      ) {
+        throw new ConflictException(
+          'Este é um pagamento de fatura registrado no cockpit. Desfaça o ' +
+            'pagamento na fatura antes de alterá-lo ou removê-lo.',
+        );
+      }
+      return;
+    }
+
+    // B5 — remoção da COMPRA liquidada OU do PAGAMENTO carimbado (qualquer
+    // estado do carimbo). O undo do lote deleta via `updateMany` direto (não passa
+    // por aqui); esta porta genérica exige "desfaça a importação primeiro".
+    if (opts.isRemove) {
+      if (activeAsPurchase > 0 || stampedPayment) {
+        throw new ConflictException(
+          'Esta despesa foi liquidada por um pagamento de fatura importado. ' +
+            'Desfaça a importação primeiro.',
+        );
+      }
+      return;
+    }
+
+    // B3/B6 — mudança financeira numa compra com parcela no ledger ativo.
+    if (activeAsPurchase > 0 && opts.changedFinancials) {
+      throw new ConflictException(
+        'Compra liquidada por pagamento importado; desfaça a importação primeiro.',
+      );
+    }
+
+    // B9 — reclassificar um pagamento carimbado (QUALQUER estado) para um tipo
+    // INCOMPATÍVEL (não-neutro) o converteria numa despesa de obra fantasma e
+    // derivaria sua proveniência. A associação de cartão sem flips (estados 2a/2b,
+    // M8) e as edições descritivas seguras (título/fornecedor) permanecem
+    // permitidas — NÃO são bloqueadas aqui.
+    if (stampedPayment && opts.changedToIncompatibleType) {
+      throw new ConflictException(
+        'Este pagamento tem trilha de liquidação por importação ativa e não pode ' +
+          'ser reclassificado. Desfaça a importação primeiro.',
+      );
+    }
+
+    // B4/B9 — pagamento SETTLED: bloqueio TOTAL da mutação do pagamento carimbado
+    // (troca de cartão e campos protegidos), território do PR2.
+    if (settledPayment) {
+      if (
+        opts.newCardId !== undefined &&
+        opts.newCardId !== null &&
+        opts.newCardId !== (existing.invoiceUndoCardId ?? null)
+      ) {
+        throw new ConflictException(
+          'Este pagamento liquidou uma fatura importada; o cartão não pode ser ' +
+            'trocado. Desfaça a importação primeiro.',
+        );
+      }
+      if (opts.changedProtectedPaymentFields || opts.changedFinancials) {
+        throw new ConflictException(
+          'Este pagamento tem trilha de liquidação por importação ativa e não ' +
+            'pode ser alterado. Desfaça a importação primeiro.',
+        );
+      }
+    }
+    // `PROCESSED_NONE` (estado 2a/2b) — associação de cartão PERMITIDA (B4b).
+  }
+
   private async guardRateioParticipation(
     tenantId: string,
     expenseId: string,
@@ -1119,8 +1256,15 @@ export class ExpenseService {
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
 
-    const result = await this.prisma.$transaction(async (tx) =>
-      this.conciliacao.ratearSource(
+    const result = await this.prisma.$transaction(async (tx) => {
+      // #569 (degrau) — B6: ratear compra com parcela liquidada por importação.
+      // Lê o ledger DENTRO da tx (fecha o TOCTOU: um `commitImport` concorrente
+      // entre um check pré-tx e a escrita escaparia) antes de `ratearSource`
+      // transformar a fonte em espelho e realinhar o cronograma.
+      await this.guardImportedInvoiceTrail(tx, tenantId, source, {
+        changedFinancials: true,
+      });
+      return this.conciliacao.ratearSource(
         tx,
         {
           tenantId,
@@ -1128,8 +1272,8 @@ export class ExpenseService {
           allocations,
         },
         requester,
-      ),
-    );
+      );
+    });
     return { ok: true, sourceId: source.id, ...result };
   }
 
@@ -1202,12 +1346,21 @@ export class ExpenseService {
       // two rapid requests to create two mirror sets for the same source.
       const sourceInTx = await tx.expense.findFirst({
         where: { id: source.id, tenantId, projectId, deletedAt: null },
-        select: { id: true, linkedExpenseId: true },
+        select: { id: true, linkedExpenseId: true, invoiceUndoState: true, cardLast4: true, settlesInvoiceKey: true },
       });
       if (!sourceInTx) throw new NotFoundException('Despesa não encontrada');
       if (sourceInTx.linkedExpenseId) {
         throw new BadRequestException('Esta despesa já está vinculada a outro projeto.');
       }
+      // #569 (degrau) — B6 (variante mixed): `ratear` já barra a fonte liquidada
+      // por importação (:~1200), mas o caminho mixed abria a compra sem a mesma
+      // guarda. `ratearSource` transforma a fonte em espelho e realinha o
+      // cronograma, o que dessincroniza `imported_invoice_liquidations`. Lê o
+      // estado do ledger DENTRO da tx (fecha o TOCTOU) e bloqueia antes de criar
+      // qualquer alvo novo ou escrever o rateio.
+      await this.guardImportedInvoiceTrail(tx, tenantId, sourceInTx, {
+        changedFinancials: true,
+      });
 
       await this.conciliacao.assertCanReverseSources(
         tx,
@@ -1222,6 +1375,22 @@ export class ExpenseService {
         },
         requester,
       );
+
+      // #569 (degrau) — PREFLIGHT dos alvos EXISTENTES com trilha de importação
+      // ativa: `ratearSource` (:~1418) só roda DEPOIS de criar os alvos novos,
+      // então sua guarda daria 409 por rollback — writes já tentados. Os alvos
+      // existentes já são conhecidos aqui e sua autorização acabou de ser
+      // validada acima; consulta o claim ANTES da primeira escrita para 409 sem
+      // criar nada. Alvos novos ainda não existem (não têm claim); o conjunto
+      // completo continua coberto por `ratearSource`.
+      const claimedExistingTargets = await findExpensesWithActivePurchaseTrail(
+        tx,
+        tenantId,
+        existing.map((item) => item.targetExpenseId),
+      );
+      if (claimedExistingTargets.size > 0) {
+        throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+      }
 
       const targetProjectIds = [...new Set(newTargets.map((item) => item.targetProjectId))];
       const targetProjects = await tx.project.findMany({
@@ -1504,10 +1673,35 @@ export class ExpenseService {
         links.linkedExpenseId !== (existing.linkedExpenseId ?? null)) ||
       (links.settlesInvoiceKey !== undefined &&
         links.settlesInvoiceKey !== (existing.settlesInvoiceKey ?? null));
+    const changedTipoDespesa =
+      dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa;
     const changedToNeutralType =
-      dto.tipoDespesa !== undefined &&
-      dto.tipoDespesa !== existing.tipoDespesa &&
-      isNeutralExpenseType(dto.tipoDespesa);
+      changedTipoDespesa && isNeutralExpenseType(dto.tipoDespesa as string);
+    const changedCategoriaMaoDeObra =
+      dto.categoriaMaoDeObra !== undefined &&
+      (dto.categoriaMaoDeObra ?? null) !== (existing.categoriaMaoDeObra ?? null);
+    const changedRoom =
+      dto.roomId !== undefined && (dto.roomId ?? null) !== (existing.roomId ?? null);
+    // #569 (degrau, §2b/#1) — superset EXATO dos insumos que fazem
+    // `regenerateCashFlow` (adiante) soft-deletar+recriar as `CashFlowEntry` com
+    // IDs novos. Precisa ser derivado ANTES da guarda: para uma COMPRA com claim
+    // de importação ATIVO, QUALQUER mutação regeneradora (não só a financeira)
+    // órfãozaria `imported_invoice_liquidations.cash_flow_entry_id`. Deriva a
+    // proteção de um único predicado coerente com o que substitui as CFEs — não
+    // um subconjunto menor. `shouldNormalizeInstallmentDateOverrides` é redundante
+    // aqui (é subconjunto de forma/data/parcela, já incluídas abaixo).
+    const shouldRegenerateCashFlow =
+      changedValor ||
+      changedQuantidade ||
+      changedQuantidadeParcela ||
+      changedDataPagamento ||
+      changedDataInicioParcela ||
+      changedFormaPagamento ||
+      changedStatus ||
+      changedTipoDespesa ||
+      changedCategoriaMaoDeObra ||
+      changedRoom ||
+      changedOwnership;
     const hasProtectedChange =
       changedFormaPagamento ||
       changedDataPagamento ||
@@ -1535,6 +1729,29 @@ export class ExpenseService {
       !hasProtectedChange,
       db,
     );
+
+    // #569 (degrau) — B3/B4/B9: mutação posterior sobre parcela/pagamento
+    // liquidado por importação.
+    await this.guardImportedInvoiceTrail(db, tenantId, existing, {
+      // Para uma COMPRA com claim ATIVO, o gatilho de corrupção é a REGENERAÇÃO
+      // do caixa (soft-delete+recria as CFEs reivindicadas), não apenas a mudança
+      // de campos financeiros. Passa o predicado coerente com `regenerateCashFlow`
+      // — que inclui categoria, sala, tipo e ownership — senão um PATCH de sala/
+      // categoria válido passava a guarda e órfãozava o ledger.
+      changedFinancials: shouldRegenerateCashFlow,
+      changedProtectedPaymentFields:
+        changedOwnership ||
+        (dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa) ||
+        (['cardLast4', 'bankLast4', 'settlesInvoiceKey', 'settlesInvoiceCardId', 'settlesInvoiceDueMonth', 'bankAccountId'] as const).some(
+          (k) => (dto as Record<string, unknown>)[k] !== undefined,
+        ),
+      // B9 (carimbo, qualquer estado) — reclassificar o pagamento carimbado para
+      // um tipo NÃO-neutro (obra) é a mutação "incompatível" que o corromperia.
+      // Neutro→neutro e associação de cartão não caem aqui.
+      changedToIncompatibleType:
+        changedTipoDespesa && !isNeutralExpenseType(dto.tipoDespesa as string),
+      newCardId: (dto as { creditCardId?: string | null }).creditCardId ?? undefined,
+    });
 
     const resultingFormaPagamento = dto.formaPagamento ?? existing.formaPagamento;
     const resultingQuantidadeParcela =
@@ -1624,7 +1841,16 @@ export class ExpenseService {
       include: { room: true },
     });
 
-    await this.regenerateCashFlow(expense.id, tx);
+    // #569 (degrau, §2b/#1) — `regenerateCashFlow` soft-deleta+recria as
+    // `CashFlowEntry` com ids novos; rodar num PATCH puramente descritivo
+    // (titulo/fornecedor/link/imagem) orfana `imported_invoice_liquidations.
+    // cash_flow_entry_id` (FK RESTRICT só barra hard-delete) e gera drift
+    // silencioso. `shouldRegenerateCashFlow` (derivado acima, ANTES da guarda) é
+    // o predicado único que decide tanto o bloqueio da compra reivindicada quanto
+    // a regeneração — não podem divergir.
+    if (shouldRegenerateCashFlow) {
+      await this.regenerateCashFlow(expense.id, tx);
+    }
 
     // "Uma coisa só": se esta despesa faz parte de um par cross-project (canônico
     // na obra + espelho no PESSOAL, criado pelo fluxo de obra paga com caixa
@@ -1664,6 +1890,12 @@ export class ExpenseService {
         include: { room: true },
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
+      // #569 (degrau, §2c) — mover a data de uma parcela regenera o caixa; se a
+      // parcela (ou a de um alvo de rateio / par vinculado) tem linha de ledger
+      // ATIVA, isso orfanaria a trilha. Bloqueia antes de qualquer escrita.
+      await this.guardImportedInvoiceTrail(tx, tenantId, expense, {
+        changedFinancials: true,
+      });
       if (isSinglePaymentForm(expense.formaPagamento)) {
         throw new BadRequestException('Despesa não é parcelada/quinzenal');
       }
@@ -1705,6 +1937,7 @@ export class ExpenseService {
               projectId: true,
               tenantId: true,
               deletedAt: true,
+              settlesInvoiceKey: true,
               project: {
                 select: { id: true, type: true, tenantId: true, deletedAt: true },
               },
@@ -1717,6 +1950,12 @@ export class ExpenseService {
         .filter((target) => target.deletedAt === null);
       const hasFullAccess = isFullAccessRole(requester.role);
       for (const target of activeRateioTargets) {
+        await this.guardImportedInvoiceTrail(
+          tx,
+          tenantId,
+          { id: target.id, settlesInvoiceKey: target.settlesInvoiceKey },
+          { changedFinancials: true },
+        );
         if (
           target.tenantId !== tenantId ||
           (target.project
@@ -1807,6 +2046,12 @@ export class ExpenseService {
           ) {
             throw new BadRequestException('Par vinculado possui parcelamento incompatível');
           }
+          await this.guardImportedInvoiceTrail(
+            tx,
+            tenantId,
+            { id: counterpart.id, invoiceUndoState: counterpart.invoiceUndoState, settlesInvoiceKey: counterpart.settlesInvoiceKey },
+            { changedFinancials: true },
+          );
           preparedCounterparts.push({
             id: counterpart.id,
             projectId: counterpart.projectId,
@@ -1980,12 +2225,48 @@ export class ExpenseService {
       dto.quantidade !== undefined ||
       dto.dataInicioParcela !== undefined;
 
+    // #569 (degrau) — só regeneramos o caixa da contraparte quando um insumo de
+    // `buildCashFlowEntries` de fato foi propagado. Um PATCH puramente descritivo
+    // (titulo/fornecedor) NÃO pode soft-deletar+recriar as `CashFlowEntry` da
+    // contraparte: isso orfanaria `imported_invoice_liquidations.cash_flow_entry_id`
+    // do par vinculado (ex.: a compra real liquidada por importação). Superset de
+    // `resetPaidParcelas`, incluindo tipo/categoria/overrides.
+    const changedCounterpartCashFlow =
+      shouldSyncInstallmentDateOverrides ||
+      dto.tipoDespesa !== undefined ||
+      dto.categoriaMaoDeObra !== undefined ||
+      dto.formaPagamento !== undefined ||
+      dto.quantidadeParcela !== undefined ||
+      dto.status !== undefined ||
+      dto.dataPagamento !== undefined ||
+      dto.dataInicioParcela !== undefined ||
+      dto.valor !== undefined ||
+      dto.quantidade !== undefined;
+
     for (const cid of counterpartIds) {
       const cp = await db.expense.findUnique({
         where: { id: cid },
-        select: { valor: true, quantidade: true },
+        select: {
+          id: true,
+          valor: true,
+          quantidade: true,
+          invoiceUndoState: true,
+          invoiceUndoCardId: true,
+          cardLast4: true,
+          settlesInvoiceKey: true,
+        },
       });
       if (!cp) continue;
+
+      // Se a mudança propagada mexe no caixa E a contraparte tem trilha de
+      // liquidação por importação ATIVA (como compra) ou é um pagamento
+      // carimbado, bloqueia — regenerar aqui corromperia o ledger. Descrições
+      // puras (não mexem no caixa) seguem permitidas e preservam os ids.
+      if (changedCounterpartCashFlow) {
+        await this.guardImportedInvoiceTrail(db, tenantId, cp, {
+          changedFinancials: true,
+        });
+      }
 
       const data: Record<string, unknown> = { ...shared };
       if (dto.valor !== undefined) data.valor = Math.round(dto.valor * 100);
@@ -1996,7 +2277,9 @@ export class ExpenseService {
       if (resetPaidParcelas) data.paidParcelas = null;
 
       await db.expense.update({ where: { id: cid }, data });
-      await this.regenerateCashFlow(cid, tx);
+      if (changedCounterpartCashFlow) {
+        await this.regenerateCashFlow(cid, tx);
+      }
     }
   }
 
@@ -2137,6 +2420,14 @@ export class ExpenseService {
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
       await this.guardRateioParticipation(tenantId, id, false, false, tx);
+      // #569 (degrau) — B2: alternar o status de uma parcela regenera TODO o
+      // caixa da compra (soft-delete + recria com ids novos). Se qualquer
+      // parcela desta compra tem linha de ledger de importação ATIVA, isso
+      // orfanaria `imported_invoice_liquidations.cash_flow_entry_id` e reabriria
+      // a parcela liquidada. Bloqueia com 409 ANTES de qualquer escrita.
+      await this.guardImportedInvoiceTrail(tx, tenantId, expense, {
+        changedFinancials: true,
+      });
       if (expense.settledByExpenseId) {
         throw new BadRequestException('Despesa já foi liquidada');
       }
@@ -2201,6 +2492,8 @@ export class ExpenseService {
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
       await this.assertCanMutateLinkedRows(tx, tenantId, expense, requester);
+      // #569 (degrau) — B5: DELETE de compra liquidada ou pagamento carimbado.
+      await this.guardImportedInvoiceTrail(tx, tenantId, expense, { isRemove: true });
 
       const rateioParticipation = await this.guardRateioParticipation(
         tenantId,
@@ -2306,6 +2599,20 @@ export class ExpenseService {
       }
 
       const idArr = [...ids];
+      // #569 (degrau, §2c) — o cascade soft-deleta as CashFlowEntry de CADA id;
+      // um espelho/par vinculado com trilha ATIVA não pode ser arrastado.
+      for (const cascadeId of idArr) {
+        if (cascadeId === id) continue; // já checado acima
+        const cascadeExpense = await tx.expense.findUnique({
+          where: { id: cascadeId },
+          select: { id: true, invoiceUndoState: true, cardLast4: true, settlesInvoiceKey: true },
+        });
+        if (cascadeExpense) {
+          await this.guardImportedInvoiceTrail(tx, tenantId, cascadeExpense, {
+            isRemove: true,
+          });
+        }
+      }
       const now = new Date();
       await tx.expense.updateMany({
         where: {

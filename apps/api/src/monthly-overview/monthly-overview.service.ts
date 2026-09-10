@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import { resolveAccessibleProjectScope } from '../common/access-rules';
@@ -8,6 +8,10 @@ import {
   AMBIGUOUS_ACCOUNT_MESSAGE,
   AMBIGUOUS_CARD_MESSAGE,
 } from '../common/invoice-identity';
+import {
+  buildManualInvoiceKey,
+  parseManualInvoiceKey,
+} from '../common/manual-invoice-key';
 import {
   buildInstallments,
   buildMonthlyOverview,
@@ -994,6 +998,10 @@ export class MonthlyOverviewService {
     sumBy(carteiraPaidThisMonth, (expense) => expense.valorTotal);
 
     const cardByLast4 = new Map(cards.map((card) => [card.last4, card] as const));
+    // #569 — mapa por id ESTÁVEL do cartão (TODOS os cartões deste hub, inclusive
+    // irmãos de final duplicado): a elegibilidade de undo manual casa a chave `m1`
+    // pelo `cardId`, que não colide como o last4.
+    const cardById = new Map(cards.map((card) => [card.id, card] as const));
     /**
      * B1b (#448): finais com MAIS DE UM cartão ativo neste projeto. `cardByLast4`
      * (e qualquer mapa por last4) colapsa duplicatas legadas num vencedor
@@ -1074,6 +1082,31 @@ export class MonthlyOverviewService {
     )) {
       const list = assignmentsByInvoice.get(invoiceKey) ?? [];
       list.push({ expenseId: payment.expenseId, importId: payment.importId });
+      assignmentsByInvoice.set(invoiceKey, list);
+    }
+    // #569 — pagamentos manuais de fatura com IDENTIDADE `m1` (namespace reservado
+    // cunhado só pelo `payInvoice`: `m1:{cardId}:{last4}:{dueMonth}`) entram na MESMA
+    // elegibilidade de undo dos implícitos legados. Discriminador (proveniência do
+    // servidor, não SHAPE): `PAGAMENTO_FATURA_CARTAO` pago via conta (`bankLast4`),
+    // sem import, PAGO, cuja chave PARSEIA como `m1` válido E cujo `cardId` aponta um
+    // cartão REAL deste hub com o MESMO last4 do pagamento. A chave LEGADA de 2 partes
+    // (`{last4}:{dueMonth}` — cartão-paga-cartão/PIX/declaração geral) NÃO parseia como
+    // `m1` ⇒ nunca é elegível (fecha o RED-A). Um carimbado + um implícito na mesma
+    // fatura contam 2 (ambíguo → sem CTA), sem que a prioridade de um ramo esconda o
+    // outro; o carimbado nunca é contado duas vezes (já saiu de `implicitPaymentsDetailed`,
+    // que exige chave nula).
+    for (const expense of expenses) {
+      if (expense.tipoDespesa !== 'PAGAMENTO_FATURA_CARTAO') continue;
+      if (!expense.bankLast4) continue;
+      if (expense.importId != null) continue;
+      if (expense.status !== 'PAGO') continue;
+      const manual = parseManualInvoiceKey(expense.settlesInvoiceKey);
+      if (!manual) continue;
+      const card = cardById.get(manual.cardId);
+      if (!card || card.last4 !== manual.last4 || manual.last4 !== expense.cardLast4) continue;
+      const invoiceKey = `${manual.dueMonth}__${manual.last4}`;
+      const list = assignmentsByInvoice.get(invoiceKey) ?? [];
+      list.push({ expenseId: expense.id, importId: null });
       assignmentsByInvoice.set(invoiceKey, list);
     }
     const implicitPaymentByInvoice = new Map<string, string>();
@@ -3359,6 +3392,60 @@ export class MonthlyOverviewService {
         throw new BadRequestException('accountId e bankLast4 não correspondem à mesma conta.');
       }
 
+      // #569 (degrau, §4 B4 — SEC/ACL): a resolução AUTORIZADA precede o
+      // pré-check de trilha. `prepareSettleInvoice` carrega e autoriza o cartão
+      // e TODAS as compras candidatas (`cardLast4`) do requester — 404 fail-closed
+      // se qualquer candidato pertencer a projeto invisível. Rodá-la ANTES do
+      // `INVOICE_HAS_IMPORT_TRAIL` garante que uma compra OCULTA (projeto que o
+      // requester não vê) responda 404 e não vaze um 409 enganoso baseado em
+      // leitura tenant-wide. É read-only: nenhum efeito é aplicado até
+      // `applyPreparedSettlement`, então lançar depois não escreve nada.
+      const prepared = await this.cardSettlement.prepareSettleInvoice({
+        tenantId,
+        card,
+        amountCents,
+        paymentDate: effectiveDate,
+        tx,
+        requester,
+        selectedDueMonth: month,
+      });
+
+      // #569 (degrau, §4 B2 — CORREÇÃO DO PLANO): a fatura EFETIVA que este
+      // pagamento liquidaria já tem parcela ATIVA no ledger de liquidação por
+      // importação ⇒ 409, zero escrita. O `dueMonth` alvo NÃO pode vir só de
+      // `dto.month` (o cliente pode mandar o mês errado) nem de
+      // `caixaMonthForCardPurchase(paymentDate)` (recebe data de COMPRA). Reusa
+      // `resolveEffectiveDueMonths` — MESMA resolução de `prepareSettleInvoice`
+      // (compras/total/data/valor). `PROCESSED_NONE` não cria linha ⇒ não dispara.
+      const effectiveDueMonths = await this.cardSettlement.resolveEffectiveDueMonths({
+        tenantId,
+        card,
+        amountCents,
+        paymentDate: effectiveDate,
+        tx,
+        selectedDueMonth: month,
+      });
+      const trailMonths = [
+        ...new Set([...(month ? [month] : []), ...effectiveDueMonths]),
+      ];
+      const importTrail = trailMonths.length
+        ? await tx.importedInvoiceLiquidation.count({
+            where: {
+              tenantId,
+              cardId: card.id,
+              dueMonth: { in: trailMonths },
+              deletedAt: null,
+            },
+          })
+        : 0;
+      if (importTrail > 0) {
+        throw new ConflictException(
+          'INVOICE_HAS_IMPORT_TRAIL: esta fatura já foi liquidada por uma ' +
+            'importação de extrato. Desfaça a importação para registrar um ' +
+            'pagamento manual.',
+        );
+      }
+
       // Idempotência por payload exato, relida na mesma transação da escrita.
       const existing = await tx.expense.findFirst({
         where: {
@@ -3378,14 +3465,6 @@ export class MonthlyOverviewService {
         throw new BadRequestException('Este pagamento já foi registrado.');
       }
 
-      const prepared = await this.cardSettlement.prepareSettleInvoice({
-        tenantId,
-        card,
-        amountCents,
-        paymentDate: effectiveDate,
-        tx,
-        requester,
-      });
       const payment = await tx.expense.create({
         data: {
           tenantId,
@@ -3406,6 +3485,34 @@ export class MonthlyOverviewService {
       });
       const settled = await this.cardSettlement.applyPreparedSettlement(tx, prepared);
 
+      // #569 — carimba a identidade REALMENTE resolvida no namespace RESERVADO
+      // `m1:{cardId}:{last4}:{dueMonth}` (proveniência do servidor). O `cardId`
+      // ESTÁVEL permite ao undo casar o pagamento pela identidade do cartão (não
+      // pelo last4, que colide) e distingue este pagamento manual REAL de uma
+      // declaração geral de quitação (chave legada de 2 partes) — que nunca é
+      // desfazível pelo cockpit. Só quando a liquidação recaiu sobre UM único mês
+      // (derivado das parcelas viradas em `flippedEntries`), nunca o `dto.month`
+      // cego. Liquidação vazia (pagamento parcial) ou multi-mês preserva o
+      // comportamento implícito legado (chave nula). Sem efeito de caixa
+      // (`PAGAMENTO_FATURA_CARTAO` é neutro) e SEM tocar `invoiceUndo*`/ledger de
+      // importação (que permanecem NULL/0 num pagamento manual).
+      const resolvedDueMonths = new Set(
+        settled.flippedEntries.map((flipped) => flipped.dueMonth),
+      );
+      if (resolvedDueMonths.size === 1) {
+        const [resolvedDueMonth] = resolvedDueMonths;
+        await tx.expense.update({
+          where: { id: payment.id },
+          data: {
+            settlesInvoiceKey: buildManualInvoiceKey(
+              card.id,
+              card.last4,
+              resolvedDueMonth,
+            ),
+          },
+        });
+      }
+
       return {
         ok: true,
         paymentExpenseId: payment.id,
@@ -3414,7 +3521,8 @@ export class MonthlyOverviewService {
         accountId: account.id,
         month,
         amountCents,
-        ...settled,
+        settledExpenses: settled.settledExpenses,
+        settledParcelas: settled.settledParcelas,
       };
     });
   }
@@ -3422,15 +3530,22 @@ export class MonthlyOverviewService {
   /**
    * Desfaz um pagamento manual de fatura de cartão (`payInvoice`).
    *
-   * Segurança: só desfaz quando existe EXATAMENTE UM pagamento implícito
-   * (`PAGAMENTO_FATURA_CARTAO`, PAGO, com `bankLast4`, sem `settlesInvoiceKey`)
-   * casado com a fatura-alvo — reaproveita `assignImplicitPayments` sobre a
-   * lista de TODAS as faturas do cartão (`buildCardInvoiceAggregates`, a MESMA
-   * agregação que decide `card.status` em `getAccountView`). Precisa ser a
-   * lista inteira, não só a fatura-alvo: `assignImplicitPayments` decide por
-   * DISPUTA entre faturas candidatas na janela `{payMonth, payMonth+1}` de cada
-   * pagamento — com uma fatura só, pagamentos de OUTROS meses "vazam" pra cá.
-   * 0 casamentos → 404. 2+ (ambíguo) → 400 com a lista dos pagamentos casados.
+   * Segurança: só desfaz quando existe EXATAMENTE UM pagamento manual elegível
+   * casado com a fatura-alvo. São dois canais que somam para a mesma contagem
+   * de ambiguidade:
+   *  - CARIMBADO (#569): `PAGAMENTO_FATURA_CARTAO`, PAGO, com `bankLast4`, sem
+   *    import, cuja `settlesInvoiceKey` aponta diretamente esta fatura — a
+   *    identidade REAL resolvida no `payInvoice`.
+   *  - IMPLÍCITO legado: `PAGAMENTO_FATURA_CARTAO`, PAGO, com `bankLast4`, SEM
+   *    chave — reaproveita `assignImplicitPayments` sobre a lista de TODAS as
+   *    faturas do cartão (`buildCardInvoiceAggregates`, a MESMA agregação que
+   *    decide `card.status` em `getAccountView`). Precisa ser a lista inteira,
+   *    não só a fatura-alvo: `assignImplicitPayments` decide por DISPUTA entre
+   *    faturas candidatas na janela `{payMonth, payMonth+1}` de cada pagamento —
+   *    com uma fatura só, pagamentos de OUTROS meses "vazam" pra cá.
+   * 0 casamentos → 404. 2+ (ambíguo, inclusive carimbado+implícito na mesma
+   * fatura) → 400 com a lista dos pagamentos casados. Pagamento IMPORTADO casando
+   * a fatura → 404 (só `undoImport` o reverte); nunca desfaz por aqui.
    *
    * `requester` (B0 #447) é OBRIGATÓRIO pela mesma razão de `payInvoice` — com o
    * param de rota renomeado (`:pessoalProjectId`) o guard global não cobre esta
@@ -3543,13 +3658,12 @@ export class MonthlyOverviewService {
       (assignment) => assignment.invoiceKey === targetKey,
     );
 
-    if (assignments.length === 0) {
-      throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
-    }
     // #569: o desfazer do cockpit só alcança pagamento MANUAL. Se QUALQUER
-    // pagamento casado com a fatura veio de importação (`importId != null`), a
-    // ação não existe aqui — só `BankAccountService.undoImport` o remove — e a
-    // chamada direta falha sem escrita.
+    // pagamento IMPLÍCITO casado com a fatura veio de importação (`importId != null`),
+    // a ação não existe aqui — só `BankAccountService.undoImport` o remove — e a
+    // chamada direta falha sem escrita. Checado ANTES de compor os candidatos
+    // manuais para manter a proteção de import mesmo com carimbado presente
+    // (os dois não coexistem: `payInvoice` recusa manual sobre fatura com trilha).
     const importedMatched = assignments.some((assignment) => {
       const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
       return candidate?.importId != null;
@@ -3557,40 +3671,138 @@ export class MonthlyOverviewService {
     if (importedMatched) {
       throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
     }
-    if (assignments.length > 1) {
+
+    // #569 — pagamentos manuais com IDENTIDADE `m1` na fatura alvo: chave COMPLETA
+    // `m1:{cardId}:{last4}:{dueMonth}` cunhada pelo `payInvoice`. Como a chave inclui
+    // o `card.id` RESOLVIDO desta requisição, um pagamento cunhado para OUTRO cartão
+    // de mesmo last4 (`m1:{outroId}:...`) NÃO casa — desfazer com `cardId` A não
+    // alcança o pagamento de B. O discriminador (conta + sem import + PAGO + vivo)
+    // exclui cartão-paga-cartão (chave legada de 2 partes) e importados. Não
+    // desempata por janela — a chave JÁ é a fatura.
+    const manualKey = buildManualInvoiceKey(card.id, card.last4, dueMonth);
+    const explicitCandidates = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        cardLast4: card.last4,
+        status: 'PAGO',
+        bankLast4: { not: null },
+        importId: null,
+        settlesInvoiceKey: manualKey,
+        deletedAt: null,
+      },
+      select: { id: true, valorTotal: true, dataPagamento: true, createdAt: true },
+    });
+
+    // Candidatos MANUAIS elegíveis = implícitos legados (não importados) + carimbados.
+    // Ambos juntos numa mesma fatura contam para a ambiguidade (2 = beco → 400),
+    // sem que a prioridade de um ramo esconda o outro.
+    const manualCandidates: Array<{ id: string; amountCents: number; data: Date | null }> = [
+      ...assignments
+        .filter((assignment) => {
+          const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
+          return candidate?.importId == null;
+        })
+        .map((assignment) => {
+          const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
+          return {
+            id: assignment.payment.expenseId,
+            amountCents: assignment.payment.amount,
+            data: candidate?.dataPagamento ?? candidate?.createdAt ?? null,
+          };
+        }),
+      ...explicitCandidates.map((candidate) => ({
+        id: candidate.id,
+        amountCents: candidate.valorTotal,
+        data: candidate.dataPagamento ?? candidate.createdAt ?? null,
+      })),
+    ];
+
+    if (manualCandidates.length === 0) {
+      throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
+    }
+    if (manualCandidates.length > 1) {
       // Beco sem saída vira diagnóstico: devolve QUAIS pagamentos foram casados
       // (data, valor, id) pra UI mostrar — usuário reconhece "cliquei duas vezes"
       // ou "veio do import" e decide o que fazer manualmente.
-      const matchedPayments = assignments.map((assignment) => {
-        const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
-        const date = candidate?.dataPagamento ?? candidate?.createdAt ?? null;
-        return {
-          id: assignment.payment.expenseId,
-          amountCents: assignment.payment.amount,
-          data: date ? date.toISOString() : null,
-        };
-      });
       throw new BadRequestException({
         message: 'Há mais de um pagamento para essa fatura — o desfazer automático não é seguro nesse caso.',
-        payments: matchedPayments,
+        payments: manualCandidates.map((candidate) => ({
+          id: candidate.id,
+          amountCents: candidate.amountCents,
+          data: candidate.data ? candidate.data.toISOString() : null,
+        })),
       });
     }
 
-    const paymentExpenseId = assignments[0].payment.expenseId;
+    const paymentExpenseId = manualCandidates[0].id;
 
-    // ARMADILHA (regra de ouro #4): `$transaction` ignora o middleware `$use`
-    // de soft-delete. `tx.expense.delete(...)` seria HARD DELETE de verdade —
-    // por isso o soft-delete abaixo é um `updateMany({ data: { deletedAt } })`
-    // explícito, nunca `.delete()`, e com `deletedAt: null` no `where` (dentro
-    // da tx o filtro do `$use` também não existe).
+    // Soft-delete + TOCTOU (regra de ouro #4): o middleware `$use` RODA dentro da
+    // `$transaction` (Scar 2026-08-25) — `tx.expense.delete(...)` NÃO seria hard
+    // delete: o `$use` o interceptaria e viraria um `update { deletedAt }` (a linha
+    // sobrevive). Ainda assim o soft-delete abaixo é um `updateMany({ where,
+    // data: { deletedAt } })` porque a transição precisa ser um UPDATE condicional
+    // ATÔMICO (B1b) e `updateMany` NÃO é interceptado pelo `$use` — por isso o
+    // `deletedAt: null` no `where` é explícito (o middleware não injeta o filtro em
+    // update/updateMany).
     const reverted = await this.prisma.$transaction(async (tx) => {
-      const result = await this.cardSettlement.unsettleInvoice({
+      // #569 (degrau, §4 B1 / SEC-1 — cross-project): o desfazer manual do cockpit
+      // não pode reabrir uma parcela que carrega reivindicação ATIVA de liquidação
+      // por importação — mesmo que a COMPRA/o import pertençam a OUTRO projeto do
+      // cartão compartilhado (sem filtro de projeto, só `tenantId`). Só
+      // `BankAccountService.undoImport` reverte o ledger.
+      //
+      // SEC-1 (#569) — AUTORIZAÇÃO ANTES DA CONSULTA DE CLAIMS: `prepareUnsettleInvoice`
+      // aplica a ACL do cartão/compra e lança 404 `INVOICE_NOT_FOUND` quando o requester
+      // não enxerga ALGUMA compra PAGA desta fatura. Rodando-a PRIMEIRO, um ator SEM ACL
+      // recebe o MESMO 404 — byte a byte, com ou sem claim oculta —, sem oráculo da
+      // existência de uma liquidação ancorada em projeto invisível. A consulta
+      // tenant-wide de trilha (409 `INVOICE_HAS_IMPORT_TRAIL`) só é alcançada por um
+      // requester AUTORIZADO a ver as compras da fatura (ADMIN/ACL total cross-project).
+      // A ordem antiga priorizava o 409 ANTES do 404 e vazava essa existência.
+      const prepared = await this.cardSettlement.prepareUnsettleInvoice({
         tenantId,
         card,
         dueMonth,
         tx,
         requester,
       });
+      const invoiceEntries = (await tx.cashFlowEntry.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          tipo: 'DESPESA',
+          expense: { deletedAt: null, cardLast4: card.last4 },
+        },
+        select: { id: true, data: true },
+      })) as Array<{ id: string; data: Date }>;
+      const dueMonthEntryIds = invoiceEntries
+        .filter(
+          (entry) =>
+            caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === dueMonth,
+        )
+        .map((entry) => entry.id);
+      if (dueMonthEntryIds.length > 0) {
+        const anchoredClaims = await tx.importedInvoiceLiquidation.count({
+          where: {
+            tenantId,
+            cashFlowEntryId: { in: dueMonthEntryIds },
+            deletedAt: null,
+          },
+        });
+        if (anchoredClaims > 0) {
+          throw new ConflictException(
+            'INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada ' +
+              'por uma importação de extrato. Desfaça a importação para reabrir a fatura.',
+          );
+        }
+      }
+      const result = await this.cardSettlement.applyPreparedUnsettlement(
+        tx,
+        prepared,
+        requester,
+      );
       // B1b (#448) — releitura no commit: o pagamento foi escolhido FORA da
       // transação (`assignImplicitPayments` sobre candidatos lidos antes). Um
       // `update({ where: { id } })` cru reverteria a fatura e "desfaria" um
@@ -3727,11 +3939,16 @@ function monthKeyPlus(monthKey: string, n: number): string {
 }
 
 /**
- * Converte o `settlesInvoiceKey` persistido (`"{cardLast4}:{dueMonth}"`, ex.
- * `"7259:2026-06"`) na chave interna de fatura (`"{dueMonth}__{cardLast4}"`).
+ * Converte o `settlesInvoiceKey` persistido na chave interna de fatura
+ * (`"{dueMonth}__{cardLast4}"`). Reconhece:
+ *  - o namespace manual `m1:{cardId}:{cardLast4}:{dueMonth}` (#569, cunhado pelo
+ *    `payInvoice`) — normaliza pelo `last4`/`dueMonth` do próprio pagamento;
+ *  - a chave LEGADA de 2 partes `"{cardLast4}:{dueMonth}"` (cartão-paga-cartão/PIX).
  * Entradas malformadas viram uma chave inerte que nunca casa com fatura real.
  */
 function settlesInvoiceKeyToInternal(stored: string): string {
+  const manual = parseManualInvoiceKey(stored);
+  if (manual) return `${manual.dueMonth}__${manual.last4}`;
   const [cardLast4, dueMonth] = stored.split(':');
   if (!cardLast4 || !dueMonth) return `__invalid__${stored}`;
   return `${dueMonth}__${cardLast4}`;

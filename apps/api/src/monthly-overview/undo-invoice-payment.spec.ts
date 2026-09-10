@@ -193,6 +193,8 @@ function buildPrisma(seed: {
       delete: jest.fn(),
     },
     bankStatementImport: collection('bankStatementImport', []),
+    creditCardStatementImport: collection('creditCardStatementImport', []),
+    importedInvoiceLiquidation: { count: jest.fn().mockResolvedValue(0) },
     $transaction: jest.fn().mockImplementation((cb: any) => cb(prisma)),
   };
 

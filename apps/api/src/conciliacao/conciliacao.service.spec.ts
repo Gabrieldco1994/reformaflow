@@ -85,6 +85,11 @@ describe('ConciliacaoService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      // #569 — trilha de importação: sem claim nestes mocks de rateio.
+      importedInvoiceLiquidation: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     return installAclProjectMocks(p);
   }
@@ -276,6 +281,11 @@ describe('ConciliacaoService', () => {
         cashFlowEntry: {
           updateMany: jest.fn().mockResolvedValue({ count: 0 }),
           createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        },
+        // #569 — trilha de importação: sem claim nestes mocks de rateio.
+        importedInvoiceLiquidation: {
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([]),
         },
         _allocStore: allocStore,
       };

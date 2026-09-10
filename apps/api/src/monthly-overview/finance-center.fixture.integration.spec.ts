@@ -719,7 +719,7 @@ describe("synthetic deterministic finance-center persisted contract", () => {
     }
   });
 
-  it("runs on exactly the 65 committed disposable-test migrations through 20260904120000", async () => {
+  it("runs on exactly the 66 committed disposable-test migrations through 20260909120000", async () => {
     const migrations = await prisma.$queryRaw<
       Array<{
         migration_name: string;
@@ -730,9 +730,9 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       FROM _prisma_migrations
       ORDER BY migration_name ASC`;
 
-    expect(migrations).toHaveLength(65);
+    expect(migrations).toHaveLength(66);
     expect(migrations.at(-1)?.migration_name).toBe(
-      "20260904120000_add_dedupe_keys",
+      "20260909120000_imported_invoice_liquidations",
     );
     expect(
       migrations.every(

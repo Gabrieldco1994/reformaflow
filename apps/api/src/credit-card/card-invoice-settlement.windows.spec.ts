@@ -1,0 +1,296 @@
+// PR: PR 1 (degrau) — `outcome`/`flippedEntries`/carimbo derivados do `apply`.
+// #569 §6.2 — janelas de identificação/liquidação (Grupo A: as janelas 60d/±10d/
+// {m,m+1}/75d JÁ existem em `origin/main@e66e49c1`; estes `it` asseveram que
+// continuam pinadas). O `outcome: SETTLED | NO_SETTLEMENT` NÃO existe ainda —
+// os `it` que o leem falham a asserção (RED por comportamento).
+import { PrismaClient } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+import {
+  commitStatement,
+  makeBankAccountService,
+  pessoalRequester,
+  resetTenant,
+  seedBankAccount,
+  seedCardWithClosingDue,
+  seedInstallmentPurchase,
+  seedPessoal,
+  seedSinglePurchase,
+  readExpenseRaw,
+} from "../bank-account/__tests__/invoice-undo.fixtures";
+
+const TENANT = "iul-win-tenant";
+const PESSOAL = "iul-win-pessoal";
+const CARD = "4200";
+const BANK = "8200";
+const R = pessoalRequester(PESSOAL);
+
+const setup = new PrismaClient();
+const prisma = new PrismaService();
+
+describe("#569 §6.2 — janelas (RED)", () => {
+  let bank: ReturnType<typeof makeBankAccountService>;
+  let accountId: string;
+  let cardId: string;
+
+  beforeAll(async () => {
+    await setup.$connect();
+    await prisma.onModuleInit();
+    await resetTenant(setup, TENANT);
+    await seedPessoal(setup, { tenantId: TENANT, projectId: PESSOAL });
+    ({ id: cardId } = await seedCardWithClosingDue(setup, {
+      tenantId: TENANT,
+      projectId: PESSOAL,
+      last4: CARD,
+      closingDay: 20,
+      dueDay: 1,
+    }));
+    ({ id: accountId } = await seedBankAccount(setup, { tenantId: TENANT, projectId: PESSOAL, last4: BANK }));
+    bank = makeBankAccountService(prisma);
+  });
+
+  afterEach(async () => {
+    await (setup as unknown as {
+      importedInvoiceLiquidation?: { deleteMany: (a: unknown) => Promise<unknown> };
+    }).importedInvoiceLiquidation?.deleteMany({ where: { tenantId: TENANT } });
+    await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+    await setup.expense.deleteMany({ where: { tenantId: TENANT } });
+    await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
+    await (setup as unknown as {
+      creditCardStatementImport: { deleteMany: (a: unknown) => Promise<unknown> };
+    }).creditCardStatementImport.deleteMany({ where: { tenantId: TENANT } });
+  });
+
+  afterAll(async () => {
+    await resetTenant(setup, TENANT);
+    await prisma.onModuleDestroy();
+    await setup.$disconnect();
+  });
+
+  async function pay(
+    debitCents: number,
+    date: string,
+    period: string,
+    cardLast4: string | undefined = CARD,
+    memo?: string,
+  ) {
+    const commit = await commitStatement(bank, {
+      tenantId: TENANT,
+      projectId: PESSOAL,
+      accountId,
+      bankLast4: BANK,
+      cardLast4,
+      memo,
+      debitCents,
+      date,
+      period,
+      requester: R,
+      fitId: `w-${date}-${debitCents}-${Math.random()}`,
+    });
+    const payment = await setup.expense.findFirst({
+      where: {
+        tenantId: TENANT,
+        tipoDespesa: { in: ["PAGAMENTO_FATURA_CARTAO", "PAGAMENTO_FATURA_SEM_CARTAO"] },
+        importId: commit.importId,
+      },
+    });
+    return { commit, payment };
+  }
+
+  it("liquidação por vencimento usa janela de mês {payMonth, payMonth+1}: pagamento em 2026-06-30 fecha fatura com vencimento 2026-07-01", async () => {
+    // ARRANGE: compra ANTES do pagamento (10/06, dentro dos 60d) e no ciclo que
+    // fecha 20/06 → vence 01/07 (dueMonth "2026-07"), dentro de {payMonth=2026-06,
+    // payMonth+1=2026-07}. Data 01/07 cairia no ciclo de agosto e nunca liquidaria.
+    const purchase = await seedInstallmentPurchase(setup, {
+      tenantId: TENANT,
+      projectId: PESSOAL,
+      cardLast4: CARD,
+      parcelas: 1,
+      valorCents: 30_000,
+      primeiraData: new Date("2026-06-10T12:00:00.000Z"),
+    });
+    const { payment } = await pay(30_000, "20260630", "2026-06");
+    // precondição: o pagamento de fatura foi criado e o cartão identificado (last4)
+    expect(payment).not.toBeNull();
+    expect(payment!.cardLast4).toBe(CARD);
+    const entry = await setup.cashFlowEntry.findUnique({ where: { id: purchase.entryIds[0] } });
+    expect(entry?.status).toBe("PAGO");
+    const raw = await readExpenseRaw(setup, payment!.id);
+    expect(raw).not.toBeNull();
+    expect(raw!.invoiceUndoState).toBe("PROCESSED_SETTLED");
+    expect(raw!.invoiceUndoDueMonth).toBe("2026-07");
+  });
+
+  // Fronteira dos 75 dias corridos do fallback `findImportByTotal`. Cada fronteira
+  // é um `it` independente: a asserção de REGRESSÃO (a parcela liquida ou não,
+  // comportamento vigente) roda para 76d E para 74d, sem depender do campo futuro
+  // `invoiceUndoState` — se a asserção de carimbo (RED) estoura num caso, o outro
+  // caso continua executando.
+  async function runFallback75dBoundary(last4: string, ageDays: number, shouldSettle: boolean) {
+    const noCycle = await seedCardWithClosingDue(setup, {
+      tenantId: TENANT, projectId: PESSOAL, last4, closingDay: null, dueDay: null,
+    });
+    const cci = (setup as unknown as {
+      creditCardStatementImport: { create: (a: unknown) => Promise<{ id: string }>; deleteMany: (a: unknown) => Promise<unknown> };
+    }).creditCardStatementImport;
+    const payDate = new Date("2026-06-15T12:00:00.000Z");
+    const p = await seedSinglePurchase(setup, {
+      tenantId: TENANT, projectId: PESSOAL, cardLast4: last4, valorCents: 20_000,
+      data: new Date("2026-04-01T12:00:00.000Z"), titulo: `fb-${ageDays}d`,
+    });
+    const created = new Date(payDate);
+    created.setDate(created.getDate() - ageDays);
+    const imp = await cci.create({
+      data: { tenantId: TENANT, cardId: noCycle.id, periodLabel: "2026-04", source: "OFX", totalAmountCents: 20_000, createdAt: created },
+    });
+    // estratégia 2 (fallback por fatura importada) só considera compras com
+    // Expense.importId == CreditCardStatementImport.id (service :224).
+    await setup.expense.update({ where: { id: p.id }, data: { importId: imp.id } });
+    const { payment } = await pay(20_000, "20260615", "2026-06", last4);
+    const entry = await setup.cashFlowEntry.findFirst({ where: { expenseId: p.id } });
+    // REGRESSÃO (passa hoje): a janela de 75d decide se a parcela liquida.
+    expect(entry?.status).toBe(shouldSettle ? "PAGO" : "PLANEJADO");
+    // RED comportamental: carimbo derivado do apply (campo do PR1, ainda ausente).
+    const raw = await readExpenseRaw(setup, payment!.id);
+    expect(raw?.invoiceUndoState).toBe(shouldSettle ? "PROCESSED_SETTLED" : "PROCESSED_NONE");
+  }
+
+  it("fallback findImportByTotal: import criado há 76 dias (> 75) NÃO casa — parcela segue PLANEJADO", async () => {
+    await runFallback75dBoundary("4275", 76, false);
+  });
+
+  it("fallback findImportByTotal: import criado há 74 dias (< 75) casa — parcela vira PAGO", async () => {
+    await runFallback75dBoundary("4277", 74, true);
+  });
+
+  it("fallback tolera ±R$2 no totalAmountCents e recusa ±R$2,01", async () => {
+    const noCycle = await seedCardWithClosingDue(setup, {
+      tenantId: TENANT,
+      projectId: PESSOAL,
+      last4: "4276",
+      closingDay: null,
+      dueDay: null,
+    });
+    const cci = (setup as unknown as {
+      creditCardStatementImport: { create: (a: unknown) => Promise<{ id: string }>; deleteMany: (a: unknown) => Promise<unknown> };
+    }).creditCardStatementImport;
+    for (const [label, debit, shouldSettle] of [
+      ["dentro", 20_200, true],
+      ["fora", 20_201, false],
+    ] as const) {
+      const p = await seedSinglePurchase(setup, {
+        tenantId: TENANT,
+        projectId: PESSOAL,
+        cardLast4: "4276",
+        valorCents: 20_000,
+        data: new Date("2026-04-01T12:00:00.000Z"),
+        titulo: `tol-${label}`,
+      });
+      const imp = await cci.create({
+        data: { tenantId: TENANT, cardId: noCycle.id, periodLabel: "2026-04", source: "OFX", totalAmountCents: 20_000, createdAt: new Date("2026-06-01T12:00:00.000Z") },
+      });
+      await setup.expense.update({ where: { id: p.id }, data: { importId: imp.id } });
+      await pay(debit, "20260615", "2026-06", "4276");
+      const entry = await setup.cashFlowEntry.findFirst({ where: { expenseId: p.id } });
+      expect(entry?.status).toBe(shouldSettle ? "PAGO" : "PLANEJADO");
+      await (setup as unknown as {
+        importedInvoiceLiquidation?: { deleteMany: (a: unknown) => Promise<unknown> };
+      }).importedInvoiceLiquidation?.deleteMany({ where: { tenantId: TENANT } });
+      await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+      await setup.expense.deleteMany({ where: { tenantId: TENANT, tipoDespesa: { not: undefined } } });
+      await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
+      await cci.deleteMany({ where: { tenantId: TENANT } });
+    }
+  });
+
+  it("identificação de cartão por importação (findMatchingCreditCard, bank-account.service:2823-2831) usa 60 dias: CreditCardStatementImport criado há 61d não identifica; 59d identifica", async () => {
+    // A janela de 60d é sobre `CreditCardStatementImport.createdAt` (total ±R$2),
+    // não sobre a data das compras. Memo COM indício de pagamento de cartão mas
+    // SEM last4 → a identidade do cartão depende exclusivamente desse import.
+    const cci = (setup as unknown as {
+      creditCardStatementImport: { create: (a: unknown) => Promise<{ id: string }>; deleteMany: (a: unknown) => Promise<unknown> };
+    }).creditCardStatementImport;
+    for (const [label, ageDays, shouldMatch] of [
+      ["61d", 61, false],
+      ["59d", 59, true],
+    ] as const) {
+      const payDate = new Date("2026-06-15T12:00:00.000Z");
+      const created = new Date(payDate);
+      created.setDate(created.getDate() - ageDays);
+      await cci.create({
+        data: { tenantId: TENANT, cardId, periodLabel: "2026-05", source: "OFX", totalAmountCents: 30_000, createdAt: created },
+      });
+      const { payment } = await pay(30_000, "20260615", "2026-06", undefined, "PAGTO CART CRED");
+      expect(payment).not.toBeNull();
+      // REGRESSÃO (comportamento vigente): o pagamento só é vinculado a um cartão
+      // quando o import de 60d casa; fora da janela fica PAGAMENTO_FATURA_SEM_CARTAO.
+      expect(payment!.cardLast4).toBe(shouldMatch ? CARD : null);
+      // RED (§3.3): coluna de carimbo do cartão identificado ainda não existe.
+      const raw = await readExpenseRaw(setup, payment!.id);
+      expect(raw).not.toBeNull();
+      expect(raw!.invoiceUndoCardId != null).toBe(shouldMatch);
+      await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+      await setup.expense.deleteMany({ where: { tenantId: TENANT, tipoDespesa: { not: undefined } } });
+      await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
+      await cci.deleteMany({ where: { tenantId: TENANT } });
+    }
+  });
+
+  it("identificação estrita por valor (findCardPaymentByAmount, bank-account.service:~2894) usa ±10 dias: CreditCardStatementImport criado 11d antes do pagamento não identifica; 9d identifica", async () => {
+    // Memo de transferência de saída ("TED ...") → NÃO é card-payment por texto, mas
+    // `needsValueMatch` liga (looksLikeOutboundTransfer) e cai no match ESTRITO:
+    // ±R$0,50 e ±10 dias sobre `CreditCardStatementImport.createdAt`. Fora da janela
+    // o débito continua uma despesa comum; dentro, é reclassificado a pagamento de fatura.
+    const cci = (setup as unknown as {
+      creditCardStatementImport: { create: (a: unknown) => Promise<{ id: string }>; deleteMany: (a: unknown) => Promise<unknown> };
+    }).creditCardStatementImport;
+    for (const [label, ageDays, shouldMatch] of [
+      ["11d", 11, false],
+      ["9d", 9, true],
+    ] as const) {
+      const payDate = new Date("2026-06-15T12:00:00.000Z");
+      const created = new Date(payDate);
+      created.setDate(created.getDate() - ageDays);
+      await cci.create({
+        data: { tenantId: TENANT, cardId, periodLabel: "2026-05", source: "OFX", totalAmountCents: 33_333, createdAt: created },
+      });
+      const commit = await commitStatement(bank, {
+        tenantId: TENANT, projectId: PESSOAL, accountId, bankLast4: BANK,
+        memo: "TED 998877 ENVIADA", debitCents: 33_333, date: "20260615", period: "2026-06",
+        requester: R, fitId: `strict-${label}-${Math.random()}`,
+      });
+      const expense = await setup.expense.findFirst({
+        where: { tenantId: TENANT, importId: commit.importId },
+      });
+      expect(expense).not.toBeNull();
+      // REGRESSÃO (comportamento vigente): reclassificação p/ pagamento de fatura
+      // + cartão só acontece dentro da janela estrita.
+      expect(expense!.tipoDespesa === "PAGAMENTO_FATURA_CARTAO").toBe(shouldMatch);
+      expect(expense!.cardLast4).toBe(shouldMatch ? CARD : null);
+      // RED (§3.3): coluna de carimbo do cartão identificado ainda não existe.
+      const raw = await readExpenseRaw(setup, expense!.id);
+      expect(raw!.invoiceUndoCardId != null).toBe(shouldMatch);
+      await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
+      await setup.expense.deleteMany({ where: { tenantId: TENANT, tipoDespesa: { not: undefined } } });
+      await setup.bankStatementImport.deleteMany({ where: { tenantId: TENANT } });
+      await cci.deleteMany({ where: { tenantId: TENANT } });
+    }
+  });
+
+  // Removido desta branch (PR 1): `it("outcome SETTLED …")` assertava
+  // `getImportDetail(...).settlement.state === "SETTLED_BY_IMPORT"` — `settlement{}`
+  // é PR 2. O `it` inteiro vive em `test/569-pr2-red`. O carimbo `PROCESSED_SETTLED`
+  // derivado do apply (PR 1) já é coberto pelo `it` da janela {m,m+1} acima.
+
+  it("fatura já paga, diferença a menos, diferença a MAIS, nenhuma fatura → todos NO_SETTLEMENT; hint é best-effort e NÃO é asseverado como coluna persistida", async () => {
+    // nenhuma fatura compatível
+    const { payment } = await pay(99_999, "20260630", "2026-06");
+    expect(payment).not.toBeNull();
+    const raw = await readExpenseRaw(setup, payment!.id);
+    expect(raw).not.toBeNull();
+    expect(raw!.invoiceUndoState).toBe("PROCESSED_NONE");
+    expect(raw).not.toHaveProperty("invoiceUndoHint");
+    expect(raw).not.toHaveProperty("hint");
+    // cartão identificado (last4 no memo) mas fatura não fechou → card_id preenchido
+    expect(raw!.invoiceUndoCardId).toBe(cardId);
+  });
+});

@@ -17,6 +17,8 @@ const RESTRICTED_IMPORT_REQUESTER: RateioRequester = {
 };
 
 function makePrismaMock() {
+  let expenseSequence = 0;
+  let receiptSequence = 0;
   return {
     project: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     bankAccount: {
@@ -32,7 +34,7 @@ function makePrismaMock() {
     expense: {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation(({ data }) =>
-        Promise.resolve({ id: `exp-${Math.random().toString(36).slice(2, 8)}`, ...data }),
+        Promise.resolve({ id: `exp-${++expenseSequence}`, ...data }),
       ),
       findFirst: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
@@ -41,7 +43,7 @@ function makePrismaMock() {
     receipt: {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation(({ data }) =>
-        Promise.resolve({ id: `rec-${Math.random().toString(36).slice(2, 8)}`, ...data }),
+        Promise.resolve({ id: `rec-${++receiptSequence}`, ...data }),
       ),
       findFirst: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
@@ -69,6 +71,13 @@ function makePrismaMock() {
       findMany: jest.fn().mockResolvedValue([]),
     },
     rateioAllocation: {
+      count: jest.fn().mockResolvedValue(0),
+    },
+    importedInvoiceLiquidation: {
+      create: jest.fn().mockResolvedValue({}),
+      // #569 — guarda de settlement (findExpensesWithActivePurchaseTrail) lê a
+      // trilha DENTRO da tx; sem claim neste harness ⇒ findMany vazio, não bloqueia.
+      findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(),
@@ -628,7 +637,36 @@ describe('BankAccountService', () => {
       });
       const settleSpy = jest
         .spyOn(settlement, 'applyPreparedSettlement')
-        .mockResolvedValue({ settledExpenses: 3, settledParcelas: 3 });
+        .mockResolvedValue({
+          settledExpenses: 3,
+          settledParcelas: 3,
+          flippedEntries: [
+            {
+              cashFlowEntryId: 'entry-5572-1',
+              purchaseExpenseId: 'purchase-5572-1',
+              prevStatus: 'PLANEJADO',
+              valorCents: 500_000,
+              parcela: '1/1',
+              dueMonth: '2026-07',
+            },
+            {
+              cashFlowEntryId: 'entry-5572-2',
+              purchaseExpenseId: 'purchase-5572-2',
+              prevStatus: 'PLANEJADO',
+              valorCents: 600_000,
+              parcela: '1/1',
+              dueMonth: '2026-07',
+            },
+            {
+              cashFlowEntryId: 'entry-5572-3',
+              purchaseExpenseId: 'purchase-5572-3',
+              prevStatus: 'PLANEJADO',
+              valorCents: 665_585,
+              parcela: '1/1',
+              dueMonth: '2026-07',
+            },
+          ],
+        });
 
       prisma.expense.create.mockClear();
       const preview = await service.previewImport(
@@ -650,6 +688,17 @@ describe('BankAccountService', () => {
       expect(res.cardPayments).toBe(1);
       expect(res.unlinkedCardPayments).toBe(0);
       expect(settleSpy).toHaveBeenCalled();
+      expect(prisma.importedInvoiceLiquidation.create).toHaveBeenCalledTimes(3);
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: expect.any(String) },
+        data: {
+          invoiceUndoState: 'PROCESSED_SETTLED',
+          invoiceUndoParcelaCount: 3,
+          invoiceUndoDueMonth: '2026-07',
+          invoiceUndoCardId: 'card5572',
+          invoiceUndoTrailVersion: 1,
+        },
+      });
     });
   });
 

@@ -53,6 +53,13 @@ function makePrismaMock() {
     rateioAllocation: {
       count: jest.fn().mockResolvedValue(0),
     },
+    // #569 — guarda de settlement (findExpensesWithActivePurchaseTrail) lê a
+    // trilha DENTRO da tx; sem claim neste harness ⇒ findMany vazio, não bloqueia.
+    importedInvoiceLiquidation: {
+      create: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
     $transaction: jest.fn(),
     // findExistingExternalIds usa $queryRaw (bypassa o middleware de
     // soft-delete de propósito, ver credit-card.service.ts) — default sem
