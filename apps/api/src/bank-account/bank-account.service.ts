@@ -90,6 +90,7 @@ import {
   userCanAccessProjectType,
 } from '../common/access-rules';
 import { AMBIGUOUS_CARD_MESSAGE } from '../common/invoice-identity';
+import { findExpensesWithActivePurchaseTrail, IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE } from '../common/imported-invoice-trail';
 import {
   attachDedupeKeys,
   dedupeColumns,
@@ -1551,7 +1552,7 @@ export class BankAccountService {
     if (!importRecord) throw new NotFoundException('Importação não encontrada');
 
     const inline = importRecord.inlineExpenseCreations != null
-      ? await this.prisma.$transaction(tx => preflightInlineUndo(
+      ? await this.prisma.$transaction(tx => this.preflightInlineBatch(
           tx, tenantId, projectId, accountId, importId, importRecord.inlineExpenseCreations!, requester, importRecord.deletedAt != null,
         ))
       : { creations: [], canUndo: true, blockReason: null };
@@ -1907,11 +1908,13 @@ export class BankAccountService {
       let inlineCreations: InlineCreation[] = [];
       if (importTx.inlineExpenseCreations != null) {
         requester = await currentInlineRequester(tx, tenantId, requester);
-        const inline = await preflightInlineUndo(
+        const inline = await this.preflightInlineBatch(
           tx, tenantId, projectId, accountId, importId, importTx.inlineExpenseCreations, requester, importTx.deletedAt != null,
         );
         if (!inline.canUndo) throw new ConflictException({
-          code: INLINE_IMPORT_DRIFT, message: 'A despesa criada pela importação foi alterada. O lote permanece intacto.',
+          code: inline.blockReason, message: inline.blockReason === INLINE_IMPORT_DRIFT
+            ? 'A despesa criada pela importação foi alterada. O lote permanece intacto.'
+            : inline.blockReason,
         });
         inlineCreations = inline.creations;
       }
@@ -2083,6 +2086,82 @@ export class BankAccountService {
     });
 
     return { ok: true, alreadyUndone: false, ...result };
+  }
+
+  /** One read-only gate for inline history and undo, including legacy participants in a mixed batch. */
+  private async preflightInlineBatch(
+    tx: Prisma.TransactionClient, tenantId: string, projectId: string, accountId: string,
+    importId: string, raw: string, requester: RateioRequester, alreadyUndone = false,
+  ) {
+    const actor = await currentInlineRequester(tx, tenantId, requester);
+    const inline = await preflightInlineUndo(tx, tenantId, projectId, accountId, importId, raw, actor, alreadyUndone);
+    const expenses = await tx.expense.findMany({
+      where: { tenantId, importId, deletedAt: INCLUDE_SOFT_DELETED },
+      select: { id: true, projectId: true, tipoDespesa: true, invoiceUndoState: true,
+        invoiceUndoTrailVersion: true, invoiceUndoParcelaCount: true, invoiceUndoCardId: true },
+    });
+    const receipts = await tx.receipt.findMany({
+      where: { tenantId, importId, deletedAt: INCLUDE_SOFT_DELETED },
+      select: { projectId: true, linkedReceiptId: true },
+    });
+    // Include retired ledger rows: removing an edge cannot erase its participant ACL.
+    const ledger = await tx.importedInvoiceLiquidation.findMany({
+      where: { tenantId, importId, deletedAt: INCLUDE_SOFT_DELETED },
+      include: {
+        payment: { select: { tenantId: true, projectId: true } },
+        purchase: { select: { tenantId: true, projectId: true } },
+        cashFlowEntry: { select: { tenantId: true, projectId: true } },
+      },
+    });
+    const ledgerParticipants = ledger.flatMap(row => [row.payment, row.purchase, row.cashFlowEntry]);
+    for (const participant of ledgerParticipants) {
+      if (participant.tenantId !== tenantId) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    }
+    for (const id of new Set([...expenses, ...receipts, ...ledgerParticipants].map(row => row.projectId))) {
+      await assertInlineProject(tx, tenantId, id, actor);
+    }
+    const cardIds = new Set([
+      ...expenses.flatMap(e => e.invoiceUndoCardId ? [e.invoiceUndoCardId] : []),
+      ...ledger.map(row => row.cardId),
+    ]);
+    for (const id of cardIds) {
+      const card = await tx.creditCard.findFirst({ where: { id, tenantId, deletedAt: null }, select: { projectId: true } });
+      if (!card) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+      await assertInlineProject(tx, tenantId, card.projectId, actor, CREDIT_CARD_MODULE);
+    }
+    if (!alreadyUndone) {
+      const inlineSourceIds = new Set(inline.creations.map(pair => pair.sourceExpenseId));
+      await this.conciliacao.assertCanReverseSources(tx, {
+        tenantId, sourceExpenseIds: expenses.filter(e => !inlineSourceIds.has(e.id)).map(e => e.id),
+      }, actor);
+      await this.conciliacao.assertCanMutateReceiptTargets(tx, {
+        tenantId, targetReceiptIds: receipts.flatMap(r => r.linkedReceiptId ? [r.linkedReceiptId] : []),
+      }, actor);
+    }
+    // No drift message or count is disclosed until ALL participant authorization above has succeeded.
+    if (!inline.canUndo || alreadyUndone) return inline;
+    const linkWhere = { tenantId, sourceExpenseId: { in: expenses.map(e => e.id) } };
+    const [allocations, settlements] = await Promise.all([
+      tx.rateioAllocation.findMany({ where: linkWhere, select: { sourceExpenseId: true, targetExpenseId: true } }),
+      tx.crossProjectSettlement.findMany({ where: linkWhere, select: { sourceExpenseId: true, targetExpenseId: true } }),
+    ]);
+    // The same claim guard used by unratearSource/unsettleBySource must precede invoice reversal too.
+    const claimed = await findExpensesWithActivePurchaseTrail(tx, tenantId,
+      [...allocations, ...settlements].flatMap(link => [link.sourceExpenseId, link.targetExpenseId]));
+    if (claimed.size) return { ...inline, canUndo: false, blockReason: IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE };
+    const payments = expenses.filter(e => e.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' || e.invoiceUndoState != null);
+    const trail = this.classifyInvoiceUndoTrail(payments);
+    if (!trail.canUndo) return { ...inline, ...trail };
+    try {
+      await this.cardSettlement.prepareRevertImportBatch({
+        tenantId, importId, tx, requester: actor,
+        settledPayments: payments.filter(p => p.invoiceUndoState === 'PROCESSED_SETTLED'),
+      });
+    } catch (error) {
+      if (!(error instanceof ConflictException)) throw error;
+      return { ...inline, canUndo: false, blockReason: error.message };
+    }
+    return inline;
   }
 
   /**

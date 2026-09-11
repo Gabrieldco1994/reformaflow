@@ -386,4 +386,63 @@ describe('inline bank expense ownership (#690)', () => {
     }], actor.id, actor)).rejects.toMatchObject({ status: 401 });
     expect(await setup.expense.count({ where: { tenantId } })).toBe(0);
   });
+
+  async function mixedInvoiceBatch(purchaseProjectId: string) {
+    await seedCardWithClosingDue(setup, { tenantId, projectId, last4: '6891', closingDay: 25, dueDay: 5 });
+    const purchase = await seedSinglePurchase(setup, {
+      tenantId, projectId: purchaseProjectId, cardLast4: '6891', valorCents: 20000,
+      data: new Date('2026-08-10T00:00:00Z'), status: 'PLANEJADO',
+    });
+    const statement = bankOfx('0690',
+      ofxDebit('20260828', 20000, 'PAGTO CART CRED 6891', 'BATCH-INVOICE'),
+      ofxDebit('20260901', 12345, 'Loja materiais', 'BATCH-INLINE'));
+    const p = await service.previewImport(tenantId, projectId, accountId, statement, 'mixed.ofx', 'OFX', undefined, actor);
+    const result = await service.commitImport(tenantId, projectId, accountId, statement, 'mixed.ofx', 'OFX', '2026-09', undefined, [{
+      externalId: p.preview[1].externalId, action: 'create', newTarget: { targetProjectId, tipoDespesa: 'MATERIAL_CONSTRUCAO' },
+    }], actor.id, actor);
+    expect(await setup.importedInvoiceLiquidation.count({ where: { tenantId, deletedAt: null } })).toBe(1);
+    return { result, purchase };
+  }
+
+  it('mixed batch detail and undo share exact invoice drift preflight', async () => {
+    const { result, purchase } = await mixedInvoiceBatch(projectId);
+    await setup.cashFlowEntry.update({ where: { id: purchase.entryId }, data: { valor: 19999 } });
+    const before = await setup.expense.findMany({ where: { tenantId } });
+    expect(await service.getImportDetail(tenantId, projectId, accountId, result.importId, actor))
+      .toMatchObject({ canUndo: false, blockReason: 'DRIFT:AMOUNT_CHANGED' });
+    await expect(service.undoImport(tenantId, projectId, accountId, result.importId, actor))
+      .rejects.toMatchObject({ status: 409 });
+    expect(await setup.expense.findMany({ where: { tenantId } })).toEqual(before);
+  });
+
+  it('mixed batch exact detail preflight never invokes any writer', async () => {
+    const { result } = await mixedInvoiceBatch(projectId);
+    const before = await setup.importedInvoiceLiquidation.findMany({ where: { tenantId } });
+    let watching = true;
+    const writes: string[] = [];
+    prisma.$use(async (params, next) => {
+      if (watching && /^(create|update|delete|upsert|executeRaw)/.test(params.action)) writes.push(params.action);
+      return next(params);
+    });
+    try {
+      expect(await service.getImportDetail(tenantId, projectId, accountId, result.importId, actor)).toMatchObject({ canUndo: true });
+      expect(writes).toEqual([]);
+      expect(await setup.importedInvoiceLiquidation.findMany({ where: { tenantId } })).toEqual(before);
+    } finally { watching = false; }
+  });
+
+  it('mixed batch authorizes hidden invoice purchases before inline drift or aggregate disclosure', async () => {
+    const hidden = 'inline-690-invoice-hidden';
+    await seedProject(setup, { tenantId, projectId: hidden, type: 'REFORMA', name: 'Hidden invoice purchase' });
+    const { result } = await mixedInvoiceBatch(hidden);
+    await setup.expense.updateMany({ where: { tenantId, projectId: targetProjectId }, data: { titulo: 'also drifted' } });
+    await setup.user.update({ where: { id: actor.id }, data: {
+      role: 'USER', allowedProjects: JSON.stringify([projectId, targetProjectId]),
+    } });
+    for (const call of [
+      () => service.getImportDetail(tenantId, projectId, accountId, result.importId, actor),
+      () => service.undoImport(tenantId, projectId, accountId, result.importId, actor),
+    ]) await expect(call()).rejects.toMatchObject({ status: 404, message: 'Recurso não encontrado' });
+    expect(await setup.importedInvoiceLiquidation.count({ where: { tenantId, deletedAt: null } })).toBe(1);
+  });
 });

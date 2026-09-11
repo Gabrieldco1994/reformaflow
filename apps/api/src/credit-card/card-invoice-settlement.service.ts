@@ -906,8 +906,7 @@ export class CardInvoiceSettlementService {
    * `ConflictException` com o código em `.message` (`INCOMPLETE_TRAIL`,
    * `DRIFT:*`, `MANUAL_PAYMENT_OVERLAP`) e NÃO escreve nada. Consumido por
    * `BankAccountService.undoImport`/`CreditCardService.undoImport`, DENTRO da
-   * `$transaction` do chamador (o `$use` de soft-delete não roda em tx —
-   * filtros de `deletedAt` são explícitos aqui).
+   * `$transaction` do chamador. O middleware `$use` também roda na transação.
    */
   async revertImportBatchIfSafe(args: {
     tenantId: string;
@@ -916,10 +915,45 @@ export class CardInvoiceSettlementService {
     tx: Prisma.TransactionClient;
     settledPayments: Array<{ id: string; invoiceUndoParcelaCount: number | null }>;
   }): Promise<{ revertedInvoiceParcelas: number; reopenedInvoices: number; unstampedPaymentIds: string[] }> {
+    const ownRows = await this.prepareRevertImportBatch(args);
     if (args.settledPayments.length === 0) {
       return { revertedInvoiceParcelas: 0, reopenedInvoices: 0, unstampedPaymentIds: [] };
     }
 
+    let revertedInvoiceParcelas = 0;
+    const dueMonths = new Set<string>();
+    const unstampedPaymentIds: string[] = [];
+    for (const sp of args.settledPayments) {
+      const res = await this.applyRevertImportedLiquidations(args.tx, {
+        tenantId: args.tenantId,
+        paymentExpenseId: sp.id,
+      });
+      revertedInvoiceParcelas += res.revertedParcelas;
+      await args.tx.expense.update({
+        where: { id: sp.id },
+        data: {
+          invoiceUndoState: null,
+          invoiceUndoParcelaCount: null,
+          invoiceUndoDueMonth: null,
+          invoiceUndoCardId: null,
+          invoiceUndoTrailVersion: null,
+        },
+      });
+      unstampedPaymentIds.push(sp.id);
+    }
+    for (const r of ownRows) dueMonths.add(r.dueMonth);
+    return { revertedInvoiceParcelas, reopenedInvoices: dueMonths.size, unstampedPaymentIds };
+  }
+
+  /** Exact read-only counterpart of ledger undo, also used by inline mixed-batch detail. */
+  async prepareRevertImportBatch(args: {
+    tenantId: string;
+    importId: string;
+    requester: RateioRequester;
+    tx: Prisma.TransactionClient;
+    settledPayments: Array<{ id: string; invoiceUndoParcelaCount: number | null }>;
+  }) {
+    if (args.settledPayments.length === 0) return [];
     const rows = await this.prepareRevertImportedLiquidations(args.tx, {
       tenantId: args.tenantId,
       importId: args.importId,
@@ -998,35 +1032,7 @@ export class CardInvoiceSettlementService {
       }
     }
 
-    // ── 5) tudo validado — aplica a reversão real ─────────────────────────
-    let revertedInvoiceParcelas = 0;
-    const dueMonths = new Set<string>();
-    const unstampedPaymentIds: string[] = [];
-    for (const sp of args.settledPayments) {
-      const res = await this.applyRevertImportedLiquidations(args.tx, {
-        tenantId: args.tenantId,
-        paymentExpenseId: sp.id,
-      });
-      revertedInvoiceParcelas += res.revertedParcelas;
-      await args.tx.expense.update({
-        where: { id: sp.id },
-        data: {
-          invoiceUndoState: null,
-          invoiceUndoParcelaCount: null,
-          invoiceUndoDueMonth: null,
-          invoiceUndoCardId: null,
-          invoiceUndoTrailVersion: null,
-        },
-      });
-      unstampedPaymentIds.push(sp.id);
-    }
-    for (const r of ownRows) dueMonths.add(r.dueMonth);
-
-    return {
-      revertedInvoiceParcelas,
-      reopenedInvoices: dueMonths.size,
-      unstampedPaymentIds,
-    };
+    return ownRows;
   }
 
   /**
