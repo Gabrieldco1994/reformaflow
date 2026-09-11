@@ -295,6 +295,69 @@ export default function ImportBankStatementModal({
       getBankPaymentWarning(tx, txStates[tx.externalId] ?? {}),
     ]),
   );
+  const footer = commitResult ? (
+    <ImportFooter>
+      <Button onClick={onCommitted}>Concluir</Button>
+    </ImportFooter>
+  ) : editingTx && flow.editor ? (
+    <ImportFooter>
+      <Button variant="secondary" onClick={flow.cancelEditor}>
+        Cancelar edição
+      </Button>
+      <Button
+        disabled={
+          !validTargetDraft(
+            editingTx,
+            flow.editor.draft,
+            preview?.inlineTargetProjects,
+          )
+        }
+        onClick={() => {
+          updateTx(editingTx.externalId, flow.editor!.draft);
+          flow.finishEditor();
+        }}
+      >
+        Aplicar à revisão
+      </Button>
+    </ImportFooter>
+  ) : preview && flow.stage !== "file" ? (
+    <ImportFooter>
+      <Button
+        variant="ghost"
+        disabled={loading}
+        onClick={() =>
+          flow.setStage(flow.stage === "summary" ? "review" : "file")
+        }
+      >
+        Voltar
+      </Button>
+      <Button variant="secondary" disabled={loading} onClick={close}>
+        Cancelar
+      </Button>
+      <Button
+        onClick={
+          flow.stage === "summary"
+            ? handleCommit
+            : () => flow.setStage("summary")
+        }
+        disabled={
+          loading || flow.uncertain || counts.willCreate + counts.willLink === 0
+        }
+      >
+        {loading ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" /> Importando…
+          </>
+        ) : flow.stage === "summary" ? (
+          <>
+            <Upload className="w-4 h-4" /> Confirmar importação
+          </>
+        ) : (
+          "Ver resumo"
+        )}
+      </Button>
+    </ImportFooter>
+  ) : undefined;
 
   return (
     <Modal
@@ -305,6 +368,8 @@ export default function ImportBankStatementModal({
       variant="center"
       trapFocus
       closeDisabled={loading || !!commitResult}
+      bounded
+      footer={footer}
     >
       <ImportJourney stage={flow.stage} origin={origin} files={files}>
         <h3
@@ -317,7 +382,7 @@ export default function ImportBankStatementModal({
             : IMPORT_STEPS[flow.stage]}
         </h3>
         {commitResult ? (
-          <CommittedView result={commitResult} onClose={onCommitted} />
+          <CommittedView result={commitResult} />
         ) : (
           <>
             {flow.stage === "file" && (
@@ -463,26 +528,6 @@ export default function ImportBankStatementModal({
                     flow.updateDraft(autoTxStates[editingTx.externalId] ?? {})
                   }
                 />
-                <ImportFooter>
-                  <Button variant="secondary" onClick={flow.cancelEditor}>
-                    Cancelar edição
-                  </Button>
-                  <Button
-                    disabled={
-                      !validTargetDraft(
-                        editingTx,
-                        flow.editor.draft,
-                        preview?.inlineTargetProjects,
-                      )
-                    }
-                    onClick={() => {
-                      updateTx(editingTx.externalId, flow.editor!.draft);
-                      flow.finishEditor();
-                    }}
-                  >
-                    Aplicar à revisão
-                  </Button>
-                </ImportFooter>
               </>
             ) : (
               preview &&
@@ -660,53 +705,6 @@ export default function ImportBankStatementModal({
                       </p>
                     </div>
                   )}
-                  <ImportFooter>
-                    <Button
-                      variant="ghost"
-                      disabled={loading}
-                      onClick={() =>
-                        flow.setStage(
-                          flow.stage === "summary" ? "review" : "file",
-                        )
-                      }
-                    >
-                      Voltar
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      disabled={loading}
-                      onClick={close}
-                      className="min-h-11"
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      onClick={
-                        flow.stage === "summary"
-                          ? handleCommit
-                          : () => flow.setStage("summary")
-                      }
-                      disabled={
-                        loading ||
-                        flow.uncertain ||
-                        counts.willCreate + counts.willLink === 0
-                      }
-                      className="min-h-11"
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />{" "}
-                          Importando…
-                        </>
-                      ) : flow.stage === "summary" ? (
-                        <>
-                          <Upload className="w-4 h-4" /> Confirmar importação
-                        </>
-                      ) : (
-                        "Ver resumo"
-                      )}
-                    </Button>
-                  </ImportFooter>
                 </div>
               )
             )}
@@ -717,13 +715,7 @@ export default function ImportBankStatementModal({
   );
 }
 
-function CommittedView({
-  result,
-  onClose,
-}: {
-  result: BankCommitResult;
-  onClose: () => void;
-}) {
+function CommittedView({ result }: { result: BankCommitResult }) {
   return (
     <div className="text-center py-8">
       <ImportWarnings warnings={result.postCommitWarnings} />
@@ -872,9 +864,6 @@ function CommittedView({
           Período: {result.periodLabel}
         </p>
       </div>
-      <Button onClick={onClose} className="mt-6 min-h-11">
-        Concluir
-      </Button>
     </div>
   );
 }

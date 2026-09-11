@@ -608,6 +608,88 @@ export default function ImportWithoutAccountModal({
     (sum, row) => sum + row.amountCents,
     0,
   );
+  const footer = (
+    <ImportFooter>
+      {committedCount !== null ? (
+        <button
+          type="button"
+          onClick={notifyCommitted}
+          className="min-h-11 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+        >
+          Concluir
+        </button>
+      ) : (
+        <>
+          {flow.stage !== "file" && !flow.editor && (
+            <Button
+              variant="ghost"
+              disabled={loading}
+              onClick={() =>
+                flow.setStage(flow.stage === "summary" ? "review" : "file")
+              }
+            >
+              Voltar
+            </Button>
+          )}
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={loading}
+            className="min-h-11 rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+          >
+            {flow.editor ? "Cancelar edição" : "Cancelar"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (flow.editor) {
+                const { id, draft } = flow.editor;
+                setCategoryOverrides((current) => {
+                  const next = { ...current };
+                  if (draft.category === undefined) delete next[id];
+                  else next[id] = draft.category;
+                  return next;
+                });
+                setDuplicateOptIn((current) => ({
+                  ...current,
+                  [id]: draft.optedIn,
+                }));
+                flow.finishEditor();
+              } else if (flow.stage === "file") void handlePreview();
+              else if (flow.stage === "summary") void handleCommit();
+              else flow.setStage("summary");
+            }}
+            disabled={
+              loading ||
+              flow.uncertain ||
+              !files.length ||
+              (flow.stage !== "file" &&
+                !flow.editor &&
+                includedRows.length === 0)
+            }
+            className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading && (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            )}
+            {loading
+              ? preview
+                ? "Importando…"
+                : "Processando…"
+              : flow.editor
+                ? "Aplicar à revisão"
+                : flow.stage === "summary"
+                  ? "Confirmar importação"
+                  : flow.stage === "review"
+                    ? "Ver resumo"
+                    : preview
+                      ? "Continuar revisão"
+                      : "Conferir arquivos"}
+          </button>
+        </>
+      )}
+    </ImportFooter>
+  );
 
   const dialog = (
     <div
@@ -619,483 +701,410 @@ export default function ImportWithoutAccountModal({
       ref={dialogRef}
       tabIndex={-1}
     >
-      <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 sm:p-6">
-        <ImportJourney
-          stage={flow.stage}
-          origin="Carteira · sem conta ou cartão"
-          files={files}
-        >
-          {committedCount !== null ? (
-            <div className="py-6 text-center" aria-live="polite">
-              <h2
-                id={titleId}
-                ref={successHeadingRef}
-                tabIndex={-1}
-                className="mb-2 text-lg font-bold text-green-700 outline-none"
-              >
-                {commitResult?.failed
-                  ? "Importação parcial"
-                  : "Importação concluída!"}
-              </h2>
-              <p className="text-sm text-gray-600">
-                {committedCount} lançamento(s) importado(s) sem conta. Você
-                poderá vincular uma conta depois.
-              </p>
-              {error && (
-                <p role="alert" className="my-3 text-sm text-amber-800">
-                  {error}
-                </p>
-              )}
-              <ImportWarnings warnings={commitResult?.postCommitWarnings} />
-              {!!commitResult?.duplicated && (
-                <p>{commitResult.duplicated} duplicado(s) não importado(s).</p>
-              )}
-              {!!commitResult?.skipped && (
-                <p>{commitResult.skipped} ignorado(s).</p>
-              )}
-              {!!commitResult?.possibleDuplicates?.length && (
-                <p className="mt-2 text-sm text-orange-700">
-                  <strong>{commitResult.possibleDuplicates.length}</strong>{" "}
-                  possível(is) duplicata(s) não importada(s) — marque “Importar
-                  mesmo assim” para incluí-las.
-                </p>
-              )}
-              {!!commitResult?.rulesLearned && (
-                <p className="mt-2 text-sm text-gray-600">
-                  <strong>{commitResult.rulesLearned}</strong> correção(ões)
-                  viraram regra para o futuro
-                </p>
-              )}
-              {!!commitResult?.rulesSkippedNoMapping && (
-                <p className="mt-2 text-sm text-gray-500">
-                  <strong>{commitResult.rulesSkippedNoMapping}</strong>{" "}
-                  correção(ões) foram aplicadas à linha, mas não viraram regra:
-                  esse tipo não tem categoria equivalente.
-                </p>
-              )}
-              {!!commitResult?.rulesLearnFailed && (
-                <p className="mt-2 text-sm text-amber-700">
-                  A importação foi concluída, mas não foi possível salvar{" "}
-                  <strong>{commitResult.rulesLearnFailed}</strong> regra(s).
-                  Recategorize essas linhas para tentar de novo — a importação
-                  em si não falhou.
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={notifyCommitted}
-                className="mt-4 min-h-11 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-              >
-                Concluir
-              </button>
-            </div>
-          ) : (
-            <>
-              <header className="sticky top-0 z-10 mb-4 flex items-center justify-between gap-3 bg-white py-2">
-                <h2 id={titleId} className="text-lg font-bold">
-                  Importar sem conta · {IMPORT_STEPS[flow.stage]}
-                </h2>
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  disabled={loading}
-                  aria-label="Fechar"
-                  ref={closeButtonRef}
-                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+      <div className="flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b px-5 py-4">
+          <h2 id={titleId} className="text-lg font-bold">
+            Importar sem conta · {IMPORT_STEPS[flow.stage]}
+          </h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={loading || committedCount !== null}
+            aria-label="Fechar"
+            ref={closeButtonRef}
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </header>
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-5">
+          <ImportJourney
+            stage={flow.stage}
+            origin="Carteira · sem conta ou cartão"
+            files={files}
+          >
+            {committedCount !== null ? (
+              <div className="py-6 text-center" aria-live="polite">
+                <h3
+                  ref={successHeadingRef}
+                  tabIndex={-1}
+                  className="mb-2 text-lg font-bold text-green-700 outline-none"
                 >
-                  <X className="h-5 w-5" aria-hidden="true" />
-                </button>
-              </header>
-              <h3
-                ref={flow.headingRef}
-                tabIndex={-1}
-                className="mb-3 text-lg font-medium text-darc-velvet"
-              >
-                {flow.editor
-                  ? "Revisão · editar lançamento"
-                  : IMPORT_STEPS[flow.stage]}
-              </h3>
-              {flow.stage === "file" && (
-                <>
-                  <p className="mb-4 text-sm text-gray-600">
-                    Importe para a Carteira sem vincular uma conta ou cartão
-                    agora.
+                  {commitResult?.failed
+                    ? "Importação parcial"
+                    : "Importação concluída!"}
+                </h3>
+                <p className="text-sm text-gray-600">
+                  {committedCount} lançamento(s) importado(s) sem conta. Você
+                  poderá vincular uma conta depois.
+                </p>
+                {error && (
+                  <p role="alert" className="my-3 text-sm text-amber-800">
+                    {error}
                   </p>
-
-                  <fieldset className="mb-4">
-                    <legend className="mb-2 text-sm font-medium text-gray-700">
-                      Tipo de documento
-                    </legend>
-                    <div className="flex gap-2">
-                      {(
-                        [
-                          ["bank", "Extrato bancário"],
-                          ["card", "Fatura de cartão"],
-                        ] as const
-                      ).map(([value, label]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => selectDocumentType(value)}
-                          disabled={loading}
-                          aria-pressed={documentType === value}
-                          className={`min-h-11 flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                            documentType === value
-                              ? "border-blue-600 bg-blue-50 text-blue-700"
-                              : "border-gray-300 text-gray-600 hover:bg-gray-50"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </fieldset>
-
-                  <div className="mb-4">
-                    <label
-                      htmlFor={inputId}
-                      className="mb-2 block text-sm font-medium text-gray-700"
-                    >
-                      Arquivos
-                    </label>
-                    <input
-                      id={inputId}
-                      type="file"
-                      onClick={(event) => {
-                        if (
-                          preview &&
-                          !window.confirm(
-                            "Trocar arquivos descarta a revisão atual. Continuar?",
-                          )
-                        )
-                          event.preventDefault();
-                      }}
-                      multiple
-                      accept={ACCEPTED_FILES}
-                      onChange={handleFilesChange}
-                      disabled={loading}
-                      className="min-h-11 w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-blue-50 file:p-2 file:text-blue-700"
-                    />
-                    <p className="mt-1.5 text-xs text-gray-500">
-                      Até 5 arquivos de 10 MiB cada: OFX, CSV, TXT, PDF,
-                      XLSX/XLS ou imagem.
+                )}
+                <ImportWarnings warnings={commitResult?.postCommitWarnings} />
+                {!!commitResult?.duplicated && (
+                  <p>
+                    {commitResult.duplicated} duplicado(s) não importado(s).
+                  </p>
+                )}
+                {!!commitResult?.skipped && (
+                  <p>{commitResult.skipped} ignorado(s).</p>
+                )}
+                {!!commitResult?.possibleDuplicates?.length && (
+                  <p className="mt-2 text-sm text-orange-700">
+                    <strong>{commitResult.possibleDuplicates.length}</strong>{" "}
+                    possível(is) duplicata(s) não importada(s) — marque
+                    “Importar mesmo assim” para incluí-las.
+                  </p>
+                )}
+                {!!commitResult?.rulesLearned && (
+                  <p className="mt-2 text-sm text-gray-600">
+                    <strong>{commitResult.rulesLearned}</strong> correção(ões)
+                    viraram regra para o futuro
+                  </p>
+                )}
+                {!!commitResult?.rulesSkippedNoMapping && (
+                  <p className="mt-2 text-sm text-gray-500">
+                    <strong>{commitResult.rulesSkippedNoMapping}</strong>{" "}
+                    correção(ões) foram aplicadas à linha, mas não viraram
+                    regra: esse tipo não tem categoria equivalente.
+                  </p>
+                )}
+                {!!commitResult?.rulesLearnFailed && (
+                  <p className="mt-2 text-sm text-amber-700">
+                    A importação foi concluída, mas não foi possível salvar{" "}
+                    <strong>{commitResult.rulesLearnFailed}</strong> regra(s).
+                    Recategorize essas linhas para tentar de novo — a importação
+                    em si não falhou.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <>
+                <h3
+                  ref={flow.headingRef}
+                  tabIndex={-1}
+                  className="mb-3 text-lg font-medium text-darc-velvet"
+                >
+                  {flow.editor
+                    ? "Revisão · editar lançamento"
+                    : IMPORT_STEPS[flow.stage]}
+                </h3>
+                {flow.stage === "file" && (
+                  <>
+                    <p className="mb-4 text-sm text-gray-600">
+                      Importe para a Carteira sem vincular uma conta ou cartão
+                      agora.
                     </p>
-                  </div>
 
-                  {(isPdf || needsPassword) && (
+                    <fieldset className="mb-4">
+                      <legend className="mb-2 text-sm font-medium text-gray-700">
+                        Tipo de documento
+                      </legend>
+                      <div className="flex gap-2">
+                        {(
+                          [
+                            ["bank", "Extrato bancário"],
+                            ["card", "Fatura de cartão"],
+                          ] as const
+                        ).map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => selectDocumentType(value)}
+                            disabled={loading}
+                            aria-pressed={documentType === value}
+                            className={`min-h-11 flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                              documentType === value
+                                ? "border-blue-600 bg-blue-50 text-blue-700"
+                                : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+
                     <div className="mb-4">
                       <label
-                        htmlFor={passwordId}
+                        htmlFor={inputId}
                         className="mb-2 block text-sm font-medium text-gray-700"
                       >
-                        Senha do PDF{" "}
-                        {!needsPassword && (
-                          <span className="font-normal text-gray-500">
-                            (se houver)
-                          </span>
-                        )}
+                        Arquivos
                       </label>
                       <input
-                        id={passwordId}
-                        type="password"
-                        value={password}
-                        onChange={(event) => {
+                        id={inputId}
+                        type="file"
+                        onClick={(event) => {
                           if (
                             preview &&
                             !window.confirm(
-                              "Trocar a senha descarta a revisão atual. Continuar?",
+                              "Trocar arquivos descarta a revisão atual. Continuar?",
                             )
                           )
-                            return;
-                          setPassword(event.currentTarget.value);
-                          setPreview(null);
-                          setCommittedCount(null);
-                          setError(null);
+                            event.preventDefault();
                         }}
+                        multiple
+                        accept={ACCEPTED_FILES}
+                        onChange={handleFilesChange}
                         disabled={loading}
-                        autoComplete="off"
-                        className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                        className="min-h-11 w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-blue-50 file:p-2 file:text-blue-700"
                       />
+                      <p className="mt-1.5 text-xs text-gray-500">
+                        Até 5 arquivos de 10 MiB cada: OFX, CSV, TXT, PDF,
+                        XLSX/XLS ou imagem.
+                      </p>
                     </div>
-                  )}
-                </>
-              )}
 
-              {preview && flow.stage !== "file" && (
-                <section className="mb-4">
-                  <h3 className="mb-2 text-sm font-medium text-gray-700">
-                    Conferência: {includedRows.length} lançamento(s) a importar
-                    · <strong>{formatCurrency(includedTotal / 100)}</strong>
-                    {preview.duplicated
-                      ? ` · ${preview.duplicated} duplicado(s)`
-                      : ""}
-                    {(() => {
-                      const n = preview.rows.filter(
-                        (r) => r.possibleDuplicate,
-                      ).length;
-                      return n ? ` · ${n} possível(is) duplicata(s)` : "";
-                    })()}
-                  </h3>
-                  <ImportClassificationNotice
-                    status={preview.classificationStatus}
-                  />
-                  {flow.stage === "summary" ? (
-                    <p className="text-sm text-gray-600">
-                      Origem: Carteira.{" "}
-                      {preview.rows.length - includedRows.length} lançamento(s)
-                      não serão importados. Débitos e créditos acima consideram
-                      somente as linhas selecionadas.
-                    </p>
-                  ) : !flow.editor ? (
-                    <>
-                      <ImportFilters
-                        statuses={preview.rows.map(statusOf)}
-                        value={flow.filter}
-                        onChange={flow.setFilter}
-                      />
-                      {preview.rows
-                        .filter((row) =>
-                          matchesReviewFilter(statusOf(row), flow.filter),
-                        )
-                        .map((row) => (
-                          <ImportReviewRow
-                            key={row.externalId}
-                            title={row.description}
-                            date={row.date}
-                            fonte={
-                              categoryOverrides[row.externalId] === undefined
-                                ? row.categoriaFonte
-                                : null
-                            }
-                            amountCents={-row.amountCents}
-                            purpose={categoryLabel(
-                              categoryOverrides[row.externalId] ??
-                                row.suggestedCategory ??
-                                "OUTROS",
-                            )}
-                            status={statusOf(row)}
-                            onEdit={() =>
-                              flow.openEditor(row.externalId, {
-                                category: categoryOverrides[row.externalId],
-                                optedIn:
-                                  duplicateOptIn[row.externalId] === true,
-                              })
-                            }
-                            buttonRef={(node) => {
-                              if (node)
-                                flow.rows.current.set(row.externalId, node);
-                              else flow.rows.current.delete(row.externalId);
-                            }}
-                          />
-                        ))}
-                    </>
-                  ) : (
-                    <ul className="max-h-[42dvh] divide-y overflow-y-auto rounded-lg border">
-                      {preview.rows
-                        .filter((row) => row.externalId === flow.editor?.id)
-                        .map((row) => {
-                          const isExpense = row.type === "DESPESA";
-                          const optedIn = flow.editor!.draft.optedIn;
-                          const overridden =
-                            flow.editor!.draft.category !== undefined;
-                          const suggested = row.suggestedCategory ?? "OUTROS";
-                          const selected =
-                            flow.editor!.draft.category ?? suggested;
-                          const knownValues = new Set(
-                            DEBIT_CATEGORIES.map((c) => c.value),
-                          );
-                          const showDynamicOption =
-                            !!selected && !knownValues.has(selected);
-                          return (
-                            <li
+                    {(isPdf || needsPassword) && (
+                      <div className="mb-4">
+                        <label
+                          htmlFor={passwordId}
+                          className="mb-2 block text-sm font-medium text-gray-700"
+                        >
+                          Senha do PDF{" "}
+                          {!needsPassword && (
+                            <span className="font-normal text-gray-500">
+                              (se houver)
+                            </span>
+                          )}
+                        </label>
+                        <input
+                          id={passwordId}
+                          type="password"
+                          value={password}
+                          onChange={(event) => {
+                            if (
+                              preview &&
+                              !window.confirm(
+                                "Trocar a senha descarta a revisão atual. Continuar?",
+                              )
+                            )
+                              return;
+                            setPassword(event.currentTarget.value);
+                            setPreview(null);
+                            setCommittedCount(null);
+                            setError(null);
+                          }}
+                          disabled={loading}
+                          autoComplete="off"
+                          className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {preview && flow.stage !== "file" && (
+                  <section className="mb-4">
+                    <h3 className="mb-2 text-sm font-medium text-gray-700">
+                      Conferência: {includedRows.length} lançamento(s) a
+                      importar ·{" "}
+                      <strong>{formatCurrency(includedTotal / 100)}</strong>
+                      {preview.duplicated
+                        ? ` · ${preview.duplicated} duplicado(s)`
+                        : ""}
+                      {(() => {
+                        const n = preview.rows.filter(
+                          (r) => r.possibleDuplicate,
+                        ).length;
+                        return n ? ` · ${n} possível(is) duplicata(s)` : "";
+                      })()}
+                    </h3>
+                    <ImportClassificationNotice
+                      status={preview.classificationStatus}
+                    />
+                    {flow.stage === "summary" ? (
+                      <p className="text-sm text-gray-600">
+                        Origem: Carteira.{" "}
+                        {preview.rows.length - includedRows.length}{" "}
+                        lançamento(s) não serão importados. Débitos e créditos
+                        acima consideram somente as linhas selecionadas.
+                      </p>
+                    ) : !flow.editor ? (
+                      <>
+                        <ImportFilters
+                          statuses={preview.rows.map(statusOf)}
+                          value={flow.filter}
+                          onChange={flow.setFilter}
+                        />
+                        {preview.rows
+                          .filter((row) =>
+                            matchesReviewFilter(statusOf(row), flow.filter),
+                          )
+                          .map((row) => (
+                            <ImportReviewRow
                               key={row.externalId}
-                              className="flex flex-wrap items-start justify-between gap-3 px-3 py-3"
-                            >
-                              <div className="min-w-0">
-                                <p
-                                  className="truncate text-sm font-medium text-gray-800"
-                                  title={row.description}
-                                >
-                                  {row.description}
-                                </p>
-                                <p className="mt-1 text-xs text-gray-500">
-                                  {formatDateBR(row.date)} ·{" "}
-                                  {TYPE_LABELS[row.type]} ·{" "}
-                                  {STATUS_LABELS[row.status]}
-                                </p>
-                                {(row.duplicate || row.ignored) && (
-                                  <p className="mt-1 flex gap-2 text-xs font-medium">
-                                    {row.duplicate && (
-                                      <span className="text-amber-700">
-                                        Duplicado
-                                      </span>
-                                    )}
-                                    {row.ignored && (
-                                      <span className="text-gray-600">
-                                        Ignorado
-                                      </span>
-                                    )}
+                              title={row.description}
+                              date={row.date}
+                              fonte={
+                                categoryOverrides[row.externalId] === undefined
+                                  ? row.categoriaFonte
+                                  : null
+                              }
+                              amountCents={-row.amountCents}
+                              purpose={categoryLabel(
+                                categoryOverrides[row.externalId] ??
+                                  row.suggestedCategory ??
+                                  "OUTROS",
+                              )}
+                              status={statusOf(row)}
+                              onEdit={() =>
+                                flow.openEditor(row.externalId, {
+                                  category: categoryOverrides[row.externalId],
+                                  optedIn:
+                                    duplicateOptIn[row.externalId] === true,
+                                })
+                              }
+                              buttonRef={(node) => {
+                                if (node)
+                                  flow.rows.current.set(row.externalId, node);
+                                else flow.rows.current.delete(row.externalId);
+                              }}
+                            />
+                          ))}
+                      </>
+                    ) : (
+                      <ul className="divide-y rounded-lg border">
+                        {preview.rows
+                          .filter((row) => row.externalId === flow.editor?.id)
+                          .map((row) => {
+                            const isExpense = row.type === "DESPESA";
+                            const optedIn = flow.editor!.draft.optedIn;
+                            const overridden =
+                              flow.editor!.draft.category !== undefined;
+                            const suggested = row.suggestedCategory ?? "OUTROS";
+                            const selected =
+                              flow.editor!.draft.category ?? suggested;
+                            const knownValues = new Set(
+                              DEBIT_CATEGORIES.map((c) => c.value),
+                            );
+                            const showDynamicOption =
+                              !!selected && !knownValues.has(selected);
+                            return (
+                              <li
+                                key={row.externalId}
+                                className="flex flex-wrap items-start justify-between gap-3 px-3 py-3"
+                              >
+                                <div className="min-w-0">
+                                  <p
+                                    className="truncate text-sm font-medium text-gray-800"
+                                    title={row.description}
+                                  >
+                                    {row.description}
                                   </p>
-                                )}
-                                {row.possibleDuplicate &&
-                                  !row.duplicate &&
-                                  !row.ignored && (
-                                    <PossibleDuplicateNotice
-                                      info={row.possibleDuplicate}
-                                      optedIn={optedIn}
-                                      onToggle={(next) =>
-                                        flow.updateDraft({
-                                          ...flow.editor!.draft,
-                                          optedIn: next,
-                                        })
-                                      }
-                                    />
+                                  <p className="mt-1 text-xs text-gray-500">
+                                    {formatDateBR(row.date)} ·{" "}
+                                    {TYPE_LABELS[row.type]} ·{" "}
+                                    {STATUS_LABELS[row.status]}
+                                  </p>
+                                  {(row.duplicate || row.ignored) && (
+                                    <p className="mt-1 flex gap-2 text-xs font-medium">
+                                      {row.duplicate && (
+                                        <span className="text-amber-700">
+                                          Duplicado
+                                        </span>
+                                      )}
+                                      {row.ignored && (
+                                        <span className="text-gray-600">
+                                          Ignorado
+                                        </span>
+                                      )}
+                                    </p>
                                   )}
-                                {isExpense &&
-                                  !row.ignored &&
-                                  !row.duplicate &&
-                                  (!row.possibleDuplicate || optedIn) && (
-                                    <div className="mt-2 flex flex-col">
-                                      <select
-                                        aria-label={`Categoria de ${row.description}`}
-                                        value={selected}
-                                        disabled={loading}
-                                        onChange={(event) => {
-                                          const value =
-                                            event.currentTarget.value;
+                                  {row.possibleDuplicate &&
+                                    !row.duplicate &&
+                                    !row.ignored && (
+                                      <PossibleDuplicateNotice
+                                        info={row.possibleDuplicate}
+                                        optedIn={optedIn}
+                                        onToggle={(next) =>
                                           flow.updateDraft({
                                             ...flow.editor!.draft,
-                                            category: value,
-                                          });
-                                        }}
-                                        className="min-h-11 w-fit max-w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                                      >
-                                        {showDynamicOption && (
-                                          <option value={selected}>
-                                            {categoryLabel(selected)}
-                                          </option>
+                                            optedIn: next,
+                                          })
+                                        }
+                                      />
+                                    )}
+                                  {isExpense &&
+                                    !row.ignored &&
+                                    !row.duplicate &&
+                                    (!row.possibleDuplicate || optedIn) && (
+                                      <div className="mt-2 flex flex-col">
+                                        <select
+                                          aria-label={`Categoria de ${row.description}`}
+                                          value={selected}
+                                          disabled={loading}
+                                          onChange={(event) => {
+                                            const value =
+                                              event.currentTarget.value;
+                                            flow.updateDraft({
+                                              ...flow.editor!.draft,
+                                              category: value,
+                                            });
+                                          }}
+                                          className="min-h-11 w-fit max-w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                                        >
+                                          {showDynamicOption && (
+                                            <option value={selected}>
+                                              {categoryLabel(selected)}
+                                            </option>
+                                          )}
+                                          {DEBIT_CATEGORIES.map((c) => (
+                                            <option
+                                              key={c.value}
+                                              value={c.value}
+                                            >
+                                              {c.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        {!overridden && (
+                                          <CategoriaFonteChip
+                                            fonte={row.categoriaFonte}
+                                          />
                                         )}
-                                        {DEBIT_CATEGORIES.map((c) => (
-                                          <option key={c.value} value={c.value}>
-                                            {c.label}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      {!overridden && (
-                                        <CategoriaFonteChip
-                                          fonte={row.categoriaFonte}
-                                        />
-                                      )}
-                                    </div>
-                                  )}
-                              </div>
-                              <span className="shrink-0 whitespace-nowrap text-[15px] font-semibold">
-                                {signedCurrency(row.amountCents)}
-                              </span>
-                            </li>
-                          );
-                        })}
-                    </ul>
-                  )}
-                </section>
-              )}
-
-              {error && (
-                <div
-                  className="mb-4 flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3"
-                  role="alert"
-                >
-                  <AlertCircle
-                    className="h-5 w-5 shrink-0 text-red-600"
-                    aria-hidden="true"
-                  />
-                  <p className="text-sm text-red-700">{error}</p>
-                </div>
-              )}
-              <p className="sr-only" role="status" aria-live="polite">
-                {loading
-                  ? preview
-                    ? "Importando lançamentos."
-                    : "Processando arquivos."
-                  : ""}
-              </p>
-
-              <ImportFooter>
-                {flow.stage !== "file" && !flow.editor && (
-                  <Button
-                    variant="ghost"
-                    disabled={loading}
-                    onClick={() =>
-                      flow.setStage(
-                        flow.stage === "summary" ? "review" : "file",
-                      )
-                    }
-                  >
-                    Voltar
-                  </Button>
+                                      </div>
+                                    )}
+                                </div>
+                                <span className="shrink-0 whitespace-nowrap text-[15px] font-semibold">
+                                  {signedCurrency(row.amountCents)}
+                                </span>
+                              </li>
+                            );
+                          })}
+                      </ul>
+                    )}
+                  </section>
                 )}
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  disabled={loading}
-                  className="min-h-11 rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
-                >
-                  {flow.editor ? "Cancelar edição" : "Cancelar"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (flow.editor) {
-                      const { id, draft } = flow.editor;
-                      setCategoryOverrides((current) => {
-                        const next = { ...current };
-                        if (draft.category === undefined) delete next[id];
-                        else next[id] = draft.category;
-                        return next;
-                      });
-                      setDuplicateOptIn((current) => ({
-                        ...current,
-                        [id]: draft.optedIn,
-                      }));
-                      flow.finishEditor();
-                    } else if (flow.stage === "file") void handlePreview();
-                    else if (flow.stage === "summary") void handleCommit();
-                    else flow.setStage("summary");
-                  }}
-                  disabled={
-                    loading ||
-                    flow.uncertain ||
-                    !files.length ||
-                    (flow.stage !== "file" &&
-                      !flow.editor &&
-                      includedRows.length === 0)
-                  }
-                  className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {loading && (
-                    <Loader2
-                      className="h-4 w-4 animate-spin"
+
+                {error && (
+                  <div
+                    className="mb-4 flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3"
+                    role="alert"
+                  >
+                    <AlertCircle
+                      className="h-5 w-5 shrink-0 text-red-600"
                       aria-hidden="true"
                     />
-                  )}
+                    <p className="text-sm text-red-700">{error}</p>
+                  </div>
+                )}
+                <p className="sr-only" role="status" aria-live="polite">
                   {loading
                     ? preview
-                      ? "Importando…"
-                      : "Processando…"
-                    : flow.editor
-                      ? "Aplicar à revisão"
-                      : flow.stage === "summary"
-                        ? "Confirmar importação"
-                        : flow.stage === "review"
-                          ? "Ver resumo"
-                          : preview
-                            ? "Continuar revisão"
-                            : "Conferir arquivos"}
-                </button>
-              </ImportFooter>
-            </>
-          )}
-        </ImportJourney>
+                      ? "Importando lançamentos."
+                      : "Processando arquivos."
+                    : ""}
+                </p>
+              </>
+            )}
+          </ImportJourney>
+        </div>
+        {footer}
       </div>
     </div>
   );

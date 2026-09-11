@@ -235,6 +235,62 @@ export default function ImportStatementModal({
     (tx) => tx.externalId === flow.editor?.id,
   );
   const close = () => flow.requestClose(!!preview, onClose);
+  const footer = commitResult ? (
+    <ImportFooter>
+      <Button onClick={onCommitted}>Concluir</Button>
+    </ImportFooter>
+  ) : editingTx && flow.editor ? (
+    <ImportFooter>
+      <Button variant="secondary" onClick={flow.cancelEditor}>
+        Cancelar edição
+      </Button>
+      <Button
+        onClick={() => {
+          updateTx(editingTx.externalId, flow.editor!.draft);
+          flow.finishEditor();
+        }}
+      >
+        Aplicar à revisão
+      </Button>
+    </ImportFooter>
+  ) : preview && flow.stage !== "file" ? (
+    <ImportFooter>
+      <Button
+        variant="ghost"
+        disabled={loading}
+        onClick={() =>
+          flow.setStage(flow.stage === "summary" ? "review" : "file")
+        }
+      >
+        Voltar
+      </Button>
+      <Button variant="secondary" disabled={loading} onClick={close}>
+        Cancelar
+      </Button>
+      <Button
+        onClick={
+          flow.stage === "summary"
+            ? handleCommit
+            : () => flow.setStage("summary")
+        }
+        disabled={
+          loading || flow.uncertain || counts.willCreate + counts.willLink === 0
+        }
+      >
+        {loading ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" /> Importando…
+          </>
+        ) : flow.stage === "summary" ? (
+          <>
+            <Upload className="w-4 h-4" /> Confirmar importação
+          </>
+        ) : (
+          "Ver resumo"
+        )}
+      </Button>
+    </ImportFooter>
+  ) : undefined;
 
   return (
     <Modal
@@ -245,6 +301,8 @@ export default function ImportStatementModal({
       variant="center"
       trapFocus
       closeDisabled={loading || !!commitResult}
+      bounded
+      footer={footer}
     >
       <ImportJourney
         stage={flow.stage}
@@ -261,7 +319,7 @@ export default function ImportStatementModal({
             : IMPORT_STEPS[flow.stage]}
         </h3>
         {commitResult ? (
-          <CommittedView result={commitResult} onClose={onCommitted} />
+          <CommittedView result={commitResult} />
         ) : (
           <>
             {flow.stage === "file" && (
@@ -324,19 +382,6 @@ export default function ImportStatementModal({
                 >
                   Restaurar dados originais e sugestões
                 </Button>
-                <ImportFooter>
-                  <Button variant="secondary" onClick={flow.cancelEditor}>
-                    Cancelar edição
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      updateTx(editingTx.externalId, flow.editor!.draft);
-                      flow.finishEditor();
-                    }}
-                  >
-                    Aplicar à revisão
-                  </Button>
-                </ImportFooter>
               </>
             ) : (
               preview &&
@@ -441,54 +486,6 @@ export default function ImportStatementModal({
                       onToggle={() => setShowFuture((v) => !v)}
                     />
                   )}
-
-                  <ImportFooter>
-                    <Button
-                      variant="ghost"
-                      disabled={loading}
-                      onClick={() =>
-                        flow.setStage(
-                          flow.stage === "summary" ? "review" : "file",
-                        )
-                      }
-                    >
-                      Voltar
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      disabled={loading}
-                      onClick={close}
-                      className="min-h-11"
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      onClick={
-                        flow.stage === "summary"
-                          ? handleCommit
-                          : () => flow.setStage("summary")
-                      }
-                      disabled={
-                        loading ||
-                        flow.uncertain ||
-                        counts.willCreate + counts.willLink === 0
-                      }
-                      className="min-h-11"
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />{" "}
-                          Importando…
-                        </>
-                      ) : flow.stage === "summary" ? (
-                        <>
-                          <Upload className="w-4 h-4" /> Confirmar importação
-                        </>
-                      ) : (
-                        "Ver resumo"
-                      )}
-                    </Button>
-                  </ImportFooter>
                 </div>
               )
             )}
@@ -660,7 +657,7 @@ function FutureInstallmentsSection({
         </span>
       </button>
       {expanded && (
-        <div className="border-t border-amber-200 max-h-48 overflow-y-auto text-xs">
+        <div className="border-t border-amber-200 text-xs">
           {items.map((t) => (
             <div
               key={t.externalId}
@@ -683,13 +680,7 @@ function FutureInstallmentsSection({
   );
 }
 
-function CommittedView({
-  result,
-  onClose,
-}: {
-  result: CommitResult;
-  onClose: () => void;
-}) {
+function CommittedView({ result }: { result: CommitResult }) {
   return (
     <div className="text-center py-8">
       <ImportWarnings warnings={result.postCommitWarnings} />
@@ -770,9 +761,6 @@ function CommittedView({
           Período: {result.periodLabel}
         </p>
       </div>
-      <Button onClick={onClose} className="mt-6">
-        Concluir
-      </Button>
     </div>
   );
 }

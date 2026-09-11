@@ -21,6 +21,9 @@ interface ModalProps {
   trapFocus?: boolean;
   /** Financial sends/results must not be dismissed behind the owning flow. */
   closeDisabled?: boolean;
+  /** Opt-in: header/footer stay outside the single scrolling form body. */
+  bounded?: boolean;
+  footer?: React.ReactNode;
 }
 
 const sizeMap = {
@@ -49,6 +52,8 @@ export function Modal({
   portal = false,
   trapFocus,
   closeDisabled = false,
+  bounded = false,
+  footer,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -127,14 +132,16 @@ export function Modal({
         role={trapFocus ? "dialog" : undefined}
         aria-modal={trapFocus ? true : undefined}
         aria-label={trapFocus ? title : undefined}
-        className={`bg-white shadow-darc-hero overflow-y-auto border border-darc-linen ${panelClasses}`}
+        className={`bg-white shadow-darc-hero ${bounded ? "flex flex-col overflow-hidden" : "overflow-y-auto"} border border-darc-linen ${panelClasses}`}
       >
         {!isCenterOnly && (
-          <div className="md:hidden flex justify-center pt-3 pb-1">
+          <div className="md:hidden flex shrink-0 justify-center pt-3 pb-1">
             <div className="h-1.5 w-12 rounded-full bg-darc-linen/80" />
           </div>
         )}
-        <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-white border-b border-darc-linen">
+        <div
+          className={`${bounded ? "shrink-0" : "sticky top-0 z-10"} flex items-center justify-between px-5 py-4 bg-white border-b border-darc-linen`}
+        >
           <h2 className="font-editorial italic text-xl text-darc-maroon">
             {title}
           </h2>
@@ -147,7 +154,12 @@ export function Modal({
             <X className="w-5 h-5 text-darc-maroon" />
           </button>
         </div>
-        <div className="px-5 py-5">{children}</div>
+        <div
+          className={`${bounded ? "min-h-0 min-w-0 flex-1 overflow-y-auto" : ""} px-5 py-5`}
+        >
+          {children}
+        </div>
+        {footer}
       </div>
     </div>
   );

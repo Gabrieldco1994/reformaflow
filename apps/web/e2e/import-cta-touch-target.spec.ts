@@ -1,4 +1,10 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from "@playwright/test";
 
 /**
  * #680 review — o CTA "Confirmar importação" dos modais de fatura e extrato
@@ -17,6 +23,109 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 const PESSOAL_ID = "ictt-pessoal";
 const ACCOUNT_ID = "ictt-acc";
 const CARD_ID = "ictt-card";
+
+async function expectUnobscuredField(field: Locator) {
+  const bounds = await field.evaluate((input) => {
+    const dialog = input.closest('[role="dialog"]')!;
+    const rect = input.getBoundingClientRect();
+    const header = dialog
+      .querySelector("h2")!
+      .parentElement!.getBoundingClientRect();
+    const footer = dialog.querySelector("footer")!.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      rect.x + rect.width / 2,
+      rect.y + rect.height / 2,
+    );
+    return {
+      hit: hit !== null && (input === hit || input.contains(hit)),
+      top: rect.top,
+      bottom: rect.bottom,
+      clearTop: Math.max(0, header.bottom),
+      clearBottom: Math.min(window.innerHeight, footer.top),
+    };
+  });
+  expect(bounds.hit, JSON.stringify(bounds)).toBe(true);
+  expect(bounds.top, JSON.stringify(bounds)).toBeGreaterThanOrEqual(
+    bounds.clearTop,
+  );
+  expect(bounds.bottom, JSON.stringify(bounds)).toBeLessThanOrEqual(
+    bounds.clearBottom,
+  );
+}
+
+for (const width of [375, 390, 1280]) {
+  test(`editor: campos focados livres de cabeçalho e rodapé em ${width}px`, async ({
+    page,
+    baseURL,
+  }, info) => {
+    test.skip(
+      isMobile(info) !== width < 640,
+      "viewport pertence ao outro projeto de navegador",
+    );
+    await page.setViewportSize({ width, height: 900 });
+    await mockApi(page, baseURL!);
+    let commits = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).searchParams.get("mode") === "commit")
+        commits++;
+    });
+    await page.route(
+      /\/bank-accounts\/ictt-acc\/import-statement\?/,
+      (route) => {
+        if (
+          new URL(route.request().url()).searchParams.get("mode") !== "preview"
+        )
+          return route.fallback();
+        return route.fulfill(
+          json({
+            ...BANK_PREVIEW,
+            inlineTargetProjects: [
+              {
+                id: "target-reforma",
+                name: "Reforma da cozinha e dos ambientes compartilhados",
+                type: "REFORMA",
+              },
+            ],
+            preview: BANK_PREVIEW.preview.map((tx) => ({
+              ...tx,
+              inlineTargetEligible: tx.externalId === "ictt-nova",
+            })),
+          }),
+        );
+      },
+    );
+    const dialog = await openImportModal(page, "extrato", isMobile(info));
+    await dialog.getByRole("button", { name: "Revisar Padaria" }).click();
+    await dialog
+      .getByRole("button", { name: "Criar em outro projeto" })
+      .click();
+    await dialog.getByLabel("Projeto destino").selectOption("target-reforma");
+    await dialog
+      .getByLabel("Categoria no destino")
+      .selectOption("MATERIAL_CONSTRUCAO");
+    const title = dialog.getByLabel("Título no destino (opcional)");
+    const supplier = dialog.getByLabel("Fornecedor (opcional)");
+    const description = dialog.getByLabel("Descrição", { exact: true });
+    await title.fill(
+      "Materiais para a cozinha e todos os ambientes compartilhados",
+    );
+    await supplier.fill("Fornecedor de materiais e acabamentos da reforma");
+    await supplier.focus();
+    await page.keyboard.press("Shift+Tab");
+    await expect(title).toBeFocused();
+    await expectUnobscuredField(title);
+    await supplier.scrollIntoViewIfNeeded();
+    await supplier.focus();
+    await expectUnobscuredField(supplier);
+    await description.scrollIntoViewIfNeeded();
+    await description.focus();
+    await expectUnobscuredField(description);
+    await expect(
+      dialog.getByRole("button", { name: "Aplicar à revisão" }),
+    ).toBeVisible();
+    expect(commits).toBe(0);
+  });
+}
 
 function json(body: unknown) {
   return {
