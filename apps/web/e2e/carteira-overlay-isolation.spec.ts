@@ -31,6 +31,7 @@ const ACCOUNT_VIEW = {
 };
 
 async function mockApi(page: Page, baseURL: string, accounts: unknown[] = []) {
+  const importCommits: string[] = [];
   await page.context().addCookies([{ name: 'rf_token', value: 'e659-test', url: baseURL }]);
   await page.route('http://localhost:3001/**', async (route) => {
     const url = new URL(route.request().url());
@@ -67,10 +68,12 @@ async function mockApi(page: Page, baseURL: string, accounts: unknown[] = []) {
           ],
         }));
       }
+      importCommits.push(route.request().method());
       return route.fulfill(json({ inserted: 2, failed: 0 }));
     }
     return route.fulfill(json([]));
   });
+  return importCommits;
 }
 
 function isMobile(testInfo: import('@playwright/test').TestInfo) {
@@ -174,7 +177,7 @@ test('Cancel button behaves like Escape', async ({ page, baseURL }, testInfo) =>
 
 test('Concluir after a real CSV import: modal closes, picker does not reopen', async ({ page, baseURL }, testInfo) => {
   const mobile = isMobile(testInfo);
-  await mockApi(page, baseURL!);
+  const importCommits = await mockApi(page, baseURL!);
   await page.goto(`/projects/${PESSOAL_ID}/conta`);
   const launcher = page.getByRole('button', { name: 'Lançar', exact: true }).first();
   await launcher.click();
@@ -195,8 +198,13 @@ test('Concluir after a real CSV import: modal closes, picker does not reopen', a
   });
   await dialog.getByRole('button', { name: 'Conferir arquivos' }).click();
   await expect(dialog.getByText(/Conferência:/)).toBeVisible();
+  expect(importCommits).toEqual([]);
+  await dialog.getByRole('button', { name: 'Ver resumo' }).click();
+  await expect(dialog.getByRole('button', { name: 'Confirmar importação' })).toBeVisible();
+  expect(importCommits).toEqual([]);
   await dialog.getByRole('button', { name: 'Confirmar importação' }).click();
   await expect(dialog.getByText('Importação concluída!')).toBeVisible();
+  expect(importCommits).toEqual(['POST']);
   await dialog.getByRole('button', { name: 'Concluir' }).click();
 
   await expect(page.getByRole('dialog')).toHaveCount(0);
