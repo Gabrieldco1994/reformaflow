@@ -532,8 +532,12 @@ export class BankAccountService {
     const inlineTargetProjects = requester.id
       ? await this.prisma.$transaction(async tx => {
           const actor = requester;
-          const sourceProject = await assertInlineProject(tx, tenantId, projectId, actor, BANK_ACCOUNT_MODULE);
-          if (sourceProject.type !== 'PESSOAL' || !canUseInlineProject(actor, sourceProject)) return [];
+          const sourceProject = await tx.project.findFirst({
+            where: { id: projectId, tenantId, deletedAt: null },
+          });
+          if (!sourceProject || sourceProject.type !== 'PESSOAL' ||
+              !canUseInlineProject(actor, sourceProject, BANK_ACCOUNT_MODULE) ||
+              !canUseInlineProject(actor, sourceProject)) return [];
           const projects = await tx.project.findMany({
             where: { tenantId, id: { not: projectId }, deletedAt: null },
             select: { id: true, name: true, type: true },

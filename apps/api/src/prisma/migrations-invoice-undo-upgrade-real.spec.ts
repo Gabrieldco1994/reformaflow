@@ -575,7 +575,12 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
   });
 
   it("migrate deploy no MESMO DB preserva toda a massa legada PESSOAL/cross-project/M8/manual/adotada", async () => {
-    expect(await legacyDataSnapshot(db)).toEqual(beforeMigration);
+    const afterMigration = await legacyDataSnapshot(db);
+    const legacyImports = afterMigration.imports.map(({ inline_expense_creations, ...legacyImport }) => {
+      expect(inline_expense_creations).toBeNull();
+      return legacyImport;
+    });
+    expect({ ...afterMigration, imports: legacyImports }).toEqual(beforeMigration);
     expect(beforeMigration.projects).toHaveLength(2);
     expect(beforeMigration.expenses).toHaveLength(9);
     expect(beforeMigration.receipts).toHaveLength(2);
