@@ -1,19 +1,54 @@
-'use client';
+"use client";
 
-import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
-import { Trash2, Link2, RotateCcw, Check, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
-import type { BankPreviewTx, BankCrossProjectMatch, BankCardCandidate } from '../_types';
-import type { BankImportDecision, BankTxState } from './ImportBankStatementModal';
-import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
-import { PossibleDuplicateNotice } from '@/components/import/PossibleDuplicateNotice';
-import { CREDIT_CATEGORIES, DEBIT_CATEGORIES, categoryLabel } from '../_lib/import-categories';
+import { formatCurrency, formatDateBR } from "@/lib/utils";
+import {
+  centsToReaisInput,
+  currencyInputToCents,
+  maskCurrencyInputPositive,
+} from "@/lib/currency-input";
+import {
+  Trash2,
+  Link2,
+  RotateCcw,
+  Check,
+  ArrowDownCircle,
+  ArrowUpCircle,
+} from "lucide-react";
+import type {
+  BankPreviewTx,
+  BankCrossProjectMatch,
+  BankCardCandidate,
+} from "../_types";
+import type {
+  BankImportDecision,
+  BankTxState,
+} from "./ImportBankStatementModal";
+import { CategoriaFonteChip } from "@/components/import/ImportClassificationNotice";
+import { PossibleDuplicateNotice } from "@/components/import/PossibleDuplicateNotice";
+import {
+  CREDIT_CATEGORIES,
+  DEBIT_CATEGORIES,
+  categoryLabel,
+} from "../_lib/import-categories";
 
 /** "2026-08" → "ago/2026". */
 function formatDueMonth(dueMonth: string): string {
-  const [year, month] = dueMonth.split('-').map(Number);
+  const [year, month] = dueMonth.split("-").map(Number);
   if (!year || !month) return dueMonth;
-  const nome = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const nome = [
+    "jan",
+    "fev",
+    "mar",
+    "abr",
+    "mai",
+    "jun",
+    "jul",
+    "ago",
+    "set",
+    "out",
+    "nov",
+    "dez",
+  ];
   return `${nome[month - 1] ?? month}/${year}`;
 }
 
@@ -36,8 +71,8 @@ function dedupeByCard(
   if (selected && !seen.has(selected)) {
     out.unshift({
       cardLast4: selected,
-      nickname: 'Cartão',
-      dueMonth: '',
+      nickname: "Cartão",
+      dueMonth: "",
       invoiceTotalCents: 0,
       deltaCents: 0,
     });
@@ -52,49 +87,89 @@ interface RowProps {
   onClearDecision: () => void;
 }
 
-export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps) {
+export function getBankPaymentWarning(
+  tx: BankPreviewTx,
+  state: BankTxState,
+): string | null {
+  const category =
+    state.decision?.overrides?.category ??
+    tx.suggestedCategory ??
+    (tx.isCardPayment ? "PAGAMENTO_FATURA_CARTAO" : "OUTROS");
+  if (
+    tx.amountCents < 0 ||
+    tx.duplicate ||
+    tx.possibleDuplicate ||
+    state.decision?.action === "skip" ||
+    category !== "PAGAMENTO_FATURA_CARTAO"
+  )
+    return null;
+  const cardLast4 = state.decision?.overrides?.cardLast4;
+  if (!cardLast4) {
+    return "Sem cartão identificado, o valor sai do seu saldo, mas nenhuma fatura será quitada automaticamente.";
+  }
+  const candidate = tx.cardCandidates?.find(
+    (card) => card.cardLast4 === cardLast4,
+  );
+  return candidate?.windowState === "OUTSIDE_SETTLEMENT_WINDOW"
+    ? `Cartão ${candidate.nickname} ••${cardLast4} identificado, mas esta fatura está fora do prazo de liquidação automática. A importação não vai quitá-la sozinha — confirme manualmente depois se este pagamento deve fechar essa fatura.`
+    : null;
+}
+
+export function BankPreviewTxRow({
+  tx,
+  state,
+  onChange,
+  onClearDecision,
+}: RowProps) {
   const isCredit = tx.amountCents < 0;
-  const isSkipped = state.decision?.action === 'skip';
-  const isLinked = state.decision?.action === 'link';
-  const isForcedImport = state.decision?.action === 'import';
+  const isSkipped = state.decision?.action === "skip";
+  const isLinked = state.decision?.action === "link";
+  const isForcedImport = state.decision?.action === "import";
   const possibleDuplicate = tx.possibleDuplicate ?? null;
   const matches = tx.crossProjectMatches ?? [];
-  const valorCents = state.decision?.overrides?.valorCents ?? Math.abs(tx.amountCents);
+  const valorCents =
+    state.decision?.overrides?.valorCents ?? Math.abs(tx.amountCents);
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
   const categories = isCredit ? CREDIT_CATEGORIES : DEBIT_CATEGORIES;
   const categoryOverridden = state.decision?.overrides?.category != null;
-  const category = state.decision?.overrides?.category ?? tx.suggestedCategory ?? (isCredit ? 'OUTROS' : 'OUTROS');
+  const category =
+    state.decision?.overrides?.category ??
+    tx.suggestedCategory ??
+    (tx.isCardPayment ? "PAGAMENTO_FATURA_CARTAO" : "OUTROS");
   // O <select> tem lista fixa; um `suggestedCategory` fora dela (ex.: TRANSFERENCIA_TED
   // vindo de uma regra, RECEITA numa entrada) deixaria o campo em branco — injeta a
   // opção correspondente para o valor selecionado ficar sempre visível.
   const knownCategoryValues = new Set(categories.map((c) => c.value));
-  const showDynamicCategoryOption = !!category && !knownCategoryValues.has(category);
+  const showDynamicCategoryOption =
+    !!category && !knownCategoryValues.has(category);
   const cardLast4 = state.decision?.overrides?.cardLast4 ?? null;
   // Mostra o seletor sempre que a linha for tratada como pagamento de fatura —
   // seja por detecção do backend (que já sugere a categoria) ou por escolha
   // manual. Some se o usuário recategorizar a linha.
-  const isCardPaymentRow = !isCredit && category === 'PAGAMENTO_FATURA_CARTAO';
+  const isCardPaymentRow = !isCredit && category === "PAGAMENTO_FATURA_CARTAO";
   const cardOptions = dedupeByCard(tx.cardCandidates ?? [], cardLast4);
-  // #569 PR2: o candidato selecionado pode ter sido identificado fora da
-  // janela de liquidação automática do commit — a prévia não pode mais
-  // prometer um vínculo silencioso nesse caso (§2.c do contrato).
-  const selectedCandidate = cardLast4
-    ? cardOptions.find((c) => c.cardLast4 === cardLast4)
-    : undefined;
-  const selectedIsOutsideWindow = selectedCandidate?.windowState === 'OUTSIDE_SETTLEMENT_WINDOW';
+  const paymentWarning = getBankPaymentWarning(tx, state);
 
-  function setOverride(patch: Partial<NonNullable<BankImportDecision['overrides']>>) {
+  function setOverride(
+    patch: Partial<NonNullable<BankImportDecision["overrides"]>>,
+  ) {
     onChange({
       decision: {
-        ...(state.decision ?? { externalId: tx.externalId, action: 'create' }),
+        ...(state.decision ?? { externalId: tx.externalId, action: "create" }),
         externalId: tx.externalId,
-        overrides: { ...(state.decision?.overrides ?? {}), ...patch },
+        overrides: {
+          ...(state.decision?.overrides ?? {}),
+          ...patch,
+          ...(patch.category && patch.category !== "PAGAMENTO_FATURA_CARTAO"
+            ? { cardLast4: undefined }
+            : {}),
+        },
       },
     });
   }
 
   function setAction(
-    action: 'skip' | 'link' | 'create' | 'import',
+    action: "skip" | "link" | "create" | "import",
     linkToExpenseId?: string,
     linkToReceiptId?: string,
   ) {
@@ -105,6 +180,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
         action,
         linkToExpenseId,
         linkToReceiptId,
+        newTarget: undefined,
       },
     });
   }
@@ -123,48 +199,68 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
   }
 
   const rowClass = isSkipped
-    ? 'bg-red-50 line-through text-gray-400'
+    ? "bg-red-50 line-through text-gray-400"
     : isLinked
-      ? 'bg-green-50'
+      ? "bg-green-50"
       : tx.duplicate
-        ? 'bg-yellow-50 text-gray-500'
+        ? "bg-yellow-50 text-gray-500"
         : possibleDuplicate && !isForcedImport
-          ? 'bg-orange-50'
-          : '';
+          ? "bg-orange-50"
+          : "";
 
   return (
-    <div className={`border-b p-3 ${rowClass}`}>
+    <fieldset
+      disabled={tx.duplicate}
+      className={`border-b p-3 min-w-0 ${rowClass}`}
+    >
       <div className="flex items-start gap-2 flex-wrap">
-        <div className="flex items-center justify-center w-7" title={isCredit ? 'Crédito (entrada)' : 'Débito (saída)'}>
-          {isCredit
-            ? <ArrowDownCircle className="w-5 h-5 text-green-600" />
-            : <ArrowUpCircle className="w-5 h-5 text-red-600" />}
+        <div
+          className="flex items-center justify-center w-7"
+          title={isCredit ? "Crédito (entrada)" : "Débito (saída)"}
+        >
+          {isCredit ? (
+            <ArrowDownCircle className="w-5 h-5 text-green-600" />
+          ) : (
+            <ArrowUpCircle className="w-5 h-5 text-red-600" />
+          )}
         </div>
 
         <div className="flex-1 min-w-[200px]">
           <input
             type="text"
+            aria-label="Descrição"
             value={titulo}
             disabled={isSkipped}
             onChange={(e) => setOverride({ titulo: e.target.value })}
             className="w-full px-2 py-1 border rounded text-sm disabled:bg-transparent disabled:border-transparent"
           />
-          <div className="text-xs text-gray-500 mt-1">{formatDateBR(tx.date)}</div>
+          <div className="text-xs text-gray-500 mt-1">
+            {formatDateBR(tx.date)}
+          </div>
         </div>
 
-        <div className="w-32">
+        <div className="w-full sm:w-44">
           <input
             type="text"
             inputMode="numeric"
+            aria-label="Valor da origem"
             value={centsToReaisInput(valorCents)}
             disabled={isSkipped}
-            onChange={(e) => setOverride({ valorCents: currencyInputToCents(maskCurrencyInputPositive(e.target.value)) || 0 })}
-            className={`w-full px-2 py-1 border rounded text-sm text-right font-mono ${isCredit ? 'text-green-700' : 'text-red-700'}`}
+            onChange={(e) =>
+              setOverride({
+                valorCents:
+                  currencyInputToCents(
+                    maskCurrencyInputPositive(e.target.value),
+                  ) || 0,
+              })
+            }
+            className={`w-full px-2 py-1 border rounded text-sm text-right font-mono ${isCredit ? "text-green-700" : "text-red-700"}`}
           />
         </div>
 
         <div className="w-44">
           <select
+            aria-label="Categoria da origem"
             value={category}
             disabled={isSkipped}
             onChange={(e) => setOverride({ category: e.target.value })}
@@ -174,16 +270,20 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
               <option value={category}>{categoryLabel(category)}</option>
             )}
             {categories.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
             ))}
           </select>
-          {!categoryOverridden && <CategoriaFonteChip fonte={tx.categoriaFonte} />}
+          {!categoryOverridden && (
+            <CategoriaFonteChip fonte={tx.categoriaFonte} />
+          )}
         </div>
 
         <div className="flex gap-1">
           {!isSkipped ? (
             <button
-              onClick={() => setAction('skip')}
+              onClick={() => setAction("skip")}
               title="Excluir desta importação"
               className="p-1.5 text-red-600 hover:bg-red-100 rounded"
             >
@@ -192,7 +292,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
           ) : (
             <button
               onClick={onClearDecision}
-              title="Restaurar"
+              title="Restaurar dados originais e sugestões"
               className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
             >
               <RotateCcw className="w-4 h-4" />
@@ -211,7 +311,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
         <PossibleDuplicateNotice
           info={possibleDuplicate}
           optedIn={isForcedImport}
-          onToggle={(next) => (next ? setAction('import') : clearImportOptIn())}
+          onToggle={(next) => (next ? setAction("import") : clearImportOptIn())}
         />
       )}
 
@@ -222,39 +322,35 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
       {isCardPaymentRow && !isSkipped && !possibleDuplicate && (
         <div className="mt-2 pl-3 border-l-2 border-purple-300 space-y-1">
           <div className="text-xs text-purple-800 font-medium">
-            💳 Pagamento de fatura — qual cartão isso quita?
+            💳 Pagamento de fatura — identificar o cartão
           </div>
           <select
-            value={cardLast4 ?? ''}
-            onChange={(e) => setOverride({ cardLast4: e.target.value || undefined })}
+            aria-label="Cartão da fatura"
+            value={cardLast4 ?? ""}
+            onChange={(e) =>
+              setOverride({ cardLast4: e.target.value || undefined })
+            }
             className="w-full px-2 py-1.5 border rounded text-sm min-h-11"
           >
-            <option value="">Não identificado — não quita fatura nenhuma</option>
+            <option value="">
+              Não identificado — não quita fatura nenhuma
+            </option>
             {cardOptions.map((c) => (
               <option key={`${c.cardLast4}-${c.dueMonth}`} value={c.cardLast4}>
                 {c.dueMonth
                   ? `${c.nickname} ••${c.cardLast4} · fatura ${formatDueMonth(c.dueMonth)} · ${formatCurrency(c.invoiceTotalCents / 100)}${
                       c.deltaCents === 0
-                        ? ' (valor exato)'
+                        ? " (valor exato)"
                         : ` (dif. ${formatCurrency(Math.abs(c.deltaCents) / 100)})`
                     }`
                   : `${c.nickname} ••${c.cardLast4} · sem fatura em aberto para casar`}
               </option>
             ))}
           </select>
-          {!cardLast4 && (
-            <div className="text-xs text-amber-700">
-              ⚠ Sem cartão, o valor sai do seu saldo mas a fatura continua em aberto — o
-              mesmo dinheiro conta duas vezes.
-            </div>
-          )}
-          {selectedIsOutsideWindow && (
-            <div className="text-xs text-amber-700">
-              ⚠ Esta fatura está fora do prazo de liquidação automática (paga com
-              atraso). Identificamos o cartão, mas a importação não vai quitá-la
-              sozinha — confirme manualmente depois se este pagamento deve fechar
-              essa fatura.
-            </div>
+          {paymentWarning && (
+            <p role="status" className="text-xs text-amber-700">
+              {paymentWarning}
+            </p>
           )}
         </div>
       )}
@@ -262,31 +358,36 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
       {matches.length > 0 && !isSkipped && !possibleDuplicate && (
         <div className="mt-2 pl-3 border-l-2 border-blue-300 space-y-1">
           <div className="text-xs text-blue-700 font-medium">
-            📌 {isCredit ? 'Recebimento previsto' : 'Despesa planejada'} em outro(s) projeto(s):
+            📌 {isCredit ? "Recebimento previsto" : "Despesa planejada"} em
+            outro(s) projeto(s):
           </div>
           {matches.map((m) => {
-            const id = m.kind === 'expense' ? m.expenseId : m.receiptId;
-            const isThisLinked = isLinked && (
-              (m.kind === 'expense' && state.decision?.linkToExpenseId === id) ||
-              (m.kind === 'receipt' && state.decision?.linkToReceiptId === id)
-            );
+            const id = m.kind === "expense" ? m.expenseId : m.receiptId;
+            const isThisLinked =
+              isLinked &&
+              ((m.kind === "expense" &&
+                state.decision?.linkToExpenseId === id) ||
+                (m.kind === "receipt" &&
+                  state.decision?.linkToReceiptId === id));
             return (
               <BankMatchChip
                 key={id}
                 match={m}
                 isLinked={isThisLinked}
-                onLink={() => setAction(
-                  'link',
-                  m.kind === 'expense' ? m.expenseId : undefined,
-                  m.kind === 'receipt' ? m.receiptId : undefined,
-                )}
-                onUnlink={() => setAction('create')}
+                onLink={() =>
+                  setAction(
+                    "link",
+                    m.kind === "expense" ? m.expenseId : undefined,
+                    m.kind === "receipt" ? m.receiptId : undefined,
+                  )
+                }
+                onUnlink={() => setAction("create")}
               />
             );
           })}
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }
 
@@ -302,35 +403,58 @@ function BankMatchChip({
   onUnlink: () => void;
 }) {
   const delta = match.deltaCents;
-  const deltaTxt = delta === 0 ? 'igual' : `${delta > 0 ? '+' : ''}${formatCurrency(delta / 100)}`;
+  const deltaTxt =
+    delta === 0
+      ? "igual"
+      : `${delta > 0 ? "+" : ""}${formatCurrency(delta / 100)}`;
   return (
-    <div className="flex items-center justify-between text-xs bg-white rounded px-2 py-1">
-      <div className="flex-1">
+    <div className="flex flex-col items-start gap-2 text-xs bg-white rounded px-2 py-1">
+      <div className="min-w-0 break-words">
         <span className="font-semibold">{match.projectName}</span>
-        <span className="text-gray-500"> · {match.titulo ?? '(sem título)'}</span>
-        {match.kind === 'expense' && match.installmentCurrent && match.installmentTotal && (
-          <span className="text-gray-500"> · parcela {match.installmentCurrent}/{match.installmentTotal}</span>
-        )}
-        <span className="text-gray-500"> · {formatCurrency(match.valorCents / 100)}</span>
-        <span className="text-gray-400"> · {formatDateBR(match.data)} · Δ {deltaTxt}</span>
+        <span className="text-gray-500">
+          {" "}
+          · {match.titulo ?? "(sem título)"}
+        </span>
+        {match.kind === "expense" &&
+          match.installmentCurrent &&
+          match.installmentTotal && (
+            <span className="text-gray-500">
+              {" "}
+              · parcela {match.installmentCurrent}/{match.installmentTotal}
+            </span>
+          )}
+        <span className="text-gray-500 whitespace-nowrap">
+          {" "}
+          · {formatCurrency(match.valorCents / 100)}
+        </span>
+        <span className="text-gray-400">
+          {" "}
+          · {formatDateBR(match.data)} ·{" "}
+          <span className="whitespace-nowrap">Δ {deltaTxt}</span>
+        </span>
       </div>
       {isLinked ? (
         <button
           onClick={onUnlink}
+          aria-label="Desvincular e manter edições"
           className="flex items-center gap-1 px-2 py-0.5 bg-green-600 text-white rounded text-xs"
         >
-          <Check className="w-3 h-3" /> Vinculado
+          <Check className="w-3 h-3" /> Desvincular
         </button>
       ) : (
         <button
           onClick={onLink}
-          title={match.kind === 'expense'
-            ? 'Marcar despesa planejada como PAGA'
-            : 'Marcar recebimento previsto como EM CAIXA'}
+          title={
+            match.kind === "expense"
+              ? "Marcar despesa planejada como PAGA"
+              : "Marcar recebimento previsto como EM CAIXA"
+          }
           className="flex items-center gap-1 px-2 py-0.5 border border-blue-600 text-blue-600 hover:bg-blue-50 rounded text-xs"
         >
           <Link2 className="w-3 h-3" />
-          {match.kind === 'expense' ? 'Vincular como pago' : 'Vincular como recebido'}
+          {match.kind === "expense"
+            ? "Vincular como pago"
+            : "Vincular como recebido"}
         </button>
       )}
     </div>

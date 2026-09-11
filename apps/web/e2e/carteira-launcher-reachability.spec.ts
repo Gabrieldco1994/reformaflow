@@ -32,6 +32,7 @@ const ACCOUNT_VIEW = {
 };
 
 async function mockApi(page: Page, baseURL: string) {
+  const importCommits: string[] = [];
   await page.context().addCookies([{ name: 'rf_token', value: 'e659-test', url: baseURL }]);
   await page.route('http://localhost:3001/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -79,10 +80,12 @@ async function mockApi(page: Page, baseURL: string) {
           rows: [{ externalId: 'e659-1', date: '2026-09-01', description: 'Mercado', amountCents: 5000, type: 'DESPESA', status: 'EM_CAIXA' }],
         }));
       }
+      importCommits.push(route.request().method());
       return route.fulfill(json({ inserted: 1, failed: 0 }));
     }
     return route.fulfill(json([]));
   });
+  return importCommits;
 }
 
 function trap403(page: Page, hits: string[]) {
@@ -105,7 +108,7 @@ test.describe('#659 · Desktop 1280 — Carteira alcançável via NovaDespesaLau
   test('zero contas → "Importar para Carteira" antes de "Nova conta", abre com extrato pré-selecionado, cancela sem loop, comita até Concluir', async ({ page, baseURL }) => {
     const hits: string[] = [];
     trap403(page, hits);
-    await mockApi(page, baseURL!);
+    const importCommits = await mockApi(page, baseURL!);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/projects/${PESSOAL_ID}/conta`);
 
@@ -137,11 +140,16 @@ test.describe('#659 · Desktop 1280 — Carteira alcançável via NovaDespesaLau
     });
     await dialog2.getByRole('button', { name: 'Conferir arquivos' }).click();
     await expect(dialog2.getByText(/Conferência:/)).toBeVisible();
+    expect(importCommits).toEqual([]);
+    await dialog2.getByRole('button', { name: 'Ver resumo' }).click();
+    await expect(dialog2.getByRole('button', { name: 'Confirmar importação' })).toBeVisible();
+    expect(importCommits).toEqual([]);
     await dialog2.getByRole('button', { name: 'Confirmar importação' }).click();
     // O título do dialog muda para "Importação concluída!" na tela de sucesso
     // (mesmo h2/titleId), então a busca do dialog não pode mais filtrar por
     // name — só o conteúdo interno é reafirmado a partir daqui.
     await expect(dialog2.getByText('Importação concluída!')).toBeVisible();
+    expect(importCommits).toEqual(['POST']);
 
     // sucesso NÃO deve auto-fechar — segue visível
     await page.waitForTimeout(2000);

@@ -1102,6 +1102,19 @@ histórico real de implementação.
   `ImportHistoryModal` já mostra a lista de faturas identificadas e seus
   estados (ver acima), mas não há uma tela dedicada de detalhe fora dele.
 
+#### Evolução aprovada da importação — #689
+
+**Em implementação, ainda não disponível por esta entrega.** O
+[fluxo aprovado](experiencia-importacao.md) organiza arquivo e origem, revisão,
+resumo e resultado. Na prévia bancária do PESSOAL, um débito comum poderá
+preparar uma nova despesa em outro projeto pelo valor integral, sem gravar nada
+até confirmar e sem duplicar a saída de caixa.
+
+Desfazer removerá esse destino somente se tiver sido criado pelo lote e estiver
+intacto; alterações posteriores bloquearão o desfazer inteiro. Despesas
+preexistentes associadas não serão apagadas como destinos gerados. Os recursos
+atuais de banco, cartão e Carteira serão preservados.
+
 #### 4.8.1 Importar para Carteira (sem conta vinculada)
 
 Permite importar um extrato ou fatura sem associar a uma conta cadastrada. O fluxo é:

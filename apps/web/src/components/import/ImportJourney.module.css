@@ -1,0 +1,78 @@
+.journey {
+  min-width: 0;
+}
+
+.journey button,
+.journey input:not([type="checkbox"]),
+.journey select,
+.journey summary,
+.footer button {
+  min-height: 48px;
+  min-width: 44px;
+}
+
+.journey input,
+.journey select {
+  max-width: 100%;
+}
+
+.journey label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+}
+
+.journey strong {
+  white-space: nowrap;
+}
+
+.context {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--darc-linen);
+  margin-bottom: 1rem;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--darc-linen);
+}
+
+.row > :first-child {
+  grid-column: 1 / -1;
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  background: white;
+  border-top: 1px solid var(--darc-linen);
+}
+
+.footer > button {
+  flex: 1 1 auto;
+}
+
+@media (min-width: 640px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .row > :first-child {
+    grid-column: auto;
+  }
+  .footer > button {
+    flex: 0 1 auto;
+  }
+}

@@ -7,6 +7,7 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, normalizeInstallmentDateOverrides, parseInstallmentDateOnlyUtc, parseInstallmentDateOverrides, setInstallmentDateOverride, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
+import { createRateioTargets } from './create-rateio-targets';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
 import {
@@ -619,37 +620,34 @@ export class ExpenseService {
     requester: RateioRequester,
   ) {
     assertRateioRequester(requester);
-    await this.validateProject(tenantId, projectId);
-    const source = await this.prisma.expense.findFirst({
-      where: { id, projectId, tenantId, deletedAt: null },
-    });
-    if (!source) throw new NotFoundException('Despesa não encontrada');
-    // I1: esta rota dedicada reaponta `linkedExpenseId` do mesmo jeito que o
-    // PATCH genérico — precisa da mesma guarda. Só bloqueia quando o alvo
-    // EFETIVO mudaria (idempotência do mesmo alvo continua permitida).
-    if (source.linkedExpenseId !== targetExpenseId) {
-      await this.guardRateioParticipation(tenantId, id, false, false);
-      await this.guardSettlementParticipation(tenantId, id, false, true);
-    }
-    const target = await this.prisma.expense.findFirst({
-      where: { id: targetExpenseId, tenantId, deletedAt: null },
-      select: { projectId: true, project: { select: { id: true, type: true, tenantId: true } } },
-    });
-    if (!target) throw new BadRequestException('Despesa alvo não encontrada');
-    if (
-      !target.project ||
-      target.project.tenantId !== tenantId ||
-      !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)
-    ) {
-      throw new BadRequestException('Despesa alvo não encontrada');
-    }
-    if (target.projectId === projectId) {
-      throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
-    }
-    return this.prisma.expense.update({
-      where: { id },
-      data: { linkedExpenseId: targetExpenseId },
-      include: { room: true },
+    return this.prisma.$transaction(async tx => {
+      await this.validateProject(tenantId, projectId, tx);
+      const source = await tx.expense.findFirst({
+        where: { id, projectId, tenantId, deletedAt: null },
+      });
+      if (!source) throw new NotFoundException('Despesa não encontrada');
+      // Same-target retries remain idempotent; all guard reads share the writer's snapshot.
+      if (source.linkedExpenseId !== targetExpenseId) {
+        await this.guardRateioParticipation(tenantId, id, false, false, tx);
+        await this.guardSettlementParticipation(tenantId, id, false, true, tx);
+      }
+      const target = await tx.expense.findFirst({
+        where: { id: targetExpenseId, tenantId, deletedAt: null },
+        select: { projectId: true, project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
+      });
+      if (!target || !target.project || target.project.tenantId !== tenantId ||
+          target.project.deletedAt != null ||
+          !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)) {
+        throw new BadRequestException('Despesa alvo não encontrada');
+      }
+      if (target.projectId === projectId) {
+        throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
+      }
+      return tx.expense.update({
+        where: { id, projectId, tenantId, deletedAt: null },
+        data: { linkedExpenseId: targetExpenseId },
+        include: { room: true },
+      });
     });
   }
 
@@ -660,23 +658,20 @@ export class ExpenseService {
     requester: RateioRequester,
   ) {
     assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
-    await this.validateProject(tenantId, projectId);
-    const source = await this.prisma.expense.findFirst({
-      where: { id, projectId, tenantId, deletedAt: null },
-    });
-    if (!source) throw new NotFoundException('Despesa não encontrada');
-    await this.assertCanMutateLinkedRows(
-      this.prisma,
-      tenantId,
-      source,
-      requester,
-    );
-    await this.guardRateioParticipation(tenantId, id, false, false);
-    await this.guardSettlementParticipation(tenantId, id, false, true);
-    return this.prisma.expense.update({
-      where: { id },
-      data: { linkedExpenseId: null },
-      include: { room: true },
+    return this.prisma.$transaction(async tx => {
+      await this.validateProject(tenantId, projectId, tx);
+      const source = await tx.expense.findFirst({
+        where: { id, projectId, tenantId, deletedAt: null },
+      });
+      if (!source) throw new NotFoundException('Despesa não encontrada');
+      await this.assertCanMutateLinkedRows(tx, tenantId, source, requester);
+      await this.guardRateioParticipation(tenantId, id, false, false, tx);
+      await this.guardSettlementParticipation(tenantId, id, false, true, tx);
+      return tx.expense.update({
+        where: { id, projectId, tenantId, deletedAt: null },
+        data: { linkedExpenseId: null },
+        include: { room: true },
+      });
     });
   }
 
@@ -1392,97 +1387,7 @@ export class ExpenseService {
         throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
       }
 
-      const targetProjectIds = [...new Set(newTargets.map((item) => item.targetProjectId))];
-      const targetProjects = await tx.project.findMany({
-        where: { id: { in: targetProjectIds }, tenantId, deletedAt: null },
-      });
-      const targetProjectById = new Map(targetProjects.map((project) => [project.id, project]));
-      for (const targetProjectId of targetProjectIds) {
-        const targetProject = targetProjectById.get(targetProjectId);
-        if (
-          !targetProject ||
-          !this.canRequesterSeeProject(requester, targetProject, EXPENSE_MODULE)
-        ) {
-          throw new BadRequestException(`Projeto destino ${targetProjectId} não encontrado`);
-        }
-        if (!hasFeature(targetProject.type as ProjectType, 'expenses')) {
-          throw new BadRequestException(
-            `Projeto destino ${targetProjectId} não possui o módulo de despesas — não pode receber rateio.`,
-          );
-        }
-      }
-
-      const createdTargetIds: string[] = [];
-      const allocations: RateioItem[] = existing.map((e) => ({
-        targetExpenseId: e.targetExpenseId,
-        allocation: e.allocation,
-      }));
-
-      for (const nt of newTargets) {
-        // B1a (#448) TOCTOU: releitura da posse/tipo/escopo do projeto destino
-        // DENTRO da mesma tx que cria o alvo — fecha a janela entre o check
-        // pré-tx acima e a escrita (projeto pode ter sido removido/revogado
-        // no intervalo). Mesma exceção 404/400 do check pré-tx.
-        const targetProjectInTx = await tx.project.findFirst({
-          where: { id: nt.targetProjectId, tenantId, deletedAt: null },
-        });
-        if (
-          !targetProjectInTx ||
-          !this.canRequesterSeeProject(requester, targetProjectInTx, EXPENSE_MODULE)
-        ) {
-          throw new BadRequestException(`Projeto destino ${nt.targetProjectId} não encontrado`);
-        }
-        if (!hasFeature(targetProjectInTx.type as ProjectType, 'expenses')) {
-          throw new BadRequestException(
-            `Projeto destino ${nt.targetProjectId} não possui o módulo de despesas — não pode receber rateio.`,
-          );
-        }
-
-        // B1a (#448): sala do NOVO alvo pertence ao projeto DESTINO (cross-
-        // project em relação à fonte) — valida existência/posse ali, não no
-        // projeto da fonte. `Room` não tem `tenantId` (schema).
-        await this.validateRoomOwnership(tx, nt.roomId, nt.targetProjectId);
-
-        const valorCents = Math.round(nt.valor * 100);
-        const quantidade = nt.quantidade ?? 1;
-        const valorTotal = valorCents * quantidade;
-
-        const created = await tx.expense.create({
-          data: {
-            projectId: nt.targetProjectId,
-            tenantId,
-            createdByUserId,
-            tipoDespesa: nt.tipoDespesa,
-            categoriaMaoDeObra: nt.categoriaMaoDeObra,
-            roomId: nt.roomId,
-            valor: valorCents,
-            quantidade,
-            valorTotal,
-            titulo: nt.titulo,
-            fornecedor: nt.fornecedor,
-            formaPagamento: nt.formaPagamento ?? PaymentForm.A_VISTA,
-            // Herda o status da FONTE para coerência do espelho: fonte PAGO → alvo PAGO.
-            status: nt.status ?? source.status,
-          },
-        });
-        createdTargetIds.push(created.id);
-        allocations.push({ targetExpenseId: created.id, allocation: nt.allocation });
-      }
-
-      // Delega ao rateio existente: valida Sobra=0, regenera cashflow dos alvos
-      // (o cashflow base do alvo novo é gerado aqui, a partir do cronograma da
-      // fonte) e seta o espelho. Roda sob o MESMO `tx` → atomicidade real.
-      const rateio = await this.conciliacao.ratearSource(
-        tx,
-        {
-          tenantId,
-          sourceExpenseId: source.id,
-          allocations,
-        },
-        requester,
-      );
-
-      return { createdTargetIds, targets: rateio.targets };
+      return createRateioTargets(tx, this.conciliacao, tenantId, source, dto, createdByUserId, requester);
     });
 
     return { ok: true, sourceId: source.id, ...result };

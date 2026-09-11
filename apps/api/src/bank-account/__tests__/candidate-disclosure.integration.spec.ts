@@ -782,6 +782,7 @@ describe("bank candidate disclosure integration (#480)", () => {
       inserted: 0,
       possibleDuplicates: [],
       classificationStatus: 'unavailable',
+      inlineTargetProjects: [{ id: IDS.allowed, name: 'Projeto bancário permitido', type: 'REFORMA' }],
       preview: [
         expect.objectContaining({
           merchant: "MATERIAL QA 480",

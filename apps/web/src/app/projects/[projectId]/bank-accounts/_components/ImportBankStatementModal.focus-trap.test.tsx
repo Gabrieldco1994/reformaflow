@@ -1,42 +1,42 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import ImportBankStatementModal from './ImportBankStatementModal';
-import type { BankAccountRow } from '../_types';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import ImportBankStatementModal from "./ImportBankStatementModal";
+import type { BankAccountRow } from "../_types";
 
 /**
  * #680 — focus trap + aria-modal no ImportBankStatementModal
  */
 
 const apiUploadMock = vi.fn();
-vi.mock('@/lib/api', () => ({
+vi.mock("@/lib/api", () => ({
   api: { upload: (...args: unknown[]) => apiUploadMock(...args) },
 }));
 
 const ACCOUNT: BankAccountRow = {
-  id: 'acc-a',
-  institution: 'Bradesco',
-  nickname: 'Corrente',
-  last4: '1234',
+  id: "acc-a",
+  institution: "Bradesco",
+  nickname: "Corrente",
+  last4: "1234",
   agency: null,
   accountNumber: null,
 };
 
 const PREVIEW = {
-  source: 'OFX',
-  periodLabel: '2026-07',
+  source: "OFX",
+  periodLabel: "2026-07",
   total: 2,
   duplicated: 0,
   totalDebitCents: 10000,
   totalCreditCents: 15000,
-  classificationStatus: 'success' as const,
+  classificationStatus: "success" as const,
   preview: [
     {
-      externalId: 'tx-1',
-      date: '2026-07-01',
-      merchant: 'SALARIO',
+      externalId: "tx-1",
+      date: "2026-07-01",
+      merchant: "SALARIO",
       amountCents: 15000,
-      category: 'income',
+      category: "income",
       isCardPayment: false,
       duplicate: false,
       willImport: true,
@@ -44,11 +44,11 @@ const PREVIEW = {
       crossProjectMatches: undefined,
     },
     {
-      externalId: 'tx-2',
-      date: '2026-07-02',
-      merchant: 'MERCADO',
+      externalId: "tx-2",
+      date: "2026-07-02",
+      merchant: "MERCADO",
       amountCents: -10000,
-      category: 'food',
+      category: "food",
       isCardPayment: false,
       duplicate: false,
       willImport: false,
@@ -59,12 +59,12 @@ const PREVIEW = {
 };
 
 const COMMIT = {
-  source: 'OFX',
-  periodLabel: '2026-07',
+  source: "OFX",
+  periodLabel: "2026-07",
   inserted: 1,
   duplicated: 0,
   settled: 0,
-  importId: 'imp-1',
+  importId: "imp-1",
 };
 
 async function toPreview() {
@@ -77,32 +77,39 @@ async function toPreview() {
       onCommitted={vi.fn()}
     />,
   );
-  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  const input = document.querySelector(
+    'input[type="file"]',
+  ) as HTMLInputElement;
   fireEvent.change(input, {
-    target: { files: [new File(['x'], 'extrato.ofx', { type: 'text/plain' })] },
+    target: { files: [new File(["x"], "extrato.ofx", { type: "text/plain" })] },
   });
   apiUploadMock.mockResolvedValueOnce(PREVIEW);
-  fireEvent.click(screen.getByRole('button', { name: /pré-visualizar/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await screen.findByText(/transações/i);
   return onClose;
 }
 
-beforeEach(() => apiUploadMock.mockReset());
+beforeEach(() => {
+  apiUploadMock.mockReset();
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+});
 
-describe('ImportBankStatementModal — focus trap (#680)', () => {
+describe("ImportBankStatementModal — focus trap (#680)", () => {
   it('modal tem role="dialog" e aria-modal="true"', async () => {
     await toPreview();
     const panel = document.querySelector('[data-mobile-sheet="modal"]');
-    expect(panel).toHaveAttribute('role', 'dialog');
-    expect(panel).toHaveAttribute('aria-modal', 'true');
+    expect(panel).toHaveAttribute("role", "dialog");
+    expect(panel).toHaveAttribute("aria-modal", "true");
   });
 
-  it('Tab do último botão volta ao primeiro focável do modal', async () => {
+  it("Tab do último botão volta ao primeiro focável do modal", async () => {
     await toPreview();
-    const panel = document.querySelector('[data-mobile-sheet="modal"]') as HTMLElement;
+    const panel = document.querySelector(
+      '[data-mobile-sheet="modal"]',
+    ) as HTMLElement;
 
-    // Último botão focável é o "Confirmar importação"
-    const confirmBtn = screen.getByRole('button', { name: /confirmar importação/i });
+    // Na revisão o último botão avança ao resumo, ainda sem mutação.
+    const confirmBtn = screen.getByRole("button", { name: /ver resumo/i });
     confirmBtn.focus();
     expect(document.activeElement).toBe(confirmBtn);
 
@@ -118,9 +125,11 @@ describe('ImportBankStatementModal — focus trap (#680)', () => {
     }
   });
 
-  it('Shift+Tab do primeiro focável vai ao último do modal', async () => {
+  it("Shift+Tab do primeiro focável vai ao último do modal", async () => {
     await toPreview();
-    const panel = document.querySelector('[data-mobile-sheet="modal"]') as HTMLElement;
+    const panel = document.querySelector(
+      '[data-mobile-sheet="modal"]',
+    ) as HTMLElement;
 
     const focusablesInModal = Array.from(
       panel.querySelectorAll<HTMLElement>(
@@ -141,7 +150,9 @@ describe('ImportBankStatementModal — focus trap (#680)', () => {
 
   it('document.activeElement nunca sai do [data-mobile-sheet="modal"]', async () => {
     await toPreview();
-    const panel = document.querySelector('[data-mobile-sheet="modal"]') as HTMLElement;
+    const panel = document.querySelector(
+      '[data-mobile-sheet="modal"]',
+    ) as HTMLElement;
 
     // Fazer tab múltiplas vezes
     for (let i = 0; i < 15; i++) {
@@ -156,16 +167,16 @@ describe('ImportBankStatementModal — focus trap (#680)', () => {
     }
   });
 
-  it('Escape dispara onClose', async () => {
+  it("Escape dispara onClose", async () => {
     const onClose = await toPreview();
     const panel = document.querySelector('[data-mobile-sheet="modal"]');
     expect(panel).toBeInTheDocument();
 
-    await userEvent.keyboard('{Escape}');
+    await userEvent.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('com botão focável fora do modal (render wrapper), Tab não o alcança', async () => {
+  it("com botão focável fora do modal (render wrapper), Tab não o alcança", async () => {
     const onClose = vi.fn();
     const { rerender } = render(
       <>
@@ -179,16 +190,24 @@ describe('ImportBankStatementModal — focus trap (#680)', () => {
       </>,
     );
 
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
     fireEvent.change(input, {
-      target: { files: [new File(['x'], 'extrato.ofx', { type: 'text/plain' })] },
+      target: {
+        files: [new File(["x"], "extrato.ofx", { type: "text/plain" })],
+      },
     });
     apiUploadMock.mockResolvedValueOnce(PREVIEW);
-    fireEvent.click(screen.getByRole('button', { name: /pré-visualizar/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
     await screen.findByText(/transações/i);
 
-    const outsideBtn = document.querySelector('[data-testid="outside-btn"]') as HTMLElement;
-    const panel = document.querySelector('[data-mobile-sheet="modal"]') as HTMLElement;
+    const outsideBtn = document.querySelector(
+      '[data-testid="outside-btn"]',
+    ) as HTMLElement;
+    const panel = document.querySelector(
+      '[data-mobile-sheet="modal"]',
+    ) as HTMLElement;
 
     // Tab múltiplas vezes — nunca deve chegar ao botão fora
     for (let i = 0; i < 20; i++) {

@@ -1,31 +1,36 @@
-'use client';
+"use client";
 
-import { X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useOverlayLock } from './use-overlay-lock';
-import { useFocusTrap } from './use-focus-trap';
+import { X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useOverlayLock } from "./use-overlay-lock";
+import { useFocusTrap } from "./use-focus-trap";
 
 interface ModalProps {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  variant?: 'auto' | 'center' | 'sheet';
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  variant?: "auto" | "center" | "sheet";
+  size?: "sm" | "md" | "lg" | "xl";
   zIndex?: string;
   /** Renderiza via createPortal em document.body. Use apenas em modais aninhados
    *  dentro de outro Modal (overflow-y-auto) para escapar do stacking context. */
   portal?: boolean;
   /** Ativa focus trap e adiciona aria-modal=true. */
   trapFocus?: boolean;
+  /** Financial sends/results must not be dismissed behind the owning flow. */
+  closeDisabled?: boolean;
+  /** Opt-in: header/footer stay outside the single scrolling form body. */
+  bounded?: boolean;
+  footer?: React.ReactNode;
 }
 
 const sizeMap = {
-  sm: 'max-w-md',
-  md: 'max-w-lg',
-  lg: 'max-w-2xl',
-  xl: 'max-w-4xl',
+  sm: "max-w-md",
+  md: "max-w-lg",
+  lg: "max-w-2xl",
+  xl: "max-w-4xl",
 };
 
 // Pilha compartilhada dos modais abertos (por identidade de instância, não por
@@ -41,11 +46,14 @@ export function Modal({
   onClose,
   title,
   children,
-  variant = 'auto',
-  size = 'md',
+  variant = "auto",
+  size = "md",
   zIndex,
   portal = false,
   trapFocus,
+  closeDisabled = false,
+  bounded = false,
+  footer,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -78,68 +86,80 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return;
+      if (event.key !== "Escape") return;
       const id = idRef.current!;
       if (modalStack[modalStack.length - 1] !== id) return;
-      onClose();
+      event.preventDefault();
+      event.stopPropagation();
+      if (!closeDisabled) onClose();
     }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open, onClose]);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose, closeDisabled]);
 
   if (!open) return null;
 
-  const isSheetOnly = variant === 'sheet';
-  const isCenterOnly = variant === 'center';
+  const isSheetOnly = variant === "sheet";
+  const isCenterOnly = variant === "center";
 
   const containerClasses = isCenterOnly
-    ? 'items-center justify-center'
+    ? "items-center justify-center"
     : isSheetOnly
-      ? 'items-end justify-center'
-      : 'items-end justify-center md:items-center';
+      ? "items-end justify-center"
+      : "items-end justify-center md:items-center";
 
   const panelClasses = isCenterOnly
-    ? `${sizeMap[size]} max-h-[90dvh] rounded-2xl mx-4 transition-all duration-200 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`
+    ? `${sizeMap[size]} max-h-[90dvh] rounded-2xl mx-4 transition-all duration-200 ${mounted ? "opacity-100 scale-100" : "opacity-0 scale-95"}`
     : isSheetOnly
-      ? `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl transition-transform duration-300 ${mounted ? 'translate-y-0' : 'translate-y-full'}`
+      ? `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl transition-transform duration-300 ${mounted ? "translate-y-0" : "translate-y-full"}`
       : // variante padrão ('auto'): SEM scale no desktop — scale encolhe geometricamente
         // os elementos internos (ex.: alvo de toque de 44px) durante os ~300ms da
         // transição, medível via getBoundingClientRect logo após abrir. Mantém
         // fade + slide-up (translate-y), só troca o "zoom-in" por opacidade.
-        `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? 'translate-y-0 md:opacity-100' : 'translate-y-full md:translate-y-0 md:opacity-0'}`;
+        `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? "translate-y-0 md:opacity-100" : "translate-y-full md:translate-y-0 md:opacity-0"}`;
 
   const content = (
     <div
       ref={overlayRef}
-      className={`fixed inset-0 ${zIndex ?? 'z-50'} flex ${containerClasses} bg-darc-velvet/85 backdrop-blur-sm transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}
+      className={`fixed inset-0 ${zIndex ?? "z-50"} flex ${containerClasses} bg-darc-velvet/85 backdrop-blur-sm transition-opacity duration-200 ${mounted ? "opacity-100" : "opacity-0"}`}
       onClick={(e) => {
-        if (e.target === overlayRef.current) onClose();
+        if (!closeDisabled && e.target === overlayRef.current) onClose();
       }}
     >
       <div
         ref={panelRef}
         data-mobile-sheet="modal"
-        role={trapFocus ? 'dialog' : undefined}
+        role={trapFocus ? "dialog" : undefined}
         aria-modal={trapFocus ? true : undefined}
         aria-label={trapFocus ? title : undefined}
-        className={`bg-white shadow-darc-hero overflow-y-auto border border-darc-linen ${panelClasses}`}
+        className={`bg-white shadow-darc-hero ${bounded ? "flex flex-col overflow-hidden" : "overflow-y-auto"} border border-darc-linen ${panelClasses}`}
       >
         {!isCenterOnly && (
-          <div className="md:hidden flex justify-center pt-3 pb-1">
+          <div className="md:hidden flex shrink-0 justify-center pt-3 pb-1">
             <div className="h-1.5 w-12 rounded-full bg-darc-linen/80" />
           </div>
         )}
-        <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-white border-b border-darc-linen">
-          <h2 className="font-editorial italic text-xl text-darc-maroon">{title}</h2>
+        <div
+          className={`${bounded ? "shrink-0" : "sticky top-0 z-10"} flex items-center justify-between px-5 py-4 bg-white border-b border-darc-linen`}
+        >
+          <h2 className="font-editorial italic text-xl text-darc-maroon">
+            {title}
+          </h2>
           <button
             onClick={onClose}
+            disabled={closeDisabled}
             className="-mr-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full hover:bg-darc-linen/40 active:bg-darc-linen/60 transition-colors"
             aria-label="Fechar"
           >
             <X className="w-5 h-5 text-darc-maroon" />
           </button>
         </div>
-        <div className="px-5 py-5">{children}</div>
+        <div
+          className={`${bounded ? "min-h-0 min-w-0 flex-1 overflow-y-auto" : ""} px-5 py-5`}
+        >
+          {children}
+        </div>
+        {footer}
       </div>
     </div>
   );

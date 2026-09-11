@@ -284,6 +284,8 @@ describe("Fatura de cartão pelo cockpit — gate por módulo do caller (#480 SE
       MONTHLY_OVERVIEW_REQUESTER,
     );
 
+    expect(preview.inlineTargetProjects).toEqual([]);
+    expect(preview.preview.every((row) => row.inlineTargetEligible === false)).toBe(true);
     expect(
       preview.preview.map((row: any) => ({
         isCardPayment: row.isCardPayment,

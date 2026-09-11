@@ -1,10 +1,14 @@
 import type {
   CategoriaFonte,
   ImportClassificationStatus,
-} from '@/components/import/ImportClassificationNotice';
-import type { PossibleDuplicateInfo } from '@/components/import/PossibleDuplicateNotice';
+} from "@/components/import/ImportClassificationNotice";
+import type { PossibleDuplicateInfo } from "@/components/import/PossibleDuplicateNotice";
 
-export type { CategoriaFonte, ImportClassificationStatus, PossibleDuplicateInfo };
+export type {
+  CategoriaFonte,
+  ImportClassificationStatus,
+  PossibleDuplicateInfo,
+};
 
 export interface BankAccountRow {
   id: string;
@@ -19,7 +23,7 @@ export interface BankAccountRow {
 }
 
 export interface BankCrossExpenseMatch {
-  kind: 'expense';
+  kind: "expense";
   expenseId: string;
   projectId: string;
   projectName: string;
@@ -33,7 +37,7 @@ export interface BankCrossExpenseMatch {
 }
 
 export interface BankCrossReceiptMatch {
-  kind: 'receipt';
+  kind: "receipt";
   receiptId: string;
   projectId: string;
   projectName: string;
@@ -44,7 +48,9 @@ export interface BankCrossReceiptMatch {
   deltaCents: number;
 }
 
-export type BankCrossProjectMatch = BankCrossExpenseMatch | BankCrossReceiptMatch;
+export type BankCrossProjectMatch =
+  | BankCrossExpenseMatch
+  | BankCrossReceiptMatch;
 
 export interface BankCardCandidate {
   cardLast4: string;
@@ -60,10 +66,11 @@ export interface BankCardCandidate {
    * mais um vínculo silencioso — o candidato ganha esse estado dedicado.
    * Ausente (contrato antigo) é tratado como dentro da janela.
    */
-  windowState?: 'WITHIN_SETTLEMENT_WINDOW' | 'OUTSIDE_SETTLEMENT_WINDOW';
+  windowState?: "WITHIN_SETTLEMENT_WINDOW" | "OUTSIDE_SETTLEMENT_WINDOW";
 }
 
 export interface BankPreviewTx {
+  inlineTargetEligible?: boolean;
   externalId: string;
   date: string;
   merchant: string;
@@ -87,6 +94,7 @@ export interface BankPreviewTx {
 }
 
 export interface BankPreviewResult {
+  inlineTargetProjects?: Array<{ id: string; name: string; type: string }>;
   source: string;
   periodLabel: string | null;
   preview: BankPreviewTx[];
@@ -101,10 +109,17 @@ export interface BankPreviewResult {
   /** Estado da categorização automática em lote do preview (#582 PR-4). Não bloqueia. */
   classificationStatus?: ImportClassificationStatus;
   /** Sinal de que o arquivo parece uma fatura de cartão, não um extrato (Bug A). Não bloqueia. */
-  warning?: { code: 'looks_like_card_invoice'; message: string };
+  warning?: { code: "looks_like_card_invoice"; message: string };
 }
 
 export interface BankCommitResult {
+  inlineExpenses?: Array<{
+    sourceExpenseId: string;
+    targetExpenseId: string;
+    targetProjectId: string;
+    amountCents: number;
+  }>;
+  postCommitWarnings?: Array<{ code: string; message: string }>;
   importId: string;
   source: string;
   periodLabel: string;
@@ -117,6 +132,8 @@ export interface BankCommitResult {
   /** Linhas que falharam ao inserir no meio do commit (erro de dependência/DB). */
   failedItems?: FailedImportItem[];
   receiptsInserted: number;
+  /** Associações efetivadas com lançamentos preexistentes, não destinos inline. */
+  linked?: number;
   cardPayments: number;
   /** Pagamentos de fatura que entraram SEM cartão identificado (saem do caixa, não quitam fatura). */
   unlinkedCardPayments?: number;
@@ -139,7 +156,7 @@ export interface DuplicatedImportItem {
   date: string;
   description: string;
   amountCents: number;
-  reason: 'duplicate';
+  reason: "duplicate";
 }
 
 /** Uma linha com data+descrição que o parser não conseguiu transformar em lançamento. */
@@ -147,7 +164,7 @@ export interface UnparsedImportItem {
   rowIndex: number;
   date: string;
   description: string;
-  reason: 'no-amount' | 'unreadable';
+  reason: "no-amount" | "unreadable";
 }
 
 /** Uma linha que falhou ao ser inserida (erro no meio do commit). */
@@ -155,7 +172,7 @@ export interface FailedImportItem {
   date: string;
   description: string;
   amountCents: number;
-  reason: 'error';
+  reason: "error";
   message: string;
 }
 

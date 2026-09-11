@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import ImportWithoutAccountModal from './ImportWithoutAccountModal';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import ImportWithoutAccountModal from "./ImportWithoutAccountModal";
 
 /**
  * #659 §8 — RED spec (design phase, OPEN QUESTION for the orchestrator).
@@ -11,16 +11,16 @@ import ImportWithoutAccountModal from './ImportWithoutAccountModal';
  * production line item — the reachability specs above stand on their own.
  */
 
-vi.mock('@/lib/api', () => ({
+vi.mock("@/lib/api", () => ({
   api: {
     upload: vi.fn(),
   },
 }));
 
-import { api } from '@/lib/api';
+import { api } from "@/lib/api";
 
 function file() {
-  return new File(['a,b\n1,2'], 'extrato.csv', { type: 'text/csv' });
+  return new File(["a,b\n1,2"], "extrato.csv", { type: "text/csv" });
 }
 
 beforeEach(() => {
@@ -38,25 +38,43 @@ async function chegarNoSucesso(onCommitted: () => void) {
       totalAmountCents: 1000,
       duplicated: 0,
       rows: [
-        { externalId: 'e1', date: '2026-09-01', description: 'Mercado', amountCents: 1000, type: 'DESPESA', status: 'PAGO' },
+        {
+          externalId: "e1",
+          date: "2026-09-01",
+          description: "Mercado",
+          amountCents: 1000,
+          type: "DESPESA",
+          status: "PAGO",
+        },
       ],
     })
     .mockResolvedValueOnce({ inserted: 1, failed: 0 });
 
-  render(<ImportWithoutAccountModal projectId="p1" onClose={vi.fn()} onCommitted={onCommitted} />);
+  render(
+    <ImportWithoutAccountModal
+      projectId="p1"
+      onClose={vi.fn()}
+      onCommitted={onCommitted}
+    />,
+  );
 
-  const input = screen.getByLabelText('Arquivos') as HTMLInputElement;
+  const input = screen.getByLabelText("Arquivos") as HTMLInputElement;
   fireEvent.change(input, { target: { files: [file()] } });
-  fireEvent.click(screen.getByRole('button', { name: 'Conferir arquivos' }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await screen.findByText(/Conferência:/);
-  fireEvent.click(screen.getByRole('button', { name: 'Confirmar importação' }));
-  await waitFor(() => expect(screen.getByText('Importação concluída!')).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "Ver resumo" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar importação" }));
+  await waitFor(() =>
+    expect(screen.getByText("Importação concluída!")).toBeInTheDocument(),
+  );
 }
 
 describe('#659 ImportWithoutAccountModal — sucesso persiste até "Concluir" (RED)', () => {
   it('mostra um botão "Concluir" na tela de sucesso', async () => {
     await chegarNoSucesso(vi.fn());
-    expect(screen.getByRole('button', { name: 'Concluir' })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Concluir" }),
+    ).toBeInTheDocument();
   });
 
   it('NÃO chama onCommitted pela passagem do tempo — só ao clicar em "Concluir"', async () => {
@@ -66,7 +84,7 @@ describe('#659 ImportWithoutAccountModal — sucesso persiste até "Concluir" (R
     vi.advanceTimersByTime(5000);
     expect(onCommitted).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Concluir' }));
+    fireEvent.click(screen.getByRole("button", { name: "Concluir" }));
     expect(onCommitted).toHaveBeenCalledTimes(1);
   });
 });

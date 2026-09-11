@@ -2,18 +2,18 @@ function resolveApiBase(): string {
   const envBase = process.env.NEXT_PUBLIC_API_URL;
   if (envBase) return envBase;
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     const { hostname } = window.location;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') return '/api';
+    if (hostname !== "localhost" && hostname !== "127.0.0.1") return "/api";
   }
 
-  return 'http://localhost:3001';
+  return "http://localhost:3001";
 }
 
 const API_BASE = resolveApiBase();
 
 const DEFAULT_HEADERS: Record<string, string> = {
-  'Content-Type': 'application/json',
+  "Content-Type": "application/json",
 };
 
 // Fly auto-suspende a máquina após inatividade; o primeiro request pode
@@ -27,16 +27,22 @@ interface RequestExtra {
 }
 
 export class ApiResponseError extends Error {
-  constructor(message: string, public readonly status: number, public readonly body?: unknown) {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body?: unknown,
+  ) {
     super(message);
-    this.name = 'ApiResponseError';
+    this.name = "ApiResponseError";
   }
 }
 
 export class ApiTimeoutError extends Error {
   constructor() {
-    super('O servidor demorou mais que o esperado pra responder. Tente novamente.');
-    this.name = 'ApiTimeoutError';
+    super(
+      "O servidor demorou mais que o esperado pra responder. Tente novamente.",
+    );
+    this.name = "ApiTimeoutError";
   }
 }
 
@@ -53,36 +59,36 @@ async function request<T>(
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
-      credentials: 'include',
+      credentials: "include",
       headers: { ...DEFAULT_HEADERS, ...extra?.headers, ...options?.headers },
       signal: controller.signal,
     });
 
-    if (res.status === 401 && typeof window !== 'undefined') {
+    if (res.status === 401 && typeof window !== "undefined") {
       const here = window.location.pathname;
       const isAuthFlow =
-        here.startsWith('/login') ||
-        here.startsWith('/register') ||
-        here.startsWith('/no-permission');
-      const isMeProbe = path === '/auth/me';
+        here.startsWith("/login") ||
+        here.startsWith("/register") ||
+        here.startsWith("/no-permission");
+      const isMeProbe = path === "/auth/me";
       if (!isAuthFlow && !isMeProbe) {
         window.location.href = `/login?next=${encodeURIComponent(here)}`;
       }
     }
 
     if (!res.ok) {
-      const error = await res.json().catch(() => ({ message: 'Erro de rede' }));
+      const error = await res.json().catch(() => ({ message: "Erro de rede" }));
       const msg = Array.isArray(error.message)
-        ? error.message.join('; ')
+        ? error.message.join("; ")
         : (error.message ?? `HTTP ${res.status}`);
       throw new ApiResponseError(msg, res.status, error);
     }
 
     const text = await res.text();
-    if (text.trim() === '') return null as T;
+    if (text.trim() === "") return null as T;
     return JSON.parse(text) as T;
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
+    if (err instanceof Error && err.name === "AbortError") {
       throw new ApiTimeoutError();
     }
     throw err;
@@ -92,47 +98,54 @@ async function request<T>(
 }
 
 export const api = {
-  get: <T>(path: string, opts?: RequestExtra) => request<T>(path, undefined, opts),
+  get: <T>(path: string, opts?: RequestExtra) =>
+    request<T>(path, undefined, opts),
   post: <T>(path: string, body: unknown, opts?: RequestExtra) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body) }, opts),
+    request<T>(path, { method: "POST", body: JSON.stringify(body) }, opts),
   patch: <T>(path: string, body: unknown, opts?: RequestExtra) =>
-    request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }, opts),
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, opts),
   put: <T>(path: string, body: unknown, opts?: RequestExtra) =>
-    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, opts),
+    request<T>(path, { method: "PUT", body: JSON.stringify(body) }, opts),
   delete: <T>(path: string, opts?: RequestExtra) =>
-    request<T>(path, { method: 'DELETE' }, opts),
-  upload: <T>(path: string, formData: FormData, opts?: { timeoutMs?: number }) => {
+    request<T>(path, { method: "DELETE" }, opts),
+  upload: <T>(
+    path: string,
+    formData: FormData,
+    opts?: { timeoutMs?: number },
+  ) => {
     const timeoutMs = opts?.timeoutMs ?? 90_000;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     return fetch(`${API_BASE}${path}`, {
-      method: 'POST',
-      credentials: 'include',
+      method: "POST",
+      credentials: "include",
       body: formData,
       signal: controller.signal,
     })
       .then(async (res) => {
-        if (res.status === 401 && typeof window !== 'undefined') {
+        if (res.status === 401 && typeof window !== "undefined") {
           const here = window.location.pathname;
           const isAuthFlow =
-            here.startsWith('/login') ||
-            here.startsWith('/register') ||
-            here.startsWith('/no-permission');
+            here.startsWith("/login") ||
+            here.startsWith("/register") ||
+            here.startsWith("/no-permission");
           if (!isAuthFlow) {
             window.location.href = `/login?next=${encodeURIComponent(here)}`;
           }
         }
         if (!res.ok) {
-          const error = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+          const error = await res
+            .json()
+            .catch(() => ({ message: `HTTP ${res.status}` }));
           const msg = Array.isArray(error.message)
-            ? error.message.join('; ')
+            ? error.message.join("; ")
             : (error.message ?? `HTTP ${res.status}`);
-          throw new Error(msg);
+          throw new ApiResponseError(msg, res.status, error);
         }
         return res.json() as Promise<T>;
       })
       .catch((err) => {
-        if (err?.name === 'AbortError') {
+        if (err?.name === "AbortError") {
           throw new Error(
             `Upload demorou demais (>${Math.round(timeoutMs / 1000)}s). Verifique sua conexão e tente novamente.`,
           );
@@ -142,13 +155,18 @@ export const api = {
       .finally(() => clearTimeout(timer));
   },
   download: async (path: string, fileName: string) => {
-    const res = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
+    const res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
     if (!res.ok) {
-      const error = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
-      throw new ApiResponseError(error.message ?? `HTTP ${res.status}`, res.status);
+      const error = await res
+        .json()
+        .catch(() => ({ message: `HTTP ${res.status}` }));
+      throw new ApiResponseError(
+        error.message ?? `HTTP ${res.status}`,
+        res.status,
+      );
     }
     const objectUrl = URL.createObjectURL(await res.blob());
-    const anchor = document.createElement('a');
+    const anchor = document.createElement("a");
     anchor.href = objectUrl;
     anchor.download = fileName;
     anchor.click();

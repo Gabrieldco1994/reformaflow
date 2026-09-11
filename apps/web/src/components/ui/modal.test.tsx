@@ -1,15 +1,30 @@
-import { fireEvent, render, cleanup, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Modal } from './modal';
+import { fireEvent, render, cleanup, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Modal } from "./modal";
 
 afterEach(() => {
   cleanup();
-  document.body.style.overflow = '';
+  document.body.style.overflow = "";
   delete document.body.dataset.overlayOpen;
 });
 
-describe('Modal — Escape', () => {
-  it('fecha com Escape', () => {
+describe("Modal — Escape", () => {
+  it("bloqueia descarte durante envio e não propaga Escape ao launcher externo", () => {
+    const onClose = vi.fn();
+    const outer = vi.fn();
+    window.addEventListener("keydown", outer);
+    render(
+      <Modal open title="Importação" closeDisabled onClose={onClose}>
+        <p>Importando</p>
+      </Modal>,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Fechar" }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(outer).not.toHaveBeenCalled();
+    window.removeEventListener("keydown", outer);
+  });
+  it("fecha com Escape", () => {
     const onClose = vi.fn();
     render(
       <Modal open onClose={onClose} title="Teste">
@@ -17,12 +32,12 @@ describe('Modal — Escape', () => {
       </Modal>,
     );
 
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: "Escape" });
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('o X de fechar é alvo de toque ≥44px e chama onClose (#569)', () => {
+  it("o X de fechar é alvo de toque ≥44px e chama onClose (#569)", () => {
     const onClose = vi.fn();
     render(
       <Modal open onClose={onClose} title="Teste">
@@ -30,7 +45,7 @@ describe('Modal — Escape', () => {
       </Modal>,
     );
 
-    const closeBtn = screen.getByRole('button', { name: 'Fechar' });
+    const closeBtn = screen.getByRole("button", { name: "Fechar" });
     // jsdom não faz layout — o piso de 44px é garantido pelas classes utilitárias.
     expect(closeBtn.className).toMatch(/\bmin-h-11\b/);
     expect(closeBtn.className).toMatch(/\bmin-w-11\b/);
@@ -39,7 +54,7 @@ describe('Modal — Escape', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('não chama onClose quando fechado', () => {
+  it("não chama onClose quando fechado", () => {
     const onClose = vi.fn();
     render(
       <Modal open={false} onClose={onClose} title="Teste">
@@ -47,7 +62,7 @@ describe('Modal — Escape', () => {
       </Modal>,
     );
 
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: "Escape" });
 
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -57,7 +72,7 @@ describe('Modal — Escape', () => {
   // o interno depois (fluxo real de clique do usuário) — Escape deve fechar
   // SÓ o de cima. Sem a checagem de topo-de-pilha, os dois listeners de
   // `document` disparam na mesma tecla e ambos fecham.
-  it('com modais empilhados, Escape fecha apenas o topo (o mais recente aberto)', () => {
+  it("com modais empilhados, Escape fecha apenas o topo (o mais recente aberto)", () => {
     const onCloseOuter = vi.fn();
     const onCloseInner = vi.fn();
 
@@ -78,13 +93,13 @@ describe('Modal — Escape', () => {
       </Modal>,
     );
 
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: "Escape" });
 
     expect(onCloseInner).toHaveBeenCalledTimes(1);
     expect(onCloseOuter).not.toHaveBeenCalled();
   });
 
-  it('após o modal do topo fechar, Escape volta a afetar o modal de baixo', () => {
+  it("após o modal do topo fechar, Escape volta a afetar o modal de baixo", () => {
     const onCloseOuter = vi.fn();
     const onCloseInner = vi.fn();
 
@@ -112,7 +127,7 @@ describe('Modal — Escape', () => {
       </Modal>,
     );
 
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: "Escape" });
 
     expect(onCloseOuter).toHaveBeenCalledTimes(1);
     expect(onCloseInner).not.toHaveBeenCalled();

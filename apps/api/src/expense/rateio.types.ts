@@ -4,6 +4,8 @@
  * quebra em `tsc --noEmit` no pre-commit, não em produção (fail-closed).
  */
 export interface RateioRequester {
+  /** Authenticated identity, used to re-read grants for inline import transactions. */
+  id?: string;
   role?: string;
   allowedProjects?: string[];
   allowedProjectTypes?: string[];
