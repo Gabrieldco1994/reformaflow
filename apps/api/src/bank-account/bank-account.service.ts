@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { hasFeature, ProjectType, isNeutralExpenseType } from '@reformaflow/domain';
 import { createRateioTargets } from '../expense/create-rateio-targets';
+import { serializeInlineSnapshotV1 } from './inline-snapshot-v1';
 import {
   InlineTarget, InlineCreation, validateInlineDecisions, invalidInline,
   currentInlineRequester, canUseInlineProject, assertInlineAccount, assertInlineProject,
@@ -1262,7 +1263,7 @@ export class BankAccountService {
       }
 
       for (const creation of inlineCreations) {
-        creation.snapshot = JSON.stringify(await inlineSnapshot(client, tenantId, creation));
+        creation.snapshot = serializeInlineSnapshotV1(await inlineSnapshot(client, tenantId, creation));
       }
       if (inlineCreations.length) await client.bankStatementImport.update({
         where: { id: importRecord.id },

@@ -7,10 +7,12 @@ import { BankImportDecision } from './bank-account.service';
 import { BankAccountController } from './bank-account.controller';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import { parseInlineSnapshotV1, serializeInlineSnapshotV1 } from './inline-snapshot-v1';
 import {
   bankOfx, ofxDebit, makeBankAccountService, makeMonthlyOverviewService,
   resetTenant, seedPessoal, seedBankAccount, seedProject,
   seedCardWithClosingDue, seedSinglePurchase,
+  makeExpenseService,
 } from './__tests__/invoice-undo.fixtures';
 
 describe('inline bank expense ownership (#690)', () => {
@@ -481,5 +483,135 @@ describe('inline bank expense ownership (#690)', () => {
       () => service.undoImport(tenantId, projectId, accountId, result.importId, actor),
     ]) await expect(call()).rejects.toMatchObject({ status: 404, message: 'Recurso não encontrado' });
     expect(await setup.importedInvoiceLiquidation.count({ where: { tenantId, deletedAt: null } })).toBe(1);
+  });
+
+  it('generic link cannot resume after inline undo and leave a live source pointing at a dead target', async () => {
+    const result = await commit();
+    const targetId = result.inlineExpenses[0].targetExpenseId;
+    const independent = await setup.expense.create({ data: {
+      tenantId, projectId, tipoDespesa: 'OUTROS', valor: 10, valorTotal: 10, formaPagamento: 'A_VISTA',
+    } });
+    let release!: () => void;
+    let reached!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const read = new Promise<void>(resolve => { reached = resolve; });
+    let observing = true;
+    let paused = false;
+    let readInTx = false;
+    prisma.$use(async (params, next) => {
+      const row = await next(params);
+      if (observing && !paused && params.model === 'Expense' && params.action === 'findFirst' &&
+          params.args.where.id === targetId) {
+        paused = true;
+        readInTx = params.runInTransaction;
+        reached();
+        await barrier;
+      }
+      return row;
+    });
+    const link = makeExpenseService(prisma).linkCrossProject(tenantId, projectId, independent.id, targetId, actor)
+      .then(() => ({ ok: true }), () => ({ ok: false }));
+    let undo: Promise<{ ok: boolean }> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        read,
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('link read barrier timeout')), 2000); }),
+      ]);
+      clearTimeout(timer);
+      undo = service.undoImport(tenantId, projectId, accountId, result.importId, actor)
+        .then(() => ({ ok: true }), () => ({ ok: false }));
+      // Baseline undo completes while the unprotected reader is paused; SQLite TX locks may reject either writer.
+      await Promise.race([undo, new Promise<void>(resolve => { timer = setTimeout(resolve, 300); })]);
+    } finally {
+      clearTimeout(timer);
+      observing = false;
+      release();
+      await link;
+      await undo;
+    }
+    const source = await setup.expense.findUniqueOrThrow({ where: { id: independent.id } });
+    const target = await setup.expense.findUniqueOrThrow({ where: { id: targetId } });
+    expect(source.deletedAt).toBeNull();
+    expect(source.deletedAt === null && source.linkedExpenseId === targetId && target.deletedAt !== null).toBe(false);
+    expect(readInTx).toBe(true);
+  }, 15000);
+
+  it('generic unlink keeps project, ACL, participation guards and update inside its transaction', async () => {
+    const result = await commit();
+    const independent = await setup.expense.create({ data: {
+      tenantId, projectId, tipoDespesa: 'OUTROS', valor: 10, valorTotal: 10,
+      formaPagamento: 'A_VISTA', linkedExpenseId: result.inlineExpenses[0].targetExpenseId,
+    } });
+    let observing = true;
+    const readsAndWrites: Array<{ model: string | undefined; action: string; inTx: boolean }> = [];
+    prisma.$use(async (params, next) => {
+      if (observing) readsAndWrites.push({ model: params.model, action: params.action, inTx: params.runInTransaction });
+      return next(params);
+    });
+    try {
+      await makeExpenseService(prisma).unlinkCrossProject(tenantId, projectId, independent.id, actor);
+      expect(readsAndWrites).toEqual(expect.arrayContaining([
+        expect.objectContaining({ model: 'Project', action: 'findFirst' }),
+        expect.objectContaining({ model: 'Expense', action: 'findFirst' }),
+        expect.objectContaining({ model: 'RateioAllocation', action: 'findMany' }),
+        expect.objectContaining({ model: 'CrossProjectSettlement', action: 'findMany' }),
+        expect.objectContaining({ model: 'Expense', action: 'update' }),
+      ]));
+      expect(readsAndWrites.every(operation => operation.inTx)).toBe(true);
+    } finally { observing = false; }
+    expect(await setup.expense.findUnique({ where: { id: independent.id } })).toMatchObject({ linkedExpenseId: null, deletedAt: null });
+    expect(await service.getImportDetail(tenantId, projectId, accountId, result.importId, actor)).toMatchObject({ canUndo: true });
+  });
+
+  it.each([
+    'plannedExpenseId', 'settledByExpenseId', 'cashFlow-field', 'cashFlow-empty',
+    'allocation-field', 'allocation-empty', 'cashFlow-null', 'status-type',
+  ])('incomplete v1 %s is opaque before drift comparison', async corruption => {
+    const result = await commit();
+    const record = await setup.bankStatementImport.findUniqueOrThrow({ where: { id: result.importId } });
+    const proof = JSON.parse(record.inlineExpenseCreations!) as { creations: Array<{ snapshot: string }> };
+    const state = JSON.parse(proof.creations[0].snapshot);
+    const source = state.expenses.find((e: { id: string }) => e.id === result.inlineExpenses[0].sourceExpenseId);
+    if (corruption === 'plannedExpenseId' || corruption === 'settledByExpenseId') delete source[corruption];
+    if (corruption === 'cashFlow-field') delete source.cashFlow[0].expenseId;
+    if (corruption === 'cashFlow-empty') source.cashFlow[0] = {};
+    if (corruption === 'allocation-field') delete source.rateioAsSource[0].targetExpenseId;
+    if (corruption === 'allocation-empty') source.rateioAsSource[0] = {};
+    if (corruption === 'cashFlow-null') source.cashFlow = null;
+    if (corruption === 'status-type') source.status = 42;
+    proof.creations[0].snapshot = JSON.stringify(state);
+    await setup.bankStatementImport.update({ where: { id: result.importId }, data: { inlineExpenseCreations: JSON.stringify(proof) } });
+    const before = await setup.expense.findMany({ where: { tenantId } });
+    let observing = true;
+    const writes: string[] = [];
+    prisma.$use(async (params, next) => {
+      if (observing && /^(create|update|delete|upsert|executeRaw)/.test(params.action)) writes.push(params.action);
+      return next(params);
+    });
+    try {
+      for (const call of [
+        () => service.getImportDetail(tenantId, projectId, accountId, result.importId, actor),
+        () => service.undoImport(tenantId, projectId, accountId, result.importId, actor),
+      ]) await expect(call()).rejects.toMatchObject({ status: 404, message: 'Recurso não encontrado' });
+      expect(writes).toEqual([]);
+      expect(await setup.expense.findMany({ where: { tenantId } })).toEqual(before);
+    } finally { observing = false; }
+  });
+
+  it('complete v1 remains readable without rebaselining; future live columns are outside the frozen projection', async () => {
+    const result = await commit();
+    const record = await setup.bankStatementImport.findUniqueOrThrow({ where: { id: result.importId } });
+    const proof = JSON.parse(record.inlineExpenseCreations!) as { creations: Array<{ snapshot: string }> };
+    const original = parseInlineSnapshotV1(proof.creations[0].snapshot);
+    const future = { ...original, expenses: original.expenses.map(e => ({ ...e, futureColumn: 'not part of v1' })) };
+    expect(serializeInlineSnapshotV1(future)).toBe(serializeInlineSnapshotV1(original));
+    proof.creations[0].snapshot = JSON.stringify(original, (_key, value) =>
+      value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).reverse()) : value);
+    const stored = JSON.stringify(proof);
+    await setup.bankStatementImport.update({ where: { id: result.importId }, data: { inlineExpenseCreations: stored } });
+    expect(await service.getImportDetail(tenantId, projectId, accountId, result.importId, actor)).toMatchObject({ canUndo: true });
+    expect((await setup.bankStatementImport.findUniqueOrThrow({ where: { id: result.importId } })).inlineExpenseCreations).toBe(stored);
   });
 });

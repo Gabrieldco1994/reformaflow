@@ -620,37 +620,34 @@ export class ExpenseService {
     requester: RateioRequester,
   ) {
     assertRateioRequester(requester);
-    await this.validateProject(tenantId, projectId);
-    const source = await this.prisma.expense.findFirst({
-      where: { id, projectId, tenantId, deletedAt: null },
-    });
-    if (!source) throw new NotFoundException('Despesa não encontrada');
-    // I1: esta rota dedicada reaponta `linkedExpenseId` do mesmo jeito que o
-    // PATCH genérico — precisa da mesma guarda. Só bloqueia quando o alvo
-    // EFETIVO mudaria (idempotência do mesmo alvo continua permitida).
-    if (source.linkedExpenseId !== targetExpenseId) {
-      await this.guardRateioParticipation(tenantId, id, false, false);
-      await this.guardSettlementParticipation(tenantId, id, false, true);
-    }
-    const target = await this.prisma.expense.findFirst({
-      where: { id: targetExpenseId, tenantId, deletedAt: null },
-      select: { projectId: true, project: { select: { id: true, type: true, tenantId: true } } },
-    });
-    if (!target) throw new BadRequestException('Despesa alvo não encontrada');
-    if (
-      !target.project ||
-      target.project.tenantId !== tenantId ||
-      !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)
-    ) {
-      throw new BadRequestException('Despesa alvo não encontrada');
-    }
-    if (target.projectId === projectId) {
-      throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
-    }
-    return this.prisma.expense.update({
-      where: { id },
-      data: { linkedExpenseId: targetExpenseId },
-      include: { room: true },
+    return this.prisma.$transaction(async tx => {
+      await this.validateProject(tenantId, projectId, tx);
+      const source = await tx.expense.findFirst({
+        where: { id, projectId, tenantId, deletedAt: null },
+      });
+      if (!source) throw new NotFoundException('Despesa não encontrada');
+      // Same-target retries remain idempotent; all guard reads share the writer's snapshot.
+      if (source.linkedExpenseId !== targetExpenseId) {
+        await this.guardRateioParticipation(tenantId, id, false, false, tx);
+        await this.guardSettlementParticipation(tenantId, id, false, true, tx);
+      }
+      const target = await tx.expense.findFirst({
+        where: { id: targetExpenseId, tenantId, deletedAt: null },
+        select: { projectId: true, project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
+      });
+      if (!target || !target.project || target.project.tenantId !== tenantId ||
+          target.project.deletedAt != null ||
+          !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)) {
+        throw new BadRequestException('Despesa alvo não encontrada');
+      }
+      if (target.projectId === projectId) {
+        throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
+      }
+      return tx.expense.update({
+        where: { id, projectId, tenantId, deletedAt: null },
+        data: { linkedExpenseId: targetExpenseId },
+        include: { room: true },
+      });
     });
   }
 
@@ -661,23 +658,20 @@ export class ExpenseService {
     requester: RateioRequester,
   ) {
     assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
-    await this.validateProject(tenantId, projectId);
-    const source = await this.prisma.expense.findFirst({
-      where: { id, projectId, tenantId, deletedAt: null },
-    });
-    if (!source) throw new NotFoundException('Despesa não encontrada');
-    await this.assertCanMutateLinkedRows(
-      this.prisma,
-      tenantId,
-      source,
-      requester,
-    );
-    await this.guardRateioParticipation(tenantId, id, false, false);
-    await this.guardSettlementParticipation(tenantId, id, false, true);
-    return this.prisma.expense.update({
-      where: { id },
-      data: { linkedExpenseId: null },
-      include: { room: true },
+    return this.prisma.$transaction(async tx => {
+      await this.validateProject(tenantId, projectId, tx);
+      const source = await tx.expense.findFirst({
+        where: { id, projectId, tenantId, deletedAt: null },
+      });
+      if (!source) throw new NotFoundException('Despesa não encontrada');
+      await this.assertCanMutateLinkedRows(tx, tenantId, source, requester);
+      await this.guardRateioParticipation(tenantId, id, false, false, tx);
+      await this.guardSettlementParticipation(tenantId, id, false, true, tx);
+      return tx.expense.update({
+        where: { id, projectId, tenantId, deletedAt: null },
+        data: { linkedExpenseId: null },
+        include: { room: true },
+      });
     });
   }
 

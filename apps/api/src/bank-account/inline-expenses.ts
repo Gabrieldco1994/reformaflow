@@ -4,6 +4,7 @@ import { ExpenseTypeLabels, LaborCategoryLabels, hasFeature, ProjectType, reconc
 import { parseGrantJson } from '../auth/grant-json';
 import { ACL_NOT_FOUND_MESSAGE, BANK_ACCOUNT_MODULE, EXPENSE_MODULE, userCanAccessProject, userCanAccessProjectModule } from '../common/access-rules';
 import { RateioRequester } from '../expense/rateio.types';
+import { parseInlineSnapshotV1, serializeInlineSnapshotV1 } from './inline-snapshot-v1';
 
 export interface InlineTarget {
   targetProjectId: string;
@@ -147,7 +148,8 @@ export async function preflightInlineUndo(
   await assertInlineAccount(tx, tenantId, projectId, accountId, actor);
   let value: unknown;
   try { value = JSON.parse(raw); } catch { throw new NotFoundException(ACL_NOT_FOUND_MESSAGE); }
-  if (!object(value) || !Array.isArray(value.creations) || !value.creations.length) {
+  if (!object(value) || Object.keys(value).some(key => !['version', 'creations'].includes(key)) ||
+      !Array.isArray(value.creations) || !value.creations.length) {
     throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
   }
   // Validate stable scope even when another protocol field is corrupt.
@@ -163,24 +165,17 @@ export async function preflightInlineUndo(
   const creations: InlineCreation[] = [];
   const ids = new Set<string>();
   for (const entry of value.creations) {
-    if (!object(entry) || !text(entry.sourceExpenseId) || !text(entry.targetExpenseId) ||
+    if (!object(entry) || Object.keys(entry).some(key => ![
+      'sourceExpenseId', 'targetExpenseId', 'sourceProjectId', 'targetProjectId', 'amountCents', 'snapshot',
+    ].includes(key)) || !text(entry.sourceExpenseId) || !text(entry.targetExpenseId) ||
         !text(entry.targetProjectId) || entry.sourceProjectId !== projectId ||
         entry.targetProjectId === projectId || !text(entry.snapshot) ||
         typeof entry.amountCents !== 'number' || !Number.isSafeInteger(entry.amountCents) || entry.amountCents <= 0 ||
         ids.has(entry.sourceExpenseId) || ids.has(entry.targetExpenseId)) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
-    let snapshot: unknown;
-    try { snapshot = JSON.parse(entry.snapshot); } catch { throw new NotFoundException(ACL_NOT_FOUND_MESSAGE); }
-    if (!object(snapshot) || !Array.isArray(snapshot.expenses) || snapshot.expenses.length !== 2 ||
-        !Array.isArray(snapshot.dependents)) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    const snapshot = parseInlineSnapshotV1(entry.snapshot);
+    if (snapshot.expenses.length !== 2) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
     for (const expense of snapshot.expenses) {
-      if (!object(expense) || expense.tenantId !== tenantId || !text(expense.projectId) ||
-          !['id', 'projectId', 'tenantId', 'titulo', 'tipoDespesa', 'categoriaMaoDeObra', 'roomId', 'valor',
-            'quantidade', 'valorTotal', 'status', 'linkedExpenseId', 'accountId', 'bankLast4', 'cardLast4',
-            'importId', 'externalId', 'formaPagamento', 'dataPagamento', 'createdAt', 'updatedAt', 'deletedAt',
-            'financingInstallment'].every(key => Object.prototype.hasOwnProperty.call(expense, key)) ||
-          !['cashFlow', 'rateioAsSource', 'rateioAsTarget', 'settlementsAsSource', 'settlementsAsTarget',
-            'markers', 'importedInvoiceLiquidationsAsPayment', 'importedInvoiceLiquidationsAsPurchase']
-            .every(key => Array.isArray(expense[key]))) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+      if (expense.tenantId !== tenantId || !text(expense.projectId)) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
       await assertInlineProject(tx, tenantId, expense.projectId, actor);
     }
     if (!snapshot.expenses.some(e => object(e) && e.id === entry.sourceExpenseId && e.projectId === projectId) ||
@@ -195,7 +190,8 @@ export async function preflightInlineUndo(
     }
     ids.add(entry.sourceExpenseId); ids.add(entry.targetExpenseId);
     creations.push({ sourceExpenseId: entry.sourceExpenseId, targetExpenseId: entry.targetExpenseId,
-      targetProjectId: entry.targetProjectId, sourceProjectId: projectId, amountCents: entry.amountCents, snapshot: entry.snapshot });
+      targetProjectId: entry.targetProjectId, sourceProjectId: projectId, amountCents: entry.amountCents,
+      snapshot: serializeInlineSnapshotV1(snapshot) });
   }
   const states: Awaited<ReturnType<typeof inlineSnapshot>>[] = [];
   for (const pair of creations) {
@@ -229,7 +225,7 @@ export async function preflightInlineUndo(
       source.accountId === accountId && source.valorTotal === pair.amountCents &&
       target?.projectId === pair.targetProjectId && target.valorTotal === pair.amountCents &&
       target.importId === null && target.externalId === null && target.bankLast4 === null && target.cardLast4 === null &&
-      JSON.stringify(states[i]) === pair.snapshot;
+      serializeInlineSnapshotV1(states[i]) === pair.snapshot;
   });
   return { creations, canUndo: intact, blockReason: intact ? null : INLINE_IMPORT_DRIFT };
 }
