@@ -159,3 +159,41 @@ describe('BankPreviewTxRow — Tier B possível duplicata (#659)', () => {
     expect(screen.queryByText(/qual cartão isso quita/i)).not.toBeInTheDocument();
   });
 });
+
+describe('BankPreviewTxRow — #569 PR2 janela de liquidação (windowState)', () => {
+  it('candidato OUTSIDE_SETTLEMENT_WINDOW selecionado mostra aviso de confirmação manual, não promete vínculo automático', () => {
+    renderRow(
+      baseTx({
+        suggestedCategory: 'PAGAMENTO_FATURA_CARTAO',
+        cardCandidates: [
+          {
+            cardLast4: '4242',
+            nickname: 'Roxo',
+            dueMonth: '2026-05',
+            invoiceTotalCents: 5000,
+            deltaCents: 0,
+            windowState: 'OUTSIDE_SETTLEMENT_WINDOW',
+          },
+        ],
+      }),
+      { decision: { externalId: 't1', overrides: { cardLast4: '4242' } } },
+    );
+    expect(
+      screen.getByText(/fora do prazo de liquidação automática/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/confirme manualmente/i)).toBeInTheDocument();
+  });
+
+  it('candidato WITHIN_SETTLEMENT_WINDOW (ou sem windowState, contrato antigo) não mostra aviso', () => {
+    renderRow(
+      baseTx({
+        suggestedCategory: 'PAGAMENTO_FATURA_CARTAO',
+        cardCandidates: [
+          { cardLast4: '4242', nickname: 'Roxo', dueMonth: '2026-08', invoiceTotalCents: 5000, deltaCents: 0 },
+        ],
+      }),
+      { decision: { externalId: 't1', overrides: { cardLast4: '4242' } } },
+    );
+    expect(screen.queryByText(/fora do prazo de liquidação automática/i)).not.toBeInTheDocument();
+  });
+});

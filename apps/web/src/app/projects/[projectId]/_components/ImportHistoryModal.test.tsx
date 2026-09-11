@@ -99,6 +99,61 @@ describe('ImportHistoryModal', () => {
     expect(apiDelete).not.toHaveBeenCalled();
   });
 
+  it('#569 PR2: distingue fatura efetivamente liquidada de cartão apenas identificado', async () => {
+    apiGet.mockResolvedValueOnce(IMPORTS);
+    apiGet.mockResolvedValueOnce({
+      ...DETAIL,
+      canUndo: true,
+      settlement: [
+        { cardId: 'card-1', dueMonth: '2026-06', state: 'SETTLED_BY_IMPORT', payments: [] },
+        { cardId: 'card-2', dueMonth: '2026-07', state: 'NO_SETTLEMENT', payments: [] },
+        { cardId: 'card-3', dueMonth: '2026-05', state: 'OUTSIDE_SETTLEMENT_WINDOW', payments: [] },
+      ],
+    });
+
+    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
+
+    expect(await screen.findByText(/^Fatura de jun\/2026 foi quitada/i)).toBeInTheDocument();
+    expect(screen.getByText(/nenhuma fatura foi quitada/i)).toBeInTheDocument();
+    expect(screen.getByText(/fora do prazo de liquidação automática/i)).toBeInTheDocument();
+    // Nunca afirma "vinculado/quitado" só porque o cartão foi identificado.
+    expect(screen.queryByText(/^Vinculado$/)).not.toBeInTheDocument();
+  });
+
+  it('#569 PR2: blockReason específico (INCOMPLETE_TRAIL) explica o motivo real, não o texto legado de "pagamento de fatura"', async () => {
+    apiGet.mockResolvedValueOnce(IMPORTS);
+    apiGet.mockResolvedValueOnce({
+      ...DETAIL,
+      canUndo: false,
+      blockReason: 'INCOMPLETE_TRAIL',
+    });
+
+    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
+
+    expect(
+      await screen.findByText(/alteradas por fora.*bloqueado/i),
+    ).toBeInTheDocument();
+    const undoBtn = screen.getByRole('button', { name: 'Desfazer importação' });
+    expect(undoBtn).toBeDisabled();
+  });
+
+  it('#569 PR2: erro DRIFT:ENTRY_NOT_PAID no confirmar mostra copy amigável, não o código bruto', async () => {
+    apiGet.mockResolvedValueOnce(IMPORTS);
+    apiGet.mockResolvedValueOnce({ ...DETAIL, canUndo: true });
+    apiDelete.mockRejectedValueOnce(new Error('DRIFT:ENTRY_NOT_PAID'));
+
+    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Desfazer importação' }));
+
+    expect(
+      await screen.findByText(/uma parcela não está mais marcada como paga/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('DRIFT:ENTRY_NOT_PAID')).not.toBeInTheDocument();
+  });
+
   it('mostra aviso de efeitos irreversíveis quando houver', async () => {
     apiGet.mockResolvedValueOnce(IMPORTS);
     apiGet.mockResolvedValueOnce({

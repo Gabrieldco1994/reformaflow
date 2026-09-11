@@ -75,6 +75,13 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
   // manual. Some se o usuário recategorizar a linha.
   const isCardPaymentRow = !isCredit && category === 'PAGAMENTO_FATURA_CARTAO';
   const cardOptions = dedupeByCard(tx.cardCandidates ?? [], cardLast4);
+  // #569 PR2: o candidato selecionado pode ter sido identificado fora da
+  // janela de liquidação automática do commit — a prévia não pode mais
+  // prometer um vínculo silencioso nesse caso (§2.c do contrato).
+  const selectedCandidate = cardLast4
+    ? cardOptions.find((c) => c.cardLast4 === cardLast4)
+    : undefined;
+  const selectedIsOutsideWindow = selectedCandidate?.windowState === 'OUTSIDE_SETTLEMENT_WINDOW';
 
   function setOverride(patch: Partial<NonNullable<BankImportDecision['overrides']>>) {
     onChange({
@@ -239,6 +246,14 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
             <div className="text-xs text-amber-700">
               ⚠ Sem cartão, o valor sai do seu saldo mas a fatura continua em aberto — o
               mesmo dinheiro conta duas vezes.
+            </div>
+          )}
+          {selectedIsOutsideWindow && (
+            <div className="text-xs text-amber-700">
+              ⚠ Esta fatura está fora do prazo de liquidação automática (paga com
+              atraso). Identificamos o cartão, mas a importação não vai quitá-la
+              sozinha — confirme manualmente depois se este pagamento deve fechar
+              essa fatura.
             </div>
           )}
         </div>
