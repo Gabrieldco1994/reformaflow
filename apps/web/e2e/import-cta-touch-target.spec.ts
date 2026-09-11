@@ -352,7 +352,7 @@ async function openImportModal(
           .locator('[data-mobile-sheet="modal"]')
           .filter({ hasText: /Importar (fatura|extrato)/ });
   await expect(dialog).toBeVisible();
-  await dialog.locator('input[type="file"]').setInputFiles({
+  await dialog.getByLabel(/^Arquivos/).setInputFiles({
     name: "x.ofx",
     mimeType: "text/plain",
     buffer: Buffer.from("dummy"),

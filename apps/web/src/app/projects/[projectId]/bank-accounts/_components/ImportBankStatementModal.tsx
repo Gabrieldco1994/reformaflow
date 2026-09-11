@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 import { Upload, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
@@ -29,8 +29,12 @@ import {
   importFailureMessage,
   importWasRejected,
   IMPORT_STEPS,
+  isStatementCommitResult,
+  isImportCount,
+  UNKNOWN_IMPORT_RESULT,
 } from "@/components/import/ImportJourney";
 import { categoryLabel } from "../_lib/import-categories";
+import { getBankPaymentWarning } from "./BankPreviewTxRow";
 
 interface Props {
   projectId: string;
@@ -67,6 +71,9 @@ export default function ImportBankStatementModal({
   onCommitted,
 }: Props) {
   const flow = useImportJourney<BankTxState>();
+  const fileId = useId();
+  const formatId = useId();
+  const passwordId = useId();
   const [files, setFiles] = useState<File[]>([]);
   const [source, setSource] = useState("AUTO");
   const [password, setPassword] = useState("");
@@ -208,6 +215,12 @@ export default function ImportBankStatementModal({
       for (const f of files) fd.append("files", f);
       fd.append("decisions", JSON.stringify(decisions));
       const res = await api.upload<BankCommitResult>(buildUrl("commit"), fd);
+      if (
+        !isStatementCommitResult(res) ||
+        !isImportCount(res.receiptsInserted)
+      ) {
+        throw new Error(UNKNOWN_IMPORT_RESULT);
+      }
       setCommitResult(res);
       flow.setStage("result");
     } catch (e) {
@@ -276,6 +289,12 @@ export default function ImportBankStatementModal({
   const close = () => flow.requestClose(!!preview, onClose);
   const origin =
     account.nickname ?? `${account.institution} ****${account.last4}`;
+  const paymentWarnings = new Map(
+    (preview?.preview ?? []).map((tx) => [
+      tx.externalId,
+      getBankPaymentWarning(tx, txStates[tx.externalId] ?? {}),
+    ]),
+  );
 
   return (
     <Modal
@@ -304,11 +323,12 @@ export default function ImportBankStatementModal({
             {flow.stage === "file" && (
               <div className="space-y-3 mb-4">
                 <div>
-                  <label className="text-sm text-gray-600">
+                  <label htmlFor={fileId} className="text-sm text-gray-600">
                     Arquivos (OFX, CSV, TXT, PDF, XLSX/XLS ou 📷 até 5
                     prints/fotos, máx 10MB cada)
                   </label>
                   <input
+                    id={fileId}
                     type="file"
                     disabled={loading}
                     multiple
@@ -352,8 +372,11 @@ export default function ImportBankStatementModal({
                   )}
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Formato</label>
+                  <label htmlFor={formatId} className="text-sm text-gray-600">
+                    Formato
+                  </label>
                   <select
+                    id={formatId}
                     value={source}
                     disabled={!!preview || loading}
                     onChange={(e) => setSource(e.target.value)}
@@ -367,13 +390,17 @@ export default function ImportBankStatementModal({
                 </div>
                 {(isPdf || needsPassword) && (
                   <div>
-                    <label className="text-sm text-gray-600">
+                    <label
+                      htmlFor={passwordId}
+                      className="text-sm text-gray-600"
+                    >
                       Senha do PDF{" "}
                       {!needsPassword && (
                         <span className="text-gray-400">(se houver)</span>
                       )}
                     </label>
                     <input
+                      id={passwordId}
                       type="password"
                       disabled={!!preview || loading}
                       value={password}
@@ -500,6 +527,9 @@ export default function ImportBankStatementModal({
                   {flow.stage === "review" ? (
                     <>
                       <ImportFilters
+                        warnings={preview.preview.map(
+                          (tx) => !!paymentWarnings.get(tx.externalId),
+                        )}
                         statuses={preview.preview.map((tx) =>
                           reviewStatus(tx, txStates[tx.externalId]?.decision),
                         )}
@@ -511,6 +541,7 @@ export default function ImportBankStatementModal({
                           matchesReviewFilter(
                             reviewStatus(tx, txStates[tx.externalId]?.decision),
                             flow.filter,
+                            !!paymentWarnings.get(tx.externalId),
                           ),
                         )
                         .map((tx) => {
@@ -528,6 +559,7 @@ export default function ImportBankStatementModal({
                           );
                           return (
                             <ImportReviewRow
+                              warning={paymentWarnings.get(tx.externalId)}
                               key={tx.externalId}
                               title={decision?.overrides?.titulo ?? tx.merchant}
                               fonte={
@@ -565,6 +597,20 @@ export default function ImportBankStatementModal({
                     </>
                   ) : (
                     <div className="space-y-2 text-sm text-gray-700">
+                      {preview.preview.map((tx) => {
+                        const warning = paymentWarnings.get(tx.externalId);
+                        return warning ? (
+                          <p
+                            key={tx.externalId}
+                            role="status"
+                            className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800"
+                          >
+                            {txStates[tx.externalId]?.decision?.overrides
+                              ?.titulo ?? tx.merchant}
+                            : {warning}
+                          </p>
+                        ) : null;
+                      })}
                       <p>
                         Os totais acima contam lançamentos bancários uma única
                         vez. A finalidade em outro projeto não é uma segunda

@@ -56,6 +56,7 @@ const COMMIT = {
 async function loadTargetPreview(
   row: Partial<BankPreviewTx> = {},
   supportsTargets = true,
+  edit = true,
 ) {
   render(
     <ImportBankStatementModal
@@ -87,9 +88,10 @@ async function loadTargetPreview(
     ],
   });
   fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
-  fireEvent.click(
-    await screen.findByRole("button", { name: /revisar padaria/i }),
-  );
+  const review = await screen.findByRole("button", {
+    name: /revisar padaria/i,
+  });
+  if (edit) fireEvent.click(review);
 }
 
 function prepareTarget() {
@@ -147,6 +149,121 @@ describe("ImportBankStatementModal — fechamento pós-importação", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it.each([true, false])(
+    "payment warning is visible before editing, included in pending but still importable (outside=%s)",
+    async (outside) => {
+      await loadTargetPreview(
+        {
+          isCardPayment: true,
+          suggestedCategory: "PAGAMENTO_FATURA_CARTAO",
+          suggestedCardLast4: outside ? "4242" : null,
+          cardCandidates: [
+            {
+              cardLast4: "4242",
+              nickname: "Roxo",
+              dueMonth: "2026-01",
+              invoiceTotalCents: 1234567,
+              deltaCents: 0,
+              windowState: "OUTSIDE_SETTLEMENT_WINDOW",
+            },
+          ],
+        },
+        false,
+        false,
+      );
+      const warning = outside
+        ? /fora do prazo de liquidação automática/i
+        : /sem cartão/i;
+      expect(screen.getByText(warning)).toBeInTheDocument();
+      if (outside)
+        expect(screen.getByText(warning)).toHaveTextContent("Roxo ••4242");
+      expect(
+        screen.queryByText("Pronto para importar"),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(/Após confirmar:/)).toHaveTextContent("1 novas");
+      expect(screen.getByText(/Após confirmar:/)).toHaveTextContent(
+        /saídas: R\$\s*12\.345,67/,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Pendências (1)" }));
+      expect(
+        screen.getByRole("button", { name: "Revisar Padaria" }),
+      ).toBeInTheDocument();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Não importados (0)" }),
+      );
+      expect(
+        screen.queryByRole("button", { name: "Revisar Padaria" }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Ver resumo" }));
+      expect(screen.getByText(warning)).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Confirmar importação" }),
+      ).toBeEnabled();
+      apiUploadMock.mockResolvedValueOnce(COMMIT);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirmar importação" }),
+      );
+      await screen.findByRole("button", { name: "Concluir" });
+      expect(apiUploadMock).toHaveBeenCalledTimes(2);
+      const body = apiUploadMock.mock.calls[1][1] as FormData;
+      expect(JSON.parse(String(body.get("decisions")))).toEqual(
+        outside ? [{ externalId: "t1", overrides: { cardLast4: "4242" } }] : [],
+      );
+    },
+  );
+
+  it("payment warning follows the effective identity after local edits without reprocessing", async () => {
+    await loadTargetPreview(
+      {
+        isCardPayment: true,
+        suggestedCategory: "PAGAMENTO_FATURA_CARTAO",
+        suggestedCardLast4: "4242",
+        cardCandidates: [
+          {
+            cardLast4: "4242",
+            nickname: "Antigo",
+            dueMonth: "2026-01",
+            invoiceTotalCents: 1234567,
+            deltaCents: 0,
+            windowState: "OUTSIDE_SETTLEMENT_WINDOW",
+          },
+          {
+            cardLast4: "5555",
+            nickname: "Atual",
+            dueMonth: "2026-07",
+            invoiceTotalCents: 1234567,
+            deltaCents: 0,
+            windowState: "WITHIN_SETTLEMENT_WINDOW",
+          },
+        ],
+      },
+      false,
+    );
+    fireEvent.change(screen.getByLabelText("Cartão da fatura"), {
+      target: { value: "5555" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar à revisão" }));
+    expect(
+      screen.queryByText(/fora do prazo de liquidação automática/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Pendências (0)" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Revisar Padaria" }));
+    fireEvent.change(screen.getByLabelText("Cartão da fatura"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar à revisão" }));
+    expect(screen.getByText(/sem cartão/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Pendências (1)" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Não importados (0)" }),
+    ).toBeInTheDocument();
+    expect(apiUploadMock).toHaveBeenCalledTimes(1);
   });
 
   it('mostra ações distintas "Fechar" (X) e "Concluir" após importar', async () => {

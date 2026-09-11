@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
+import ImportStatementModal from "../../credit-cards/_components/ImportStatementModal";
+import ImportWithoutAccountModal from "./ImportWithoutAccountModal";
 import { formatCurrency } from "@/lib/utils";
 import ImportBankStatementModal, {
   type BankImportDecision,
@@ -26,6 +34,174 @@ const ACCOUNT: BankAccountRow = {
   agency: null,
   accountNumber: null,
 };
+
+const CARD = {
+  id: "qa-card",
+  institution: "ITAU",
+  brand: "VISA",
+  nickname: "QA card",
+  last4: "4242",
+  limitTotalCents: null,
+  limitAvailableCents: null,
+  closingDay: 10,
+  dueDay: 17,
+};
+const RESULT_PREVIEW = {
+  source: "OFX",
+  periodLabel: "2026-09",
+  total: 1,
+  duplicated: 0,
+  totalAmountCents: 50000,
+  preview: [
+    {
+      externalId: "qa-result",
+      date: "2026-09-01",
+      merchant: "QA result",
+      description: "QA result",
+      amountCents: 50000,
+      duplicate: false,
+      category: null,
+    },
+  ],
+};
+const LEGACY_RESULT = {
+  importId: "qa-import",
+  source: "OFX",
+  periodLabel: "2026-09",
+  inserted: 1,
+  duplicated: 0,
+  receiptsInserted: 0,
+  cardPayments: 0,
+  aiReclassified: 0,
+  recurrencesCreated: 0,
+  skipped: 0,
+  settled: 0,
+};
+
+function renderImporter(kind: "bank" | "card" | "carteira") {
+  const callbacks = { onClose: vi.fn(), onCommitted: vi.fn() };
+  const view = render(
+    kind === "bank" ? (
+      <ImportBankStatementModal
+        projectId="qa-pessoal"
+        account={ACCOUNT}
+        {...callbacks}
+      />
+    ) : kind === "card" ? (
+      <ImportStatementModal projectId="qa-pessoal" card={CARD} {...callbacks} />
+    ) : (
+      <ImportWithoutAccountModal projectId="qa-pessoal" {...callbacks} />
+    ),
+  );
+  return { ...view, ...callbacks };
+}
+
+async function loadResultSummary(kind: "bank" | "card" | "carteira") {
+  const view = renderImporter(kind);
+  fireEvent.change(document.querySelector('input[type="file"]')!, {
+    target: { files: [new File(["x"], "result.ofx")] },
+  });
+  fetchMock.mockResolvedValueOnce(Response.json(RESULT_PREVIEW));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Ver resumo" }));
+  return view;
+}
+
+describe.each(["bank", "card", "carteira"] as const)(
+  "commit response and labels — %s",
+  (kind) => {
+    it.each([
+      {},
+      null,
+      [],
+      { ...LEGACY_RESULT, inserted: "1" },
+      { ...LEGACY_RESULT, inserted: -1 },
+    ])(
+      "HTTP 200 invalid shape %j stays uncertain, without success or retry",
+      async (body) => {
+        const callbacks = await loadResultSummary(kind);
+        fetchMock.mockResolvedValueOnce(Response.json(body));
+        const confirm = screen.getByRole("button", {
+          name: "Confirmar importação",
+        });
+        fireEvent.click(confirm);
+        await screen.findByText(/a importação pode ter sido concluída/i);
+        expect(
+          screen.queryByRole("button", { name: "Concluir" }),
+        ).not.toBeInTheDocument();
+        expect(confirm).toBeDisabled();
+        fireEvent.click(confirm);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(callbacks.onCommitted).not.toHaveBeenCalled();
+      },
+    );
+
+    it("accepts recognizable legacy result without optional inline/warning fields", async () => {
+      const { onCommitted } = await loadResultSummary(kind);
+      fetchMock.mockResolvedValueOnce(
+        Response.json(kind === "carteira" ? { count: 1 } : LEGACY_RESULT),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirmar importação" }),
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "Concluir" }));
+      expect(onCommitted).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("labels locate the actual upload, format and PDF password controls", async () => {
+      renderImporter(kind);
+      const file = screen.getByLabelText<HTMLInputElement>(/^Arquivos/);
+      expect(file.type).toBe("file");
+      if (kind !== "carteira")
+        expect(screen.getByLabelText("Formato").tagName).toBe("SELECT");
+      fireEvent.change(file, {
+        target: {
+          files: [
+            new File(["pdf"], "statement.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+      const password = screen.getByLabelText<HTMLInputElement>(/^Senha do PDF/);
+      expect(password.type).toBe("password");
+      fireEvent.change(password, { target: { value: "123456" } });
+      expect(password).toHaveValue("123456");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  },
+);
+
+it("Carteira preserves a recognizable partial result without inventing success for missing counts", async () => {
+  const { onCommitted } = await loadResultSummary("carteira");
+  fetchMock.mockResolvedValueOnce(
+    Response.json({ expensesInserted: 1, receiptsInserted: 0, failed: 2 }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar importação" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "1 lançamento(s) importado(s) e 2 com falha",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Concluir" }));
+  expect(onCommitted).toHaveBeenCalledOnce();
+});
+
+it("bank and card label IDs stay unique with multiple mounted instances", () => {
+  renderImporter("bank");
+  renderImporter("card");
+  const dialogs = screen.getAllByRole("dialog");
+  const ids = dialogs.flatMap((dialog) => {
+    const file = within(dialog).getByLabelText<HTMLInputElement>(/^Arquivos/);
+    fireEvent.change(file, {
+      target: { files: [new File(["x"], "statement.pdf")] },
+    });
+    return [
+      file.id,
+      within(dialog).getByLabelText("Formato").id,
+      within(dialog).getByLabelText(/^Senha do PDF/).id,
+    ];
+  });
+  expect(new Set(ids).size).toBe(6);
+  expect(ids.every(Boolean)).toBe(true);
+});
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });

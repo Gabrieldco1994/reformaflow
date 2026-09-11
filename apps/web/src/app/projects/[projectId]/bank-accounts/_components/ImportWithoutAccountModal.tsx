@@ -31,6 +31,9 @@ import {
   importFailureMessage,
   importWasRejected,
   IMPORT_STEPS,
+  isImportResultRecord,
+  isImportCount,
+  UNKNOWN_IMPORT_RESULT,
 } from "@/components/import/ImportJourney";
 
 interface Props {
@@ -108,6 +111,23 @@ interface ApiCommitResult {
   rulesLearned?: number;
   rulesSkippedNoMapping?: number;
   rulesLearnFailed?: number;
+}
+
+function isWalletCommitResult(value: unknown): value is ApiCommitResult {
+  const counts = ["inserted", "count", "expensesInserted", "receiptsInserted"];
+  return (
+    isImportResultRecord(value) &&
+    counts.some((key) => isImportCount(value[key])) &&
+    [
+      ...counts,
+      "failed",
+      "skipped",
+      "duplicated",
+      "rulesLearned",
+      "rulesSkippedNoMapping",
+      "rulesLearnFailed",
+    ].every((key) => value[key] === undefined || isImportCount(value[key]))
+  );
 }
 
 interface ImportDecision {
@@ -509,6 +529,7 @@ export default function ImportWithoutAccountModal({
         url("commit"),
         commitFormData(),
       );
+      if (!isWalletCommitResult(result)) throw new Error(UNKNOWN_IMPORT_RESULT);
       if (result.error) throw new Error(result.error);
       setCommitResult(result);
       const inserted =

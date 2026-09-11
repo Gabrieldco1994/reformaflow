@@ -55,11 +55,12 @@ export function reviewStatus(
 export function matchesReviewFilter(
   status: ReviewStatus,
   filter: ReviewFilter,
+  hasWarning = false,
 ) {
   return (
     filter === "all" ||
     (filter === "pending"
-      ? status === "pending"
+      ? status === "pending" || hasWarning
       : status === "excluded" || status === "duplicate" || status === "pending")
   );
 }
@@ -190,10 +191,12 @@ export function ImportJourney({
 
 export function ImportFilters({
   statuses,
+  warnings,
   value,
   onChange,
 }: {
   statuses: ReviewStatus[];
+  warnings?: boolean[];
   value: ReviewFilter;
   onChange: (value: ReviewFilter) => void;
 }) {
@@ -209,8 +212,9 @@ export function ImportFilters({
           >
             {label} (
             {
-              statuses.filter((status) => matchesReviewFilter(status, filter))
-                .length
+              statuses.filter((status, index) =>
+                matchesReviewFilter(status, filter, warnings?.[index]),
+              ).length
             }
             )
           </Button>
@@ -230,6 +234,7 @@ export function ImportReviewRow({
   onEdit,
   buttonRef,
   fonte,
+  warning,
 }: {
   title: string;
   date: string;
@@ -239,18 +244,25 @@ export function ImportReviewRow({
   onEdit: () => void;
   buttonRef: (node: HTMLButtonElement | null) => void;
   fonte?: CategoriaFonte | null;
+  warning?: string | null;
 }) {
   return (
     <div className={styles.row}>
       <div className="min-w-0">
         <p className="font-medium text-darc-velvet break-words">{title}</p>
         <p className="text-xs text-gray-500">
-          {formatDateBR(date)} · {STATUS_LABELS[status]}
+          {formatDateBR(date)} ·{" "}
+          {warning ? "Importável · conferir aviso" : STATUS_LABELS[status]}
         </p>
         <p className="text-sm text-gray-600 break-words">
           Finalidade: {purpose}
         </p>
         <CategoriaFonteChip fonte={fonte} />
+        {warning && (
+          <p role="status" className="mt-2 text-sm text-amber-700">
+            {warning}
+          </p>
+        )}
       </div>
       <strong className={styles.money}>
         {formatCurrency(amountCents / 100)}
@@ -312,4 +324,45 @@ export function importFailureMessage(error: unknown): string {
   return message === "INLINE_TARGET_INVALID"
     ? "Revise o projeto, a categoria e o valor integral do destino antes de confirmar novamente."
     : message;
+}
+
+export function isImportResultRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isImportCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+export function isStatementCommitResult(value: unknown): value is {
+  importId: string;
+  source: string;
+  periodLabel: string;
+  inserted: number;
+  duplicated: number;
+} {
+  return (
+    isImportResultRecord(value) &&
+    typeof value.importId === "string" &&
+    value.importId.trim().length > 0 &&
+    typeof value.source === "string" &&
+    typeof value.periodLabel === "string" &&
+    isImportCount(value.inserted) &&
+    isImportCount(value.duplicated) &&
+    [
+      "receiptsInserted",
+      "cardPayments",
+      "unlinkedCardPayments",
+      "aiReclassified",
+      "recurrencesCreated",
+      "settled",
+      "linked",
+      "skipped",
+      "rulesLearned",
+      "rulesSkippedNoMapping",
+      "rulesLearnFailed",
+    ].every((key) => value[key] === undefined || isImportCount(value[key]))
+  );
 }

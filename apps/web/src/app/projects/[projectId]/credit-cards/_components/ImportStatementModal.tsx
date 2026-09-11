@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 import {
@@ -34,6 +34,9 @@ import {
   importFailureMessage,
   importWasRejected,
   IMPORT_STEPS,
+  isStatementCommitResult,
+  isImportCount,
+  UNKNOWN_IMPORT_RESULT,
 } from "@/components/import/ImportJourney";
 
 interface Props {
@@ -174,6 +177,9 @@ export default function ImportStatementModal({
       for (const f of files) fd.append("files", f);
       fd.append("decisions", JSON.stringify(decisions));
       const res = await api.upload<CommitResult>(buildUrl("commit"), fd);
+      if (!isStatementCommitResult(res) || !isImportCount(res.settled)) {
+        throw new Error(UNKNOWN_IMPORT_RESULT);
+      }
       setCommitResult(res);
       flow.setStage("result");
     } catch (e) {
@@ -518,14 +524,18 @@ function UploadStep({
   onPreview: () => void;
   hasPreview: boolean;
 }) {
+  const fileId = useId();
+  const formatId = useId();
+  const passwordId = useId();
   return (
     <div className="space-y-3 mb-4">
       <div>
-        <label className="text-sm text-gray-600">
+        <label htmlFor={fileId} className="text-sm text-gray-600">
           Arquivos (OFX, CSV, TXT, PDF, XLSX/XLS ou 📷 até 5 prints/fotos, máx
           10MB cada)
         </label>
         <input
+          id={fileId}
           type="file"
           disabled={loading}
           onClick={(event) => {
@@ -559,8 +569,11 @@ function UploadStep({
         )}
       </div>
       <div>
-        <label className="text-sm text-gray-600">Formato</label>
+        <label htmlFor={formatId} className="text-sm text-gray-600">
+          Formato
+        </label>
         <select
+          id={formatId}
           value={source}
           disabled={hasPreview || loading}
           onChange={(e) => setSource(e.target.value)}
@@ -576,13 +589,14 @@ function UploadStep({
       </div>
       {(isPdf || needsPassword) && (
         <div>
-          <label className="text-sm text-gray-600">
+          <label htmlFor={passwordId} className="text-sm text-gray-600">
             Senha do PDF{" "}
             {!needsPassword && (
               <span className="text-gray-400">(se houver)</span>
             )}
           </label>
           <input
+            id={passwordId}
             type="password"
             disabled={hasPreview || loading}
             value={password}

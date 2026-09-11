@@ -87,6 +87,34 @@ interface RowProps {
   onClearDecision: () => void;
 }
 
+export function getBankPaymentWarning(
+  tx: BankPreviewTx,
+  state: BankTxState,
+): string | null {
+  const category =
+    state.decision?.overrides?.category ??
+    tx.suggestedCategory ??
+    (tx.isCardPayment ? "PAGAMENTO_FATURA_CARTAO" : "OUTROS");
+  if (
+    tx.amountCents < 0 ||
+    tx.duplicate ||
+    tx.possibleDuplicate ||
+    state.decision?.action === "skip" ||
+    category !== "PAGAMENTO_FATURA_CARTAO"
+  )
+    return null;
+  const cardLast4 = state.decision?.overrides?.cardLast4;
+  if (!cardLast4) {
+    return "Sem cartão identificado, o valor sai do seu saldo, mas nenhuma fatura será quitada automaticamente.";
+  }
+  const candidate = tx.cardCandidates?.find(
+    (card) => card.cardLast4 === cardLast4,
+  );
+  return candidate?.windowState === "OUTSIDE_SETTLEMENT_WINDOW"
+    ? `Cartão ${candidate.nickname} ••${cardLast4} identificado, mas esta fatura está fora do prazo de liquidação automática. A importação não vai quitá-la sozinha — confirme manualmente depois se este pagamento deve fechar essa fatura.`
+    : null;
+}
+
 export function BankPreviewTxRow({
   tx,
   state,
@@ -107,7 +135,7 @@ export function BankPreviewTxRow({
   const category =
     state.decision?.overrides?.category ??
     tx.suggestedCategory ??
-    (isCredit ? "OUTROS" : "OUTROS");
+    (tx.isCardPayment ? "PAGAMENTO_FATURA_CARTAO" : "OUTROS");
   // O <select> tem lista fixa; um `suggestedCategory` fora dela (ex.: TRANSFERENCIA_TED
   // vindo de uma regra, RECEITA numa entrada) deixaria o campo em branco — injeta a
   // opção correspondente para o valor selecionado ficar sempre visível.
@@ -120,14 +148,7 @@ export function BankPreviewTxRow({
   // manual. Some se o usuário recategorizar a linha.
   const isCardPaymentRow = !isCredit && category === "PAGAMENTO_FATURA_CARTAO";
   const cardOptions = dedupeByCard(tx.cardCandidates ?? [], cardLast4);
-  // #569 PR2: o candidato selecionado pode ter sido identificado fora da
-  // janela de liquidação automática do commit — a prévia não pode mais
-  // prometer um vínculo silencioso nesse caso (§2.c do contrato).
-  const selectedCandidate = cardLast4
-    ? cardOptions.find((c) => c.cardLast4 === cardLast4)
-    : undefined;
-  const selectedIsOutsideWindow =
-    selectedCandidate?.windowState === "OUTSIDE_SETTLEMENT_WINDOW";
+  const paymentWarning = getBankPaymentWarning(tx, state);
 
   function setOverride(
     patch: Partial<NonNullable<BankImportDecision["overrides"]>>,
@@ -304,6 +325,7 @@ export function BankPreviewTxRow({
             💳 Pagamento de fatura — identificar o cartão
           </div>
           <select
+            aria-label="Cartão da fatura"
             value={cardLast4 ?? ""}
             onChange={(e) =>
               setOverride({ cardLast4: e.target.value || undefined })
@@ -325,19 +347,10 @@ export function BankPreviewTxRow({
               </option>
             ))}
           </select>
-          {!cardLast4 && (
-            <div className="text-xs text-amber-700">
-              ⚠ Sem cartão, o valor sai do seu saldo mas a fatura continua em
-              aberto — o mesmo dinheiro conta duas vezes.
-            </div>
-          )}
-          {selectedIsOutsideWindow && (
-            <div className="text-xs text-amber-700">
-              ⚠ Esta fatura está fora do prazo de liquidação automática (paga
-              com atraso). Identificamos o cartão, mas a importação não vai
-              quitá-la sozinha — confirme manualmente depois se este pagamento
-              deve fechar essa fatura.
-            </div>
+          {paymentWarning && (
+            <p role="status" className="text-xs text-amber-700">
+              {paymentWarning}
+            </p>
           )}
         </div>
       )}
