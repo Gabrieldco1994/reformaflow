@@ -470,6 +470,7 @@ describe("Pendencia card candidate disclosure integration (#480)", () => {
                   dueMonth: "2026-08",
                   invoiceTotalCents: 30_001,
                   deltaCents: 1,
+                  windowState: "WITHIN_SETTLEMENT_WINDOW",
                 },
               ],
             },

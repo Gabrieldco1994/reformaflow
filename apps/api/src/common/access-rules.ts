@@ -18,6 +18,17 @@ export { TYPE_MODULES, projectTypeHasModule, userHasAnyModuleForType };
  * slug exigido pelo `@RequireModule` do endpoint direto e o exigido pelo
  * escopo/preview/sugestão que descobre o mesmo recurso não possam divergir.
  */
+/**
+ * #569-fix (achado #5, security-tenant-lens SEC-3) — texto ÚNICO e genérico
+ * para TODO bloqueio ACL fail-closed (recurso inexistente OU existente mas
+ * invisível ao requester). Mensagens diferentes por tipo de objeto ("Fatura
+ * não encontrada", "Despesa alvo não encontrada", "Importação não
+ * encontrada"...) vazam QUAL categoria de recurso foi bloqueada — mesmo sem
+ * revelar dado nenhum do recurso em si. Nunca usar um literal por tipo aqui;
+ * todo ponto de bloqueio opaco importa esta constante.
+ */
+export const ACL_NOT_FOUND_MESSAGE = 'Recurso não encontrado';
+
 export const EXPENSE_MODULE: TypeModuleSlug = 'expenses';
 export const RECEIPT_MODULE: TypeModuleSlug = 'receipts';
 export const CREDIT_CARD_MODULE: TypeModuleSlug = 'creditCards';

@@ -101,7 +101,7 @@ async function main() {
   assert(afterImport > before, `após import: total subiu (${afterImport} > ${before})`);
 
   // detalhe do lote (preview do impacto)
-  const detail = await cardSvc.getImportDetail(tenant.id, pessoal.id, card.id, importId);
+  const detail = await cardSvc.getImportDetail(tenant.id, pessoal.id, card.id, importId, requester);
   assert(detail.impact.expenses === 2, `detail: 2 despesas criadas (got ${detail.impact.expenses})`);
   assert(detail.impact.cashFlowEntries >= 4, `detail: >=4 cashflow (Leroy 1/3 + iFood) (got ${detail.impact.cashFlowEntries})`);
 

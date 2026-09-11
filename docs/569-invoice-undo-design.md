@@ -1,18 +1,35 @@
 # #569 — Undo exato de liquidação de fatura por importação de extrato (design v2)
 
-> **Status em 2026-09-09 — PR 1 em implementação/validação (inflight).**
-> Revisão documental sobre `57287dad`; correções de backend e testes seguem em
-> branches paralelas. Este documento **não comprova merge, migration aplicada,
-> testes verdes ou deploy em produção**.
-> **PR 1:** trilha real (`PROCESSED_SETTLED` + itens quando houve liquidação,
-> `PROCESSED_NONE` somente sem transições) e guards de mutações incompatíveis.
-> **PR 2 futuro:** habilitar undo `SETTLED`, leitura `settlement{…}` e painel/UX.
-> Helpers de reversão podem existir no PR 1 sem habilitar o undo pela aplicação.
-> Contrato funcional D1–D4 aprovado; este é planejamento, não um novo contrato.
-> Fontes normativas: [faturas](visao-conta-faturas.md),
-> [caixa real](cockpit-caixa-real.md), [datas](politica-datas-timezone.md).
-> [Status do Cockpit](estado-atual-cockpit-pessoal.md) e
-> [manual](manual-do-aplicativo.md) não devem ser lidos como anúncio do PR 2.
+> **Status em 2026-09-11 — PR 1 E PR 2 ENTREGUES** (`f1d2a8b4`/`64046a4f`/`83f4a071`/
+> `363885d5` na branch `feat/569-pr2-import-undo`; verificado por `security-tenant-lens`
+> e `journey-qa` com PASS após 6 achados adversariais corrigidos).
+> **PR 1 (entregue):** trilha real (`PROCESSED_SETTLED` + itens quando houve
+> liquidação, `PROCESSED_NONE` somente sem transições) e guards de mutações
+> incompatíveis (B1–B6/B9).
+> **PR 2 (entregue):** `undoImport` agora reverte de verdade uma liquidação
+> `PROCESSED_SETTLED` via ledger (deixou de bloquear sempre com 409);
+> `getImportDetail` expõe `settlement[]` com estados
+> `SETTLED_BY_IMPORT | NO_SETTLEMENT | OUTSIDE_SETTLEMENT_WINDOW | LEGACY_NO_TRAIL | DRIFT`
+> (`OUTSIDE_SETTLEMENT_WINDOW` é um estado além dos 4 originalmente listados em
+> §2.2/§5-D — best-effort, quando o melhor candidato ranqueado cai fora da janela
+> de liquidação automática mas dentro da janela de identificação de 60 dias) e
+> oculta por completo entradas cross-project sem permissão (ACL de leitura);
+> `ImportHistoryModal` mostra os estados por fatura e nunca relata "quitado" sem
+> liquidação real; mensagem de erro ACL unificada (`ACL_NOT_FOUND_MESSAGE` =
+> "Recurso não encontrado", `apps/api/src/common/access-rules.ts`).
+> **Continua fail-closed por design, não é lacuna:** lote `LEGACY_NO_TRAIL`/
+> `LEGACY_OR_MIXED` (dados antigos sem proveniência, pré-#569) e `DRIFT`
+> (parcela alterada por fora depois da liquidação) seguem sem reversão
+> automática — não há backfill retroativo de trilha (D2), por decisão de
+> design, não bug pendente.
+> **Ainda fora de escopo (não implementado, não prometer):** painel dedicado
+> "Detalhe da fatura" fora do `ImportHistoryModal` (§7.2); `DROP` da tabela
+> `imported_invoice_liquidations`/colunas de carimbo (exige autorização
+> explícita do PO, ver §3.3); criação direta/inline cross-project na prévia de
+> importação.
+> Fontes normativas: [faturas](visao-conta-faturas.md §16),
+> [caixa real](cockpit-caixa-real.md), [datas](politica-datas-timezone.md),
+> [manual](manual-do-aplicativo.md#569--undo-real-de-liquidação-de-fatura-por-importação-pr-1--pr-2-entregues).
 >
 > **Referência histórica:** o design v2 foi levantado em `origin/main@e66e49c1`
 > (#686 / M8 / #573), na branch `design/569-invoice-undo-v2`. Os locators numéricos
@@ -714,10 +731,11 @@ Um `it` por caminho de B:
 
 ## 7. Fluxo UX — baseline histórico → alvo completo (F)
 
-**Não é inventário de recursos entregues.** Registro e guards pertencem ao PR 1
-em validação; reversão `SETTLED`, leitura de settlement, novos sinais e painel
-são PR 2 futuro. O comportamento visível do degrau está no
-[manual](manual-do-aplicativo.md#569--proteções-da-liquidação-por-extrato-pr-1-em-validação).
+**Atualização 2026-09-11:** PR 1 e PR 2 estão ENTREGUES (ver cabeçalho). Registro,
+guards, reversão `SETTLED`, leitura de settlement e o `ImportHistoryModal` já
+existem em produção nesta branch. O painel dedicado "Detalhe da fatura" fora do
+modal segue fora de escopo. O comportamento visível está no
+[manual](manual-do-aplicativo.md#569--undo-real-de-liquidação-de-fatura-por-importação-pr-1--pr-2-entregues).
 As ações cross-project já existentes de vincular/criar despesa permanecem nos
 caminhos elegíveis; **nova criação direta/inline na prévia é fora do escopo**,
 em avaliação separada, não entrega do PR 1.

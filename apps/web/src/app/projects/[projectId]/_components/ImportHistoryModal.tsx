@@ -13,9 +13,30 @@ export interface ImportRow {
   source: string;
   inserted: number;
   duplicated: number;
+  /**
+   * #569 (achado journey-qa) — `inserted` é sempre 0 para lotes cujo único
+   * conteúdo é um pagamento de fatura (`PAGAMENTO_FATURA_CARTAO`), mesmo
+   * quando liquidou uma fatura real de verdade. Contador separado para o
+   * resumo da lista não afirmar "0 lançamento(s)" numa liquidação real.
+   */
+  cardPayments?: number;
   totalAmountCents: number;
   createdAt: string;
   deletedAt: string | null;
+}
+
+/**
+ * #569 PR2 (§4.2) — uma fatura tocada pelo lote. `SETTLED_BY_IMPORT` é o
+ * ÚNICO estado em que a fatura foi de fato liquidada; todos os outros
+ * significam "cartão identificado, mas nada foi quitado de verdade" —
+ * jamais renderizar como "vinculado"/"quitado" fora desse estado.
+ */
+export interface ImportSettlementEntry {
+  cardId: string | null;
+  dueMonth: string | null;
+  state: 'SETTLED_BY_IMPORT' | 'NO_SETTLEMENT' | 'OUTSIDE_SETTLEMENT_WINDOW' | 'LEGACY_NO_TRAIL' | 'DRIFT';
+  hint?: 'ALREADY_PAID' | 'AMOUNT_MISMATCH' | 'NO_MATCH';
+  payments: Array<{ paymentExpenseId: string; importId: string; parcelaCount: number }>;
 }
 
 interface ImportDetail {
@@ -38,15 +59,87 @@ interface ImportDetail {
     notRevertibleInvoiceLiquidations: number;
   };
   /**
-   * #569 (hotfix fail-closed): `false` quando o lote contém um pagamento de
-   * fatura de cartão — não pode ser desfeito automaticamente sem risco de
-   * alterar outros pagamentos. Ausente no contrato antigo → tratado como
-   * permitido.
+   * #569 (hotfix fail-closed): `false` quando a trilha do lote não permite
+   * reverter com segurança — motivo em `blockReason`. Ausente no contrato
+   * antigo → tratado como permitido.
    */
   canUndo?: boolean;
+  /** #569 PR2 — motivo específico do bloqueio: `LEGACY_OR_MIXED` | `TRAIL_VERSION_MISMATCH` | `INCOMPLETE_TRAIL`. */
+  blockReason?: string | null;
   blocking?: {
     cardInvoicePayments: number;
   };
+  /** #569 PR2 — faturas tocadas pelo lote (identificadas ou efetivamente liquidadas). */
+  settlement?: ImportSettlementEntry[];
+}
+
+interface UndoResult {
+  revertedInvoiceParcelas?: number;
+  reopenedInvoices?: number;
+}
+
+/** #569 PR2 (§4.1) — motivo de bloqueio da PRÉVIA (`getImportDetail.blockReason`): sempre certeza de 409, botão fica desabilitado com o motivo real. */
+const BLOCK_REASON_COPY: Record<string, string> = {
+  LEGACY_OR_MIXED:
+    'Esta importação contém um pagamento de fatura antigo, sem trilha registrada para desfazer com segurança. Ela permanece intacta.',
+  TRAIL_VERSION_MISMATCH:
+    'O registro deste pagamento usa uma versão de trilha que não reconhecemos mais — o desfazer foi bloqueado por segurança.',
+  INCOMPLETE_TRAIL:
+    'Uma ou mais parcelas ligadas a este pagamento foram alteradas por fora — o desfazer foi bloqueado para não reverter parcialmente.',
+};
+
+/** #569 PR2 (§4.1) — código de erro devolvido pelo `undoImport` no momento de confirmar (409), mapeado para copy amigável. Nunca mostrar o código bruto ao usuário. */
+function undoErrorCopy(code: string): string {
+  if (code === 'MANUAL_PAYMENT_OVERLAP') {
+    return 'Já existe outro pagamento manual vinculado a esta mesma fatura — desfazer esta importação poderia confundir os dois. Ação bloqueada por segurança.';
+  }
+  if (code in BLOCK_REASON_COPY) return BLOCK_REASON_COPY[code]!;
+  if (code.startsWith('DRIFT:')) {
+    const reason = code.slice('DRIFT:'.length);
+    const detail: Record<string, string> = {
+      ENTRY_NOT_PAID: 'uma parcela não está mais marcada como paga',
+      ENTRY_DELETED: 'uma parcela foi excluída',
+      AMOUNT_CHANGED: 'o valor de uma parcela mudou',
+      PARCELA_CHANGED: 'o parcelamento de uma parcela mudou',
+      MANUAL_ADOPTION: 'uma parcela foi marcada como paga manualmente por outro caminho',
+      RATEIO_MISMATCH: 'o rateio entre projetos desta compra mudou',
+    };
+    const what = detail[reason] ?? 'algo mudou nesta compra';
+    return `Algo mudou nesta compra desde o pagamento (${what}) — o desfazer foi bloqueado para não corromper os dados. Ajuste manualmente se necessário.`;
+  }
+  return code;
+}
+
+const SETTLEMENT_STATE_COPY: Record<ImportSettlementEntry['state'], { cls: string; text: (dueMonth: string) => string }> = {
+  SETTLED_BY_IMPORT: {
+    cls: 'border-emerald-300 bg-emerald-50 text-emerald-900',
+    text: (m) => `Fatura ${m} foi quitada por este pagamento — será reaberta se você desfizer.`,
+  },
+  NO_SETTLEMENT: {
+    cls: 'border-gray-200 bg-gray-50 text-gray-600',
+    text: (m) => `Cartão identificado (fatura ${m}), mas nenhuma fatura foi quitada por este pagamento.`,
+  },
+  OUTSIDE_SETTLEMENT_WINDOW: {
+    cls: 'border-amber-300 bg-amber-50 text-amber-900',
+    text: (m) =>
+      `Fatura ${m} identificada, mas fora do prazo de liquidação automática — requer confirmação manual.`,
+  },
+  LEGACY_NO_TRAIL: {
+    cls: 'border-gray-200 bg-gray-50 text-gray-600',
+    text: (m) => `Fatura ${m} — pagamento antigo sem trilha registrada, não revertível automaticamente.`,
+  },
+  DRIFT: {
+    cls: 'border-red-200 bg-red-50 text-red-700',
+    text: (m) => `Fatura ${m} — algo mudou desde a liquidação; não pode ser desfeita automaticamente.`,
+  },
+};
+
+function fmtDueMonth(dueMonth: string | null): string {
+  if (!dueMonth) return 'sem vencimento identificado';
+  const [year, month] = dueMonth.split('-').map(Number);
+  if (!year || !month) return dueMonth;
+  const nome = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  return `de ${nome[month - 1] ?? month}/${year}`;
 }
 
 interface Props {
@@ -56,6 +149,23 @@ interface Props {
   onClose: () => void;
   /** Chamado após um desfazer bem-sucedido, para o pai recarregar saldos. */
   onUndone?: () => void;
+}
+
+/**
+ * #569 (achado journey-qa) — `row.inserted` vem sempre 0 do backend para
+ * lotes só de pagamento de fatura (`PAGAMENTO_FATURA_CARTAO`), mesmo quando
+ * liquidam uma fatura real. Sem tratamento, o resumo mostrava "0
+ * lançamento(s)" para uma liquidação REAL — a ambiguidade oposta ao que a
+ * PR2 deveria evitar. `row.cardPayments` é um contador real do backend.
+ */
+function importSummaryLabel(row: ImportRow): string {
+  if (row.inserted > 0) return `${row.inserted} lançamento(s)`;
+  if ((row.cardPayments ?? 0) > 0) {
+    return row.cardPayments === 1
+      ? '1 pagamento de fatura processado'
+      : `${row.cardPayments} pagamentos de fatura processados`;
+  }
+  return `${row.inserted} lançamento(s)`;
 }
 
 function fmtDate(iso: string) {
@@ -75,6 +185,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
   const [detail, setDetail] = useState<ImportDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const [undoResult, setUndoResult] = useState<UndoResult | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,14 +220,15 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
     setUndoing(true);
     setError(null);
     try {
-      await api.delete(`${basePath}/imports/${detail.importId}`);
+      const result = await api.delete<UndoResult>(`${basePath}/imports/${detail.importId}`);
+      setUndoResult(result ?? null);
       setDetail(null);
       await load();
       onUndone?.();
     } catch (e) {
-      const msg = e instanceof ApiResponseError ? e.message
+      const rawCode = e instanceof ApiResponseError ? e.message
         : e instanceof Error ? e.message : 'Não foi possível desfazer a importação.';
-      setError(msg);
+      setError(undoErrorCopy(rawCode));
     } finally {
       setUndoing(false);
     }
@@ -124,10 +236,15 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
 
   const irrev = detail?.irreversible;
   const hasIrreversible = !!irrev && irrev.recurrencesPropagated > 0;
-  // #569 (hotfix fail-closed): `canUndo === false` = o lote contém pagamento de
-  // fatura de cartão. Diferente do legado irreversível (que só avisa) — aqui o
-  // desfazer fica BLOQUEADO. `undefined` (contrato antigo) = permitido.
+  // #569 PR2: `canUndo === false` reflete um motivo CERTO de 409
+  // (`blockReason`: `LEGACY_OR_MIXED` | `TRAIL_VERSION_MISMATCH` |
+  // `INCOMPLETE_TRAIL`) — nunca oferecer um botão ativo cujo único resultado
+  // possível já é um bloqueio conhecido. `undefined` (contrato antigo) = permitido.
   const undoBlocked = detail?.canUndo === false && !detail?.alreadyUndone;
+  const blockReasonText =
+    (detail?.blockReason && BLOCK_REASON_COPY[detail.blockReason]) ||
+    'Esta importação contém pagamento de fatura e não pode ser desfeita automaticamente sem risco de alterar outros pagamentos.';
+  const settlement = detail?.settlement ?? [];
 
   return (
     <Modal open onClose={onClose} title={title} size="lg">
@@ -166,11 +283,9 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                 <div className="flex items-center gap-2 font-semibold">
                   <AlertTriangle className="h-4 w-4" /> Não é possível desfazer automaticamente
                 </div>
-                <p className="mt-1">
-                  Esta importação contém pagamento de fatura e não pode ser desfeita
-                  automaticamente sem risco de alterar outros pagamentos.
-                </p>
+                <p className="mt-1">{blockReasonText}</p>
               </div>
+              {settlement.length > 0 && <SettlementList entries={settlement} />}
               {error && (
                 <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
               )}
@@ -186,7 +301,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                   type="button"
                   disabled
                   aria-disabled="true"
-                  title="Esta importação contém pagamento de fatura e não pode ser desfeita."
+                  title={blockReasonText}
                   className="flex min-h-11 items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white opacity-50 cursor-not-allowed"
                 >
                   <Undo2 className="h-4 w-4" />
@@ -196,6 +311,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
             </div>
           ) : (
             <>
+              {settlement.length > 0 && <SettlementList entries={settlement} />}
               <p className="text-sm text-gray-600">Ao desfazer, serão revertidos:</p>
               <ul className="space-y-1 text-sm">
                 <ImpactLine label="Despesas removidas" value={detail.impact.expenses} />
@@ -258,6 +374,20 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
             intactos por segurança.
           </p>
 
+          {undoResult && ((undoResult.revertedInvoiceParcelas ?? 0) > 0 || (undoResult.reopenedInvoices ?? 0) > 0) && (
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
+              Importação desfeita: {undoResult.revertedInvoiceParcelas} parcela(s) de fatura
+              revertida(s), {undoResult.reopenedInvoices} fatura(s) reaberta(s).
+              <button
+                type="button"
+                onClick={() => setUndoResult(null)}
+                className="ml-2 font-semibold underline"
+              >
+                Ok
+              </button>
+            </div>
+          )}
+
           {loading ? (
             <div className="py-8 text-center text-sm text-gray-500">Carregando…</div>
           ) : error ? (
@@ -274,7 +404,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                       {row.fileName ? ` · ${row.fileName}` : ''}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {fmtDate(row.createdAt)} · {row.inserted} lançamento(s)
+                      {fmtDate(row.createdAt)} · {importSummaryLabel(row)}
                       {row.duplicated > 0 ? ` · ${row.duplicated} duplicado(s)` : ''}
                     </div>
                   </div>
@@ -300,6 +430,32 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * #569 PR2 — distingue "cartão identificado" de "fatura efetivamente
+ * liquidada". `SETTLED_BY_IMPORT` é o único estado que afirma quitação;
+ * todo o resto é honesto sobre não ter fechado fatura nenhuma.
+ */
+function SettlementList({ entries }: { entries: ImportSettlementEntry[] }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-gray-600">Faturas identificadas neste lote:</p>
+      <ul className="space-y-1.5">
+        {entries.map((entry, idx) => {
+          const copy = SETTLEMENT_STATE_COPY[entry.state];
+          return (
+            <li
+              key={`${entry.cardId ?? 'sem-cartao'}-${entry.dueMonth ?? idx}`}
+              className={`rounded-lg border p-2 text-sm ${copy.cls}`}
+            >
+              {copy.text(fmtDueMonth(entry.dueMonth))}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

@@ -647,6 +647,7 @@ export class MonthlyOverviewService {
           settlesInvoiceKey: true,
           paidParcelas: true,
           installmentDateOverrides: true,
+          invoiceUndoState: true,
           project: { select: { id: true, name: true, type: true } },
         },
       }),
@@ -1036,7 +1037,19 @@ export class MonthlyOverviewService {
     const implicitPaymentsDetailed = invoicePayments
       .filter(
         (expense) =>
-          !expense.settlesInvoiceKey && expense.status === 'PAGO' && !!expense.bankLast4,
+          !expense.settlesInvoiceKey &&
+          expense.status === 'PAGO' &&
+          !!expense.bankLast4 &&
+          // #569-fix — um pagamento importado carimbado `PROCESSED_NONE` (nenhuma
+          // parcela realmente liquidada pela engine, por falta de closingDay/dueDay
+          // OU de import de origem — ver `prepareSettleInvoice`) NUNCA pode contar
+          // como quitação implícita por casamento de VALOR: o total da fatura é
+          // calculado sobre TODOS os lançamentos independente de status, então um
+          // pagamento de valor coincidente marcaria "paga" uma fatura cujas compras
+          // continuam PLANEJADO no banco. Pagamentos manuais/legados (carimbo NULO)
+          // e importados que a engine de fato liquidou (`PROCESSED_SETTLED`)
+          // continuam elegíveis.
+          expense.invoiceUndoState !== 'PROCESSED_NONE',
       )
       .map((expense) => ({
         expenseId: expense.id,

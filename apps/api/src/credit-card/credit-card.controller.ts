@@ -73,8 +73,10 @@ export class CreditCardController {
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
     @Param('importId') importId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.getImportDetail(tenantId, projectId, cardId, importId);
+    assertRateioRequester(requester);
+    return this.service.getImportDetail(tenantId, projectId, cardId, importId, requester);
   }
 
   @Delete(':id/imports/:importId')

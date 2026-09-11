@@ -54,6 +54,13 @@ export interface BankCardCandidate {
   invoiceTotalCents: number;
   /** invoiceTotal − pagamento. Negativo = pagamento maior que a fatura. */
   deltaCents: number;
+  /**
+   * #569 PR2: se o vencimento identificado cai fora da janela de liquidação
+   * automática do commit ({payMonth, payMonth+1}), o servidor não promete
+   * mais um vínculo silencioso — o candidato ganha esse estado dedicado.
+   * Ausente (contrato antigo) é tratado como dentro da janela.
+   */
+  windowState?: 'WITHIN_SETTLEMENT_WINDOW' | 'OUTSIDE_SETTLEMENT_WINDOW';
 }
 
 export interface BankPreviewTx {

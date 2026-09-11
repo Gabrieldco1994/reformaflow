@@ -970,19 +970,47 @@ visões de Mês/Ano.
   - Importações **sem pagamento de fatura de cartão** são revertidas
     normalmente: despesas, recebimentos e entradas de caixa do lote são
     removidos e os vínculos cross-project são desfeitos.
-  - Importações com pagamento de fatura **legado sem trilha**, ou com
-    **liquidação registrada pelo PR 1 de #569 (em validação)**, não podem ser
-    desfeitas automaticamente: o preview mostra "**Não é possível desfazer
-    automaticamente**", a ação "Desfazer importação" fica visível mas
-    desabilitada, e o lote inteiro permanece intacto — nada é removido nem
-    alterado. Não há desfazer manual para esse pagamento.
+  - Importações com pagamento de fatura que **realmente liquidou** parcelas
+    (fatura fechou pela importação) agora podem ser **desfeitas de verdade**
+    (#569 PR 2): as parcelas voltam a "planejadas", a fatura reabre e o valor
+    volta ao caixa — junto com o restante do lote (despesas, recebimentos,
+    entradas de caixa, vínculos cross-project).
+  - Importações com pagamento de fatura **legado sem trilha** (anterior a
+    #569), com **versão de trilha desconhecida**, ou cuja trilha ficou
+    **incompleta** (uma parcela foi alterada por fora depois da liquidação)
+    não podem ser desfeitas automaticamente: o preview mostra "**Não é
+    possível desfazer automaticamente**" com o motivo específico, a ação
+    "Desfazer importação" fica visível mas desabilitada, e o lote inteiro
+    permanece intacto — nada é removido nem alterado. Não há desfazer manual
+    para esse pagamento.
+  - Se algo mudou na compra depois da liquidação (valor, parcelamento, parcela
+    excluída, marcada como paga por outro caminho, ou o rateio entre projetos
+    mudou), o desfazer também é bloqueado — "algo mudou nesta compra desde o
+    pagamento" — para não corromper os dados; é preciso ajustar manualmente.
+  - Se já existe outro pagamento manual vinculado à mesma fatura, o desfazer é
+    bloqueado por segurança (poderia confundir os dois pagamentos).
   - Recorrências já propagadas (Casa/Carro) continuam sendo um efeito não
     revertido pelo desfazer.
-  - Na implementação do **PR 1 de #569 em validação**, um pagamento novo
-    registrado como **nenhuma parcela liquidada** (`PROCESSED_NONE`, inclusive
-    sem cartão identificado) não bloqueia, por si só, o desfazer normal do lote.
-    Legado, versão de trilha desconhecida ou outro pagamento que tenha liquidado
-    parcelas continuam impedindo o desfazer do lote inteiro.
+  - Um pagamento registrado como **nenhuma parcela liquidada**
+    (`PROCESSED_NONE`, inclusive sem cartão identificado) não bloqueia, por si
+    só, o desfazer normal do lote. Legado, versão de trilha desconhecida ou
+    outro pagamento com trilha incompleta continuam impedindo o desfazer do
+    lote inteiro.
+  - O preview lista as **faturas identificadas** no lote e o estado real de
+    cada uma: **quitada por este pagamento** (será reaberta se desfizer);
+    **cartão identificado, mas nenhuma fatura foi quitada**; **fatura
+    identificada mas fora do prazo de quitação automática** (dentro dos 60
+    dias de identificação do cartão, mas fora da janela de 2 meses em que a
+    liquidação automática atua — requer confirmação manual, não é bug);
+    **pagamento antigo sem trilha, não revertível automaticamente**; ou **algo
+    mudou desde a liquidação, não pode ser desfeita automaticamente**. Nenhum
+    desses estados afirma "fatura já paga" ou "pagamento parcial" sem prova —
+    só a primeira opção afirma quitação real.
+  - Uma pessoa sem permissão para ver um dos projetos participantes do cartão
+    compartilhado recebe "Recurso não encontrado" (mesma mensagem de qualquer
+    outro recurso fora do seu acesso — não revela se o recurso existe) e o
+    preview oculta por completo qualquer fatura/participante que ela não pode
+    ver, em vez de listar com dados mascarados.
 - Quando há mais de uma conta, o deep-link sem uma conta específica pede uma
   escolha explícita. Um `accountId` inválido mostra erro em vez de editar outra.
 - **Prévia do extrato — categoria e origem da sugestão:** cada lançamento de
@@ -1015,11 +1043,13 @@ visões de Mês/Ano.
 - Links antigos para `/bank-accounts` continuam compatíveis: redirecionam para
   `/conta` preservando todos os parâmetros da URL.
 
-#### #569 — Proteções da liquidação por extrato (PR 1 em validação)
+#### #569 — Undo real de liquidação de fatura por importação (PR 1 + PR 2 entregues)
 
-**Status em 2026-09-09:** efeitos acordados para o PR 1, com implementação e
-validação em andamento; **não é anúncio de merge ou disponibilidade em produção**.
-O [design de #569](569-invoice-undo-design.md) separa este degrau do PR 2 futuro.
+**Status em 2026-09-11:** PR 1 (trilha e proteções) e PR 2 (undo real de
+`SETTLED`, leitura de `settlement[]`, UX no `ImportHistoryModal`) estão
+entregues. O [design de #569](569-invoice-undo-design.md) documenta as duas
+fases; a divisão em PRs deixou de ser um planejamento e passou a refletir o
+histórico real de implementação.
 
 - **Trilha exata:** quando o pagamento importado liquida compras, registra quais
   parcelas realmente passaram de planejadas a pagas, ligadas ao pagamento e à
@@ -1056,12 +1086,21 @@ O [design de #569](569-invoice-undo-design.md) separa este degrau do PR 2 futuro
   nova criação direta/inline cross-project na prévia de importação. Origem e
   destino continuam respeitando suas regras de gasto, com **uma única saída de
   caixa**, não uma segunda saída no destino.
-- **Limite do PR 1:** a trilha de uma liquidação (`PROCESSED_SETTLED`) já é
-  gravada, mas **desfazer esse lote continua indisponível**. Não há novo painel
-  de fatura nem leitura detalhada de settlement; esses recursos e a reversão
-  exata ficam no **PR 2**. Se a mensagem de bloqueio pedir para “desfazer a
-  importação primeiro”, isso não significa que o PR 1 já permita essa ação;
-  não exclua nem altere parcelas manualmente para contornar a proteção.
+- **Undo real de `SETTLED` (PR 2):** um lote cuja trilha ficou íntegra
+  (`PROCESSED_SETTLED`, com o mesmo número de itens ativos que o carimbo
+  espera, sem drift) agora é desfeito de verdade: as parcelas voltam a
+  "planejadas", a(s) fatura(s) reabrem e o restante do lote (despesas,
+  recebimentos, caixa, vínculos) é revertido junto. Continuam bloqueados sem
+  reversão automática: lote legado sem trilha (`LEGACY_NO_TRAIL`/
+  `LEGACY_OR_MIXED`), versão de trilha desconhecida, trilha incompleta
+  (`INCOMPLETE_TRAIL`) e qualquer drift detectado desde a liquidação. Isso é
+  fail-closed por design (proteção contra reversão parcial/incorreta), não uma
+  lacuna a corrigir.
+- **Painel dedicado "Detalhe da fatura"** (fora do `ImportHistoryModal`, com
+  drill-down a partir da linha da fatura na Visão Conta) **continua fora de
+  escopo** — não foi implementado nesta entrega. O preview do
+  `ImportHistoryModal` já mostra a lista de faturas identificadas e seus
+  estados (ver acima), mas não há uma tela dedicada de detalhe fora dele.
 
 #### 4.8.1 Importar para Carteira (sem conta vinculada)
 

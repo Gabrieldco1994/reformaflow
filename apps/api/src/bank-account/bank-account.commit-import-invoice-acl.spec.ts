@@ -448,9 +448,9 @@ describe("BankAccountService.commitImport — invoice child ACL and atomicity (S
       rejection: {
         name: "NotFoundException",
         status: 404,
-        message: "Fatura não encontrada",
+        message: "Recurso não encontrado",
         body: {
-          message: "Fatura não encontrada",
+          message: "Recurso não encontrado",
           error: "Not Found",
           statusCode: 404,
         },

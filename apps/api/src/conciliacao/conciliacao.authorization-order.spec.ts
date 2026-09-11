@@ -404,7 +404,7 @@ describe("ConciliacaoService.ratearSource — preflight ACL antes da primeira wr
       }).toEqual({
         name: "NotFoundException",
         status: 404,
-        message: "Despesa alvo não encontrada",
+        message: "Recurso não encontrado",
       });
       expect(writes).toEqual([]);
     },
@@ -451,7 +451,7 @@ describe("ConciliacaoService.ratearSource — preflight ACL antes da primeira wr
       }).toEqual({
         name: "NotFoundException",
         status: 404,
-        message: "Recebimento alvo não encontrado",
+        message: "Recurso não encontrado",
       });
       expect(writes).toEqual([]);
     },
@@ -513,7 +513,7 @@ describe("ConciliacaoService.ratearSource — preflight ACL antes da primeira wr
     expect(errorShape(hiddenError)).toEqual({
       name: "NotFoundException",
       status: 404,
-      message: "Despesa alvo não encontrada",
+      message: "Recurso não encontrado",
     });
     expect(hidden.writes).toEqual([]);
     expect(absent.writes).toEqual([]);
@@ -543,7 +543,7 @@ describe("ConciliacaoService.ratearSource — preflight ACL antes da primeira wr
     expect(errorShape(hiddenError)).toEqual({
       name: "NotFoundException",
       status: 404,
-      message: "Recebimento alvo não encontrado",
+      message: "Recurso não encontrado",
     });
     expect(hidden.writes).toEqual([]);
     expect(absent.writes).toEqual([]);

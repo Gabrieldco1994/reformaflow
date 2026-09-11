@@ -115,7 +115,7 @@ describe('CardInvoiceSettlementService', () => {
         allowedProjects: ['visible-project'],
         allowedModules: ['expenses'],
       },
-    })).rejects.toThrow('Fatura não encontrada');
+    })).rejects.toThrow('Recurso não encontrado');
 
     expect(prisma.expense.findMany).not.toHaveBeenCalled();
     expect(prisma.cashFlowEntry.update).not.toHaveBeenCalled();
@@ -159,7 +159,7 @@ describe('CardInvoiceSettlementService', () => {
         allowedProjects: ['card-project', 'visible-project'],
         allowedModules: ['expenses'],
       },
-    })).rejects.toThrow('Fatura não encontrada');
+    })).rejects.toThrow('Recurso não encontrado');
 
     expect(prisma.cashFlowEntry.update).not.toHaveBeenCalled();
     expect(prisma.expense.update).not.toHaveBeenCalled();
@@ -201,7 +201,7 @@ describe('CardInvoiceSettlementService', () => {
         allowedProjects: ['card-project'],
         allowedModules: ['expenses'],
       },
-    })).rejects.toThrow('Fatura não encontrada');
+    })).rejects.toThrow('Recurso não encontrado');
 
     expect(prisma.cashFlowEntry.update).not.toHaveBeenCalled();
     expect(prisma.expense.update).not.toHaveBeenCalled();

@@ -186,7 +186,7 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     return (await setupPrisma.cashFlowEntry.findUnique({ where: { id: entryId } }))?.status;
   }
 
-  it("#1 — lote com pagamento de fatura: getImportDetail devolve canUndo:false", async () => {
+  it("#1 — lote com pagamento de fatura, trilha íntegra (PR2): getImportDetail devolve canUndo:true", async () => {
     await createPurchase({
       id: "p1-june",
       purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
@@ -199,13 +199,16 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     );
     expect(result.cardPayments).toBe(1);
 
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
-    expect(detail.canUndo).toBe(false);
+    // #569 PR2 — trilha íntegra e única (sem drift) volta a ser revertível:
+    // `canUndo` deixa de ser `false` fail-closed para refletir a reversão
+    // REAL via ledger.
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
+    expect(detail.canUndo).toBe(true);
     expect(detail.blocking.cardInvoicePayments).toBe(1);
     expect(detail.impact.invoiceLiquidations).toBe(1);
   });
 
-  it("#2 — DELETE desse lote: 409 e snapshot integralmente idêntico", async () => {
+  it("#2 — DELETE desse lote (PR2): reverte de fato a liquidação, fatura volta a PLANEJADO", async () => {
     await createPurchase({
       id: "p2-june",
       purchaseDate: new Date("2026-06-10T12:00:00.000Z"),
@@ -218,25 +221,18 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     );
     expect(await statusOf("p2-june-entry")).toBe("PAGO");
 
-    const before = {
-      imports: await setupPrisma.bankStatementImport.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
-      expenses: await setupPrisma.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
-      entries: await setupPrisma.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
-    };
-
-    await expect(
-      service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    const after = {
-      imports: await setupPrisma.bankStatementImport.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
-      expenses: await setupPrisma.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
-      entries: await setupPrisma.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } }),
-    };
-    expect(after).toEqual(before);
+    const undo = await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
+    expect(undo.ok).toBe(true);
+    expect(undo.alreadyUndone).toBe(false);
+    expect(undo.revertedInvoiceParcelas).toBeGreaterThan(0);
+    expect(undo.reopenedInvoices).toBeGreaterThan(0);
+    expect(await statusOf("p2-june-entry")).toBe("PLANEJADO");
+    expect(
+      (await setupPrisma.bankStatementImport.findUnique({ where: { id: result.importId } }))?.deletedAt,
+    ).not.toBeNull();
   });
 
-  it("#3 — cenário junho/julho: undo não reabre nenhuma das duas faturas", async () => {
+  it("#3 — cenário junho/julho (M1, PR2): undo reabre SÓ a fatura de julho — a de junho (paga por outro caminho) permanece PAGO", async () => {
     await createPurchase({
       id: "p3-may",
       purchaseDate: new Date("2026-05-10T12:00:00.000Z"),
@@ -258,16 +254,16 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     expect(await statusOf("p3-june-entry")).toBe("PAGO");
     expect(await statusOf("p3-may-entry")).toBe("PAGO");
 
-    await expect(
-      service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER),
-    ).rejects.toBeInstanceOf(ConflictException);
+    const undo = await service.undoImport(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
+    expect(undo.ok).toBe(true);
 
-    // Nenhuma das duas faturas foi reaberta; o pagamento e o import continuam.
-    expect(await statusOf("p3-june-entry")).toBe("PAGO");
+    // Só a fatura de julho (liquidada por ESTE pagamento) volta a PLANEJADO —
+    // maio, paga por outro caminho, nunca entrou no ledger deste import.
+    expect(await statusOf("p3-june-entry")).toBe("PLANEJADO");
     expect(await statusOf("p3-may-entry")).toBe("PAGO");
     expect(
       (await setupPrisma.bankStatementImport.findUnique({ where: { id: result.importId } }))?.deletedAt,
-    ).toBeNull();
+    ).not.toBeNull();
   });
 
   it("#4 — lote sem pagamento de fatura continua reversível", async () => {
@@ -277,7 +273,7 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
     );
     expect(result.inserted).toBe(1);
 
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId);
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, result.importId, REQUESTER);
     expect(detail.canUndo).toBe(true);
     expect(detail.blocking.cardInvoicePayments).toBe(0);
 
@@ -336,7 +332,7 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
       createdAt: new Date("2026-06-20T12:00:00.000Z"),
     });
 
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId);
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId, REQUESTER);
     expect(detail.canUndo).toBe(false);
     expect(detail.blocking.cardInvoicePayments).toBe(1);
 
@@ -358,7 +354,7 @@ describe("BankAccountService — undo fail-closed com pagamento de fatura (#569)
       deletedAt: new Date("2026-06-26T12:00:00.000Z"),
     });
 
-    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId);
+    const detail = await service.getImportDetail(TENANT, PESSOAL, accountId, importId, REQUESTER);
     expect(detail.canUndo).toBe(false);
     expect(detail.blocking.cardInvoicePayments).toBe(1);
 

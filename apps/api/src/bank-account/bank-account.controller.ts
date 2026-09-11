@@ -74,8 +74,10 @@ export class BankAccountController {
     @Param('projectId') projectId: string,
     @Param('id') accountId: string,
     @Param('importId') importId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.getImportDetail(tenantId, projectId, accountId, importId);
+    assertRateioRequester(requester);
+    return this.service.getImportDetail(tenantId, projectId, accountId, importId, requester);
   }
 
   @Delete(':id/imports/:importId')
