@@ -396,7 +396,7 @@ export default function ImportBankStatementModal({
                     ? "Processando…"
                     : preview
                       ? "Continuar revisão"
-                      : "Pré-visualizar"}
+                      : "Conferir arquivos"}
                 </Button>
                 {/* Voltar ao arquivo mantém a revisão; continuar não reprocessa. */}
                 {preview && (

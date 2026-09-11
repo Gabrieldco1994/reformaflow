@@ -89,7 +89,7 @@ async function toPreview() {
     target: { files: [new File(["x"], "fatura.csv", { type: "text/csv" })] },
   });
   apiUploadMock.mockResolvedValueOnce(PREVIEW);
-  fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await screen.findByText(/transações/i);
   return onClose;
 }
@@ -202,7 +202,7 @@ describe("ImportStatementModal — focus trap (#680)", () => {
       target: { files: [new File(["x"], "fatura.csv", { type: "text/csv" })] },
     });
     apiUploadMock.mockResolvedValueOnce(PREVIEW);
-    fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
     await screen.findByText(/transações/i);
 
     const outsideBtn = document.querySelector(

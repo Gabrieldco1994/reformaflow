@@ -108,7 +108,7 @@ async function loadPreview(status: "ok" | "unavailable" | "error") {
     target: { files: [new File(["x"], "fatura.csv", { type: "text/plain" })] },
   });
   apiUploadMock.mockResolvedValueOnce(previewWith(status));
-  fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await screen.findByText(/transações/i);
 }
 

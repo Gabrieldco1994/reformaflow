@@ -108,7 +108,7 @@ async function toPreview() {
     target: { files: [new File(["x"], "extrato.ofx", { type: "text/plain" })] },
   });
   apiUploadMock.mockResolvedValueOnce(PREVIEW);
-  fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await screen.findByText(/transações/i);
 }
 

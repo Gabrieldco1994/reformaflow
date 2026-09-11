@@ -86,7 +86,7 @@ async function loadTargetPreview(
       },
     ],
   });
-  fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   fireEvent.click(
     await screen.findByRole("button", { name: /revisar padaria/i }),
   );
@@ -125,7 +125,7 @@ async function importUntilCommitted() {
   fireEvent.change(input, { target: { files: [file] } });
 
   apiUploadMock.mockResolvedValueOnce(PREVIEW);
-  fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await screen.findByText(/transações/i);
 
   apiUploadMock.mockResolvedValueOnce(COMMIT);

@@ -332,7 +332,9 @@ async function openImportModal(
     mimeType: "text/plain",
     buffer: Buffer.from("dummy"),
   });
-  await dialog.getByRole("button", { name: /Pré-visualizar/i }).click();
+  await dialog
+    .getByRole("button", { name: "Conferir arquivos", exact: true })
+    .click();
   await expect(dialog.getByText(/Após confirmar:/i)).toBeVisible();
   return dialog;
 }

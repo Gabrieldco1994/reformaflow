@@ -102,7 +102,7 @@ async function loadPreview(credit: boolean, linked = false, multiple = false) {
     target: { files: [file] },
   });
   fetchMock.mockResolvedValueOnce(Response.json(preview));
-  fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   fireEvent.click(
     await screen.findByRole("button", { name: "Revisar QA ordinary movement" }),
   );

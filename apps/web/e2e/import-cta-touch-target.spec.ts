@@ -358,7 +358,7 @@ async function openImportModal(
     buffer: Buffer.from("dummy"),
   });
   await dialog
-    .getByRole("button", { name: /Pré-visualizar|Conferir arquivos/i })
+    .getByRole("button", { name: "Conferir arquivos", exact: true })
     .click();
   await expect(
     dialog.getByRole("button", { name: "Revisar Padaria" }),

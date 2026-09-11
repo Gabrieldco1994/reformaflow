@@ -96,7 +96,7 @@ function renderModal() {
 async function loadPreview(status: "ok" | "unavailable" | "error") {
   renderModal();
   apiUploadMock.mockResolvedValueOnce(previewWith(status));
-  fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await screen.findByText(/transações/i);
 }
 

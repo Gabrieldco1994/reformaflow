@@ -604,7 +604,7 @@ function UploadStep({
           ? "Processando…"
           : hasPreview
             ? "Continuar revisão"
-            : "Pré-visualizar"}
+            : "Conferir arquivos"}
       </Button>
       {/* Voltar ao arquivo mantém a revisão; continuar não reprocessa. */}
       {hasPreview && (
