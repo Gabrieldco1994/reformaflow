@@ -693,17 +693,18 @@ B1a cobriu três unidades de mudança, mergeadas em `main` em 2026-08-19:
 
 ---
 
-## §16 Undo de importação de extrato com pagamento de fatura — fail-closed (#569, ago/2026)
+## §16 Undo de importação de extrato com pagamento de fatura (#569)
 
-Quando a importação de um **extrato bancário** cria um `PAGAMENTO_FATURA_CARTAO`,
-a liquidação automática (`CardInvoiceSettlementService`) pode marcar compras do
-cartão como pagas. Reverter esse lote com exatidão (sem tocar faturas quitadas
-por outros pagamentos) exigiria um ledger dedicado; a decisão do PO para este
-hotfix é **fail-closed**: o lote inteiro fica **não reversível** enquanto o undo
-exato não existir. A reversão exata continua rastreada no
-[issue #569](https://github.com/Gabrieldco1994/reformaflow/issues/569).
+**Histórico (ago/2026, hotfix inicial):** quando a importação de um **extrato
+bancário** cria um `PAGAMENTO_FATURA_CARTAO`, a liquidação automática
+(`CardInvoiceSettlementService`) pode marcar compras do cartão como pagas.
+Reverter esse lote com exatidão exigia um ledger dedicado; o hotfix inicial era
+**fail-closed total**: qualquer pagamento de fatura no lote bloqueava o undo
+inteiro, sem distinção de estado. §16.1/§16.2 abaixo descrevem esse hotfix
+histórico — **substituído** pelo ledger real descrito em §16.3 (PR 1 trilha +
+PR 2 undo real, entregues; ver [design #569](569-invoice-undo-design.md)).
 
-### §16.1 `getImportDetail`
+### §16.1 `getImportDetail` (hotfix histórico, ago/2026 — substituído por §16.3)
 
 - `cardInvoicePayments` = **toda** `Expense` tenant-scoped ligada ao `importId`
   com `tipoDespesa = 'PAGAMENTO_FATURA_CARTAO'` — **sem filtro de `createdAt`**
@@ -716,7 +717,7 @@ exato não existir. A reversão exata continua rastreada no
   espelham o mesmo número.
 - Importação **sem** pagamento de fatura → `canUndo = true`, contrato inalterado.
 
-### §16.2 `undoImport`
+### §16.2 `undoImport` (hotfix histórico, ago/2026 — substituído por §16.3)
 
 Dentro da transação, releitura de conta, projeto, import e despesas do lote.
 **Antes da primeira escrita**, a mesma varredura (`importId` +
@@ -726,6 +727,46 @@ despesa, recebimento, caixa, vínculo ou import é alterado. **Nada é revertido
 automaticamente; o lote permanece intacto.** Cobre lote antigo e novo pela mesma
 regra (não existe mais "legado" vs "ledger"). Importações sem pagamento de fatura
 seguem pelo undo normal (vínculos cross-project + soft-delete do lote).
+
+### §16.3 Ledger real e undo de `SETTLED` (#569 PR 1 + PR 2, entregues 2026-09-11)
+
+O hotfix de §16.1/§16.2 foi substituído por um ledger de liquidação
+(`ImportedInvoiceLiquidation`) e um carimbo por pagamento
+(`Expense.invoiceUndoState`), que distinguem 4 estados em vez de um único
+bloqueio: `PROCESSED_SETTLED` (N parcelas realmente liquidadas, com item ativo
+por parcela), `PROCESSED_NONE` (processado, zero liquidações — inclusive
+cartão não identificado), legado sem carimbo (`invoice_undo_state IS NULL`) e
+lote incompleto/misto/com drift. Detalhe completo do protocolo, das 4+1
+janelas distintas (identificação 60d, identificação estrita ±10d, liquidação
+por vencimento `{payMonth, payMonth+1}`, fallback por fatura importada 75d, e
+o estado adicional `OUTSIDE_SETTLEMENT_WINDOW` quando o melhor candidato cai
+fora da janela de liquidação automática mas dentro da de identificação) e dos
+9 caminhos de escrita protegidos (B1–B9) está em
+[`569-invoice-undo-design.md`](569-invoice-undo-design.md) — este parágrafo
+não repete o que já está lá.
+
+- `getImportDetail(tenantId, projectId, accountId, importId, requester)` agora
+  exige `requester`, corta por `importId` (não mais por data), revalida a
+  trilha dentro de uma transação e expõe `settlement[]` com estado por
+  fatura/cartão tocado (`SETTLED_BY_IMPORT | NO_SETTLEMENT |
+  OUTSIDE_SETTLEMENT_WINDOW | LEGACY_NO_TRAIL | DRIFT`) — oculta por completo
+  qualquer entrada cross-project que o requester não pode ver (nunca lista com
+  dado mascarado).
+- `undoImport` reverte de fato um lote `PROCESSED_SETTLED` íntegro: entries
+  voltam ao `prev_status`, a compra é recomputada, os itens do ledger são
+  soft-deletados e o carimbo do pagamento é limpo — dentro da mesma transação
+  do undo normal do lote (despesas/caixa/vínculos). Bloqueia com 409 e zero
+  escrita para: legado/misto sem carimbo (`LEGACY_OR_MIXED`), versão de trilha
+  desconhecida (`TRAIL_VERSION_MISMATCH`), trilha incompleta
+  (`INCOMPLETE_TRAIL`), drift por item (`DRIFT:*`) e sobreposição com
+  pagamento manual da mesma fatura (`MANUAL_PAYMENT_OVERLAP`). ACL por
+  participante cross-project usa a mensagem unificada `ACL_NOT_FOUND_MESSAGE`
+  ("Recurso não encontrado", `apps/api/src/common/access-rules.ts`) — nunca
+  revela se o recurso existe.
+- **Continua fail-closed por design** (não é lacuna): dados antigos sem
+  proveniência (`LEGACY_NO_TRAIL`) não recebem backfill retroativo de trilha,
+  e qualquer drift detectado bloqueia a reversão automática em vez de tentar
+  adivinhar o estado correto.
 
 ### §16.3 UI do detalhe bloqueado
 

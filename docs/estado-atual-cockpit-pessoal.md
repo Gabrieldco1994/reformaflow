@@ -8,6 +8,8 @@ Nota de planejamento #436 adicionada em: **2026-08-17**.
 
 **Atualizado em 2026-09-03:** loop de aprendizado da categorização na importação fechado ponta a ponta (extrato + fatura); banner de degradação + chip de fonte no preview; precedência do `classifyForImport` e confiança na resposta do Gemini corrigidas; **issue #582 FECHADA**. Ver §6.
 
+**Atualizado em 2026-09-11:** #569 (undo exato de liquidação de fatura por importação de extrato) PR 1 e PR 2 **entregues** (branch `feat/569-pr2-import-undo`): `undoImport` reverte de verdade um lote `PROCESSED_SETTLED` via ledger; `getImportDetail` expõe `settlement[]` com estados `SETTLED_BY_IMPORT | NO_SETTLEMENT | OUTSIDE_SETTLEMENT_WINDOW | LEGACY_NO_TRAIL | DRIFT`. Legado sem trilha e lotes com drift continuam fail-closed por design (sem backfill). Detalhe em `docs/569-invoice-undo-design.md` e `docs/visao-conta-faturas.md §16.3`.
+
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
