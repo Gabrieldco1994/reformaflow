@@ -145,10 +145,11 @@ export async function preflightInlineUndo(
 ): Promise<{ creations: InlineCreation[]; canUndo: boolean; blockReason: string | null }> {
   const actor = await currentInlineRequester(tx, tenantId, requester);
   await assertInlineAccount(tx, tenantId, projectId, accountId, actor);
-  const blocked = { creations: [] as InlineCreation[], canUndo: false, blockReason: INLINE_IMPORT_DRIFT };
   let value: unknown;
-  try { value = JSON.parse(raw); } catch { return blocked; }
-  if (!object(value) || !Array.isArray(value.creations) || !value.creations.length) return blocked;
+  try { value = JSON.parse(raw); } catch { throw new NotFoundException(ACL_NOT_FOUND_MESSAGE); }
+  if (!object(value) || !Array.isArray(value.creations) || !value.creations.length) {
+    throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+  }
   // Validate stable scope even when another protocol field is corrupt.
   for (const entry of value.creations) {
     if (object(entry) && text(entry.targetProjectId)) {
@@ -158,7 +159,7 @@ export async function preflightInlineUndo(
       await assertInlineProject(tx, tenantId, entry.sourceProjectId, actor);
     }
   }
-  if (value.version !== 1) return blocked;
+  if (value.version !== 1) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
   const creations: InlineCreation[] = [];
   const ids = new Set<string>();
   for (const entry of value.creations) {
@@ -166,7 +167,32 @@ export async function preflightInlineUndo(
         !text(entry.targetProjectId) || entry.sourceProjectId !== projectId ||
         entry.targetProjectId === projectId || !text(entry.snapshot) ||
         typeof entry.amountCents !== 'number' || !Number.isSafeInteger(entry.amountCents) || entry.amountCents <= 0 ||
-        ids.has(entry.sourceExpenseId) || ids.has(entry.targetExpenseId)) return blocked;
+        ids.has(entry.sourceExpenseId) || ids.has(entry.targetExpenseId)) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    let snapshot: unknown;
+    try { snapshot = JSON.parse(entry.snapshot); } catch { throw new NotFoundException(ACL_NOT_FOUND_MESSAGE); }
+    if (!object(snapshot) || !Array.isArray(snapshot.expenses) || snapshot.expenses.length !== 2 ||
+        !Array.isArray(snapshot.dependents)) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    for (const expense of snapshot.expenses) {
+      if (!object(expense) || expense.tenantId !== tenantId || !text(expense.projectId) ||
+          !['id', 'projectId', 'tenantId', 'titulo', 'tipoDespesa', 'categoriaMaoDeObra', 'roomId', 'valor',
+            'quantidade', 'valorTotal', 'status', 'linkedExpenseId', 'accountId', 'bankLast4', 'cardLast4',
+            'importId', 'externalId', 'formaPagamento', 'dataPagamento', 'createdAt', 'updatedAt', 'deletedAt',
+            'financingInstallment'].every(key => Object.prototype.hasOwnProperty.call(expense, key)) ||
+          !['cashFlow', 'rateioAsSource', 'rateioAsTarget', 'settlementsAsSource', 'settlementsAsTarget',
+            'markers', 'importedInvoiceLiquidationsAsPayment', 'importedInvoiceLiquidationsAsPurchase']
+            .every(key => Array.isArray(expense[key]))) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+      await assertInlineProject(tx, tenantId, expense.projectId, actor);
+    }
+    if (!snapshot.expenses.some(e => object(e) && e.id === entry.sourceExpenseId && e.projectId === projectId) ||
+        !snapshot.expenses.some(e => object(e) && e.id === entry.targetExpenseId && e.projectId === entry.targetProjectId)) {
+      throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    }
+    for (const dependent of snapshot.dependents) {
+      if (!object(dependent) || dependent.tenantId !== tenantId || !text(dependent.projectId)) {
+        throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+      }
+      await assertInlineProject(tx, tenantId, dependent.projectId, actor);
+    }
     ids.add(entry.sourceExpenseId); ids.add(entry.targetExpenseId);
     creations.push({ sourceExpenseId: entry.sourceExpenseId, targetExpenseId: entry.targetExpenseId,
       targetProjectId: entry.targetProjectId, sourceProjectId: projectId, amountCents: entry.amountCents, snapshot: entry.snapshot });

@@ -214,13 +214,26 @@ describe('inline bank expense ownership (#690)', () => {
     expect(await setup.expense.count({ where: { tenantId, deletedAt: null } })).toBe(2);
   });
 
-  it.each(['not json', '{"version":2,"creations":[]}', '{"version":1,"creations":[{}]}'])('corrupt provenance fails closed: %s', async raw => {
+  it.each(['not json', '{}', 'null', '{"version":2,"creations":[]}', '{"version":1,"creations":[{}]}'])('unreadable provenance denies disclosure: %s', async raw => {
     const result = await commit();
     await setup.bankStatementImport.update({ where: { id: result.importId }, data: { inlineExpenseCreations: raw } });
-    expect(await service.getImportDetail(tenantId, projectId, accountId, result.importId, actor))
-      .toMatchObject({ canUndo: false, blockReason: 'INLINE_IMPORT_DRIFT' });
-    await expect(service.undoImport(tenantId, projectId, accountId, result.importId, actor)).rejects.toMatchObject({ status: 409 });
-    expect(await setup.expense.count({ where: { tenantId, deletedAt: null } })).toBe(2);
+    const before = await setup.expense.findMany({ where: { tenantId } });
+    let watching = true;
+    const writes: string[] = [];
+    prisma.$use(async (params, next) => {
+      if (watching && /^(create|update|delete|upsert|executeRaw)/.test(params.action)) writes.push(params.action);
+      return next(params);
+    });
+    try {
+      for (const call of [
+        () => service.getImportDetail(tenantId, projectId, accountId, result.importId, actor),
+        () => service.undoImport(tenantId, projectId, accountId, result.importId, actor),
+      ]) {
+        await expect(call()).rejects.toMatchObject({ status: 404, message: 'Recurso não encontrado' });
+      }
+      expect(writes).toEqual([]);
+      expect(await setup.expense.findMany({ where: { tenantId } })).toEqual(before);
+    } finally { watching = false; }
   });
 
   it.each(['target', 'allocation'])('missing %s does not erase durable ownership proof', async missing => {
@@ -235,6 +248,30 @@ describe('inline bank expense ownership (#690)', () => {
       .toMatchObject({ canUndo: false, blockReason: 'INLINE_IMPORT_DRIFT' });
     await setup.user.update({ where: { id: actor.id }, data: { role: 'USER', allowedProjects: JSON.stringify([projectId]) } });
     await expect(service.undoImport(tenantId, projectId, accountId, result.importId, actor)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it.each(['version', 'owner', 'snapshot-json', 'snapshot-field'])('incomplete %s proof is an opaque 404, not a drift payload', async corruption => {
+    const result = await commit();
+    const record = await setup.bankStatementImport.findUniqueOrThrow({ where: { id: result.importId } });
+    const proof = JSON.parse(record.inlineExpenseCreations!) as {
+      version: number; creations: Array<{ targetProjectId?: string; snapshot: string }>;
+    };
+    if (corruption === 'version') proof.version = 999;
+    if (corruption === 'owner') delete proof.creations[0].targetProjectId;
+    if (corruption === 'snapshot-json') proof.creations[0].snapshot = 'not json';
+    if (corruption === 'snapshot-field') {
+      const snapshot = JSON.parse(proof.creations[0].snapshot) as { expenses: Array<{ roomId?: string | null }> };
+      delete snapshot.expenses[1].roomId;
+      proof.creations[0].snapshot = JSON.stringify(snapshot);
+    }
+    await setup.bankStatementImport.update({
+      where: { id: result.importId }, data: { inlineExpenseCreations: JSON.stringify(proof) },
+    });
+    for (const call of [
+      () => service.getImportDetail(tenantId, projectId, accountId, result.importId, actor),
+      () => service.undoImport(tenantId, projectId, accountId, result.importId, actor),
+    ]) await expect(call()).rejects.toMatchObject({ status: 404, message: 'Recurso não encontrado' });
+    expect(await setup.expense.count({ where: { tenantId, deletedAt: null } })).toBe(2);
   });
 
   it('mixed settled invoice + inline drift attempts zero writes', async () => {
