@@ -1025,9 +1025,9 @@ describe("bank candidate disclosure integration (#480)", () => {
     expect(errorContract(hiddenExpenseError)).toEqual({
       name: "NotFoundException",
       status: 404,
-      message: "Despesa alvo não encontrada",
+      message: "Recurso não encontrado",
       body: {
-        message: "Despesa alvo não encontrada",
+        message: "Recurso não encontrado",
         error: "Not Found",
         statusCode: 404,
       },
@@ -1038,9 +1038,9 @@ describe("bank candidate disclosure integration (#480)", () => {
     expect(errorContract(hiddenReceiptError)).toEqual({
       name: "NotFoundException",
       status: 404,
-      message: "Recebimento alvo não encontrado",
+      message: "Recurso não encontrado",
       body: {
-        message: "Recebimento alvo não encontrado",
+        message: "Recurso não encontrado",
         error: "Not Found",
         statusCode: 404,
       },

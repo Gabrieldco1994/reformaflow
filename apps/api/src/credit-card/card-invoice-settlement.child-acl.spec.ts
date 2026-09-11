@@ -307,7 +307,7 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
         error: {
           name: "NotFoundException",
           status: 404,
-          message: "Fatura não encontrada",
+          message: "Recurso não encontrado",
         },
         state: before,
       });
@@ -336,7 +336,7 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
       error: {
         name: "NotFoundException",
         status: 404,
-        message: "Fatura não encontrada",
+        message: "Recurso não encontrado",
       },
       state: before,
     });
@@ -364,7 +364,7 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
       error: {
         name: "NotFoundException",
         status: 404,
-        message: "Fatura não encontrada",
+        message: "Recurso não encontrado",
       },
       state: before,
     });
@@ -386,7 +386,7 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
         error: {
           name: "NotFoundException",
           status: 404,
-          message: "Fatura não encontrada",
+          message: "Recurso não encontrado",
         },
         state: before,
       });
@@ -414,7 +414,7 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
         error: {
           name: "NotFoundException",
           status: 404,
-          message: "Fatura não encontrada",
+          message: "Recurso não encontrado",
         },
         state: before,
       });
@@ -485,7 +485,7 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
     expect(errorShape(hiddenError)).toEqual({
       name: "NotFoundException",
       status: 404,
-      message: "Fatura não encontrada",
+      message: "Recurso não encontrado",
     });
     expect(afterHidden).toEqual(before);
     expect(afterMissing).toEqual(before);

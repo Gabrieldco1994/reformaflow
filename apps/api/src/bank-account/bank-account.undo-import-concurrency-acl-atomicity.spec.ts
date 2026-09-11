@@ -605,7 +605,7 @@ describe("BankAccountService.undoImport — concorrência, ACL de escrita e atom
   it(// ACL na ESCRITA (distinto do ACL de leitura já coberto em PR1): requester
   // sem visão do projeto participante tenta desfazer — deve tomar 404
   // indistinguível de "não existe", ZERO escrita, mesmo com trilha íntegra.
-  "requester sem ACL do projeto participante: undoImport 404 'Fatura não encontrada', zero escrita mesmo com trilha íntegra", async () => {
+  "requester sem ACL do projeto participante: undoImport 404 'Recurso não encontrado', zero escrita mesmo com trilha íntegra", async () => {
     const VALUE = 77_000;
     const purchase = await seedPaidPurchase({
       id: "id-authz-purchase",

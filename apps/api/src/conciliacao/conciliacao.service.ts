@@ -15,6 +15,7 @@ import {
   RateioRequester,
 } from '../expense/rateio.types';
 import {
+  ACL_NOT_FOUND_MESSAGE,
   EXPENSE_MODULE,
   RECEIPT_MODULE,
   userCanAccessProject,
@@ -166,7 +167,7 @@ export class ConciliacaoService {
       params.tenantId,
       params.targetExpenseIds,
       requester,
-      () => new NotFoundException('Despesa alvo não encontrada'),
+      () => new NotFoundException(ACL_NOT_FOUND_MESSAGE),
     );
   }
 
@@ -209,7 +210,7 @@ export class ConciliacaoService {
         target.project.deletedAt !== null ||
         !this.canRequesterSeeProject(requester, target.project, RECEIPT_MODULE)
       ) {
-        throw new NotFoundException('Recebimento alvo não encontrado');
+        throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
       }
     }
   }
@@ -219,7 +220,7 @@ export class ConciliacaoService {
     params: { tenantId: string; sourceExpenseIds: string[] },
     requester: RateioRequester,
   ): Promise<void> {
-    assertRateioRequester(requester, new NotFoundException('Despesa fonte não encontrada'));
+    assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
     const sourceExpenseIds = [...new Set(params.sourceExpenseIds)];
     if (sourceExpenseIds.length === 0) return;
     const [sources, rateios, settlements] = await Promise.all([
@@ -251,7 +252,7 @@ export class ConciliacaoService {
         ...settlements.map((row) => row.targetExpenseId),
       ],
       requester,
-      () => new NotFoundException('Despesa alvo não encontrada'),
+      () => new NotFoundException(ACL_NOT_FOUND_MESSAGE),
       true,
     );
   }
@@ -303,7 +304,7 @@ export class ConciliacaoService {
     const source = await tx.expense.findFirst({
       where: { id: sourceExpenseId, tenantId, deletedAt: null },
     });
-    if (!source) throw new NotFoundException('Despesa fonte não encontrada');
+    if (!source) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
     if (source.projectId === target.projectId) {
       throw new BadRequestException('Alvo deve estar em outro projeto');
     }
@@ -532,7 +533,7 @@ export class ConciliacaoService {
     params: { tenantId: string; sourceExpenseId: string },
     requester: RateioRequester,
   ): Promise<{ targets: string[] }> {
-    assertRateioRequester(requester, new NotFoundException('Despesa fonte não encontrada'));
+    assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
     const { tenantId, sourceExpenseId } = params;
     await this.assertCanReverseSources(
       tx,
@@ -711,7 +712,7 @@ export class ConciliacaoService {
     const source = await tx.expense.findFirst({
       where: { id: sourceExpenseId, tenantId, deletedAt: null },
     });
-    if (!source) throw new NotFoundException('Despesa fonte não encontrada');
+    if (!source) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
     if (allocations.length === 0) {
       throw new BadRequestException('Informe ao menos uma planejada para ratear');
     }
@@ -899,7 +900,7 @@ export class ConciliacaoService {
     params: { tenantId: string; sourceExpenseId: string },
     requester: RateioRequester,
   ): Promise<{ targets: string[] }> {
-    assertRateioRequester(requester, new NotFoundException('Despesa fonte não encontrada'));
+    assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
     const { tenantId, sourceExpenseId } = params;
     await this.assertCanReverseSources(
       tx,
@@ -983,7 +984,7 @@ export class ConciliacaoService {
     params: { tenantId: string; sourceExpenseId: string },
     requester: RateioRequester,
   ): Promise<{ mode: 'rateio' | 'settlement' | 'none'; targets: string[] }> {
-    assertRateioRequester(requester, new NotFoundException('Despesa fonte não encontrada'));
+    assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
     const { tenantId, sourceExpenseId } = params;
     await this.assertCanReverseSources(
       tx,

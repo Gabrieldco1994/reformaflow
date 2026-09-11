@@ -10,6 +10,7 @@ import {
   isSinglePaymentForm,
 } from '@reformaflow/domain';
 import {
+  ACL_NOT_FOUND_MESSAGE,
   userCanAccessProject,
   userCanAccessProjectModule,
   userCanAccessProjectType,
@@ -66,7 +67,9 @@ interface SettlePurchase {
   entries: EntryRow[];
 }
 
-const INVOICE_NOT_FOUND_MESSAGE = 'Fatura não encontrada';
+// #569-fix (achado #5) — texto ÚNICO e genérico (ACL_NOT_FOUND_MESSAGE), nunca
+// mais um literal por tipo de recurso (vazava qual categoria foi bloqueada).
+const INVOICE_NOT_FOUND_MESSAGE = ACL_NOT_FOUND_MESSAGE;
 
 export interface PreparedInvoiceUnsettlement {
   tenantId: string;

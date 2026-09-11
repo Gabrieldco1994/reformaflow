@@ -72,6 +72,7 @@ import {
 } from './card-invoice-match';
 import { buildInstallments, isSinglePaymentForm, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
 import {
+  ACL_NOT_FOUND_MESSAGE,
   CREDIT_CARD_MODULE,
   EXPENSE_MODULE,
   RECEIPT_MODULE,
@@ -172,7 +173,9 @@ interface BankCardPaymentPreflightState {
 
 // Mapeamento categoria → ExpenseType pessoal — fonte única em merchant-classifier.service.ts.
 const PESSOAL_CATEGORY_MAP: Record<string, string> = MERCHANT_TO_EXPENSE_TYPE;
-const IMPORT_NOT_FOUND_MESSAGE = 'Importação não encontrada';
+// #569-fix (achado #5) — texto ÚNICO e genérico (ACL_NOT_FOUND_MESSAGE), nunca
+// mais um literal por tipo de recurso (vazava qual categoria foi bloqueada).
+const IMPORT_NOT_FOUND_MESSAGE = ACL_NOT_FOUND_MESSAGE;
 const CARD_PAYMENT_PREFLIGHT_MISSING_MESSAGE =
   'Pré-validação de pagamento de fatura ausente';
 const CARD_NOT_FOUND_MESSAGE = 'Cartão não encontrado';
@@ -1347,6 +1350,44 @@ export class BankAccountService {
     );
   }
 
+  /**
+   * #569-fix (achado #4) — conta linhas de `CrossProjectSettlement`/`RateioAllocation`
+   * cujo `sourceExpenseId` está no lote, filtrando pelo mesmo critério de
+   * visibilidade do ALVO (`targetExpenseId`) já usado para ocultar entradas de
+   * `settlement[]`. Nunca conta uma linha cujo projeto-alvo o requester não
+   * enxerga — senão a contagem agregada vaza a existência do vínculo oculto.
+   */
+  private async countCrossProjectRowsVisibleTo(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    model: { findMany: (args: any) => Promise<Array<{ targetExpenseId: string }>> },
+    tenantId: string,
+    sourceExpenseIds: string[],
+    requester: RateioRequester,
+  ): Promise<number> {
+    const rows = await model.findMany({
+      where: { sourceExpenseId: { in: sourceExpenseIds } },
+      select: { targetExpenseId: true },
+    });
+    if (rows.length === 0) return 0;
+    const targetIds = Array.from(new Set(rows.map((r) => r.targetExpenseId)));
+    const targets = await this.prisma.expense.findMany({
+      where: { id: { in: targetIds } },
+      select: { id: true, project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
+    });
+    const visibleTargetIds = new Set(
+      targets
+        .filter(
+          (t) =>
+            t.project &&
+            t.project.tenantId === tenantId &&
+            t.project.deletedAt === null &&
+            this.canRequesterSeeProject(requester, t.project),
+        )
+        .map((t) => t.id),
+    );
+    return rows.filter((r) => visibleTargetIds.has(r.targetExpenseId)).length;
+  }
+
   async getImportDetail(
     tenantId: string,
     projectId: string,
@@ -1389,11 +1430,28 @@ export class BankAccountService {
           },
         })
       : 0;
+    // #569-fix (achado #4) — a contagem exposta ao requester NUNCA pode
+    // enxergar mais do que `settlement[]` (já ocultado por visibilidade
+    // abaixo): um requester sem visibilidade para o projeto ALVO (cross-project
+    // por definição) ainda conseguiria inferir a existência do vínculo oculto
+    // comparando esta contagem com o tamanho de `settlement[]` visível. Cada
+    // linha é filtrada pelo projeto do ALVO (`targetExpenseId`), o mesmo
+    // critério de ocultação usado no loop de `settlement[]` logo abaixo.
     const settlements = expenseIds.length
-      ? await this.prisma.crossProjectSettlement.count({ where: { sourceExpenseId: { in: expenseIds } } })
+      ? await this.countCrossProjectRowsVisibleTo(
+          this.prisma.crossProjectSettlement,
+          tenantId,
+          expenseIds,
+          requester,
+        )
       : 0;
     const rateios = expenseIds.length
-      ? await this.prisma.rateioAllocation.count({ where: { sourceExpenseId: { in: expenseIds } } })
+      ? await this.countCrossProjectRowsVisibleTo(
+          this.prisma.rateioAllocation,
+          tenantId,
+          expenseIds,
+          requester,
+        )
       : 0;
 
     // #569 (fail-closed): basta um pagamento de fatura LIGADO A ESTE IMPORT para
@@ -1419,9 +1477,21 @@ export class BankAccountService {
         invoiceUndoCardId: true,
         invoiceUndoDueMonth: true,
         importId: true,
+        project: { select: { id: true, type: true, tenantId: true, deletedAt: true } },
       },
     });
     const hasCardInvoicePayment = cardInvoicePayments.length > 0;
+    // #569-fix (achado #4) — a contagem EXPOSTA (blocking/impact) só conta
+    // pagamentos cujo projeto o requester enxerga; o `trail`/`hasCardInvoicePayment`
+    // internos continuam sobre o conjunto COMPLETO (correção de undo não pode
+    // afrouxar por visibilidade).
+    const visibleCardInvoicePayments = cardInvoicePayments.filter(
+      (p) =>
+        p.project &&
+        p.project.tenantId === tenantId &&
+        p.project.deletedAt === null &&
+        this.canRequesterSeeProject(requester, p.project),
+    );
     let trail = this.classifyInvoiceUndoTrail(cardInvoicePayments);
     // #569 PR2 — INCOMPLETE_TRAIL: para cada pagamento PROCESSED_SETTLED, o
     // número de linhas ATIVAS do ledger tem que bater com o carimbo.
@@ -1490,10 +1560,19 @@ export class BankAccountService {
             payment.valorTotal,
             paymentDate,
           );
-          const outside = candidates.find((c) => c.windowState === 'OUTSIDE_SETTLEMENT_WINDOW');
-          if (outside) {
+          // #569-fix (achado #2) — `candidates` já vem RANQUEADO (menor |delta|
+          // primeiro, mesmo critério da prévia real). Só reporta
+          // `OUTSIDE_SETTLEMENT_WINDOW` quando o MELHOR candidato (`candidates[0]`)
+          // é ele próprio OUTSIDE — nunca o primeiro OUTSIDE de qualquer posição da
+          // lista, que pode não corresponder de verdade a ESTE pagamento (ex.: uma
+          // fatura melhor/mais próxima WITHIN existe, mas uma fatura pior e não
+          // relacionada, que por acaso está fora da janela, aparecia antes por
+          // ordem de iteração). Sem candidato correspondente de verdade ⇒
+          // `NO_SETTLEMENT` (nenhuma fatura identificada), nunca uma arbitrária.
+          const best = candidates[0];
+          if (best?.windowState === 'OUTSIDE_SETTLEMENT_WINDOW') {
             state = 'OUTSIDE_SETTLEMENT_WINDOW';
-            dueMonth = outside.dueMonth;
+            dueMonth = best.dueMonth;
           }
         }
       }
@@ -1556,7 +1635,7 @@ export class BankAccountService {
       canUndo: importRecord.deletedAt != null ? true : trail.canUndo,
       blockReason: importRecord.deletedAt != null ? null : trail.blockReason,
       blocking: {
-        cardInvoicePayments: cardInvoicePayments.length,
+        cardInvoicePayments: visibleCardInvoicePayments.length,
       },
       impact: {
         expenses: createdExpenses.length,
@@ -1565,11 +1644,11 @@ export class BankAccountService {
         crossProjectSettlements: settlements,
         rateioAllocations: rateios,
         crossProjectLinks: settlements + rateios + createdReceipts.filter((r) => r.linkedReceiptId != null).length,
-        invoiceLiquidations: cardInvoicePayments.length,
+        invoiceLiquidations: visibleCardInvoicePayments.length,
       },
       irreversible: {
         recurrencesPropagated,
-        notRevertibleInvoiceLiquidations: cardInvoicePayments.length,
+        notRevertibleInvoiceLiquidations: visibleCardInvoicePayments.length,
       },
       expenses: createdExpenses.map((e) => ({
         id: e.id, titulo: e.titulo, valorTotal: e.valorTotal, status: e.status,
@@ -1800,8 +1879,21 @@ export class BankAccountService {
         await tx.expense.update({ where: { id: a.id }, data: { importId: null, externalId: null } });
       }
 
-      // 5) Soft-delete do registro de importação.
-      await tx.bankStatementImport.update({ where: { id: importId }, data: { deletedAt: now } });
+      // 5) Soft-delete do registro de importação. #569-fix (achado #6) —
+      // `updateMany` condicionado a `deletedAt: null` (nunca `update`
+      // incondicional): sob concorrência real, se OUTRA transação já marcou
+      // este import como desfeito entre a releitura acima (`importTx`) e este
+      // ponto, `count===0` aqui é o sinal de que esta chamada perdeu a corrida
+      // — nunca confiar apenas na serialização implícita do SQLite.
+      const importSoftDelete = await tx.bankStatementImport.updateMany({
+        where: { id: importId, deletedAt: null },
+        data: { deletedAt: now },
+      });
+      if (importSoftDelete.count === 0) {
+        throw new ConflictException(
+          'Esta importação já foi desfeita por outra requisição concorrente.',
+        );
+      }
 
       return {
         removedExpenses: createdIds.length,

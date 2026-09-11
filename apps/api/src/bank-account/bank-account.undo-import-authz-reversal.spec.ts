@@ -21,7 +21,7 @@ import {
 /**
  * #569 PR2 §5.5 — ACL de ESCRITA no undo real (distinto do ACL de leitura do
  * PR1): requester sem visibilidade da compra liquidada NUNCA reverte, mesmo
- * com trilha íntegra. Ocultação total: 404 "Fatura não encontrada".
+ * com trilha íntegra. Ocultação total: 404 "Recurso não encontrado".
  */
 describe("BankAccountService#undoImport — ACL de escrita na reversão (#569 PR2, §5.5)", () => {
   const setupPrisma = new PrismaClient();
@@ -91,7 +91,7 @@ describe("BankAccountService#undoImport — ACL de escrita na reversão (#569 PR
     return { importId: result.importId, entryId: purchase.entryId };
   }
 
-  it("compra liquidada pertence a projeto que o requester não pode ver → undoImport 404 'Fatura não encontrada', zero escrita, mesmo com trilha íntegra", async () => {
+  it("compra liquidada pertence a projeto que o requester não pode ver → undoImport 404 'Recurso não encontrado', zero escrita, mesmo com trilha íntegra", async () => {
     const { importId, entryId } = await seedSettledBatch();
 
     const noAccessRequester: RateioRequester = {

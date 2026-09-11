@@ -223,7 +223,7 @@ describe("#569 §6.4 — later-mutation guards (PR 1)", () => {
       restricted = e as Error;
     }
     expect(restricted).toBeInstanceOf(NotFoundException);
-    expect(restricted?.message).toBe("Fatura não encontrada");
+    expect(restricted?.message).toBe("Recurso não encontrado");
     expect(restricted?.message).not.toMatch(/IMPORT_TRAIL|liquidad|import|PESSOAL2|projectId|15|30/i);
 
     // ── ator AUTORIZADO (R2 identificado enxerga PESSOAL2) → a claim

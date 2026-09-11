@@ -710,9 +710,9 @@ describe("credit-card candidate disclosure integration (#480)", () => {
     expect(errorContract(hiddenError)).toEqual({
       name: "NotFoundException",
       status: 404,
-      message: "Despesa alvo não encontrada",
+      message: "Recurso não encontrado",
       body: {
-        message: "Despesa alvo não encontrada",
+        message: "Recurso não encontrado",
         error: "Not Found",
         statusCode: 404,
       },

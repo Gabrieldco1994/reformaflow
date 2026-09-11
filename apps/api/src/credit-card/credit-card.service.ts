@@ -10,7 +10,12 @@ import {
   assertRateioRequester,
   RateioRequester,
 } from '../expense/rateio.types';
-import { EXPENSE_MODULE, resolveAccessibleProjectScope } from '../common/access-rules';
+import {
+  EXPENSE_MODULE,
+  resolveAccessibleProjectScope,
+  userCanAccessProject,
+  userCanAccessProjectType,
+} from '../common/access-rules';
 import {
   attachDedupeKeys,
   dedupeColumns,
@@ -734,7 +739,68 @@ export class CreditCardService {
    * `externalId/importId` carimbados na dedup (`createdAt < importRecord.createdAt`):
    * as primeiras serão soft-deletadas; as segundas só terão o carimbo removido.
    */
-  async getImportDetail(tenantId: string, projectId: string, cardId: string, importId: string) {
+  /**
+   * #569-fix (achado #3, security-tenant-lens SEC-1) — ACL de LEITURA no MESMO
+   * padrão já endurecido em `BankAccountService.getImportDetail`: `requester`
+   * obrigatório, e as contagens agregadas cross-project (`crossProjectSettlements`/
+   * `rateioAllocations`) filtradas pela visibilidade do projeto ALVO
+   * (`targetExpenseId`) — nunca reveladas para quem não tem permissão de ver
+   * aquele projeto.
+   */
+  private canRequesterSeeProject(
+    requester: RateioRequester,
+    project: { id: string; type: string },
+  ): boolean {
+    return (
+      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
+      userCanAccessProjectType(
+        requester.role,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        project.type,
+      )
+    );
+  }
+
+  private async countCrossProjectRowsVisibleTo(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    model: { findMany: (args: any) => Promise<Array<{ targetExpenseId: string }>> },
+    tenantId: string,
+    sourceExpenseIds: string[],
+    requester: RateioRequester,
+  ): Promise<number> {
+    const rows = await model.findMany({
+      where: { sourceExpenseId: { in: sourceExpenseIds } },
+      select: { targetExpenseId: true },
+    });
+    if (rows.length === 0) return 0;
+    const targetIds = Array.from(new Set(rows.map((r) => r.targetExpenseId)));
+    const targets = await this.prisma.expense.findMany({
+      where: { id: { in: targetIds } },
+      select: { id: true, project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
+    });
+    const visibleTargetIds = new Set(
+      targets
+        .filter(
+          (t) =>
+            t.project &&
+            t.project.tenantId === tenantId &&
+            t.project.deletedAt === null &&
+            this.canRequesterSeeProject(requester, t.project),
+        )
+        .map((t) => t.id),
+    );
+    return rows.filter((r) => visibleTargetIds.has(r.targetExpenseId)).length;
+  }
+
+  async getImportDetail(
+    tenantId: string,
+    projectId: string,
+    cardId: string,
+    importId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(requester, new NotFoundException('Importação não encontrada'));
     const card = await this.findCard(tenantId, projectId, cardId);
     const importRecord = await this.prisma.creditCardStatementImport.findFirst({
       where: { id: importId, tenantId, cardId: card.id },
@@ -754,10 +820,20 @@ export class CreditCardService {
       ? await this.prisma.cashFlowEntry.count({ where: { expenseId: { in: createdIds }, deletedAt: null } })
       : 0;
     const settlements = createdIds.length
-      ? await this.prisma.crossProjectSettlement.count({ where: { sourceExpenseId: { in: createdIds } } })
+      ? await this.countCrossProjectRowsVisibleTo(
+          this.prisma.crossProjectSettlement,
+          tenantId,
+          createdIds,
+          requester,
+        )
       : 0;
     const rateios = createdIds.length
-      ? await this.prisma.rateioAllocation.count({ where: { sourceExpenseId: { in: createdIds } } })
+      ? await this.countCrossProjectRowsVisibleTo(
+          this.prisma.rateioAllocation,
+          tenantId,
+          createdIds,
+          requester,
+        )
       : 0;
 
     return {

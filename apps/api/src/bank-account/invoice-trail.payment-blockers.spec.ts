@@ -36,7 +36,7 @@ const B = "iul-blockers-project-b";
 const CARD = "5721";
 const BANK = "5722";
 const BANKB = "5723";
-const GENERIC_INVOICE_NOT_FOUND = "Fatura não encontrada";
+const GENERIC_INVOICE_NOT_FOUND = "Recurso não encontrado";
 const GENERIC_IMPORT_TRAIL_MESSAGE =
   "INVOICE_HAS_IMPORT_TRAIL: uma parcela desta fatura foi liquidada " +
   "por uma importação de extrato. Desfaça a importação para reabrir a fatura.";
