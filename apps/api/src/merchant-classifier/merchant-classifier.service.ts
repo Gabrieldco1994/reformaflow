@@ -396,6 +396,7 @@ export class MerchantClassifierService {
     raw: string,
     tenantId: string,
     opts?: { manualOnly?: boolean },
+    db: Prisma.TransactionClient = this.prisma,
   ): Promise<LearnedTypeResolution> {
     // SEC-2: sem tenant, o `findMany` com `tenantId: undefined` casaria linhas de
     // todos os tenants (classe do incidente #589).
@@ -411,7 +412,7 @@ export class MerchantClassifierService {
     };
     const key = MerchantClassifierService.normalizeKey(raw);
     if (!key) return empty;
-    const rows = await this.prisma.merchantCategory.findMany({
+    const rows = await db.merchantCategory.findMany({
       where: { merchantKey: key, OR: [{ tenantId }, { tenantId: null }] },
       select: { tenantId: true, merchantKey: true, category: true, source: true, confidence: true },
     });
@@ -426,8 +427,8 @@ export class MerchantClassifierService {
    * Shim histórico: só regra MANUAL (tenant ou global) pode influenciar um
    * caminho de escrita. Delega a `resolveLearnedExpenseType` com `manualOnly`.
    */
-  async manualExpenseType(raw: string, tenantId: string): Promise<ExpenseType | null> {
-    return (await this.resolveLearnedExpenseType(raw, tenantId, { manualOnly: true })).expenseType;
+  async manualExpenseType(raw: string, tenantId: string, db: Prisma.TransactionClient = this.prisma): Promise<ExpenseType | null> {
+    return (await this.resolveLearnedExpenseType(raw, tenantId, { manualOnly: true }, db)).expenseType;
   }
 
   /**
