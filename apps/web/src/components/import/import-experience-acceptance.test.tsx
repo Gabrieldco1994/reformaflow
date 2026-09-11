@@ -93,6 +93,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   queryClient.clear();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -149,39 +150,37 @@ async function loadReview() {
   fireEvent.change(document.querySelector('input[type="file"]')!, {
     target: { files: [file] },
   });
-  fireEvent.click(
-    screen.getByRole("button", { name: /conferir arquivos|pré-visualizar/i }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await waitFor(() => expect(calls("preview")).toHaveLength(1));
   return { file, onClose, onCommitted };
 }
 
 async function openDraft() {
   fireEvent.click(
-    await screen.findByRole("button", { name: /revisar|editar/i }),
+    await screen.findByRole("button", { name: "Revisar MATERIAL QA COZINHA" }),
   );
   fireEvent.click(
     await screen.findByRole("button", {
-      name: /criar.*(?:despesa|destino)|nova despesa/i,
+      name: "Criar em outro projeto",
     }),
   );
 }
 
 async function fillDraft() {
-  fireEvent.change(await screen.findByLabelText(/projeto.*destino/i), {
+  fireEvent.change(await screen.findByLabelText("Projeto destino"), {
     target: { value: "qa689-empty-reforma" },
   });
   const category = await screen.findByLabelText<HTMLSelectElement>(
-    /tipo.*despesa|categoria.*destino/i,
+    "Categoria no destino",
   );
   expect(category.value).toBe("");
   fireEvent.change(category, {
     target: { value: "MATERIAL_CONSTRUCAO" },
   });
-  fireEvent.change(screen.getByLabelText(/título/i), {
+  fireEvent.change(screen.getByLabelText("Título no destino (opcional)"), {
     target: { value: "Material da cozinha" },
   });
-  fireEvent.change(screen.getByLabelText(/fornecedor/i), {
+  fireEvent.change(screen.getByLabelText("Fornecedor (opcional)"), {
     target: { value: "Loja QA" },
   });
 }
@@ -239,7 +238,10 @@ describe("#689 B691 — review is local until one global confirmation", () => {
     const { file } = await loadReview();
     await openDraft();
     await fillDraft();
-    fireEvent.click(screen.getByRole("button", { name: /cancelar/i }));
+    const confirmDiscard = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar edição" }));
+    expect(confirmDiscard).toHaveBeenCalledTimes(1);
+    expect(confirmDiscard).toHaveBeenCalledWith(expect.stringMatching(/\S/));
     expect(financialWrites()).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: /resumo/i }));
     fireEvent.click(
@@ -253,7 +255,7 @@ describe("#689 B691 — review is local until one global confirmation", () => {
     await loadReview();
     await openDraft();
     expect(
-      (await screen.findByLabelText<HTMLSelectElement>(/projeto.*destino/i))
+      (await screen.findByLabelText<HTMLSelectElement>("Projeto destino"))
         .value,
     ).toBe("");
     fireEvent.click(screen.getByRole("button", { name: /aplicar.*revisão/i }));
@@ -333,7 +335,9 @@ describe("#689 B691 — review is local until one global confirmation", () => {
         }),
       );
       fireEvent.click(
-        await screen.findByRole("button", { name: /ver detalhes/i }),
+        await screen.findByRole("button", {
+          name: /^Ver detalhes da importação/,
+        }),
       );
       await waitFor(() =>
         expect(
