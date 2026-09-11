@@ -1,5 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { hasFeature, ProjectType, isNeutralExpenseType } from '@reformaflow/domain';
+import { createRateioTargets } from '../expense/create-rateio-targets';
+import {
+  InlineTarget, InlineCreation, validateInlineDecisions, invalidInline,
+  currentInlineRequester, canUseInlineProject, assertInlineAccount, assertInlineProject,
+  inlineSnapshot, preflightInlineUndo, publicInlineExpenses, INLINE_IMPORT_DRIFT,
+} from './inline-expenses';
 import { PrismaService, INCLUDE_SOFT_DELETED } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
 import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
@@ -73,6 +80,7 @@ import {
 import { buildInstallments, isSinglePaymentForm, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
 import {
   ACL_NOT_FOUND_MESSAGE,
+  BANK_ACCOUNT_MODULE,
   CREDIT_CARD_MODULE,
   EXPENSE_MODULE,
   RECEIPT_MODULE,
@@ -99,6 +107,7 @@ export interface BankImportDecision {
   action?: 'create' | 'skip' | 'link' | 'import';
   linkToExpenseId?: string;
   linkToReceiptId?: string;
+  newTarget?: InlineTarget;
   overrides?: {
     titulo?: string;
     /** Magnitude positiva em centavos; a direção vem da transação original do banco. */
@@ -499,7 +508,7 @@ export class BankAccountService {
     const cardPaymentsByImportId = new Map(
       cardPaymentCounts.map((c) => [c.importId as string, c._count._all]),
     );
-    return imports.map((imp) => ({
+    return imports.map(({ inlineExpenseCreations: _privateCreations, ...imp }) => ({
       ...imp,
       cardPayments: cardPaymentsByImportId.get(imp.id) ?? 0,
     }));
@@ -518,6 +527,19 @@ export class BankAccountService {
     assertRateioRequester(requester);
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buffers = toBuffers(fileContent);
+    const inlineTargetProjects = requester.id
+      ? await this.prisma.$transaction(async tx => {
+          const actor = requester;
+          const sourceProject = await assertInlineProject(tx, tenantId, projectId, actor, BANK_ACCOUNT_MODULE);
+          if (sourceProject.type !== 'PESSOAL' || !canUseInlineProject(actor, sourceProject)) return [];
+          const projects = await tx.project.findMany({
+            where: { tenantId, id: { not: projectId }, deletedAt: null },
+            select: { id: true, name: true, type: true },
+            orderBy: { name: 'asc' },
+          });
+          return projects.filter(p => hasFeature(p.type as ProjectType, 'expenses') && canUseInlineProject(actor, p));
+        })
+      : [];
     const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
     attachDedupeKeys(parsed.transactions, {
       tenantId,
@@ -783,6 +805,11 @@ export class BankAccountService {
         willImport: !strongDup && !possibleDuplicate,
         isCredit: tx.amountCents < 0,
         isCardPayment: isCardPay,
+        inlineTargetEligible: inlineTargetProjects.length > 0 && tx.amountCents > 0 &&
+          !strongDup && !possibleDuplicate && !isCardPay && (tx.installmentTotal ?? 1) === 1 &&
+          !isNeutralExpenseType(fastClassify(tx.merchant) ?? 'OUTROS') &&
+          !isNeutralExpenseType(hit ? MERCHANT_TO_EXPENSE_TYPE[hit.category] : (fastClassify(tx.merchant) ?? 'OUTROS')) &&
+          (hit ? MERCHANT_TO_EXPENSE_TYPE[hit.category] : fastClassify(tx.merchant)) !== 'INVESTIMENTOS',
         suggestedCategory: tx.amountCents > 0
           ? (isCardPay
               ? 'PAGAMENTO_FATURA_CARTAO'
@@ -814,6 +841,7 @@ export class BankAccountService {
       duplicated: preview.filter((p) => p.duplicate).length,
       inserted: 0,
       preview,
+      inlineTargetProjects,
       possibleDuplicates: [...dedupe.possibleDuplicates.values()],
       classificationStatus: importClassification.status,
       ...(warning ? { warning } : {}),
@@ -834,6 +862,7 @@ export class BankAccountService {
     requester: RateioRequester,
   ) {
     assertRateioRequester(requester);
+    validateInlineDecisions(decisions);
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
@@ -862,6 +891,11 @@ export class BankAccountService {
       keysFromTransactions(parsed.transactions),
     );
     const existingIds = dedupe.strongDuplicates;
+    for (const decision of decisions ?? []) {
+      if (!decision.newTarget || decision.action === 'skip') continue;
+      if (!parsed.transactions.some(t => t.externalId === decision.externalId)) invalidInline();
+      if (dedupe.possibleDuplicates.has(decision.externalId)) invalidInline();
+    }
     // (#659 Tier B) natural-key casou outra origem sem `action:'import'` → não cria.
     const possibleDuplicates: PossibleDuplicate[] = [];
 
@@ -1046,6 +1080,43 @@ export class BankAccountService {
       .reduce((s, t) => s + t.amountCents, 0);
 
     const createCore = async (client: Prisma.TransactionClient) => {
+      const inlineRows = preparedRows.filter(row => decisionByExt.get(row.transaction.externalId)?.newTarget);
+      const hasInline = inlineRows.length > 0;
+      let coreAccount = account;
+      if (hasInline) {
+        requester = await currentInlineRequester(client, tenantId, requester);
+        createdByUserId = requester.id!;
+        const sourceProject = await assertInlineAccount(client, tenantId, projectId, accountId, requester);
+        coreAccount = sourceProject.account;
+        if (sourceProject.type !== 'PESSOAL') invalidInline();
+        // Classify the original bank memo too: a title/category override cannot disguise an invoice/neutral.
+        const originalRows = inlineRows.map(row => ({
+          transaction: parsed.transactions.find(t => t.externalId === row.transaction.externalId)!,
+          categoryOverride: undefined, cardOverride: null, internalTransferAccountId: undefined,
+        }));
+        const originalCards = await this.prepareBankCardPayments(tenantId, originalRows, requester, client);
+        for (const row of inlineRows) {
+          const draft = decisionByExt.get(row.transaction.externalId)!.newTarget!;
+          const original = originalRows.find(r => r.transaction.externalId === row.transaction.externalId)!.transaction;
+          const effective = row.categoryOverride ??
+            await this.merchantClassifier.manualExpenseType(row.transaction.merchant, tenantId, client) ??
+            (MerchantClassifierService.isLikelyPixPessoaFisica(row.transaction.merchant) ? 'OUTROS' :
+              fastClassify(row.transaction.merchant) ?? PESSOAL_CATEGORY_MAP[categorize(row.transaction.merchant)] ?? 'OUTROS');
+          const originalType = await this.merchantClassifier.manualExpenseType(original.merchant, tenantId, client) ??
+            fastClassify(original.merchant) ?? 'OUTROS';
+          if (original.amountCents <= 0 || row.transaction.amountCents <= 0 ||
+              (original.installmentTotal ?? 1) !== 1 ||
+              originalCards.get(original.externalId)?.isCardPayment ||
+              isNeutralExpenseType(originalType) || originalType === 'INVESTIMENTOS' ||
+              isNeutralExpenseType(effective) || effective === 'INVESTIMENTOS') invalidInline();
+          await assertInlineProject(client, tenantId, draft.targetProjectId, requester);
+          if (draft.targetProjectId === projectId) invalidInline();
+          if (draft.roomId && !await client.room.findFirst({
+            where: { id: draft.roomId, projectId: draft.targetProjectId, deletedAt: null },
+          })) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+          row.categoryOverride = effective;
+        }
+      }
       await this.conciliacao.assertCanSettleTargets(
         client,
         { tenantId, targetExpenseIds },
@@ -1064,6 +1135,9 @@ export class BankAccountService {
         requester,
         client,
       );
+      for (const row of inlineRows) {
+        if (preparedCardPayments.get(row.transaction.externalId)?.isCardPayment) invalidInline();
+      }
       const importRecord = await client.bankStatementImport.create({
         data: {
           tenantId,
@@ -1098,6 +1172,7 @@ export class BankAccountService {
         decision: BankImportDecision | undefined;
         result: BankImportCreationResult;
       }> = [];
+      const inlineCreations: InlineCreation[] = [];
 
       for (const row of preparedRows) {
         const adjustedTx = row.transaction;
@@ -1121,7 +1196,7 @@ export class BankAccountService {
             client,
             tenantId,
             projectId,
-            account,
+            coreAccount,
             adjustedTx,
             importRecord.id,
             row.categoryOverride,
@@ -1130,6 +1205,23 @@ export class BankAccountService {
             requester,
             row.internalTransferAccountId,
           );
+          if (decision?.newTarget) {
+            if (!result.expenseId || !result.inserted || result.cardPayment) invalidInline();
+            const source = await client.expense.update({
+              where: { id: result.expenseId }, data: { accountId, origin: 'import' },
+            });
+            const { createdTargetIds } = await createRateioTargets(client, this.conciliacao, tenantId, source, {
+              existing: [], newTargets: [{
+                ...decision.newTarget, valor: adjustedTx.amountCents / 100,
+                quantidade: 1, status: 'PAGO', formaPagamento: 'A_VISTA', allocation: adjustedTx.amountCents,
+              }],
+            }, requester.id!, requester);
+            inlineCreations.push({
+              sourceExpenseId: source.id, sourceProjectId: projectId,
+              targetExpenseId: createdTargetIds[0], targetProjectId: decision.newTarget.targetProjectId,
+              amountCents: adjustedTx.amountCents, snapshot: '',
+            });
+          }
           if (result.inserted) inserted++;
           if (result.receiptInserted) receiptsInserted++;
           if (result.cardPayment) cardPayments++;
@@ -1141,7 +1233,7 @@ export class BankAccountService {
           // Vem ANTES do handler de dedupe (SEC-3): um P2002 no compound
           // external_id de uma linha de pagamento de fatura NÃO pode virar
           // `raceDuplicated` silencioso.
-          if (preparedCardPayment.matchedCard) throw err;
+          if (hasInline || preparedCardPayment.matchedCard) throw err;
           // (SEC-3 #659) corrida cross-canal que escapou do recheck acima e bateu
           // no índice único PARCIAL de dedupe_key_strong (backstop dentro da
           // mesma tabela). Conta como duplicata, não como falha.
@@ -1168,8 +1260,16 @@ export class BankAccountService {
         }
       }
 
+      for (const creation of inlineCreations) {
+        creation.snapshot = JSON.stringify(await inlineSnapshot(client, tenantId, creation));
+      }
+      if (inlineCreations.length) await client.bankStatementImport.update({
+        where: { id: importRecord.id },
+        data: { inlineExpenseCreations: JSON.stringify({ version: 1, creations: inlineCreations }) },
+      });
       return {
         importRecord,
+        inlineCreations,
         inserted,
         receiptsInserted,
         cardPayments,
@@ -1192,7 +1292,10 @@ export class BankAccountService {
       raceDuplicated,
       failedItems,
       createdRows,
+      inlineCreations,
     } = core;
+
+    const postCommitWarnings: Array<{ code: string; message: string }> = [];
     let linked = 0;
     for (const { row, decision, result } of createdRows) {
       if (decision?.action !== 'link') continue;
@@ -1226,6 +1329,7 @@ export class BankAccountService {
           linked++;
         }
       } catch (linkErr) {
+        postCommitWarnings.push({ code: 'ASSOCIATION_FAILED', message: 'A importação foi concluída, mas uma associação não foi aplicada. Confira os detalhes.' });
         console.warn(
           `[bank-import] link failed for ${adjustedTx.externalId.slice(0, 8)}:`,
           (linkErr as Error).message,
@@ -1235,7 +1339,12 @@ export class BankAccountService {
 
     // Regras manuais confirmadas pelo usuário reaplicam no ingest para manter
     // consistência sem mexer em valor/caixa.
-    const aiReclassified = await this.reclassifyImportedExpenses(tenantId, projectId, importRecord.id);
+    let aiReclassified = 0;
+    try {
+      aiReclassified = await this.reclassifyImportedExpenses(tenantId, projectId, importRecord.id, inlineCreations.map(c => c.sourceExpenseId));
+    } catch {
+      postCommitWarnings.push({ code: 'RECLASSIFICATION_FAILED', message: 'Importação concluída; revisão automática de categorias não concluída.' });
+    }
 
     // AC#7 (#582): override EXPLÍCITO de categoria numa linha efetivamente
     // importada (despesa criada, não duplicada/skip/erro) vira regra MANUAL
@@ -1243,9 +1352,9 @@ export class BankAccountService {
     // aprendizado reportado separado do resultado da importação.
     const learnEntries = createdRows
       .filter(
-        ({ row, result }) =>
+        ({ row, result, decision }) =>
           Boolean(result.expenseId) &&
-          Boolean(row.categoryOverride) &&
+          Boolean(decision?.overrides?.category) &&
           row.categoryOverride !== 'MOVIMENTACAO_INTERNA' &&
           row.categoryOverride !== 'PAGAMENTO_FATURA_CARTAO',
       )
@@ -1253,21 +1362,29 @@ export class BankAccountService {
         merchant: row.transaction.merchant,
         expenseType: row.categoryOverride as string,
       }));
+    let learning = { learned: 0, skippedNoMapping: 0, failed: 0 };
+    try {
+      learning = await this.merchantClassifier.learnFromImportOverrides(learnEntries, tenantId);
+    } catch {
+      postCommitWarnings.push({ code: 'CATEGORY_LEARNING_FAILED', message: 'Importação concluída; aprendizado de categorias não concluído.' });
+    }
     const {
       learned: rulesLearned,
       skippedNoMapping: rulesSkippedNoMapping,
       failed: rulesLearnFailed,
-    } = await this.merchantClassifier.learnFromImportOverrides(learnEntries, tenantId);
+    } = learning;
 
     // ─── Propagação de recorrências p/ projetos CASA/CARRO ───
     // Utilities (Enel/Sabesp/Comgas/...) viram RecurringBill no projeto CASA do tenant.
     // IPVA vira RecurringBill no projeto CARRO.
-    const recurrencesCreated = await this.propagateRecurrences(
-      tenantId,
-      importRecord.id,
-      requester,
-    );
+    let recurrencesCreated = 0;
+    try {
+      recurrencesCreated = await this.propagateRecurrences(tenantId, importRecord.id, requester);
+    } catch {
+      postCommitWarnings.push({ code: 'RECURRENCE_FAILED', message: 'Importação concluída; atualização de recorrências não concluída.' });
+    }
 
+    try {
     await this.prisma.bankStatementImport.update({
       where: { id: importRecord.id },
       data: {
@@ -1287,6 +1404,9 @@ export class BankAccountService {
         ].filter(Boolean).join(' • ') || null,
       },
     });
+    } catch {
+      postCommitWarnings.push({ code: 'SUMMARY_UPDATE_FAILED', message: 'Importação concluída; atualização do resumo não concluída. Confira os detalhes.' });
+    }
 
     return {
       importId: importRecord.id,
@@ -1310,6 +1430,8 @@ export class BankAccountService {
       rulesLearned,
       rulesSkippedNoMapping,
       rulesLearnFailed,
+      inlineExpenses: publicInlineExpenses(inlineCreations),
+      ...(postCommitWarnings.length ? { postCommitWarnings } : {}),
     };
   }
 
@@ -1427,6 +1549,12 @@ export class BankAccountService {
       where: { id: importId, tenantId, accountId },
     });
     if (!importRecord) throw new NotFoundException('Importação não encontrada');
+
+    const inline = importRecord.inlineExpenseCreations != null
+      ? await this.prisma.$transaction(tx => preflightInlineUndo(
+          tx, tenantId, projectId, accountId, importId, importRecord.inlineExpenseCreations!, requester, importRecord.deletedAt != null,
+        ))
+      : { creations: [], canUndo: true, blockReason: null };
 
     // #569 PR2 — corte por `createdAt` REMOVIDO (§4.2 do contrato): o escopo
     // do lote é o `importId`, ponto. Despesa ADOTADA na dedup (createdAt
@@ -1658,8 +1786,9 @@ export class BankAccountService {
       alreadyUndone: importRecord.deletedAt != null,
       totalAmountCents: createdExpenses.reduce((s, e) => s + e.valorTotal, 0),
       // #569 (degrau): undo do lote depende da classificação da trilha.
-      canUndo: importRecord.deletedAt != null ? true : trail.canUndo,
-      blockReason: importRecord.deletedAt != null ? null : trail.blockReason,
+      canUndo: inline.canUndo && (importRecord.deletedAt != null || trail.canUndo),
+      blockReason: !inline.canUndo ? inline.blockReason : importRecord.deletedAt != null ? null : trail.blockReason,
+      inlineExpenses: publicInlineExpenses(inline.creations),
       blocking: {
         cardInvoicePayments: visibleCardInvoicePayments.length,
       },
@@ -1753,7 +1882,7 @@ export class BankAccountService {
       });
     }
     if (!importRecord) throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
-    if (importRecord.deletedAt) {
+    if (importRecord.deletedAt && importRecord.inlineExpenseCreations == null) {
       return {
         ok: true, alreadyUndone: true, removedExpenses: 0, removedReceipts: 0,
         revertedSettlements: 0, revertedInvoiceParcelas: 0, reopenedInvoices: 0,
@@ -1770,11 +1899,27 @@ export class BankAccountService {
       });
       if (!accountTx) throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
       const importTx = await tx.bankStatementImport.findFirst({
-        where: { id: importId, tenantId, accountId },
+        where: { id: importId, tenantId, accountId, deletedAt: INCLUDE_SOFT_DELETED },
       });
-      if (!importTx || importTx.deletedAt) {
+      if (!importTx) {
         throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
       }
+      let inlineCreations: InlineCreation[] = [];
+      if (importTx.inlineExpenseCreations != null) {
+        requester = await currentInlineRequester(tx, tenantId, requester);
+        const inline = await preflightInlineUndo(
+          tx, tenantId, projectId, accountId, importId, importTx.inlineExpenseCreations, requester, importTx.deletedAt != null,
+        );
+        if (!inline.canUndo) throw new ConflictException({
+          code: INLINE_IMPORT_DRIFT, message: 'A despesa criada pela importação foi alterada. O lote permanece intacto.',
+        });
+        inlineCreations = inline.creations;
+      }
+      if (importTx.deletedAt) return {
+        alreadyUndone: true, removedExpenses: 0, removedReceipts: 0,
+        revertedSettlements: 0, revertedInvoiceParcelas: 0, reopenedInvoices: 0,
+        notRevertedInvoiceLiquidations: 0, unstamped: 0,
+      };
 
       const created = await tx.expense.findMany({
         where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
@@ -1840,15 +1985,6 @@ export class BankAccountService {
         .filter((p) => p.invoiceUndoState === 'PROCESSED_SETTLED')
         .map((p) => ({ id: p.id, invoiceUndoParcelaCount: p.invoiceUndoParcelaCount }));
       const notRevertedInvoiceLiquidations = 0;
-      const { revertedInvoiceParcelas, reopenedInvoices } =
-        await this.cardSettlement.revertImportBatchIfSafe({
-          tenantId,
-          importId,
-          requester,
-          tx,
-          settledPayments,
-        });
-
       await this.conciliacao.assertCanReverseSources(
         tx,
         { tenantId, sourceExpenseIds: createdIds },
@@ -1864,6 +2000,11 @@ export class BankAccountService {
         },
         requester,
       );
+
+      const { revertedInvoiceParcelas, reopenedInvoices } =
+        await this.cardSettlement.revertImportBatchIfSafe({
+          tenantId, importId, requester, tx, settledPayments,
+        });
 
       // 1) Soft-delete das entradas de caixa e das despesas/recebimentos do lote.
       //    (ANTES da reversão de vínculos/faturas: falha posterior faz rollback
@@ -1895,6 +2036,15 @@ export class BankAccountService {
         );
         if (res.mode !== 'none') revertedSettlements += res.targets.length;
       }
+      const ownedTargetIds = inlineCreations.map(c => c.targetExpenseId);
+      if (ownedTargetIds.length) {
+        await tx.cashFlowEntry.updateMany({
+          where: { tenantId, expenseId: { in: ownedTargetIds }, deletedAt: null }, data: { deletedAt: now },
+        });
+        await tx.expense.updateMany({
+          where: { tenantId, id: { in: ownedTargetIds }, deletedAt: null }, data: { deletedAt: now },
+        });
+      }
 
       // 3) Liquidação automática de fatura: nunca há o que reverter aqui — o
       //    guard fail-closed (#569) já barrou qualquer lote com pagamento de
@@ -1922,7 +2072,7 @@ export class BankAccountService {
       }
 
       return {
-        removedExpenses: createdIds.length,
+        removedExpenses: createdIds.length + ownedTargetIds.length,
         removedReceipts: receiptIds.length,
         revertedSettlements,
         revertedInvoiceParcelas,
@@ -1943,10 +2093,12 @@ export class BankAccountService {
     tenantId: string,
     projectId: string,
     importId: string,
+    excludedExpenseIds: string[] = [],
   ): Promise<number> {
     const candidates = await this.prisma.expense.findMany({
       where: {
         tenantId, projectId, importId,
+        id: { notIn: excludedExpenseIds },
         tipoDespesa: 'OUTROS',
         deletedAt: null,
       },
@@ -2226,17 +2378,17 @@ export class BankAccountService {
     requester: RateioRequester,
   ) {
     assertRateioRequester(requester);
-    const source = await this.prisma.expense.findFirst({
-      where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
-    });
-    if (!source) throw new NotFoundException('Despesa importada não encontrada');
-    if (!source.bankLast4) throw new BadRequestException('Despesa não foi importada de conta bancária');
+    return this.prisma.$transaction(async (tx) => {
+      const source = await tx.expense.findFirst({
+        where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
+      });
+      if (!source) throw new NotFoundException('Despesa importada não encontrada');
+      if (!source.bankLast4) throw new BadRequestException('Despesa não foi importada de conta bancária');
 
-    const paymentDate = source.dataPagamento ?? source.dataInicioParcela ?? source.createdAt;
-    const parcelaIndex = Math.max(0, opts?.parcelaIndex ?? 0);
-    const realValor = opts?.realValor ?? source.valorTotal;
+      const paymentDate = source.dataPagamento ?? source.dataInicioParcela ?? source.createdAt;
+      const parcelaIndex = Math.max(0, opts?.parcelaIndex ?? 0);
+      const realValor = opts?.realValor ?? source.valorTotal;
 
-    await this.prisma.$transaction(async (tx) => {
       await this.conciliacao.settleTargetParcela(
         tx,
         {
@@ -2248,9 +2400,8 @@ export class BankAccountService {
         },
         requester,
       );
+      return { ok: true, sourceId: source.id, targetId: targetExpenseId, parcelaIndex, paymentDate };
     });
-
-    return { ok: true, sourceId: source.id, targetId: targetExpenseId, parcelaIndex, paymentDate };
   }
 
   async unlinkExpense(
@@ -2260,11 +2411,11 @@ export class BankAccountService {
     requester: RateioRequester,
   ) {
     assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
-    const source = await this.prisma.expense.findFirst({
-      where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
-    });
-    if (!source) throw new NotFoundException('Despesa não encontrada');
     await this.prisma.$transaction(async (tx) => {
+      const source = await tx.expense.findFirst({
+        where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
+      });
+      if (!source) throw new NotFoundException('Despesa não encontrada');
       await this.conciliacao.reverseSourceLinks(
         tx,
         { tenantId, sourceExpenseId: source.id },

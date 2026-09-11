@@ -202,7 +202,8 @@ export class BankAccountController {
     if (body?.decisions) {
       try {
         const parsed = JSON.parse(body.decisions);
-        if (Array.isArray(parsed)) decisions = parsed;
+        if (!Array.isArray(parsed)) throw new Error('not an array');
+        decisions = parsed;
       } catch {
         throw new BadRequestException({ message: 'campo "decisions" deve ser JSON array' });
       }
