@@ -1,6 +1,7 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { parseManualInvoiceKey } from '../common/manual-invoice-key';
 import {
   caixaMonthForCardPurchase,
   addMonthsToMonthKey,
@@ -86,6 +87,31 @@ export interface PreparedInvoiceSettlement {
  * reconheçam (guarda de versão bidirecional degrau↔feature — design §3.3).
  */
 export const INVOICE_UNDO_TRAIL_VERSION = 1;
+
+/**
+ * #569 PR2 — janela de LIQUIDAÇÃO REAL do commit: `{payMonth, payMonth+1}`.
+ * Fonte única desta janela — `resolveTargetDueMonth` (linha ~305) e o cálculo
+ * de `windowState` da prévia (`card-invoice-match.ts`) DEVEM importar esta
+ * função em vez de duplicar o literal `addMonthsToMonthKey(payMonth, 1)`.
+ */
+export function getSettlementWindowMonths(payMonth: string): Set<string> {
+  return new Set([payMonth, addMonthsToMonthKey(payMonth, 1)]);
+}
+
+export type SettlementWindowState = 'WITHIN_SETTLEMENT_WINDOW' | 'OUTSIDE_SETTLEMENT_WINDOW';
+
+/**
+ * #569 PR2 — classifica se um `dueMonth` identificado pela prévia (janela de
+ * 3 meses) cairia dentro da janela de 2 meses que o commit realmente usa.
+ */
+export function classifySettlementWindowState(
+  payMonth: string,
+  dueMonth: string,
+): SettlementWindowState {
+  return getSettlementWindowMonths(payMonth).has(dueMonth)
+    ? 'WITHIN_SETTLEMENT_WINDOW'
+    : 'OUTSIDE_SETTLEMENT_WINDOW';
+}
 
 /** Transição EFETIVA de uma parcela PLANEJADO→PAGO no `applyPreparedSettlement`. */
 export interface FlippedEntry {
@@ -302,7 +328,7 @@ export class CardInvoiceSettlementService {
     selectedDueMonth?: string,
   ): Promise<string | null> {
     const payMonth = this.yearMonth(paymentDate);
-    const windowMonths = new Set([payMonth, addMonthsToMonthKey(payMonth, 1)]);
+    const windowMonths = getSettlementWindowMonths(payMonth);
 
     const totalByMonth = new Map<string, number>();
     for (const e of purchases) {
@@ -838,6 +864,166 @@ export class CardInvoiceSettlementService {
       data: { deletedAt: new Date() },
     });
     return { revertedParcelas: rows.length };
+  }
+
+  /**
+   * #569 PR2 — ACL de ESCRITA para reverter uma compra liquidada. Ocultação
+   * total: requester sem visibilidade do projeto da compra recebe o MESMO
+   * 404 de "não existe" (§4.1 do contrato) — nunca um 403 que confirme
+   * existência.
+   */
+  private async assertCanRevertPurchase(
+    client: PrismaService | Prisma.TransactionClient,
+    tenantId: string,
+    requester: RateioRequester,
+    purchaseExpenseId: string,
+  ): Promise<void> {
+    const purchase = await client.expense.findFirst({
+      where: { id: purchaseExpenseId, deletedAt: undefined },
+      select: {
+        id: true,
+        project: { select: { id: true, type: true, tenantId: true, deletedAt: true } },
+      },
+    });
+    if (
+      !purchase ||
+      !purchase.project ||
+      purchase.project.tenantId !== tenantId ||
+      purchase.project.deletedAt !== null ||
+      !this.canRequesterSeeProject(requester, purchase.project)
+    ) {
+      throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);
+    }
+  }
+
+  /**
+   * #569 PR2 — undo REAL de importação: valida o lote INTEIRO (ACL, trilha
+   * completa, drift, sobreposição manual) ANTES de qualquer escrita, e só
+   * então reverte via ledger. Todo-ou-nada: qualquer motivo de bloqueio lança
+   * `ConflictException` com o código em `.message` (`INCOMPLETE_TRAIL`,
+   * `DRIFT:*`, `MANUAL_PAYMENT_OVERLAP`) e NÃO escreve nada. Consumido por
+   * `BankAccountService.undoImport`/`CreditCardService.undoImport`, DENTRO da
+   * `$transaction` do chamador (o `$use` de soft-delete não roda em tx —
+   * filtros de `deletedAt` são explícitos aqui).
+   */
+  async revertImportBatchIfSafe(args: {
+    tenantId: string;
+    importId: string;
+    requester: RateioRequester;
+    tx: Prisma.TransactionClient;
+    settledPayments: Array<{ id: string; invoiceUndoParcelaCount: number | null }>;
+  }): Promise<{ revertedInvoiceParcelas: number; reopenedInvoices: number; unstampedPaymentIds: string[] }> {
+    if (args.settledPayments.length === 0) {
+      return { revertedInvoiceParcelas: 0, reopenedInvoices: 0, unstampedPaymentIds: [] };
+    }
+
+    const rows = await this.prepareRevertImportedLiquidations(args.tx, {
+      tenantId: args.tenantId,
+      importId: args.importId,
+    });
+
+    // ── 1) trilha COMPLETA — nunca reversão parcial (INCOMPLETE_TRAIL) ────
+    for (const sp of args.settledPayments) {
+      const own = rows.filter((r) => r.paymentExpenseId === sp.id);
+      if (own.length !== (sp.invoiceUndoParcelaCount ?? 0)) {
+        throw new ConflictException('INCOMPLETE_TRAIL');
+      }
+    }
+
+    const ownRows = rows.filter((r) =>
+      args.settledPayments.some((sp) => sp.id === r.paymentExpenseId),
+    );
+
+    // ── 2) ACL de ESCRITA — ocultação total por compra tocada ─────────────
+    const purchaseIds = Array.from(new Set(ownRows.map((r) => r.purchaseExpenseId)));
+    for (const id of purchaseIds) {
+      await this.assertCanRevertPurchase(args.tx, args.tenantId, args.requester, id);
+    }
+
+    // ── 3) DRIFT — estado do ledger tem que bater com o snapshot ──────────
+    for (const r of ownRows) {
+      const entry = (await args.tx.cashFlowEntry.findUnique({
+        where: { id: r.cashFlowEntryId },
+      })) as (EntryRow & { deletedAt: Date | null }) | null;
+      if (!entry || entry.deletedAt) {
+        throw new ConflictException('DRIFT:ENTRY_DELETED');
+      }
+      if (entry.status !== 'PAGO') {
+        throw new ConflictException('DRIFT:ENTRY_NOT_PAID');
+      }
+      if ((entry.valor ?? 0) !== r.entryValorCents) {
+        throw new ConflictException('DRIFT:AMOUNT_CHANGED');
+      }
+      if ((entry.parcela ?? null) !== (r.parcela ?? null)) {
+        throw new ConflictException('DRIFT:PARCELA_CHANGED');
+      }
+
+      const purchase = (await args.tx.expense.findUnique({
+        where: { id: r.purchaseExpenseId },
+        select: { settledByExpenseId: true },
+      })) as { settledByExpenseId: string | null } | null;
+      if (purchase?.settledByExpenseId) {
+        throw new ConflictException('DRIFT:MANUAL_ADOPTION');
+      }
+
+      const rateio = await args.tx.rateioAllocation.findFirst({
+        where: { sourceExpenseId: r.purchaseExpenseId },
+        select: { id: true },
+      });
+      if (rateio) {
+        throw new ConflictException('DRIFT:RATEIO_MISMATCH');
+      }
+    }
+
+    // ── 4) sobreposição com pagamento MANUAL da mesma fatura ──────────────
+    const cardDueMonthPairs = new Set(ownRows.map((r) => `${r.cardId}:${r.dueMonth}`));
+    if (cardDueMonthPairs.size > 0) {
+      const manualCandidates = (await args.tx.expense.findMany({
+        where: {
+          tenantId: args.tenantId,
+          importId: null,
+          deletedAt: null,
+          settlesInvoiceKey: { not: null },
+        },
+        select: { settlesInvoiceKey: true },
+      })) as Array<{ settlesInvoiceKey: string | null }>;
+      for (const c of manualCandidates) {
+        const parsed = parseManualInvoiceKey(c.settlesInvoiceKey);
+        if (parsed && cardDueMonthPairs.has(`${parsed.cardId}:${parsed.dueMonth}`)) {
+          throw new ConflictException('MANUAL_PAYMENT_OVERLAP');
+        }
+      }
+    }
+
+    // ── 5) tudo validado — aplica a reversão real ─────────────────────────
+    let revertedInvoiceParcelas = 0;
+    const dueMonths = new Set<string>();
+    const unstampedPaymentIds: string[] = [];
+    for (const sp of args.settledPayments) {
+      const res = await this.applyRevertImportedLiquidations(args.tx, {
+        tenantId: args.tenantId,
+        paymentExpenseId: sp.id,
+      });
+      revertedInvoiceParcelas += res.revertedParcelas;
+      await args.tx.expense.update({
+        where: { id: sp.id },
+        data: {
+          invoiceUndoState: null,
+          invoiceUndoParcelaCount: null,
+          invoiceUndoDueMonth: null,
+          invoiceUndoCardId: null,
+          invoiceUndoTrailVersion: null,
+        },
+      });
+      unstampedPaymentIds.push(sp.id);
+    }
+    for (const r of ownRows) dueMonths.add(r.dueMonth);
+
+    return {
+      revertedInvoiceParcelas,
+      reopenedInvoices: dueMonths.size,
+      unstampedPaymentIds,
+    };
   }
 
   /**

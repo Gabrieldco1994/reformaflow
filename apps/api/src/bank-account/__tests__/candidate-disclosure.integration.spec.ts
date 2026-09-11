@@ -828,6 +828,7 @@ describe("bank candidate disclosure integration (#480)", () => {
               dueMonth: "2026-08",
               invoiceTotalCents: 30_000,
               deltaCents: 0,
+              windowState: "WITHIN_SETTLEMENT_WINDOW",
             },
           ],
         }),
@@ -1086,6 +1087,7 @@ describe("bank candidate disclosure integration (#480)", () => {
         dueMonth: "2026-08",
         invoiceTotalCents: 30_000,
         deltaCents: 0,
+        windowState: "WITHIN_SETTLEMENT_WINDOW",
       },
     ]);
     const serialized = JSON.stringify(sentinelsPresent);

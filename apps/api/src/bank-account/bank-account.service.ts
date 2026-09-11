@@ -77,6 +77,8 @@ import {
   RECEIPT_MODULE,
   RECURRING_BILL_MODULE,
   resolveAccessibleProjectScope,
+  userCanAccessProject,
+  userCanAccessProjectType,
 } from '../common/access-rules';
 import { AMBIGUOUS_CARD_MESSAGE } from '../common/invoice-identity';
 import {
@@ -1318,10 +1320,31 @@ export class BankAccountService {
         return { canUndo: false, blockReason: 'TRAIL_VERSION_MISMATCH' };
       }
     }
-    if (payments.some((p) => p.invoiceUndoState === 'PROCESSED_SETTLED')) {
-      return { canUndo: false, blockReason: 'SETTLED_TRAIL_PENDING_UNDO' };
-    }
+    // #569 PR2 — `PROCESSED_SETTLED` deixa de ser bloqueio automático: a
+    // reversão via ledger agora é real (`revertImportBatchIfSafe`). A
+    // integridade específica (`INCOMPLETE_TRAIL`/`DRIFT:*`) é recomputada por
+    // quem chama esta função (`getImportDetail`), que tem acesso ao ledger.
     return { canUndo: true, blockReason: null };
+  }
+
+  /**
+   * #569 PR2 — ACL de LEITURA por projeto, mesmo padrão do gate de escrita
+   * (`CardInvoiceSettlementService.canRequesterSeeProject`), reimplementado
+   * aqui (sem dependência cruzada em método privado de outro serviço).
+   */
+  private canRequesterSeeProject(
+    requester: RateioRequester,
+    project: { id: string; type: string },
+  ): boolean {
+    return (
+      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
+      userCanAccessProjectType(
+        requester.role,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        project.type,
+      )
+    );
   }
 
   async getImportDetail(
@@ -1329,21 +1352,26 @@ export class BankAccountService {
     projectId: string,
     accountId: string,
     importId: string,
-    _requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException(IMPORT_NOT_FOUND_MESSAGE));
     await this.findAccount(tenantId, projectId, accountId);
     const importRecord = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, tenantId, accountId },
     });
     if (!importRecord) throw new NotFoundException('Importação não encontrada');
 
+    // #569 PR2 — corte por `createdAt` REMOVIDO (§4.2 do contrato): o escopo
+    // do lote é o `importId`, ponto. Despesa ADOTADA na dedup (createdAt
+    // anterior ao import) passa a aparecer no impact/settlement igual a uma
+    // criada pelo import.
     const createdExpenses = await this.prisma.expense.findMany({
-      where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+      where: { tenantId, importId, deletedAt: null },
       select: { id: true, titulo: true, valorTotal: true, status: true, tipoDespesa: true, cardLast4: true, fornecedor: true, linkedExpenseId: true },
       orderBy: { createdAt: 'asc' },
     });
     const createdReceipts = await this.prisma.receipt.findMany({
-      where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+      where: { tenantId, importId, deletedAt: null },
       select: { id: true, descricao: true, valor: true, linkedReceiptId: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -1383,10 +1411,135 @@ export class BankAccountService {
           { invoiceUndoState: { not: null } },
         ],
       },
-      select: { id: true, invoiceUndoState: true, invoiceUndoTrailVersion: true },
+      select: {
+        id: true,
+        invoiceUndoState: true,
+        invoiceUndoTrailVersion: true,
+        invoiceUndoParcelaCount: true,
+        invoiceUndoCardId: true,
+        invoiceUndoDueMonth: true,
+        importId: true,
+      },
     });
     const hasCardInvoicePayment = cardInvoicePayments.length > 0;
-    const trail = this.classifyInvoiceUndoTrail(cardInvoicePayments);
+    let trail = this.classifyInvoiceUndoTrail(cardInvoicePayments);
+    // #569 PR2 — INCOMPLETE_TRAIL: para cada pagamento PROCESSED_SETTLED, o
+    // número de linhas ATIVAS do ledger tem que bater com o carimbo.
+    if (trail.canUndo) {
+      for (const p of cardInvoicePayments) {
+        if (p.invoiceUndoState !== 'PROCESSED_SETTLED') continue;
+        const activeCount = await this.prisma.importedInvoiceLiquidation.count({
+          where: { tenantId, paymentExpenseId: p.id, deletedAt: null },
+        });
+        if (activeCount !== (p.invoiceUndoParcelaCount ?? 0)) {
+          trail = { canUndo: false, blockReason: 'INCOMPLETE_TRAIL' };
+          break;
+        }
+      }
+    }
+
+    // #569 PR2 (§4.2) — `settlement[]`: 1 entrada por par (cardId, dueMonth)
+    // tocado por um pagamento de fatura deste lote. `PROCESSED_NONE` com
+    // `cardId` identificado (M8) recomputa, best-effort, se existia um
+    // candidato de prévia FORA da janela de liquidação real — nunca vira
+    // asserção de verdade (só o `hint`, não persistido).
+    const paymentsWithCard = cardInvoicePayments.filter((p) => p.invoiceUndoCardId != null);
+    const settlementKey = (cardId: string, dueMonth: string) => `${cardId}:${dueMonth}`;
+    const settlementMap = new Map<
+      string,
+      {
+        cardId: string;
+        dueMonth: string | null;
+        state: 'SETTLED_BY_IMPORT' | 'NO_SETTLEMENT' | 'OUTSIDE_SETTLEMENT_WINDOW' | 'LEGACY_NO_TRAIL' | 'DRIFT';
+        payments: Array<{ paymentExpenseId: string; importId: string; parcelaCount: number }>;
+      }
+    >();
+    for (const p of paymentsWithCard) {
+      const cardId = p.invoiceUndoCardId as string;
+      let dueMonth = p.invoiceUndoDueMonth;
+      let state: 'SETTLED_BY_IMPORT' | 'NO_SETTLEMENT' | 'OUTSIDE_SETTLEMENT_WINDOW' | 'LEGACY_NO_TRAIL' | 'DRIFT';
+      if (p.invoiceUndoState === 'PROCESSED_SETTLED') {
+        state = 'SETTLED_BY_IMPORT';
+      } else {
+        // PROCESSED_NONE (ou legado com cardId — não deveria ocorrer, tratado
+        // como NO_SETTLEMENT best-effort): recomputa a prévia contra o estado
+        // ATUAL do cartão para distinguir "nenhum candidato" de "candidato
+        // fora da janela de liquidação real".
+        const card = await this.prisma.creditCard.findFirst({
+          where: { id: cardId, tenantId, deletedAt: null },
+          select: {
+            id: true,
+            last4: true,
+            nickname: true,
+            closingDay: true,
+            dueDay: true,
+            projectId: true,
+          },
+        });
+        const payment = await this.prisma.expense.findUnique({
+          where: { id: p.id },
+          select: { valorTotal: true, dataPagamento: true, dataInicioParcela: true, createdAt: true },
+        });
+        state = 'NO_SETTLEMENT';
+        dueMonth = null;
+        if (card && payment) {
+          const paymentDate = payment.dataPagamento ?? payment.dataInicioParcela ?? payment.createdAt;
+          const entries = await this.buildCardEntriesForCandidates(tenantId, card, paymentDate);
+          const candidates = rankCardCandidates(
+            [{ id: card.id, last4: card.last4, nickname: card.nickname, closingDay: card.closingDay, dueDay: card.dueDay, entries }],
+            payment.valorTotal,
+            paymentDate,
+          );
+          const outside = candidates.find((c) => c.windowState === 'OUTSIDE_SETTLEMENT_WINDOW');
+          if (outside) {
+            state = 'OUTSIDE_SETTLEMENT_WINDOW';
+            dueMonth = outside.dueMonth;
+          }
+        }
+      }
+      const key = settlementKey(cardId, dueMonth ?? `none:${p.id}`);
+      const existing = settlementMap.get(key);
+      const paymentEntry = {
+        paymentExpenseId: p.id,
+        importId: p.importId ?? importId,
+        parcelaCount: p.invoiceUndoParcelaCount ?? 0,
+      };
+      if (existing) {
+        existing.payments.push(paymentEntry);
+        if (state === 'SETTLED_BY_IMPORT') existing.state = 'SETTLED_BY_IMPORT';
+      } else {
+        settlementMap.set(key, { cardId, dueMonth, state, payments: [paymentEntry] });
+      }
+    }
+
+    // ACL de LEITURA — ocultação total (§4.2): oculta a entrada de settlement
+    // inteira quando o requester não pode ver o projeto de NENHUM dos
+    // pagamentos/compras que a compõem.
+    const settlement = [] as Array<{
+      cardId: string | null;
+      dueMonth: string | null;
+      state: 'SETTLED_BY_IMPORT' | 'NO_SETTLEMENT' | 'OUTSIDE_SETTLEMENT_WINDOW' | 'LEGACY_NO_TRAIL' | 'DRIFT';
+      payments: Array<{ paymentExpenseId: string; importId: string; parcelaCount: number }>;
+    }>;
+    for (const entry of settlementMap.values()) {
+      let visible = false;
+      for (const pay of entry.payments) {
+        const paymentRow = await this.prisma.expense.findFirst({
+          where: { id: pay.paymentExpenseId },
+          select: { project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
+        });
+        if (
+          paymentRow?.project &&
+          paymentRow.project.tenantId === tenantId &&
+          paymentRow.project.deletedAt === null &&
+          this.canRequesterSeeProject(requester, paymentRow.project)
+        ) {
+          visible = true;
+          break;
+        }
+      }
+      if (visible) settlement.push(entry);
+    }
 
     // Recorrências propagadas (RecurringBill) — efeito IRREVERSÍVEL (upsert sem
     // snapshot). Contadas por best-effort re-rodando detectRecurrence.
@@ -1425,7 +1578,35 @@ export class BankAccountService {
       receipts: createdReceipts.map((r) => ({
         id: r.id, descricao: r.descricao, valor: r.valor, linked: r.linkedReceiptId != null,
       })),
+      settlement,
     };
+  }
+
+  /**
+   * #569 PR2 — reconstrói os lançamentos de COMPRA de um cartão (não-neutros)
+   * para alimentar `rankCardCandidates` no recomputo best-effort de
+   * `OUTSIDE_SETTLEMENT_WINDOW` em `getImportDetail`. Reaproveita
+   * `loadCardsWithEntries` (mesmo insumo do preview) escopado a um único
+   * cartão já identificado — sem filtro de módulo do requester (o gate de
+   * VISIBILIDADE da entrada de `settlement` já é feito por
+   * `canRequesterSeeProject` no chamador).
+   */
+  private async buildCardEntriesForCandidates(
+    tenantId: string,
+    card: { id: string; projectId: string; last4: string; nickname: string; closingDay: number | null; dueDay: number | null },
+    around: Date,
+  ): Promise<Array<{ data: Date; valor: number }>> {
+    const from = new Date(around); from.setUTCFullYear(from.getUTCFullYear() - 1);
+    const to = new Date(around); to.setUTCFullYear(to.getUTCFullYear() + 1);
+    const [loaded] = await this.loadCardsWithEntries(
+      tenantId,
+      from,
+      to,
+      { role: 'ADMIN', allowedProjects: undefined, allowedProjectTypes: undefined, allowedModules: undefined },
+      this.prisma,
+      [{ id: card.id, projectId: card.projectId, last4: card.last4, nickname: card.nickname, closingDay: card.closingDay, dueDay: card.dueDay }],
+    );
+    return loaded?.entries ?? [];
   }
 
   /**
@@ -1470,7 +1651,8 @@ export class BankAccountService {
     if (importRecord.deletedAt) {
       return {
         ok: true, alreadyUndone: true, removedExpenses: 0, removedReceipts: 0,
-        revertedSettlements: 0, revertedInvoiceParcelas: 0, notRevertedInvoiceLiquidations: 0, unstamped: 0,
+        revertedSettlements: 0, revertedInvoiceParcelas: 0, reopenedInvoices: 0,
+        notRevertedInvoiceLiquidations: 0, unstamped: 0,
       };
     }
 
@@ -1523,11 +1705,18 @@ export class BankAccountService {
             { invoiceUndoState: { not: null } },
           ],
         },
-        select: { id: true, invoiceUndoState: true, invoiceUndoTrailVersion: true },
+        select: {
+          id: true,
+          invoiceUndoState: true,
+          invoiceUndoTrailVersion: true,
+          invoiceUndoParcelaCount: true,
+        },
       });
-      // #569 (degrau) — guarda de versão + fail-closed. A reversão via ledger
-      // (estado PROCESSED_SETTLED) é PR 2; até lá qualquer trilha liquidada
-      // responde 409 fail-closed. Só `PROCESSED_NONE` segue o undo normal.
+      // #569 PR2 — guarda de versão fail-closed continua igual; a partir daqui
+      // `PROCESSED_SETTLED` deixa de ser bloqueio automático e passa a acionar
+      // a reversão REAL via ledger (`revertImportBatchIfSafe`), que valida o
+      // lote inteiro (ACL + INCOMPLETE_TRAIL + DRIFT + MANUAL_PAYMENT_OVERLAP)
+      // antes de qualquer escrita.
       for (const p of cardInvoicePayments) {
         if (p.invoiceUndoState == null) {
           throw new ConflictException(
@@ -1542,20 +1731,18 @@ export class BankAccountService {
           );
         }
       }
-      if (
-        cardInvoicePayments.some(
-          (p) => p.invoiceUndoState === 'PROCESSED_SETTLED',
-        )
-      ) {
-        throw new ConflictException(
-          'Esta importação liquidou faturas de cartão. Desfazer com reabertura ' +
-            'de fatura ainda não está disponível (SETTLED_TRAIL_PENDING_UNDO).',
-        );
-      }
-      // Sempre 0 daqui pra frente (o guard acima já barrou o único caso) —
-      // mantido no retorno só para estabilidade do contrato da resposta.
+      const settledPayments = cardInvoicePayments
+        .filter((p) => p.invoiceUndoState === 'PROCESSED_SETTLED')
+        .map((p) => ({ id: p.id, invoiceUndoParcelaCount: p.invoiceUndoParcelaCount }));
       const notRevertedInvoiceLiquidations = 0;
-      const revertedInvoiceParcelas = 0;
+      const { revertedInvoiceParcelas, reopenedInvoices } =
+        await this.cardSettlement.revertImportBatchIfSafe({
+          tenantId,
+          importId,
+          requester,
+          tx,
+          settledPayments,
+        });
 
       await this.conciliacao.assertCanReverseSources(
         tx,
@@ -1621,6 +1808,7 @@ export class BankAccountService {
         removedReceipts: receiptIds.length,
         revertedSettlements,
         revertedInvoiceParcelas,
+        reopenedInvoices,
         notRevertedInvoiceLiquidations,
         unstamped: adopted.length,
       };

@@ -18,6 +18,10 @@
  * Este módulo é puro (sem Prisma) para poder ser testado direto.
  */
 import { caixaMonthForCardPurchase } from '@reformaflow/domain';
+import {
+  classifySettlementWindowState,
+  type SettlementWindowState,
+} from '../credit-card/card-invoice-settlement.service';
 
 /** Tolerância para considerar que o pagamento quita a fatura inteira. */
 export const CARD_MATCH_TOLERANCE_CENTS = 200; // R$ 2 (encargos variam)
@@ -44,6 +48,13 @@ export interface CardInvoiceCandidate {
   invoiceTotalCents: number;
   /** invoiceTotal − pagamento. Negativo = pagamento maior que a fatura. */
   deltaCents: number;
+  /**
+   * #569 PR2 — `dueMonth` está dentro (`{payMonth, payMonth+1}`) ou fora da
+   * janela que o COMMIT real usaria para liquidar. `OUTSIDE_SETTLEMENT_WINDOW`
+   * significa que a prévia identifica o candidato mas o commit não fecharia
+   * essa fatura automaticamente — ação manual é necessária.
+   */
+  windowState: SettlementWindowState;
 }
 
 function monthKey(date: Date): string {
@@ -102,6 +113,7 @@ export function rankCardCandidates(
         dueMonth,
         invoiceTotalCents: total,
         deltaCents: total - amountCents,
+        windowState: classifySettlementWindowState(payMonth, dueMonth),
       });
     }
   }
