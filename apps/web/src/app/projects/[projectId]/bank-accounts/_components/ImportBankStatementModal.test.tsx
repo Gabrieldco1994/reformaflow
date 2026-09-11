@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import ImportBankStatementModal from "./ImportBankStatementModal";
-import type { BankAccountRow, BankPreviewTx } from "../_types";
+import type {
+  BankAccountRow,
+  BankCommitResult,
+  BankPreviewTx,
+} from "../_types";
 
 const apiUploadMock = vi.fn();
 
@@ -108,7 +112,7 @@ function prepareTarget() {
   });
 }
 
-async function importUntilCommitted() {
+async function importUntilCommitted(result: BankCommitResult = COMMIT) {
   const onClose = vi.fn();
   const onCommitted = vi.fn();
   render(
@@ -130,7 +134,7 @@ async function importUntilCommitted() {
   fireEvent.click(screen.getByRole("button", { name: "Conferir arquivos" }));
   await screen.findByText(/transações/i);
 
-  apiUploadMock.mockResolvedValueOnce(COMMIT);
+  apiUploadMock.mockResolvedValueOnce(result);
   fireEvent.click(screen.getByRole("button", { name: /ver resumo/i }));
   fireEvent.click(
     screen.getByRole("button", { name: /confirmar importação/i }),
@@ -150,6 +154,84 @@ describe("ImportBankStatementModal — fechamento pós-importação", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
+
+  it.each([1, 2])(
+    "result associations: reports actual linked=%s separately from inline destinations and fiscal counts",
+    async (linked) => {
+      await importUntilCommitted({
+        ...COMMIT,
+        inserted: 3,
+        receiptsInserted: 1,
+        duplicated: 2,
+        linked,
+        inlineExpenses: [
+          {
+            sourceExpenseId: "source-a",
+            targetExpenseId: "target-a",
+            targetProjectId: "p2",
+            amountCents: 1000,
+          },
+          {
+            sourceExpenseId: "source-b",
+            targetExpenseId: "target-b",
+            targetProjectId: "p2",
+            amountCents: 2000,
+          },
+        ],
+        postCommitWarnings: [
+          {
+            code: "FOLLOW_UP_FAILED",
+            message: "Uma associação não pôde ser concluída.",
+          },
+        ],
+      });
+      expect(screen.getByText(/a lançamentos? existentes?/)).toHaveTextContent(
+        linked === 1
+          ? "1 associação a lançamento existente realizada"
+          : "2 associações a lançamentos existentes realizadas",
+      );
+      expect(screen.getByText(/destino\(s\) criado\(s\)/)).toHaveTextContent(
+        "2 destino(s)",
+      );
+      expect(screen.getByText(/despesas criadas/)).toHaveTextContent(
+        "3 despesas criadas",
+      );
+      expect(screen.getByText(/recebimentos criados/)).toHaveTextContent(
+        "1 recebimentos criados",
+      );
+      expect(screen.getByText(/ignoradas \(duplicadas\)/)).toHaveTextContent(
+        "2 ignoradas (duplicadas)",
+      );
+      expect(
+        screen.getByText("Uma associação não pôde ser concluída."),
+      ).toBeInTheDocument();
+      expect(apiUploadMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([0, undefined])(
+    "result associations: omits linked=%s without inferring it from inline destinations",
+    async (linked) => {
+      await importUntilCommitted({
+        ...COMMIT,
+        ...(linked === undefined ? {} : { linked }),
+        inlineExpenses: [
+          {
+            sourceExpenseId: "source-a",
+            targetExpenseId: "target-a",
+            targetProjectId: "p2",
+            amountCents: 1000,
+          },
+        ],
+      });
+      expect(
+        screen.queryByText(/a lançamentos? existentes?/),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(/destino\(s\) criado\(s\)/)).toHaveTextContent(
+        "1 destino(s)",
+      );
+    },
+  );
 
   it.each([true, false])(
     "payment warning is visible before editing, included in pending but still importable (outside=%s)",

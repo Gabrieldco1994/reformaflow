@@ -728,6 +728,14 @@ function CommittedView({ result }: { result: BankCommitResult }) {
         <p>
           <strong>{result.receiptsInserted}</strong> recebimentos criados
         </p>
+        {(result.linked ?? 0) > 0 && (
+          <p>
+            <strong>{result.linked}</strong>{" "}
+            {result.linked === 1
+              ? "associação a lançamento existente realizada"
+              : "associações a lançamentos existentes realizadas"}
+          </p>
+        )}
         <p>
           <strong>{result.duplicated}</strong> ignoradas (duplicadas)
         </p>

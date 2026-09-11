@@ -132,6 +132,8 @@ export interface BankCommitResult {
   /** Linhas que falharam ao inserir no meio do commit (erro de dependência/DB). */
   failedItems?: FailedImportItem[];
   receiptsInserted: number;
+  /** Associações efetivadas com lançamentos preexistentes, não destinos inline. */
+  linked?: number;
   cardPayments: number;
   /** Pagamentos de fatura que entraram SEM cartão identificado (saem do caixa, não quitam fatura). */
   unlinkedCardPayments?: number;
