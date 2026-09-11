@@ -149,13 +149,17 @@ async function loadReview() {
   fireEvent.change(document.querySelector('input[type="file"]')!, {
     target: { files: [file] },
   });
-  fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(
+    screen.getByRole("button", { name: /conferir arquivos|pré-visualizar/i }),
+  );
   await waitFor(() => expect(calls("preview")).toHaveLength(1));
   return { file, onClose, onCommitted };
 }
 
 async function openDraft() {
-  fireEvent.click(await screen.findByRole("button", { name: /editar/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /revisar|editar/i }),
+  );
   fireEvent.click(
     await screen.findByRole("button", {
       name: /criar.*(?:despesa|destino)|nova despesa/i,

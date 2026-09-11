@@ -692,8 +692,19 @@ describe("#689 A690 — real import / account reader / detail / whole undo", () 
       });
       const before = await snapshot();
       writes.length = 0;
-      expect(await detail(result.importId)).toMatchObject({ canUndo: false });
-      await rejectWith(() => undo(result.importId), 409);
+      // Unreadable provenance cannot enumerate every owner: hide the entire
+      // response, rather than disclosing even an undo-blocked partial detail.
+      const expected = {
+        statusCode: 404,
+        error: "Not Found",
+        message: ACL_NOT_FOUND_MESSAGE,
+      };
+      expect(await rejectWith(() => detail(result.importId), 404)).toEqual(
+        expected,
+      );
+      expect(await rejectWith(() => undo(result.importId), 404)).toEqual(
+        expected,
+      );
       expect(writes).toEqual([]);
       expect(await snapshot()).toEqual(before);
     },
