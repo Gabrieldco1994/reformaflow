@@ -39,7 +39,8 @@ novas execuções.
 | Plano | Status | Assunto |
 |---|---|---|
 | [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | 📋 **Aprovado; B0/B1a/B1b/B2/W1 mergeados e CLOSED; S0.3 test-only em andamento** | Programa #436 — Centro Financeiro multi-tenant e base agent-first. |
-| [`569-invoice-undo-design.md`](569-invoice-undo-design.md) | **PR 1 em implementação/validação; PR 2 futuro; sem comprovação de merge/deploy** | Planejamento #569: trilha exata de liquidação por extrato e guards no PR 1; undo `SETTLED`, leitura de settlement e painel no PR 2. Não substitui os contratos financeiros normativos. |
+| [`569-invoice-undo-design.md`](569-invoice-undo-design.md) | **PRs #687/#688 mergeadas; produção não verificada nesta rodada** | Histórico do design de proveniência, proteções e undo; contrato do PR2 em [569-pr2-contract-and-red-spec.md](569-pr2-contract-and-red-spec.md). Não equivale ao redesign completo da importação. |
+| [`experiencia-importacao.md`](experiencia-importacao.md) | **#689 aprovada, em implementação; não entregue** | Pacotes #690/#691: criação cross-project na prévia bancária e fluxo visual completo; undo somente de destino próprio intacto. |
 | [`plano-visao-conta-hub-2026-07.md`](plano-visao-conta-hub-2026-07.md) | 🗃️ **Histórico (v1)** | Registro do ciclo Visão Conta Hub; conferir comportamento entregue nos docs vivos. |
 | [`plano-ux-v2-2026-07.md`](plano-ux-v2-2026-07.md) | 🗃️ **Histórico (v2; ledger stale)** | Registro do ciclo de redução de trabalho; não é roadmap ativo. |
 

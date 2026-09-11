@@ -39,8 +39,9 @@ aprovação, (b) os file:line confirmados nesta revisão, e (c) os arquivos de s
 **Regra de ouro aplicada:** a tx de undo deve, ao final, **retornar ids** das entidades
 tocadas (pagamento, parcelas, faturas) e — se o handler HTTP precisa devolver o
 `getAccountView` pós-undo para a UI — chamar `findById`/`getAccountView` **fora** da
-`$transaction`, porque o `$use` de soft-delete não roda dentro dela (regra 4 do
-CLAUDE.md). O design doc já modela isso implicitamente no retorno de `undoImport`
+`$transaction`, após o commit. O middleware `$use` de soft-delete também roda
+dentro da transação; sua interceptação depende da ação, não de estar em uma
+transação (ver `PrismaService` e `AGENTS.md`). O design doc já modela o retorno de `undoImport`
 (§2.3 passo 7); tornando explícito aqui para o implementador.
 
 ---
