@@ -154,6 +154,29 @@ describe('ImportHistoryModal', () => {
     expect(screen.queryByText('DRIFT:ENTRY_NOT_PAID')).not.toBeInTheDocument();
   });
 
+  it('#569 (journey-qa): lote só de pagamento de fatura liquidada não aparece como "0 lançamento(s)"', async () => {
+    apiGet.mockResolvedValueOnce([
+      {
+        id: 'imp-card-payment',
+        periodLabel: '2026-07',
+        fileName: 'fatura-agosto.pdf',
+        source: 'PDF',
+        inserted: 0,
+        duplicated: 0,
+        cardPayments: 1,
+        totalAmountCents: 50000,
+        createdAt: '2026-07-05T12:00:00.000Z',
+        deletedAt: null,
+      },
+    ]);
+
+    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
+
+    expect(await screen.findByText(/2026-07 · fatura-agosto\.pdf/)).toBeInTheDocument();
+    expect(screen.getByText(/1 pagamento de fatura processado/i)).toBeInTheDocument();
+    expect(screen.queryByText(/0 lançamento\(s\)/)).not.toBeInTheDocument();
+  });
+
   it('mostra aviso de efeitos irreversíveis quando houver', async () => {
     apiGet.mockResolvedValueOnce(IMPORTS);
     apiGet.mockResolvedValueOnce({

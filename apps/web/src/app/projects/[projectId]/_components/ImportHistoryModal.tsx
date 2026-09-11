@@ -13,6 +13,13 @@ export interface ImportRow {
   source: string;
   inserted: number;
   duplicated: number;
+  /**
+   * #569 (achado journey-qa) — `inserted` é sempre 0 para lotes cujo único
+   * conteúdo é um pagamento de fatura (`PAGAMENTO_FATURA_CARTAO`), mesmo
+   * quando liquidou uma fatura real de verdade. Contador separado para o
+   * resumo da lista não afirmar "0 lançamento(s)" numa liquidação real.
+   */
+  cardPayments?: number;
   totalAmountCents: number;
   createdAt: string;
   deletedAt: string | null;
@@ -142,6 +149,23 @@ interface Props {
   onClose: () => void;
   /** Chamado após um desfazer bem-sucedido, para o pai recarregar saldos. */
   onUndone?: () => void;
+}
+
+/**
+ * #569 (achado journey-qa) — `row.inserted` vem sempre 0 do backend para
+ * lotes só de pagamento de fatura (`PAGAMENTO_FATURA_CARTAO`), mesmo quando
+ * liquidam uma fatura real. Sem tratamento, o resumo mostrava "0
+ * lançamento(s)" para uma liquidação REAL — a ambiguidade oposta ao que a
+ * PR2 deveria evitar. `row.cardPayments` é um contador real do backend.
+ */
+function importSummaryLabel(row: ImportRow): string {
+  if (row.inserted > 0) return `${row.inserted} lançamento(s)`;
+  if ((row.cardPayments ?? 0) > 0) {
+    return row.cardPayments === 1
+      ? '1 pagamento de fatura processado'
+      : `${row.cardPayments} pagamentos de fatura processados`;
+  }
+  return `${row.inserted} lançamento(s)`;
 }
 
 function fmtDate(iso: string) {
@@ -380,7 +404,7 @@ export default function ImportHistoryModal({ basePath, title, onClose, onUndone 
                       {row.fileName ? ` · ${row.fileName}` : ''}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {fmtDate(row.createdAt)} · {row.inserted} lançamento(s)
+                      {fmtDate(row.createdAt)} · {importSummaryLabel(row)}
                       {row.duplicated > 0 ? ` · ${row.duplicated} duplicado(s)` : ''}
                     </div>
                   </div>

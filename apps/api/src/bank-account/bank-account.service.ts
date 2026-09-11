@@ -472,11 +472,37 @@ export class BankAccountService {
 
   async listImports(tenantId: string, projectId: string, accountId: string) {
     await this.findAccount(tenantId, projectId, accountId);
-    return this.prisma.bankStatementImport.findMany({
+    const imports = await this.prisma.bankStatementImport.findMany({
       where: { tenantId, accountId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+    // #569 (achado journey-qa) — `inserted` é sempre 0 para lotes cujo único
+    // conteúdo é um pagamento de fatura (`PAGAMENTO_FATURA_CARTAO`), mesmo
+    // quando o pagamento de fato liquidou uma fatura real. Sem este contador
+    // separado, o resumo da lista mostra "0 lançamento(s)" para uma liquidação
+    // REAL — a ambiguidade oposta ao que o contrato de undo deveria evitar.
+    // Contagem simples, sem lógica de negócio nova: só expõe o que já existe.
+    const importIds = imports.map((i) => i.id);
+    const cardPaymentCounts = importIds.length
+      ? await this.prisma.expense.groupBy({
+          by: ['importId'],
+          where: {
+            tenantId,
+            importId: { in: importIds },
+            tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+            deletedAt: null,
+          },
+          _count: { _all: true },
+        })
+      : [];
+    const cardPaymentsByImportId = new Map(
+      cardPaymentCounts.map((c) => [c.importId as string, c._count._all]),
+    );
+    return imports.map((imp) => ({
+      ...imp,
+      cardPayments: cardPaymentsByImportId.get(imp.id) ?? 0,
+    }));
   }
 
   async previewImport(
