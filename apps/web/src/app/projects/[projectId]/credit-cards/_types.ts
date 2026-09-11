@@ -1,10 +1,14 @@
 import type {
   CategoriaFonte,
   ImportClassificationStatus,
-} from '@/components/import/ImportClassificationNotice';
-import type { PossibleDuplicateInfo } from '@/components/import/PossibleDuplicateNotice';
+} from "@/components/import/ImportClassificationNotice";
+import type { PossibleDuplicateInfo } from "@/components/import/PossibleDuplicateNotice";
 
-export type { CategoriaFonte, ImportClassificationStatus, PossibleDuplicateInfo };
+export type {
+  CategoriaFonte,
+  ImportClassificationStatus,
+  PossibleDuplicateInfo,
+};
 
 export interface CardRow {
   id: string;
@@ -78,6 +82,7 @@ export interface PreviewResult {
 }
 
 export interface CommitResult {
+  postCommitWarnings?: Array<{ code: string; message: string }>;
   source: string;
   periodLabel: string;
   inserted: number;
@@ -104,7 +109,7 @@ export interface DuplicatedImportItem {
   date: string;
   description: string;
   amountCents: number;
-  reason: 'duplicate';
+  reason: "duplicate";
 }
 
 export interface SuggestionRow {

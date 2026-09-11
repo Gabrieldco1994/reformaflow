@@ -1,14 +1,40 @@
-'use client';
+"use client";
 
-import { useMemo, useState } from 'react';
-import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
-import { Upload, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
-import { Modal } from '@/components/ui/modal';
-import { Button } from '@/components/ui/button';
-import type { CardRow, PreviewResult, CommitResult, PreviewTx } from '../_types';
-import { PreviewTxRow } from './PreviewTxRow';
-import { ImportClassificationNotice } from '@/components/import/ImportClassificationNotice';
+import { useMemo, useState } from "react";
+import { api } from "@/lib/api";
+import { formatCurrency, formatDateBR } from "@/lib/utils";
+import {
+  Upload,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import { Modal } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
+import type {
+  CardRow,
+  PreviewResult,
+  CommitResult,
+  PreviewTx,
+} from "../_types";
+import { PreviewTxRow } from "./PreviewTxRow";
+import { ImportClassificationNotice } from "@/components/import/ImportClassificationNotice";
+import { tipoLabel } from "@/lib/expense-options";
+import {
+  ImportJourney,
+  ImportFilters,
+  ImportReviewRow,
+  ImportFooter,
+  ImportWarnings,
+  useImportJourney,
+  reviewStatus,
+  matchesReviewFilter,
+  importFailureMessage,
+  importWasRejected,
+  IMPORT_STEPS,
+} from "@/components/import/ImportJourney";
 
 interface Props {
   projectId: string;
@@ -20,7 +46,7 @@ interface Props {
 export interface ImportDecision {
   externalId: string;
   // 'import' (#659) força uma linha marcada `possibleDuplicate` (Tier B) a ser criada.
-  action?: 'create' | 'skip' | 'link' | 'import';
+  action?: "create" | "skip" | "link" | "import";
   linkToExpenseId?: string;
   overrides?: {
     titulo?: string;
@@ -33,10 +59,16 @@ export interface TxState {
   decision?: ImportDecision;
 }
 
-export default function ImportStatementModal({ projectId, card, onClose, onCommitted }: Props) {
+export default function ImportStatementModal({
+  projectId,
+  card,
+  onClose,
+  onCommitted,
+}: Props) {
+  const flow = useImportJourney<TxState>();
   const [files, setFiles] = useState<File[]>([]);
-  const [source, setSource] = useState('AUTO');
-  const [password, setPassword] = useState('');
+  const [source, setSource] = useState("AUTO");
+  const [password, setPassword] = useState("");
   const [needsPassword, setNeedsPassword] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResult | null>(null);
@@ -49,16 +81,28 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
   const [autoTxStates, setAutoTxStates] = useState<Record<string, TxState>>({});
   const [showFuture, setShowFuture] = useState(false);
 
-  const isPdf = files.some((f) => f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf');
+  const isPdf = files.some(
+    (f) =>
+      f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf",
+  );
 
-  function buildUrl(mode: 'preview' | 'commit') {
+  function buildUrl(mode: "preview" | "commit") {
     const params = new URLSearchParams({ source, mode });
-    if (password) params.set('password', password);
+    if (password) params.set("password", password);
     return `/projects/${projectId}/credit-cards/${card.id}/import-statement?${params.toString()}`;
   }
 
   async function handlePreview() {
-    if (files.length === 0) { setError('Selecione um arquivo'); return; }
+    if (flow.sending.current) return;
+    if (preview) {
+      flow.setStage("review");
+      return;
+    }
+    if (files.length === 0) {
+      setError("Selecione um arquivo");
+      return;
+    }
+    flow.sending.current = true;
     setError(null);
     setLoading(true);
     setPreview(null);
@@ -66,20 +110,25 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
     setAutoTxStates({});
     try {
       const fd = new FormData();
-      for (const f of files) fd.append('files', f);
-      const res = await api.upload<PreviewResult>(buildUrl('preview'), fd);
+      for (const f of files) fd.append("files", f);
+      const res = await api.upload<PreviewResult>(buildUrl("preview"), fd);
       setPreview(res);
+      flow.setStage("review");
       // Auto-marca matches únicos como "linked" por padrão (quando houver exatamente 1 match com delta=0)
       const auto: Record<string, TxState> = {};
       for (const tx of res.preview ?? []) {
         // Tier B (#659): nunca auto-vincular uma linha que o servidor marcou
         // como possível duplicata — auto-link cria + quita planejado, e fazer
         // isso em silêncio numa linha talvez-já-existente é o risco de dobra.
-        if (tx.possibleDuplicate) continue;
+        if (tx.duplicate || tx.possibleDuplicate) continue;
         const matches = tx.crossProjectMatches ?? [];
         if (matches.length === 1 && Math.abs(matches[0].deltaCents) < 100) {
           auto[tx.externalId] = {
-            decision: { externalId: tx.externalId, action: 'link', linkToExpenseId: matches[0].expenseId },
+            decision: {
+              externalId: tx.externalId,
+              action: "link",
+              linkToExpenseId: matches[0].expenseId,
+            },
           };
         }
       }
@@ -87,189 +136,375 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
       setAutoTxStates(auto);
       setNeedsPassword(false);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Erro no preview';
-      if (/pdf_password_required|senha/i.test(msg)) {
+      const msg = e instanceof Error ? e.message : "Erro no preview";
+      if (/pdf_wrong_password|incorreta/i.test(msg)) {
         setNeedsPassword(true);
-        setError('Este PDF está protegido. Informe a senha e tente novamente.');
-      } else if (/pdf_wrong_password|incorreta/i.test(msg)) {
+        setError("Senha incorreta. Tente novamente.");
+      } else if (/pdf_password_required|senha/i.test(msg)) {
         setNeedsPassword(true);
-        setError('Senha incorreta. Tente novamente.');
+        setError("Este PDF está protegido. Informe a senha e tente novamente.");
       } else {
         setError(msg);
       }
     } finally {
+      flow.sending.current = false;
       setLoading(false);
     }
   }
 
   async function handleCommit() {
-    if (files.length === 0 || !preview) return;
+    if (
+      files.length === 0 ||
+      !preview ||
+      flow.sending.current ||
+      flow.uncertain ||
+      flow.stage !== "summary"
+    )
+      return;
+    flow.sending.current = true;
     setLoading(true);
     setError(null);
     try {
       const decisions: ImportDecision[] = Object.values(txStates)
         .map((s) => s.decision)
-        .filter((d): d is ImportDecision => !!d && (!!d.action || !!d.overrides));
+        .filter(
+          (d): d is ImportDecision => !!d && (!!d.action || !!d.overrides),
+        );
       const fd = new FormData();
-      for (const f of files) fd.append('files', f);
-      fd.append('decisions', JSON.stringify(decisions));
-      const res = await api.upload<CommitResult>(buildUrl('commit'), fd);
+      for (const f of files) fd.append("files", f);
+      fd.append("decisions", JSON.stringify(decisions));
+      const res = await api.upload<CommitResult>(buildUrl("commit"), fd);
       setCommitResult(res);
+      flow.setStage("result");
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro no commit');
+      const rejected = importWasRejected(e);
+      flow.setUncertain(!rejected);
+      setError(importFailureMessage(e));
     } finally {
+      flow.sending.current = false;
       setLoading(false);
     }
   }
 
   function updateTx(externalId: string, patch: Partial<TxState>) {
-    setTxStates((s) => ({ ...s, [externalId]: { ...s[externalId], ...patch } }));
-  }
-
-  // Regressão #572: "limpar decisão" apagava a linha inteira do estado,
-  // inclusive o vínculo que o backend já tinha auto-detectado. Agora volta
-  // para o snapshot de auto-detecção (`autoTxStates`) quando existir; só some
-  // de vez quando a linha nunca teve sugestão automática.
-  function clearDecision(externalId: string) {
-    setTxStates((s) => {
-      const next = { ...s };
-      const auto = autoTxStates[externalId];
-      if (auto) {
-        next[externalId] = auto;
-      } else {
-        delete next[externalId];
-      }
-      return next;
-    });
+    setTxStates((s) => ({ ...s, [externalId]: patch }));
   }
 
   const counts = useMemo(() => {
-    if (!preview) return { willCreate: 0, willLink: 0, willSkip: 0, possibleDup: 0, totalCents: 0 };
-    let willCreate = 0, willLink = 0, willSkip = 0, possibleDup = 0, totalCents = 0;
+    if (!preview)
+      return {
+        willCreate: 0,
+        willLink: 0,
+        willSkip: 0,
+        possibleDup: 0,
+        totalCents: 0,
+      };
+    let willCreate = 0,
+      willLink = 0,
+      willSkip = 0,
+      possibleDup = 0,
+      totalCents = 0;
     for (const tx of preview.preview) {
       const d = txStates[tx.externalId]?.decision;
       if (tx.duplicate) continue;
-      if (d?.action === 'skip') { willSkip++; continue; }
+      if (d?.action === "skip") {
+        willSkip++;
+        continue;
+      }
       // Tier B (#659): só "importar mesmo assim" (`action:'import'`) cria a
       // linha — o commit descarta Tier B antes de processar `link`, então
       // vincular não resolve e a linha não conta como nova nem no somatório.
-      if (tx.possibleDuplicate && d?.action !== 'import') {
+      if (tx.possibleDuplicate && d?.action !== "import") {
         possibleDup++;
         continue;
       }
-      if (d?.action === 'link') willLink++;
+      if (d?.action === "link") willLink++;
       else willCreate++;
       totalCents += d?.overrides?.valorCents ?? tx.amountCents;
     }
     return { willCreate, willLink, willSkip, possibleDup, totalCents };
   }, [preview, txStates]);
 
+  const editingTx = preview?.preview.find(
+    (tx) => tx.externalId === flow.editor?.id,
+  );
+  const close = () => flow.requestClose(!!preview, onClose);
+
   return (
     <Modal
       open
-      onClose={onClose}
-      title={`Importar fatura — ${card.nickname ?? `${card.brand} ****${card.last4}`}`}
+      onClose={close}
+      title={`Importar fatura — ${card.nickname ?? `${card.brand} ****${card.last4}`} · ${IMPORT_STEPS[flow.stage]}`}
       size="xl"
       variant="center"
       trapFocus
+      closeDisabled={loading || !!commitResult}
     >
-      {commitResult ? (
-        <CommittedView result={commitResult} onClose={onCommitted} />
-      ) : (
-        <>
-          <UploadStep
-            files={files}
-            setFiles={(f) => {
-              setFiles(f);
-              setPreview(null);
-              setNeedsPassword(false);
-              setPassword('');
-              setTxStates({});
-              setAutoTxStates({});
-            }}
-            source={source} setSource={setSource}
-            password={password} setPassword={setPassword}
-            isPdf={isPdf} needsPassword={needsPassword}
-            loading={loading} onPreview={handlePreview}
-            hasPreview={!!preview}
-          />
+      <ImportJourney
+        stage={flow.stage}
+        origin={card.nickname ?? `${card.brand} ****${card.last4}`}
+        files={files}
+      >
+        <h3
+          ref={flow.headingRef}
+          tabIndex={-1}
+          className="text-lg font-medium text-darc-velvet mb-3"
+        >
+          {flow.editor
+            ? "Revisão · editar lançamento"
+            : IMPORT_STEPS[flow.stage]}
+        </h3>
+        {commitResult ? (
+          <CommittedView result={commitResult} onClose={onCommitted} />
+        ) : (
+          <>
+            {flow.stage === "file" && (
+              <UploadStep
+                files={files}
+                setFiles={(f) => {
+                  setFiles(f);
+                  setPreview(null);
+                  setNeedsPassword(false);
+                  setPassword("");
+                  setTxStates({});
+                  setAutoTxStates({});
+                }}
+                source={source}
+                setSource={setSource}
+                password={password}
+                setPassword={setPassword}
+                isPdf={isPdf}
+                needsPassword={needsPassword}
+                loading={loading}
+                onPreview={handlePreview}
+                hasPreview={!!preview}
+              />
+            )}
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg flex gap-2 mt-3">
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {preview && (
-            <div className="mt-4">
-              <ImportClassificationNotice status={preview.classificationStatus} />
-              <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-3 text-sm">
-                <div>
-                  <strong>{preview.total}</strong> transações ·
-                  total <strong>{formatCurrency((preview.totalAmountCents ?? 0) / 100)}</strong> ·
-                  <strong> {preview.duplicated}</strong> já existentes ·
-                  formato detectado: <strong>{preview.source}</strong>
-                </div>
-                <div className="mt-1 text-xs text-blue-700">
-                  Após confirmar: <strong>{counts.willCreate}</strong> novas ·
-                  <strong> {counts.willLink}</strong> vinculadas a planejado ·
-                  <strong> {counts.willSkip}</strong> ignoradas ·
-                  {counts.possibleDup > 0 && (
-                    <><strong> {counts.possibleDup}</strong> possível(is) duplicata(s) ·</>
-                  )}
-                  soma: <strong>{formatCurrency(counts.totalCents / 100)}</strong>
-                </div>
+            {error && (
+              <div
+                role="alert"
+                className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg flex gap-2 mt-3"
+              >
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <span>{error}</span>
               </div>
+            )}
 
-              <div className="border rounded-xl overflow-hidden">
-                <div className="bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 hidden sm:flex gap-2">
-                  <span className="flex-1">Estabelecimento / Data</span>
-                  <span className="w-32 text-right">Valor (R$)</span>
-                  <span className="w-40">Categoria</span>
-                  <span className="w-12"></span>
-                </div>
-                <div className="max-h-[45dvh] overflow-y-auto divide-y divide-gray-100">
-                  {preview.preview.map((tx) => (
-                    <PreviewTxRow
-                      key={tx.externalId}
-                      tx={tx}
-                      state={txStates[tx.externalId] ?? {}}
-                      onChange={(patch) => updateTx(tx.externalId, patch)}
-                      onClearDecision={() => clearDecision(tx.externalId)}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {(preview.futureInstallments ?? []).length > 0 && (
-                <FutureInstallmentsSection
-                  items={preview.futureInstallments!}
-                  expanded={showFuture}
-                  onToggle={() => setShowFuture((v) => !v)}
+            <p role="status" aria-live="polite" className="sr-only">
+              {loading
+                ? preview
+                  ? "Importando lançamentos"
+                  : "Processando arquivos"
+                : ""}
+            </p>
+            {editingTx && flow.editor ? (
+              <>
+                <PreviewTxRow
+                  tx={editingTx}
+                  state={flow.editor.draft}
+                  onChange={(patch) =>
+                    flow.updateDraft({ ...flow.editor!.draft, ...patch })
+                  }
+                  onClearDecision={() =>
+                    flow.updateDraft(autoTxStates[editingTx.externalId] ?? {})
+                  }
                 />
-              )}
-
-              <div className="flex justify-end gap-2 mt-4">
-                <Button variant="secondary" onClick={onClose} className="min-h-11">Cancelar</Button>
                 <Button
-                  onClick={handleCommit}
-                  disabled={loading || (counts.willCreate + counts.willLink === 0)}
-                  className="min-h-11"
+                  variant="ghost"
+                  onClick={() =>
+                    flow.updateDraft(autoTxStates[editingTx.externalId] ?? {})
+                  }
                 >
-                  {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Importando…</> : <><Upload className="w-4 h-4" /> Confirmar importação</>}
+                  Restaurar dados originais e sugestões
                 </Button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+                <ImportFooter>
+                  <Button variant="secondary" onClick={flow.cancelEditor}>
+                    Cancelar edição
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      updateTx(editingTx.externalId, flow.editor!.draft);
+                      flow.finishEditor();
+                    }}
+                  >
+                    Aplicar à revisão
+                  </Button>
+                </ImportFooter>
+              </>
+            ) : (
+              preview &&
+              flow.stage !== "file" && (
+                <div className="mt-4">
+                  <ImportClassificationNotice
+                    status={preview.classificationStatus}
+                  />
+                  <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-3 text-sm">
+                    <div>
+                      <strong>{preview.total}</strong> transações · total{" "}
+                      <strong>
+                        {formatCurrency((preview.totalAmountCents ?? 0) / 100)}
+                      </strong>{" "}
+                      ·<strong> {preview.duplicated}</strong> já existentes ·
+                      formato detectado: <strong>{preview.source}</strong>
+                    </div>
+                    <div className="mt-1 text-xs text-blue-700">
+                      Após confirmar: <strong>{counts.willCreate}</strong> novas
+                      ·<strong> {counts.willLink}</strong> vinculadas a
+                      planejado ·<strong> {counts.willSkip}</strong> ignoradas ·
+                      {counts.possibleDup > 0 && (
+                        <>
+                          <strong> {counts.possibleDup}</strong> possível(is)
+                          duplicata(s) ·
+                        </>
+                      )}
+                      soma:{" "}
+                      <strong>{formatCurrency(counts.totalCents / 100)}</strong>
+                    </div>
+                  </div>
+
+                  {flow.stage === "review" ? (
+                    <>
+                      <ImportFilters
+                        statuses={preview.preview.map((tx) =>
+                          reviewStatus(tx, txStates[tx.externalId]?.decision),
+                        )}
+                        value={flow.filter}
+                        onChange={flow.setFilter}
+                      />
+                      {preview.preview
+                        .filter((tx) =>
+                          matchesReviewFilter(
+                            reviewStatus(tx, txStates[tx.externalId]?.decision),
+                            flow.filter,
+                          ),
+                        )
+                        .map((tx) => {
+                          const state = txStates[tx.externalId] ?? {};
+                          const decision = state.decision;
+                          const match = tx.crossProjectMatches?.find(
+                            (m) => m.expenseId === decision?.linkToExpenseId,
+                          );
+                          return (
+                            <ImportReviewRow
+                              key={tx.externalId}
+                              title={decision?.overrides?.titulo ?? tx.merchant}
+                              fonte={
+                                decision?.overrides?.category === undefined
+                                  ? tx.categoriaFonte
+                                  : null
+                              }
+                              date={tx.date}
+                              amountCents={
+                                decision?.overrides?.valorCents ??
+                                tx.amountCents
+                              }
+                              purpose={
+                                match?.projectName ??
+                                tipoLabel(
+                                  decision?.overrides?.category ??
+                                    tx.suggestedCategory ??
+                                    "OUTROS",
+                                )
+                              }
+                              status={reviewStatus(tx, decision)}
+                              onEdit={() =>
+                                flow.openEditor(tx.externalId, state)
+                              }
+                              buttonRef={(node) => {
+                                if (node)
+                                  flow.rows.current.set(tx.externalId, node);
+                                else flow.rows.current.delete(tx.externalId);
+                              }}
+                            />
+                          );
+                        })}
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-600">
+                      Os valores pertencem à fatura deste cartão, não são uma
+                      saída imediata da conta. Confira também as parcelas
+                      futuras.
+                    </p>
+                  )}
+
+                  {(preview.futureInstallments ?? []).length > 0 && (
+                    <FutureInstallmentsSection
+                      items={preview.futureInstallments!}
+                      expanded={showFuture}
+                      onToggle={() => setShowFuture((v) => !v)}
+                    />
+                  )}
+
+                  <ImportFooter>
+                    <Button
+                      variant="ghost"
+                      disabled={loading}
+                      onClick={() =>
+                        flow.setStage(
+                          flow.stage === "summary" ? "review" : "file",
+                        )
+                      }
+                    >
+                      Voltar
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={loading}
+                      onClick={close}
+                      className="min-h-11"
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      onClick={
+                        flow.stage === "summary"
+                          ? handleCommit
+                          : () => flow.setStage("summary")
+                      }
+                      disabled={
+                        loading ||
+                        flow.uncertain ||
+                        counts.willCreate + counts.willLink === 0
+                      }
+                      className="min-h-11"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />{" "}
+                          Importando…
+                        </>
+                      ) : flow.stage === "summary" ? (
+                        <>
+                          <Upload className="w-4 h-4" /> Confirmar importação
+                        </>
+                      ) : (
+                        "Ver resumo"
+                      )}
+                    </Button>
+                  </ImportFooter>
+                </div>
+              )
+            )}
+          </>
+        )}
+      </ImportJourney>
     </Modal>
   );
 }
 
 function UploadStep({
-  files, setFiles, source, setSource, password, setPassword, isPdf, needsPassword, loading, onPreview, hasPreview,
+  files,
+  setFiles,
+  source,
+  setSource,
+  password,
+  setPassword,
+  isPdf,
+  needsPassword,
+  loading,
+  onPreview,
+  hasPreview,
 }: {
   files: File[];
   setFiles: (f: File[]) => void;
@@ -286,12 +521,27 @@ function UploadStep({
   return (
     <div className="space-y-3 mb-4">
       <div>
-        <label className="text-sm text-gray-600">Arquivos (OFX, CSV, TXT, PDF, XLSX/XLS ou 📷 até 5 prints/fotos, máx 10MB cada)</label>
+        <label className="text-sm text-gray-600">
+          Arquivos (OFX, CSV, TXT, PDF, XLSX/XLS ou 📷 até 5 prints/fotos, máx
+          10MB cada)
+        </label>
         <input
           type="file"
+          disabled={loading}
+          onClick={(event) => {
+            if (
+              hasPreview &&
+              !window.confirm(
+                "Trocar arquivos descarta a revisão atual. Continuar?",
+              )
+            )
+              event.preventDefault();
+          }}
           multiple
           accept=".ofx,.csv,.txt,.pdf,.xlsx,.xls,image/png,image/jpeg,image/webp,image/heic,.png,.jpg,.jpeg,.webp,.heic"
-          onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 5))}
+          onChange={(e) =>
+            setFiles(Array.from(e.target.files ?? []).slice(0, 5))
+          }
           className="w-full border rounded-lg p-2"
         />
         {files.length > 0 && (
@@ -302,13 +552,20 @@ function UploadStep({
                 {f.name}
               </li>
             ))}
-            {files.length >= 5 && <li className="text-amber-600">Máximo de 5 arquivos por lote.</li>}
+            {files.length >= 5 && (
+              <li className="text-amber-600">Máximo de 5 arquivos por lote.</li>
+            )}
           </ul>
         )}
       </div>
       <div>
         <label className="text-sm text-gray-600">Formato</label>
-        <select value={source} onChange={(e) => setSource(e.target.value)} className="w-full border rounded-lg p-2">
+        <select
+          value={source}
+          disabled={hasPreview || loading}
+          onChange={(e) => setSource(e.target.value)}
+          className="w-full border rounded-lg p-2"
+        >
           <option value="AUTO">Auto-detectar</option>
           <option value="OFX">OFX</option>
           <option value="CSV_NUBANK">CSV Nubank</option>
@@ -320,10 +577,14 @@ function UploadStep({
       {(isPdf || needsPassword) && (
         <div>
           <label className="text-sm text-gray-600">
-            Senha do PDF {!needsPassword && <span className="text-gray-400">(se houver)</span>}
+            Senha do PDF{" "}
+            {!needsPassword && (
+              <span className="text-gray-400">(se houver)</span>
+            )}
           </label>
           <input
             type="password"
+            disabled={hasPreview || loading}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Senha (ex: 6 últimos do CPF ou data nasc DDMMAAAA)"
@@ -334,22 +595,22 @@ function UploadStep({
       )}
       <Button
         onClick={onPreview}
-        disabled={files.length === 0 || loading || hasPreview}
+        disabled={files.length === 0 || loading}
         className="w-full"
         variant="secondary"
       >
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-        {loading ? 'Processando…' : 'Pré-visualizar'}
+        {loading
+          ? "Processando…"
+          : hasPreview
+            ? "Continuar revisão"
+            : "Pré-visualizar"}
       </Button>
-      {/* Regressão #572: clicar de novo em "Pré-visualizar" com prévia já
-          carregada apagava silenciosamente exclusões/edições/vínculos do
-          usuário (`setTxStates({})` no início de `handlePreview`). O botão
-          fica desabilitado enquanto a prévia existir — reprocessar exige
-          escolher o(s) arquivo(s) de novo, que já limpa a prévia de forma
-          explícita. */}
+      {/* Voltar ao arquivo mantém a revisão; continuar não reprocessa. */}
       {hasPreview && (
         <p className="text-xs text-gray-500 -mt-1">
-          Prévia já carregada. Para reprocessar, escolha o(s) arquivo(s) novamente acima.
+          Prévia já carregada. Para reprocessar, escolha o(s) arquivo(s)
+          novamente acima.
         </p>
       )}
     </div>
@@ -357,13 +618,26 @@ function UploadStep({
 }
 
 function FutureInstallmentsSection({
-  items, expanded, onToggle,
-}: { items: PreviewTx[]; expanded: boolean; onToggle: () => void }) {
+  items,
+  expanded,
+  onToggle,
+}: {
+  items: PreviewTx[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const total = items.reduce((s, t) => s + t.amountCents, 0);
   return (
     <div className="mt-3 border border-amber-200 bg-amber-50 rounded-lg">
-      <button onClick={onToggle} className="w-full px-3 py-2 flex items-center gap-2 text-sm">
-        {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+      <button
+        onClick={onToggle}
+        className="w-full px-3 py-2 flex items-center gap-2 text-sm"
+      >
+        {expanded ? (
+          <ChevronDown className="w-4 h-4" />
+        ) : (
+          <ChevronRight className="w-4 h-4" />
+        )}
         <span className="font-medium text-amber-900">
           {items.length} parcela(s) futura(s) — {formatCurrency(total / 100)}
         </span>
@@ -374,9 +648,19 @@ function FutureInstallmentsSection({
       {expanded && (
         <div className="border-t border-amber-200 max-h-48 overflow-y-auto text-xs">
           {items.map((t) => (
-            <div key={t.externalId} className="px-3 py-1.5 flex justify-between border-b border-amber-100 last:border-0">
-              <span>{t.merchant}{t.installmentCurrent && t.installmentTotal ? ` (${t.installmentCurrent}/${t.installmentTotal})` : ''}</span>
-              <span className="font-mono">{formatCurrency(t.amountCents / 100)}</span>
+            <div
+              key={t.externalId}
+              className="px-3 py-1.5 flex justify-between border-b border-amber-100 last:border-0"
+            >
+              <span>
+                {t.merchant}
+                {t.installmentCurrent && t.installmentTotal
+                  ? ` (${t.installmentCurrent}/${t.installmentTotal})`
+                  : ""}
+              </span>
+              <span className="font-mono whitespace-nowrap">
+                {formatCurrency(t.amountCents / 100)}
+              </span>
             </div>
           ))}
         </div>
@@ -385,14 +669,25 @@ function FutureInstallmentsSection({
   );
 }
 
-function CommittedView({ result, onClose }: { result: CommitResult; onClose: () => void }) {
+function CommittedView({
+  result,
+  onClose,
+}: {
+  result: CommitResult;
+  onClose: () => void;
+}) {
   return (
     <div className="text-center py-8">
+      <ImportWarnings warnings={result.postCommitWarnings} />
       <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
       <h3 className="text-xl font-semibold mb-2">Importação concluída</h3>
       <div className="text-gray-700 space-y-1">
-        <p><strong>{result.inserted}</strong> novas transações</p>
-        <p><strong>{result.duplicated}</strong> ignoradas (duplicadas)</p>
+        <p>
+          <strong>{result.inserted}</strong> novas transações
+        </p>
+        <p>
+          <strong>{result.duplicated}</strong> ignoradas (duplicadas)
+        </p>
         {!!result.duplicatedItems?.length && (
           <details className="text-left mt-1 mx-auto max-w-md">
             <summary className="text-sm text-gray-500 cursor-pointer select-none">
@@ -400,11 +695,16 @@ function CommittedView({ result, onClose }: { result: CommitResult; onClose: () 
             </summary>
             <ul className="mt-2 divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
               {result.duplicatedItems.map((it) => (
-                <li key={it.externalId} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
+                <li
+                  key={it.externalId}
+                  className="flex items-baseline justify-between gap-3 px-3 py-1.5"
+                >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-gray-700">{it.description}</span>
+                    <span className="block truncate text-sm text-gray-700">
+                      {it.description}
+                    </span>
                     <span className="block text-xs text-gray-400">
-                      {new Date(it.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+                      {formatDateBR(it.date)}
                     </span>
                   </span>
                   <span className="shrink-0 whitespace-nowrap text-sm tabular-nums text-gray-600">
@@ -417,27 +717,48 @@ function CommittedView({ result, onClose }: { result: CommitResult; onClose: () 
         )}
         {!!result.possibleDuplicates?.length && (
           <p className="text-orange-700">
-            <strong>{result.possibleDuplicates.length}</strong> possível(is) duplicata(s) não importada(s) — marque “Importar mesmo assim” para incluí-las.
+            <strong>{result.possibleDuplicates.length}</strong> possível(is)
+            duplicata(s) não importada(s) — marque “Importar mesmo assim” para
+            incluí-las.
           </p>
         )}
-        <p><strong>{result.settled}</strong> parcelas planejadas marcadas como pagas</p>
-        {!!result.linked && <p><strong>{result.linked}</strong> vinculadas a despesas planejadas em outros projetos</p>}
+        <p>
+          <strong>{result.settled}</strong> parcelas planejadas marcadas como
+          pagas
+        </p>
+        {!!result.linked && (
+          <p>
+            <strong>{result.linked}</strong> vinculadas a despesas planejadas em
+            outros projetos
+          </p>
+        )}
         {!!result.rulesLearned && (
-          <p><strong>{result.rulesLearned}</strong> correção(ões) viraram regra para o futuro</p>
+          <p>
+            <strong>{result.rulesLearned}</strong> correção(ões) viraram regra
+            para o futuro
+          </p>
         )}
         {!!result.rulesSkippedNoMapping && (
           <p className="text-gray-500">
-            <strong>{result.rulesSkippedNoMapping}</strong> correção(ões) foram aplicadas à linha, mas não viraram regra: esse tipo não tem categoria equivalente.
+            <strong>{result.rulesSkippedNoMapping}</strong> correção(ões) foram
+            aplicadas à linha, mas não viraram regra: esse tipo não tem
+            categoria equivalente.
           </p>
         )}
         {!!result.rulesLearnFailed && (
           <p className="text-amber-700">
-            A importação foi concluída, mas não foi possível salvar <strong>{result.rulesLearnFailed}</strong> regra(s). Recategorize essas linhas para tentar de novo — a importação em si não falhou.
+            A importação foi concluída, mas não foi possível salvar{" "}
+            <strong>{result.rulesLearnFailed}</strong> regra(s). Recategorize
+            essas linhas para tentar de novo — a importação em si não falhou.
           </p>
         )}
-        <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>
+        <p className="text-sm text-gray-500 mt-2">
+          Período: {result.periodLabel}
+        </p>
       </div>
-      <Button onClick={onClose} className="mt-6">Fechar</Button>
+      <Button onClick={onClose} className="mt-6">
+        Concluir
+      </Button>
     </div>
   );
 }

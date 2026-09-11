@@ -103,6 +103,9 @@ async function loadPreview(credit: boolean, linked = false, multiple = false) {
   });
   fetchMock.mockResolvedValueOnce(Response.json(preview));
   fireEvent.click(screen.getByRole("button", { name: /pré-visualizar/i }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Revisar QA ordinary movement" }),
+  );
   await screen.findByDisplayValue("500,00");
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(
@@ -127,6 +130,11 @@ function commitPayload(callIndex: number, file: File): BankImportDecision[] {
   return JSON.parse(String(body.get("decisions"))) as BankImportDecision[];
 }
 
+function toSummary() {
+  fireEvent.click(screen.getByRole("button", { name: "Aplicar à revisão" }));
+  fireEvent.click(screen.getByRole("button", { name: "Ver resumo" }));
+}
+
 describe("ImportBankStatementModal — magnitude versus bank direction", () => {
   it.each([
     { direction: "credit", credit: true, summaryReais: [[0], [600]] },
@@ -139,9 +147,11 @@ describe("ImportBankStatementModal — magnitude versus bank direction", () => {
       fireEvent.change(screen.getByDisplayValue("500,00"), {
         target: { value: "600,00" },
       });
-      // The ordinary single-row fixture formats only the modal's outgoing,
-      // then incoming totals (in reais). No test-side state or summary formula.
-      expect(vi.mocked(formatCurrency).mock.calls).toEqual(summaryReais);
+      toSummary();
+      // Assert the ordered outgoing/incoming pair on Summary, not editor formatting.
+      expect(vi.mocked(formatCurrency).mock.calls.slice(-2)).toEqual(
+        summaryReais,
+      );
       const result: BankCommitResult = {
         importId: "qa-import",
         source: "OFX",
@@ -178,6 +188,7 @@ describe("ImportBankStatementModal — magnitude versus bank direction", () => {
     fireEvent.change(screen.getByDisplayValue("500,00"), {
       target: { value: "600,00" },
     });
+    toSummary();
     // Transport fixture, not an assertion about the backend's chosen wording.
     // api.upload executes for real and converts the 400 body to Error.message.
     const message = "QA: remova o vínculo antes de alterar o valor.";
@@ -203,6 +214,7 @@ describe("ImportBankStatementModal — magnitude versus bank direction", () => {
       expect(onCommitted).not.toHaveBeenCalled();
       expect(onClose).not.toHaveBeenCalled();
     }
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     fireEvent.click(screen.getByRole("button", { name: "Fechar" }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCommitted).not.toHaveBeenCalled();
@@ -248,6 +260,7 @@ describe("ImportBankStatementModal — magnitude versus bank direction", () => {
         });
       }
       if (credit && edited) {
+        toSummary();
         const message = "QA: remova o vínculo antes de alterar o valor.";
         fetchMock.mockResolvedValueOnce(
           Response.json({ message }, { status: 400 }),
@@ -266,13 +279,20 @@ describe("ImportBankStatementModal — magnitude versus bank direction", () => {
         ]);
         expect(onCommitted).not.toHaveBeenCalled();
         expect(onClose).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole("button", { name: "Voltar" }));
+        fireEvent.click(
+          screen.getByRole("button", { name: "Revisar QA edited movement" }),
+        );
       }
 
-      fireEvent.click(screen.getByRole("button", { name: "Vinculado" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Desvincular e manter edições" }),
+      );
       // Read the real controlled input, then the real multipart commit; no copied state.
       expect(
         screen.getByDisplayValue(edited ? "600,00" : "500,00"),
       ).toBeDefined();
+      toSummary();
       const callIndex = fetchMock.mock.calls.length;
       const result: BankCommitResult = {
         importId: "qa-import",
@@ -329,7 +349,10 @@ describe("ImportBankStatementModal — magnitude versus bank direction", () => {
         target: { value: credit ? "SALARIO" : "TRANSPORTE" },
       });
       fireEvent.click(screen.getByTitle("Excluir desta importação"));
-      fireEvent.click(screen.getByTitle("Restaurar"));
+      fireEvent.click(
+        screen.getByTitle("Restaurar dados originais e sugestões"),
+      );
+      toSummary();
       const message = "QA: inspect restored payload";
       fetchMock.mockResolvedValueOnce(
         Response.json({ message }, { status: 400 }),

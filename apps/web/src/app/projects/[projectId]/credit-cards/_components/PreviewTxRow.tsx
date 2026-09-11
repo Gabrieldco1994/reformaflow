@@ -1,33 +1,37 @@
-'use client';
+"use client";
 
-import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
-import { Trash2, Link2, RotateCcw, Check } from 'lucide-react';
-import { tipoLabel } from '@/lib/expense-options';
-import type { PreviewTx, CrossProjectMatch } from '../_types';
-import type { ImportDecision, TxState } from './ImportStatementModal';
-import { CategoriaFonteChip } from '@/components/import/ImportClassificationNotice';
-import { PossibleDuplicateNotice } from '@/components/import/PossibleDuplicateNotice';
+import { formatCurrency, formatDateBR } from "@/lib/utils";
+import {
+  centsToReaisInput,
+  currencyInputToCents,
+  maskCurrencyInput,
+} from "@/lib/currency-input";
+import { Trash2, Link2, RotateCcw, Check } from "lucide-react";
+import { tipoLabel } from "@/lib/expense-options";
+import type { PreviewTx, CrossProjectMatch } from "../_types";
+import type { ImportDecision, TxState } from "./ImportStatementModal";
+import { CategoriaFonteChip } from "@/components/import/ImportClassificationNotice";
+import { PossibleDuplicateNotice } from "@/components/import/PossibleDuplicateNotice";
 
 const PESSOAL_CATEGORIES = [
-  { value: 'MORADIA', label: 'Moradia' },
-  { value: 'ALIMENTACAO', label: 'Alimentação' },
-  { value: 'TRANSPORTE', label: 'Transporte' },
-  { value: 'SAUDE', label: 'Saúde' },
-  { value: 'EDUCACAO', label: 'Educação' },
-  { value: 'LAZER', label: 'Lazer' },
-  { value: 'BELEZA', label: 'Beleza' },
-  { value: 'PETS', label: 'Pets' },
-  { value: 'SUPERMERCADO', label: 'Supermercado' },
-  { value: 'FAXINEIRA', label: 'Faxineira' },
-  { value: 'AJUDA', label: 'Ajuda' },
-  { value: 'REEMBOLSO_MEDICO', label: 'Reembolso Médico' },
-  { value: 'ACADEMIA', label: 'Academia' },
-  { value: 'ASSINATURAS', label: 'Assinaturas' },
-  { value: 'INVESTIMENTOS', label: 'Investimentos' },
-  { value: 'SEGUROS_PESSOAIS', label: 'Seguros' },
-  { value: 'IMPREVISTOS', label: 'Imprevistos' },
-  { value: 'OUTROS', label: 'Outros' },
+  { value: "MORADIA", label: "Moradia" },
+  { value: "ALIMENTACAO", label: "Alimentação" },
+  { value: "TRANSPORTE", label: "Transporte" },
+  { value: "SAUDE", label: "Saúde" },
+  { value: "EDUCACAO", label: "Educação" },
+  { value: "LAZER", label: "Lazer" },
+  { value: "BELEZA", label: "Beleza" },
+  { value: "PETS", label: "Pets" },
+  { value: "SUPERMERCADO", label: "Supermercado" },
+  { value: "FAXINEIRA", label: "Faxineira" },
+  { value: "AJUDA", label: "Ajuda" },
+  { value: "REEMBOLSO_MEDICO", label: "Reembolso Médico" },
+  { value: "ACADEMIA", label: "Academia" },
+  { value: "ASSINATURAS", label: "Assinaturas" },
+  { value: "INVESTIMENTOS", label: "Investimentos" },
+  { value: "SEGUROS_PESSOAIS", label: "Seguros" },
+  { value: "IMPREVISTOS", label: "Imprevistos" },
+  { value: "OUTROS", label: "Outros" },
 ];
 
 interface RowProps {
@@ -37,32 +41,44 @@ interface RowProps {
   onClearDecision: () => void;
 }
 
-export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps) {
-  const isSkipped = state.decision?.action === 'skip';
-  const isLinked = state.decision?.action === 'link';
-  const isForcedImport = state.decision?.action === 'import';
+export function PreviewTxRow({
+  tx,
+  state,
+  onChange,
+  onClearDecision,
+}: RowProps) {
+  const isSkipped = state.decision?.action === "skip";
+  const isLinked = state.decision?.action === "link";
+  const isForcedImport = state.decision?.action === "import";
   const possibleDuplicate = tx.possibleDuplicate ?? null;
   const matches = tx.crossProjectMatches ?? [];
   const valorCents = state.decision?.overrides?.valorCents ?? tx.amountCents;
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
   const categoryOverridden = state.decision?.overrides?.category != null;
-  const category = state.decision?.overrides?.category ?? tx.suggestedCategory ?? 'OUTROS';
+  const category =
+    state.decision?.overrides?.category ?? tx.suggestedCategory ?? "OUTROS";
   // Lista fixa; um `suggestedCategory` fora dela (ex.: TRANSFERENCIA_TED vindo de
   // uma regra) deixaria o campo em branco — injeta a opção do valor selecionado.
   const knownCategoryValues = new Set(PESSOAL_CATEGORIES.map((c) => c.value));
-  const showDynamicCategoryOption = !!category && !knownCategoryValues.has(category);
+  const showDynamicCategoryOption =
+    !!category && !knownCategoryValues.has(category);
 
-  function setOverride(patch: Partial<NonNullable<ImportDecision['overrides']>>) {
+  function setOverride(
+    patch: Partial<NonNullable<ImportDecision["overrides"]>>,
+  ) {
     onChange({
       decision: {
-        ...(state.decision ?? { externalId: tx.externalId, action: 'create' }),
+        ...(state.decision ?? { externalId: tx.externalId, action: "create" }),
         externalId: tx.externalId,
         overrides: { ...(state.decision?.overrides ?? {}), ...patch },
       },
     });
   }
 
-  function setAction(action: 'skip' | 'link' | 'create' | 'import', linkToExpenseId?: string) {
+  function setAction(
+    action: "skip" | "link" | "create" | "import",
+    linkToExpenseId?: string,
+  ) {
     onChange({
       decision: {
         ...(state.decision ?? { externalId: tx.externalId }),
@@ -88,21 +104,25 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
   }
 
   const rowClass = isSkipped
-    ? 'bg-red-50 line-through text-gray-400'
+    ? "bg-red-50 line-through text-gray-400"
     : isLinked
-      ? 'bg-green-50'
+      ? "bg-green-50"
       : tx.duplicate
-        ? 'bg-yellow-50 text-gray-500'
+        ? "bg-yellow-50 text-gray-500"
         : possibleDuplicate && !isForcedImport
-          ? 'bg-orange-50'
-          : '';
+          ? "bg-orange-50"
+          : "";
 
   return (
-    <div className={`border-b p-3 ${rowClass}`}>
+    <fieldset
+      disabled={tx.duplicate}
+      className={`border-b p-3 min-w-0 ${rowClass}`}
+    >
       <div className="flex items-start gap-2 flex-wrap">
         <div className="flex-1 min-w-[200px]">
           <input
             type="text"
+            aria-label="Descrição"
             value={titulo}
             disabled={isSkipped}
             onChange={(e) => setOverride({ titulo: e.target.value })}
@@ -112,11 +132,11 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
             {formatDateBR(tx.date)}
             {tx.installmentCurrent && tx.installmentTotal
               ? ` · parc. ${tx.installmentCurrent}/${tx.installmentTotal}`
-              : ''}
+              : ""}
           </div>
         </div>
 
-        <div className="w-32">
+        <div className="w-full sm:w-44">
           {/* Negativo é legítimo aqui (auditoria #572): linha da fatura pode
               ser um estorno/crédito (valorCents < 0), diferente da prévia de
               extrato de conta que sempre usa valor absoluto — por isso usa
@@ -124,15 +144,22 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
           <input
             type="text"
             inputMode="numeric"
+            aria-label="Valor da origem"
             value={centsToReaisInput(valorCents)}
             disabled={isSkipped}
-            onChange={(e) => setOverride({ valorCents: currencyInputToCents(maskCurrencyInput(e.target.value)) || 0 })}
+            onChange={(e) =>
+              setOverride({
+                valorCents:
+                  currencyInputToCents(maskCurrencyInput(e.target.value)) || 0,
+              })
+            }
             className="w-full px-2 py-1 border rounded text-sm text-right font-mono"
           />
         </div>
 
         <div className="w-40">
           <select
+            aria-label="Categoria da origem"
             value={category}
             disabled={isSkipped}
             onChange={(e) => setOverride({ category: e.target.value })}
@@ -142,16 +169,20 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
               <option value={category}>{tipoLabel(category)}</option>
             )}
             {PESSOAL_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
             ))}
           </select>
-          {!categoryOverridden && <CategoriaFonteChip fonte={tx.categoriaFonte} />}
+          {!categoryOverridden && (
+            <CategoriaFonteChip fonte={tx.categoriaFonte} />
+          )}
         </div>
 
         <div className="flex gap-1">
           {!isSkipped ? (
             <button
-              onClick={() => setAction('skip')}
+              onClick={() => setAction("skip")}
               title="Excluir desta importação"
               className="p-1.5 text-red-600 hover:bg-red-100 rounded"
             >
@@ -160,7 +191,7 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
           ) : (
             <button
               onClick={onClearDecision}
-              title="Restaurar"
+              title="Restaurar dados originais e sugestões"
               className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
             >
               <RotateCcw className="w-4 h-4" />
@@ -179,7 +210,7 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
         <PossibleDuplicateNotice
           info={possibleDuplicate}
           optedIn={isForcedImport}
-          onToggle={(next) => (next ? setAction('import') : clearImportOptIn())}
+          onToggle={(next) => (next ? setAction("import") : clearImportOptIn())}
         />
       )}
 
@@ -192,20 +223,21 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
             📌 Encontrado em outro(s) projeto(s):
           </div>
           {matches.map((m) => {
-            const isThisLinked = isLinked && state.decision?.linkToExpenseId === m.expenseId;
+            const isThisLinked =
+              isLinked && state.decision?.linkToExpenseId === m.expenseId;
             return (
               <MatchChip
                 key={m.expenseId}
                 match={m}
                 isLinked={isThisLinked}
-                onLink={() => setAction('link', m.expenseId)}
-                onUnlink={onClearDecision}
+                onLink={() => setAction("link", m.expenseId)}
+                onUnlink={() => setAction("create")}
               />
             );
           })}
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }
 
@@ -221,24 +253,41 @@ function MatchChip({
   onUnlink: () => void;
 }) {
   const delta = match.deltaCents;
-  const deltaTxt = delta === 0 ? 'igual' : `${delta > 0 ? '+' : ''}${formatCurrency(delta / 100)}`;
+  const deltaTxt =
+    delta === 0
+      ? "igual"
+      : `${delta > 0 ? "+" : ""}${formatCurrency(delta / 100)}`;
   return (
-    <div className="flex items-center justify-between text-xs bg-white rounded px-2 py-1">
-      <div className="flex-1">
+    <div className="flex flex-col items-start gap-2 text-xs bg-white rounded px-2 py-1">
+      <div className="min-w-0 break-words">
         <span className="font-semibold">{match.projectName}</span>
-        <span className="text-gray-500"> · {match.titulo ?? '(sem título)'}</span>
+        <span className="text-gray-500">
+          {" "}
+          · {match.titulo ?? "(sem título)"}
+        </span>
         {match.installmentCurrent && match.installmentTotal && (
-          <span className="text-gray-500"> · parcela {match.installmentCurrent}/{match.installmentTotal}</span>
+          <span className="text-gray-500">
+            {" "}
+            · parcela {match.installmentCurrent}/{match.installmentTotal}
+          </span>
         )}
-        <span className="text-gray-500"> · {formatCurrency(match.valorCents / 100)}</span>
-        <span className="text-gray-400"> · {formatDateBR(match.data)} · Δ {deltaTxt}</span>
+        <span className="text-gray-500 whitespace-nowrap">
+          {" "}
+          · {formatCurrency(match.valorCents / 100)}
+        </span>
+        <span className="text-gray-400">
+          {" "}
+          · {formatDateBR(match.data)} ·{" "}
+          <span className="whitespace-nowrap">Δ {deltaTxt}</span>
+        </span>
       </div>
       {isLinked ? (
         <button
           onClick={onUnlink}
+          aria-label="Desvincular e manter edições"
           className="flex items-center gap-1 px-2 py-0.5 bg-green-600 text-white rounded text-xs"
         >
-          <Check className="w-3 h-3" /> Vinculado
+          <Check className="w-3 h-3" /> Desvincular
         </button>
       ) : (
         <button

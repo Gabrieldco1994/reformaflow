@@ -1,11 +1,11 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import ImportHistoryModal from './ImportHistoryModal';
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import ImportHistoryModal from "./ImportHistoryModal";
 
 const apiGet = vi.fn();
 const apiDelete = vi.fn();
 
-vi.mock('@/lib/api', () => ({
+vi.mock("@/lib/api", () => ({
   api: {
     get: (...args: unknown[]) => apiGet(...args),
     delete: (...args: unknown[]) => apiDelete(...args),
@@ -13,27 +13,27 @@ vi.mock('@/lib/api', () => ({
   ApiResponseError: class extends Error {},
 }));
 
-const BASE = '/projects/p1/credit-cards/c1';
+const BASE = "/projects/p1/credit-cards/c1";
 
 const IMPORTS = [
   {
-    id: 'imp1',
-    periodLabel: '2026-06',
-    fileName: 'fatura.csv',
-    source: 'CSV_NUBANK',
+    id: "imp1",
+    periodLabel: "2026-06",
+    fileName: "fatura.csv",
+    source: "CSV_NUBANK",
     inserted: 3,
     duplicated: 0,
     totalAmountCents: 30000,
-    createdAt: '2026-06-01T12:00:00.000Z',
+    createdAt: "2026-06-01T12:00:00.000Z",
     deletedAt: null,
   },
 ];
 
 const DETAIL = {
-  importId: 'imp1',
-  periodLabel: '2026-06',
-  fileName: 'fatura.csv',
-  createdAt: '2026-06-01T12:00:00.000Z',
+  importId: "imp1",
+  periodLabel: "2026-06",
+  fileName: "fatura.csv",
+  createdAt: "2026-06-01T12:00:00.000Z",
   alreadyUndone: false,
   totalAmountCents: 30000,
   impact: {
@@ -44,38 +44,87 @@ const DETAIL = {
   },
 };
 
-describe('ImportHistoryModal', () => {
+describe("ImportHistoryModal", () => {
   beforeEach(() => {
     apiGet.mockReset();
     apiDelete.mockReset();
   });
 
-  it('lista importações, mostra impacto e desfaz com confirmação', async () => {
+  it("#690: detalhes explicam bloqueio por alteração do destino sem oferecer exclusão permitida só no cliente", async () => {
+    apiGet.mockResolvedValueOnce(IMPORTS).mockResolvedValueOnce({
+      ...DETAIL,
+      canUndo: false,
+      blockReason: "INLINE_IMPORT_DRIFT",
+      inlineExpenses: [
+        {
+          sourceExpenseId: "source",
+          targetExpenseId: "target",
+          targetProjectId: "p2",
+          amountCents: 30000,
+        },
+      ],
+    });
+    render(
+      <ImportHistoryModal
+        basePath={BASE}
+        title="Importações"
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /ver detalhes/i }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /nada será desfeito/i,
+    );
+    const undo = screen.getByRole("button", { name: "Desfazer importação" });
+    expect(undo).toBeDisabled();
+    fireEvent.click(undo);
+    expect(apiDelete).not.toHaveBeenCalled();
+  });
+
+  it("lista importações, mostra impacto e desfaz com confirmação", async () => {
     apiGet.mockResolvedValueOnce(IMPORTS); // GET /imports
     apiGet.mockResolvedValueOnce(DETAIL); // GET /imports/imp1
     apiDelete.mockResolvedValueOnce({ ok: true });
     apiGet.mockResolvedValueOnce([]); // reload após desfazer
 
-    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
+    render(
+      <ImportHistoryModal
+        basePath={BASE}
+        title="Importações"
+        onClose={() => {}}
+      />,
+    );
 
     // Passo 1: histórico
-    expect(await screen.findByText(/2026-06 · fatura\.csv/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/2026-06 · fatura\.csv/),
+    ).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledWith(`${BASE}/imports`);
 
     // abre o preview de impacto
-    fireEvent.click(screen.getByRole('button', { name: /desfazer/i }));
-    await waitFor(() => expect(apiGet).toHaveBeenCalledWith(`${BASE}/imports/imp1`));
+    fireEvent.click(screen.getByRole("button", { name: /ver detalhes/i }));
+    await waitFor(() =>
+      expect(apiGet).toHaveBeenCalledWith(`${BASE}/imports/imp1`),
+    );
 
     // Passo 2: impacto listado
-    expect(await screen.findByText('Despesas removidas')).toBeInTheDocument();
-    expect(screen.getByText('Vínculos entre projetos desfeitos')).toBeInTheDocument();
+    expect(await screen.findByText("Despesas removidas")).toBeInTheDocument();
+    expect(
+      screen.getByText("Vínculos entre projetos desfeitos"),
+    ).toBeInTheDocument();
 
     // confirma o desfazer
-    fireEvent.click(screen.getByRole('button', { name: /desfazer importação/i }));
-    await waitFor(() => expect(apiDelete).toHaveBeenCalledWith(`${BASE}/imports/imp1`));
+    fireEvent.click(
+      screen.getByRole("button", { name: /desfazer importação/i }),
+    );
+    await waitFor(() =>
+      expect(apiDelete).toHaveBeenCalledWith(`${BASE}/imports/imp1`),
+    );
   });
 
-  it('#569: canUndo=false bloqueia o desfazer, explica o motivo e não promete reabrir fatura', async () => {
+  it("#569: canUndo=false bloqueia o desfazer, explica o motivo e não promete reabrir fatura", async () => {
     apiGet.mockResolvedValueOnce(IMPORTS);
     apiGet.mockResolvedValueOnce({
       ...DETAIL,
@@ -83,40 +132,77 @@ describe('ImportHistoryModal', () => {
       blocking: { cardInvoicePayments: 1 },
     });
 
-    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
+    render(
+      <ImportHistoryModal
+        basePath={BASE}
+        title="Importações"
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /ver detalhes/i }),
+    );
 
     expect(
-      await screen.findByText(/contém pagamento de fatura e não pode ser desfeita/i),
+      await screen.findByText(
+        /não é possível desfazer esta importação com segurança/i,
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/fatura reaberta/i)).not.toBeInTheDocument();
 
     // A ação continua VISÍVEL, mas inerte: disabled + aria-disabled.
-    const undoBtn = screen.getByRole('button', { name: 'Desfazer importação' });
+    const undoBtn = screen.getByRole("button", { name: "Desfazer importação" });
     expect(undoBtn).toBeDisabled();
-    expect(undoBtn).toHaveAttribute('aria-disabled', 'true');
+    expect(undoBtn).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(undoBtn);
     expect(apiDelete).not.toHaveBeenCalled();
   });
 
-  it('#569 PR2: distingue fatura efetivamente liquidada de cartão apenas identificado', async () => {
+  it("#569 PR2: distingue fatura efetivamente liquidada de cartão apenas identificado", async () => {
     apiGet.mockResolvedValueOnce(IMPORTS);
     apiGet.mockResolvedValueOnce({
       ...DETAIL,
       canUndo: true,
       settlement: [
-        { cardId: 'card-1', dueMonth: '2026-06', state: 'SETTLED_BY_IMPORT', payments: [] },
-        { cardId: 'card-2', dueMonth: '2026-07', state: 'NO_SETTLEMENT', payments: [] },
-        { cardId: 'card-3', dueMonth: '2026-05', state: 'OUTSIDE_SETTLEMENT_WINDOW', payments: [] },
+        {
+          cardId: "card-1",
+          dueMonth: "2026-06",
+          state: "SETTLED_BY_IMPORT",
+          payments: [],
+        },
+        {
+          cardId: "card-2",
+          dueMonth: "2026-07",
+          state: "NO_SETTLEMENT",
+          payments: [],
+        },
+        {
+          cardId: "card-3",
+          dueMonth: "2026-05",
+          state: "OUTSIDE_SETTLEMENT_WINDOW",
+          payments: [],
+        },
       ],
     });
 
-    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
+    render(
+      <ImportHistoryModal
+        basePath={BASE}
+        title="Importações"
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /ver detalhes/i }),
+    );
 
-    expect(await screen.findByText(/^Fatura de jun\/2026 foi quitada/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/^Fatura de jun\/2026 foi quitada/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/nenhuma fatura foi quitada/i)).toBeInTheDocument();
-    expect(screen.getByText(/fora do prazo de liquidação automática/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/fora do prazo de liquidação automática/i),
+    ).toBeInTheDocument();
     // Nunca afirma "vinculado/quitado" só porque o cartão foi identificado.
     expect(screen.queryByText(/^Vinculado$/)).not.toBeInTheDocument();
   });
@@ -126,70 +212,113 @@ describe('ImportHistoryModal', () => {
     apiGet.mockResolvedValueOnce({
       ...DETAIL,
       canUndo: false,
-      blockReason: 'INCOMPLETE_TRAIL',
+      blockReason: "INCOMPLETE_TRAIL",
     });
 
-    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
+    render(
+      <ImportHistoryModal
+        basePath={BASE}
+        title="Importações"
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /ver detalhes/i }),
+    );
 
     expect(
       await screen.findByText(/alteradas por fora.*bloqueado/i),
     ).toBeInTheDocument();
-    const undoBtn = screen.getByRole('button', { name: 'Desfazer importação' });
+    const undoBtn = screen.getByRole("button", { name: "Desfazer importação" });
     expect(undoBtn).toBeDisabled();
   });
 
-  it('#569 PR2: erro DRIFT:ENTRY_NOT_PAID no confirmar mostra copy amigável, não o código bruto', async () => {
+  it("#569 PR2: erro DRIFT:ENTRY_NOT_PAID no confirmar mostra copy amigável, não o código bruto", async () => {
     apiGet.mockResolvedValueOnce(IMPORTS);
     apiGet.mockResolvedValueOnce({ ...DETAIL, canUndo: true });
-    apiDelete.mockRejectedValueOnce(new Error('DRIFT:ENTRY_NOT_PAID'));
+    apiDelete.mockRejectedValueOnce(new Error("DRIFT:ENTRY_NOT_PAID"));
 
-    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Desfazer importação' }));
+    render(
+      <ImportHistoryModal
+        basePath={BASE}
+        title="Importações"
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /ver detalhes/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Desfazer importação" }),
+    );
 
     expect(
       await screen.findByText(/uma parcela não está mais marcada como paga/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText('DRIFT:ENTRY_NOT_PAID')).not.toBeInTheDocument();
+    expect(screen.queryByText("DRIFT:ENTRY_NOT_PAID")).not.toBeInTheDocument();
   });
 
   it('#569 (journey-qa): lote só de pagamento de fatura liquidada não aparece como "0 lançamento(s)"', async () => {
     apiGet.mockResolvedValueOnce([
       {
-        id: 'imp-card-payment',
-        periodLabel: '2026-07',
-        fileName: 'fatura-agosto.pdf',
-        source: 'PDF',
+        id: "imp-card-payment",
+        periodLabel: "2026-07",
+        fileName: "fatura-agosto.pdf",
+        source: "PDF",
         inserted: 0,
         duplicated: 0,
         cardPayments: 1,
         totalAmountCents: 50000,
-        createdAt: '2026-07-05T12:00:00.000Z',
+        createdAt: "2026-07-05T12:00:00.000Z",
         deletedAt: null,
       },
     ]);
 
-    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
+    render(
+      <ImportHistoryModal
+        basePath={BASE}
+        title="Importações"
+        onClose={() => {}}
+      />,
+    );
 
-    expect(await screen.findByText(/2026-07 · fatura-agosto\.pdf/)).toBeInTheDocument();
-    expect(screen.getByText(/1 pagamento de fatura processado/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/2026-07 · fatura-agosto\.pdf/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 pagamento de fatura processado/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/0 lançamento\(s\)/)).not.toBeInTheDocument();
   });
 
-  it('mostra aviso de efeitos irreversíveis quando houver', async () => {
+  it("mostra aviso de efeitos irreversíveis quando houver", async () => {
     apiGet.mockResolvedValueOnce(IMPORTS);
     apiGet.mockResolvedValueOnce({
       ...DETAIL,
       impact: { ...DETAIL.impact, receipts: 0, invoiceLiquidations: 0 },
-      irreversible: { recurrencesPropagated: 2, notRevertibleInvoiceLiquidations: 0 },
+      irreversible: {
+        recurrencesPropagated: 2,
+        notRevertibleInvoiceLiquidations: 0,
+      },
     });
 
-    render(<ImportHistoryModal basePath={BASE} title="Importações" onClose={() => {}} />);
+    render(
+      <ImportHistoryModal
+        basePath={BASE}
+        title="Importações"
+        onClose={() => {}}
+      />,
+    );
 
-    fireEvent.click(await screen.findByRole('button', { name: /desfazer/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /ver detalhes/i }),
+    );
 
-    expect(await screen.findByText(/NÃO serão revertidos/i)).toBeInTheDocument();
-    expect(screen.getByText(/2 recorrência\(s\) propagada\(s\)/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/NÃO serão revertidos/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 recorrência\(s\) propagada\(s\)/),
+    ).toBeInTheDocument();
   });
 });

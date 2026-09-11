@@ -17,10 +17,21 @@ import {
   PossibleDuplicateNotice,
   type PossibleDuplicateInfo,
 } from "@/components/import/PossibleDuplicateNotice";
+import { DEBIT_CATEGORIES, categoryLabel } from "../_lib/import-categories";
+import { Button } from "@/components/ui/button";
 import {
-  DEBIT_CATEGORIES,
-  categoryLabel,
-} from "../_lib/import-categories";
+  ImportJourney,
+  ImportFilters,
+  ImportReviewRow,
+  ImportFooter,
+  ImportWarnings,
+  useImportJourney,
+  reviewStatus,
+  matchesReviewFilter,
+  importFailureMessage,
+  importWasRejected,
+  IMPORT_STEPS,
+} from "@/components/import/ImportJourney";
 
 interface Props {
   projectId: string;
@@ -84,6 +95,7 @@ interface PreviewResult {
 }
 
 interface ApiCommitResult {
+  postCommitWarnings?: Array<{ code: string; message: string }>;
   error?: string;
   inserted?: number;
   count?: number;
@@ -189,7 +201,9 @@ function normalizePreview(
       // for nenhum dos dois (linha que o servidor descarta por outro motivo).
       ignored:
         row.ignored === true ||
-        (row.willImport === false && row.duplicate !== true && !possibleDuplicate),
+        (row.willImport === false &&
+          row.duplicate !== true &&
+          !possibleDuplicate),
       categoriaFonte: row.categoriaFonte ?? null,
       suggestedCategory: row.suggestedCategory ?? null,
     };
@@ -223,6 +237,7 @@ export default function ImportWithoutAccountModal({
   onClose,
   onCommitted,
 }: Props) {
+  const flow = useImportJourney<{ category?: string; optedIn: boolean }>();
   const titleId = useId();
   const inputId = useId();
   const passwordId = useId();
@@ -245,7 +260,9 @@ export default function ImportWithoutAccountModal({
   const [duplicateOptIn, setDuplicateOptIn] = useState<Record<string, boolean>>(
     {},
   );
-  const [commitResult, setCommitResult] = useState<ApiCommitResult | null>(null);
+  const [commitResult, setCommitResult] = useState<ApiCommitResult | null>(
+    null,
+  );
   const [committedCount, setCommittedCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -285,13 +302,11 @@ export default function ImportWithoutAccountModal({
 
   const handleClose = useCallback(() => {
     if (loading) return;
-    restorePreviousFocus();
-    if (committedCount !== null) {
-      notifyCommitted();
-    } else {
+    flow.requestClose(!!preview, () => {
+      restorePreviousFocus();
       onClose();
-    }
-  }, [committedCount, loading, notifyCommitted, onClose, restorePreviousFocus]);
+    });
+  }, [flow, preview, loading, onClose, restorePreviousFocus]);
 
   useEffect(() => {
     previousFocusRef.current =
@@ -327,12 +342,12 @@ export default function ImportWithoutAccountModal({
       if (!dialog) return;
 
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         if (!loading) {
-          event.preventDefault();
           // #659 F3: impede que um handler de Escape "de fora" (ex.: o
           // AppShell fecha o overlay de lançamento inteiro no mobile) dispare
           // junto — Escape aqui fecha só este modal e volta ao seletor.
-          event.stopPropagation();
           handleClose();
         }
         return;
@@ -400,13 +415,18 @@ export default function ImportWithoutAccountModal({
     const data = formData();
     const byId = new Map<string, ImportDecision>();
     for (const [externalId, category] of Object.entries(categoryOverrides)) {
-      if (category) byId.set(externalId, { externalId, overrides: { category } });
+      if (category)
+        byId.set(externalId, { externalId, overrides: { category } });
     }
     // #659 Tier B: só a escolha explícita ("importar mesmo assim") manda
     // `action:'import'` — sem ela o servidor não cria a linha.
     for (const [externalId, on] of Object.entries(duplicateOptIn)) {
       if (!on) continue;
-      byId.set(externalId, { ...byId.get(externalId), externalId, action: "import" });
+      byId.set(externalId, {
+        ...byId.get(externalId),
+        externalId,
+        action: "import",
+      });
     }
     const decisions = [...byId.values()];
     if (decisions.length > 0) {
@@ -443,10 +463,16 @@ export default function ImportWithoutAccountModal({
   }
 
   async function handlePreview() {
+    if (flow.sending.current) return;
+    if (preview) {
+      flow.setStage("review");
+      return;
+    }
     if (!files.length) {
       setError("Selecione ao menos um arquivo para importar.");
       return;
     }
+    flow.sending.current = true;
     setError(null);
     setPreview(null);
     setLoading(true);
@@ -456,16 +482,26 @@ export default function ImportWithoutAccountModal({
         formData(),
       );
       setPreview(normalizePreview(result, documentType));
+      flow.setStage("review");
       setNeedsPassword(false);
     } catch (caught) {
       showImportError(caught, "Não foi possível ler os arquivos.");
     } finally {
+      flow.sending.current = false;
       setLoading(false);
     }
   }
 
   async function handleCommit() {
-    if (!files.length || !preview) return;
+    if (
+      !files.length ||
+      !preview ||
+      flow.sending.current ||
+      flow.uncertain ||
+      flow.stage !== "summary"
+    )
+      return;
+    flow.sending.current = true;
     setError(null);
     setLoading(true);
     try {
@@ -481,17 +517,19 @@ export default function ImportWithoutAccountModal({
         (result.expensesInserted ?? 0) + (result.receiptsInserted ?? 0);
       const failed = result.failed ?? 0;
       if (failed > 0) {
-        setCommittedCount(null);
         setError(
-          `Importação parcial: ${inserted} lançamento(s) importado(s) e ${failed} com falha. Tente novamente para concluir os pendentes.`,
+          `Importação parcial: ${inserted} lançamento(s) importado(s) e ${failed} com falha. Confira os lançamentos antes de importar os pendentes em outro lote.`,
         );
-        return;
       }
 
       setCommittedCount(inserted);
+      flow.setStage("result");
     } catch (caught) {
-      showImportError(caught, "Não foi possível concluir a importação.");
+      const rejected = importWasRejected(caught);
+      flow.setUncertain(!rejected);
+      setError(importFailureMessage(caught));
     } finally {
+      flow.sending.current = false;
       setLoading(false);
     }
   }
@@ -521,6 +559,12 @@ export default function ImportWithoutAccountModal({
   }
 
   function selectDocumentType(value: DocumentType) {
+    if (value === documentType) return;
+    if (
+      preview &&
+      !window.confirm("Trocar o documento descarta a revisão atual. Continuar?")
+    )
+      return;
     setDocumentType(value);
     setPreview(null);
     setCommittedCount(null);
@@ -529,6 +573,20 @@ export default function ImportWithoutAccountModal({
     setNeedsPassword(false);
     setError(null);
   }
+
+  const statusOf = (row: PreviewRow) =>
+    reviewStatus(
+      row,
+      duplicateOptIn[row.externalId] ? { action: "import" } : undefined,
+    );
+  const includedRows =
+    preview?.rows.filter(
+      (row) => !matchesReviewFilter(statusOf(row), "excluded"),
+    ) ?? [];
+  const includedTotal = includedRows.reduce(
+    (sum, row) => sum + row.amountCents,
+    0,
+  );
 
   const dialog = (
     <div
@@ -541,326 +599,482 @@ export default function ImportWithoutAccountModal({
       tabIndex={-1}
     >
       <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 sm:p-6">
-        {committedCount !== null ? (
-          <div className="py-6 text-center" aria-live="polite">
-            <h2
-              id={titleId}
-              ref={successHeadingRef}
-              tabIndex={-1}
-              className="mb-2 text-lg font-bold text-green-700 outline-none"
-            >
-              Importação concluída!
-            </h2>
-            <p className="text-sm text-gray-600">
-              {committedCount} lançamento(s) importado(s) sem conta. Você poderá
-              vincular uma conta depois.
-            </p>
-            {!!commitResult?.possibleDuplicates?.length && (
-              <p className="mt-2 text-sm text-orange-700">
-                <strong>{commitResult.possibleDuplicates.length}</strong>{" "}
-                possível(is) duplicata(s) não importada(s) — marque “Importar
-                mesmo assim” para incluí-las.
-              </p>
-            )}
-            {!!commitResult?.rulesLearned && (
-              <p className="mt-2 text-sm text-gray-600">
-                <strong>{commitResult.rulesLearned}</strong> correção(ões)
-                viraram regra para o futuro
-              </p>
-            )}
-            {!!commitResult?.rulesSkippedNoMapping && (
-              <p className="mt-2 text-sm text-gray-500">
-                <strong>{commitResult.rulesSkippedNoMapping}</strong>{" "}
-                correção(ões) foram aplicadas à linha, mas não viraram regra:
-                esse tipo não tem categoria equivalente.
-              </p>
-            )}
-            {!!commitResult?.rulesLearnFailed && (
-              <p className="mt-2 text-sm text-amber-700">
-                A importação foi concluída, mas não foi possível salvar{" "}
-                <strong>{commitResult.rulesLearnFailed}</strong> regra(s).
-                Recategorize essas linhas para tentar de novo — a importação em
-                si não falhou.
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={notifyCommitted}
-              className="mt-4 min-h-11 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-            >
-              Concluir
-            </button>
-          </div>
-        ) : (
-          <>
-            <header className="mb-4 flex items-center justify-between gap-3">
-              <h2 id={titleId} className="text-lg font-bold">
-                Importar sem conta
+        <ImportJourney
+          stage={flow.stage}
+          origin="Carteira · sem conta ou cartão"
+          files={files}
+        >
+          {committedCount !== null ? (
+            <div className="py-6 text-center" aria-live="polite">
+              <h2
+                id={titleId}
+                ref={successHeadingRef}
+                tabIndex={-1}
+                className="mb-2 text-lg font-bold text-green-700 outline-none"
+              >
+                {commitResult?.failed
+                  ? "Importação parcial"
+                  : "Importação concluída!"}
               </h2>
-              <button
-                type="button"
-                onClick={handleClose}
-                disabled={loading}
-                aria-label="Fechar"
-                ref={closeButtonRef}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50"
-              >
-                <X className="h-5 w-5" aria-hidden="true" />
-              </button>
-            </header>
-
-            <p className="mb-4 text-sm text-gray-600">
-              Importe para a Carteira sem vincular uma conta ou cartão agora.
-            </p>
-
-            <fieldset className="mb-4">
-              <legend className="mb-2 text-sm font-medium text-gray-700">
-                Tipo de documento
-              </legend>
-              <div className="flex gap-2">
-                {(
-                  [
-                    ["bank", "Extrato bancário"],
-                    ["card", "Fatura de cartão"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => selectDocumentType(value)}
-                    disabled={loading}
-                    aria-pressed={documentType === value}
-                    className={`min-h-11 flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                      documentType === value
-                        ? "border-blue-600 bg-blue-50 text-blue-700"
-                        : "border-gray-300 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-
-            <div className="mb-4">
-              <label
-                htmlFor={inputId}
-                className="mb-2 block text-sm font-medium text-gray-700"
-              >
-                Arquivos
-              </label>
-              <input
-                id={inputId}
-                type="file"
-                multiple
-                accept={ACCEPTED_FILES}
-                onChange={handleFilesChange}
-                disabled={loading}
-                className="min-h-11 w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-blue-50 file:p-2 file:text-blue-700"
-              />
-              <p className="mt-1.5 text-xs text-gray-500">
-                Até 5 arquivos de 10 MiB cada: OFX, CSV, TXT, PDF, XLSX/XLS ou
-                imagem.
+              <p className="text-sm text-gray-600">
+                {committedCount} lançamento(s) importado(s) sem conta. Você
+                poderá vincular uma conta depois.
               </p>
-            </div>
-
-            {(isPdf || needsPassword) && (
-              <div className="mb-4">
-                <label
-                  htmlFor={passwordId}
-                  className="mb-2 block text-sm font-medium text-gray-700"
-                >
-                  Senha do PDF{" "}
-                  {!needsPassword && (
-                    <span className="font-normal text-gray-500">
-                      (se houver)
-                    </span>
-                  )}
-                </label>
-                <input
-                  id={passwordId}
-                  type="password"
-                  value={password}
-                  onChange={(event) => {
-                    setPassword(event.currentTarget.value);
-                    setPreview(null);
-                    setCommittedCount(null);
-                    setError(null);
-                  }}
-                  disabled={loading}
-                  autoComplete="off"
-                  className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
-                />
-              </div>
-            )}
-
-            {preview && (
-              <section className="mb-4">
-                <h3 className="mb-2 text-sm font-medium text-gray-700">
-                  Conferência: {preview.total} lançamento(s) ·{" "}
-                  {formatCurrency(preview.totalAmountCents / 100)}
-                  {preview.duplicated
-                    ? ` · ${preview.duplicated} duplicado(s)`
-                    : ""}
-                  {(() => {
-                    const n = preview.rows.filter(
-                      (r) => r.possibleDuplicate,
-                    ).length;
-                    return n ? ` · ${n} possível(is) duplicata(s)` : "";
-                  })()}
-                </h3>
-                <ImportClassificationNotice
-                  status={preview.classificationStatus}
-                />
-                <ul className="max-h-[42dvh] divide-y overflow-y-auto rounded-lg border">
-                  {preview.rows.map((row) => {
-                    const isExpense = row.type === "DESPESA";
-                    const optedIn = duplicateOptIn[row.externalId] === true;
-                    const overridden =
-                      categoryOverrides[row.externalId] !== undefined;
-                    const suggested = row.suggestedCategory ?? "OUTROS";
-                    const selected =
-                      categoryOverrides[row.externalId] ?? suggested;
-                    const knownValues = new Set(
-                      DEBIT_CATEGORIES.map((c) => c.value),
-                    );
-                    const showDynamicOption =
-                      !!selected && !knownValues.has(selected);
-                    return (
-                      <li
-                        key={row.externalId}
-                        className="flex items-start justify-between gap-3 px-3 py-3"
-                      >
-                        <div className="min-w-0">
-                          <p
-                            className="truncate text-sm font-medium text-gray-800"
-                            title={row.description}
-                          >
-                            {row.description}
-                          </p>
-                          <p className="mt-1 text-xs text-gray-500">
-                            {formatDateBR(row.date)} · {TYPE_LABELS[row.type]} ·{" "}
-                            {STATUS_LABELS[row.status]}
-                          </p>
-                          {(row.duplicate || row.ignored) && (
-                            <p className="mt-1 flex gap-2 text-xs font-medium">
-                              {row.duplicate && (
-                                <span className="text-amber-700">Duplicado</span>
-                              )}
-                              {row.ignored && (
-                                <span className="text-gray-600">Ignorado</span>
-                              )}
-                            </p>
-                          )}
-                          {row.possibleDuplicate && (
-                            <PossibleDuplicateNotice
-                              info={row.possibleDuplicate}
-                              optedIn={optedIn}
-                              onToggle={(next) =>
-                                setDuplicateOptIn((prev) => ({
-                                  ...prev,
-                                  [row.externalId]: next,
-                                }))
-                              }
-                            />
-                          )}
-                          {isExpense &&
-                            !row.ignored &&
-                            !row.duplicate &&
-                            (!row.possibleDuplicate || optedIn) && (
-                            <div className="mt-2 flex flex-col">
-                              <select
-                                aria-label={`Categoria de ${row.description}`}
-                                value={selected}
-                                disabled={loading}
-                                onChange={(event) => {
-                                  const value = event.currentTarget.value;
-                                  setCategoryOverrides((prev) => ({
-                                    ...prev,
-                                    [row.externalId]: value,
-                                  }));
-                                }}
-                                className="min-h-11 w-fit max-w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                              >
-                                {showDynamicOption && (
-                                  <option value={selected}>
-                                    {categoryLabel(selected)}
-                                  </option>
-                                )}
-                                {DEBIT_CATEGORIES.map((c) => (
-                                  <option key={c.value} value={c.value}>
-                                    {c.label}
-                                  </option>
-                                ))}
-                              </select>
-                              {!overridden && (
-                                <CategoriaFonteChip fonte={row.categoriaFonte} />
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <span className="shrink-0 whitespace-nowrap text-[15px] font-semibold">
-                          {signedCurrency(row.amountCents)}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
-
-            {error && (
-              <div
-                className="mb-4 flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3"
-                role="alert"
-              >
-                <AlertCircle
-                  className="h-5 w-5 shrink-0 text-red-600"
-                  aria-hidden="true"
-                />
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            )}
-            <p className="sr-only" role="status" aria-live="polite">
-              {loading
-                ? preview
-                  ? "Importando lançamentos."
-                  : "Processando arquivos."
-                : ""}
-            </p>
-
-            <footer className="flex flex-col-reverse gap-2 border-t pt-3 sm:flex-row sm:justify-end">
+              {error && (
+                <p role="alert" className="my-3 text-sm text-amber-800">
+                  {error}
+                </p>
+              )}
+              <ImportWarnings warnings={commitResult?.postCommitWarnings} />
+              {!!commitResult?.duplicated && (
+                <p>{commitResult.duplicated} duplicado(s) não importado(s).</p>
+              )}
+              {!!commitResult?.skipped && (
+                <p>{commitResult.skipped} ignorado(s).</p>
+              )}
+              {!!commitResult?.possibleDuplicates?.length && (
+                <p className="mt-2 text-sm text-orange-700">
+                  <strong>{commitResult.possibleDuplicates.length}</strong>{" "}
+                  possível(is) duplicata(s) não importada(s) — marque “Importar
+                  mesmo assim” para incluí-las.
+                </p>
+              )}
+              {!!commitResult?.rulesLearned && (
+                <p className="mt-2 text-sm text-gray-600">
+                  <strong>{commitResult.rulesLearned}</strong> correção(ões)
+                  viraram regra para o futuro
+                </p>
+              )}
+              {!!commitResult?.rulesSkippedNoMapping && (
+                <p className="mt-2 text-sm text-gray-500">
+                  <strong>{commitResult.rulesSkippedNoMapping}</strong>{" "}
+                  correção(ões) foram aplicadas à linha, mas não viraram regra:
+                  esse tipo não tem categoria equivalente.
+                </p>
+              )}
+              {!!commitResult?.rulesLearnFailed && (
+                <p className="mt-2 text-sm text-amber-700">
+                  A importação foi concluída, mas não foi possível salvar{" "}
+                  <strong>{commitResult.rulesLearnFailed}</strong> regra(s).
+                  Recategorize essas linhas para tentar de novo — a importação
+                  em si não falhou.
+                </p>
+              )}
               <button
                 type="button"
-                onClick={handleClose}
-                disabled={loading}
-                className="min-h-11 rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+                onClick={notifyCommitted}
+                className="mt-4 min-h-11 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
               >
-                Cancelar
+                Concluir
               </button>
-              <button
-                type="button"
-                onClick={preview ? handleCommit : handlePreview}
-                disabled={loading || !files.length}
-                className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+            </div>
+          ) : (
+            <>
+              <header className="sticky top-0 z-10 mb-4 flex items-center justify-between gap-3 bg-white py-2">
+                <h2 id={titleId} className="text-lg font-bold">
+                  Importar sem conta · {IMPORT_STEPS[flow.stage]}
+                </h2>
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={loading}
+                  aria-label="Fechar"
+                  ref={closeButtonRef}
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+                >
+                  <X className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </header>
+              <h3
+                ref={flow.headingRef}
+                tabIndex={-1}
+                className="mb-3 text-lg font-medium text-darc-velvet"
               >
-                {loading && (
-                  <Loader2
-                    className="h-4 w-4 animate-spin"
+                {flow.editor
+                  ? "Revisão · editar lançamento"
+                  : IMPORT_STEPS[flow.stage]}
+              </h3>
+              {flow.stage === "file" && (
+                <>
+                  <p className="mb-4 text-sm text-gray-600">
+                    Importe para a Carteira sem vincular uma conta ou cartão
+                    agora.
+                  </p>
+
+                  <fieldset className="mb-4">
+                    <legend className="mb-2 text-sm font-medium text-gray-700">
+                      Tipo de documento
+                    </legend>
+                    <div className="flex gap-2">
+                      {(
+                        [
+                          ["bank", "Extrato bancário"],
+                          ["card", "Fatura de cartão"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => selectDocumentType(value)}
+                          disabled={loading}
+                          aria-pressed={documentType === value}
+                          className={`min-h-11 flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                            documentType === value
+                              ? "border-blue-600 bg-blue-50 text-blue-700"
+                              : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <div className="mb-4">
+                    <label
+                      htmlFor={inputId}
+                      className="mb-2 block text-sm font-medium text-gray-700"
+                    >
+                      Arquivos
+                    </label>
+                    <input
+                      id={inputId}
+                      type="file"
+                      onClick={(event) => {
+                        if (
+                          preview &&
+                          !window.confirm(
+                            "Trocar arquivos descarta a revisão atual. Continuar?",
+                          )
+                        )
+                          event.preventDefault();
+                      }}
+                      multiple
+                      accept={ACCEPTED_FILES}
+                      onChange={handleFilesChange}
+                      disabled={loading}
+                      className="min-h-11 w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-blue-50 file:p-2 file:text-blue-700"
+                    />
+                    <p className="mt-1.5 text-xs text-gray-500">
+                      Até 5 arquivos de 10 MiB cada: OFX, CSV, TXT, PDF,
+                      XLSX/XLS ou imagem.
+                    </p>
+                  </div>
+
+                  {(isPdf || needsPassword) && (
+                    <div className="mb-4">
+                      <label
+                        htmlFor={passwordId}
+                        className="mb-2 block text-sm font-medium text-gray-700"
+                      >
+                        Senha do PDF{" "}
+                        {!needsPassword && (
+                          <span className="font-normal text-gray-500">
+                            (se houver)
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        id={passwordId}
+                        type="password"
+                        value={password}
+                        onChange={(event) => {
+                          if (
+                            preview &&
+                            !window.confirm(
+                              "Trocar a senha descarta a revisão atual. Continuar?",
+                            )
+                          )
+                            return;
+                          setPassword(event.currentTarget.value);
+                          setPreview(null);
+                          setCommittedCount(null);
+                          setError(null);
+                        }}
+                        disabled={loading}
+                        autoComplete="off"
+                        className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
+              {preview && flow.stage !== "file" && (
+                <section className="mb-4">
+                  <h3 className="mb-2 text-sm font-medium text-gray-700">
+                    Conferência: {includedRows.length} lançamento(s) a importar
+                    · <strong>{formatCurrency(includedTotal / 100)}</strong>
+                    {preview.duplicated
+                      ? ` · ${preview.duplicated} duplicado(s)`
+                      : ""}
+                    {(() => {
+                      const n = preview.rows.filter(
+                        (r) => r.possibleDuplicate,
+                      ).length;
+                      return n ? ` · ${n} possível(is) duplicata(s)` : "";
+                    })()}
+                  </h3>
+                  <ImportClassificationNotice
+                    status={preview.classificationStatus}
+                  />
+                  {flow.stage === "summary" ? (
+                    <p className="text-sm text-gray-600">
+                      Origem: Carteira.{" "}
+                      {preview.rows.length - includedRows.length} lançamento(s)
+                      não serão importados. Débitos e créditos acima consideram
+                      somente as linhas selecionadas.
+                    </p>
+                  ) : !flow.editor ? (
+                    <>
+                      <ImportFilters
+                        statuses={preview.rows.map(statusOf)}
+                        value={flow.filter}
+                        onChange={flow.setFilter}
+                      />
+                      {preview.rows
+                        .filter((row) =>
+                          matchesReviewFilter(statusOf(row), flow.filter),
+                        )
+                        .map((row) => (
+                          <ImportReviewRow
+                            key={row.externalId}
+                            title={row.description}
+                            date={row.date}
+                            fonte={
+                              categoryOverrides[row.externalId] === undefined
+                                ? row.categoriaFonte
+                                : null
+                            }
+                            amountCents={-row.amountCents}
+                            purpose={categoryLabel(
+                              categoryOverrides[row.externalId] ??
+                                row.suggestedCategory ??
+                                "OUTROS",
+                            )}
+                            status={statusOf(row)}
+                            onEdit={() =>
+                              flow.openEditor(row.externalId, {
+                                category: categoryOverrides[row.externalId],
+                                optedIn:
+                                  duplicateOptIn[row.externalId] === true,
+                              })
+                            }
+                            buttonRef={(node) => {
+                              if (node)
+                                flow.rows.current.set(row.externalId, node);
+                              else flow.rows.current.delete(row.externalId);
+                            }}
+                          />
+                        ))}
+                    </>
+                  ) : (
+                    <ul className="max-h-[42dvh] divide-y overflow-y-auto rounded-lg border">
+                      {preview.rows
+                        .filter((row) => row.externalId === flow.editor?.id)
+                        .map((row) => {
+                          const isExpense = row.type === "DESPESA";
+                          const optedIn = flow.editor!.draft.optedIn;
+                          const overridden =
+                            flow.editor!.draft.category !== undefined;
+                          const suggested = row.suggestedCategory ?? "OUTROS";
+                          const selected =
+                            flow.editor!.draft.category ?? suggested;
+                          const knownValues = new Set(
+                            DEBIT_CATEGORIES.map((c) => c.value),
+                          );
+                          const showDynamicOption =
+                            !!selected && !knownValues.has(selected);
+                          return (
+                            <li
+                              key={row.externalId}
+                              className="flex flex-wrap items-start justify-between gap-3 px-3 py-3"
+                            >
+                              <div className="min-w-0">
+                                <p
+                                  className="truncate text-sm font-medium text-gray-800"
+                                  title={row.description}
+                                >
+                                  {row.description}
+                                </p>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {formatDateBR(row.date)} ·{" "}
+                                  {TYPE_LABELS[row.type]} ·{" "}
+                                  {STATUS_LABELS[row.status]}
+                                </p>
+                                {(row.duplicate || row.ignored) && (
+                                  <p className="mt-1 flex gap-2 text-xs font-medium">
+                                    {row.duplicate && (
+                                      <span className="text-amber-700">
+                                        Duplicado
+                                      </span>
+                                    )}
+                                    {row.ignored && (
+                                      <span className="text-gray-600">
+                                        Ignorado
+                                      </span>
+                                    )}
+                                  </p>
+                                )}
+                                {row.possibleDuplicate &&
+                                  !row.duplicate &&
+                                  !row.ignored && (
+                                    <PossibleDuplicateNotice
+                                      info={row.possibleDuplicate}
+                                      optedIn={optedIn}
+                                      onToggle={(next) =>
+                                        flow.updateDraft({
+                                          ...flow.editor!.draft,
+                                          optedIn: next,
+                                        })
+                                      }
+                                    />
+                                  )}
+                                {isExpense &&
+                                  !row.ignored &&
+                                  !row.duplicate &&
+                                  (!row.possibleDuplicate || optedIn) && (
+                                    <div className="mt-2 flex flex-col">
+                                      <select
+                                        aria-label={`Categoria de ${row.description}`}
+                                        value={selected}
+                                        disabled={loading}
+                                        onChange={(event) => {
+                                          const value =
+                                            event.currentTarget.value;
+                                          flow.updateDraft({
+                                            ...flow.editor!.draft,
+                                            category: value,
+                                          });
+                                        }}
+                                        className="min-h-11 w-fit max-w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                                      >
+                                        {showDynamicOption && (
+                                          <option value={selected}>
+                                            {categoryLabel(selected)}
+                                          </option>
+                                        )}
+                                        {DEBIT_CATEGORIES.map((c) => (
+                                          <option key={c.value} value={c.value}>
+                                            {c.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {!overridden && (
+                                        <CategoriaFonteChip
+                                          fonte={row.categoriaFonte}
+                                        />
+                                      )}
+                                    </div>
+                                  )}
+                              </div>
+                              <span className="shrink-0 whitespace-nowrap text-[15px] font-semibold">
+                                {signedCurrency(row.amountCents)}
+                              </span>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  )}
+                </section>
+              )}
+
+              {error && (
+                <div
+                  className="mb-4 flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3"
+                  role="alert"
+                >
+                  <AlertCircle
+                    className="h-5 w-5 shrink-0 text-red-600"
                     aria-hidden="true"
                   />
-                )}
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              )}
+              <p className="sr-only" role="status" aria-live="polite">
                 {loading
                   ? preview
-                    ? "Importando…"
-                    : "Processando…"
-                  : preview
-                    ? "Confirmar importação"
-                    : "Conferir arquivos"}
-              </button>
-            </footer>
-          </>
-        )}
+                    ? "Importando lançamentos."
+                    : "Processando arquivos."
+                  : ""}
+              </p>
+
+              <ImportFooter>
+                {flow.stage !== "file" && !flow.editor && (
+                  <Button
+                    variant="ghost"
+                    disabled={loading}
+                    onClick={() =>
+                      flow.setStage(
+                        flow.stage === "summary" ? "review" : "file",
+                      )
+                    }
+                  >
+                    Voltar
+                  </Button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={loading}
+                  className="min-h-11 rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+                >
+                  {flow.editor ? "Cancelar edição" : "Cancelar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (flow.editor) {
+                      const { id, draft } = flow.editor;
+                      setCategoryOverrides((current) => {
+                        const next = { ...current };
+                        if (draft.category === undefined) delete next[id];
+                        else next[id] = draft.category;
+                        return next;
+                      });
+                      setDuplicateOptIn((current) => ({
+                        ...current,
+                        [id]: draft.optedIn,
+                      }));
+                      flow.finishEditor();
+                    } else if (flow.stage === "file") void handlePreview();
+                    else if (flow.stage === "summary") void handleCommit();
+                    else flow.setStage("summary");
+                  }}
+                  disabled={
+                    loading ||
+                    flow.uncertain ||
+                    !files.length ||
+                    (flow.stage !== "file" &&
+                      !flow.editor &&
+                      includedRows.length === 0)
+                  }
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading && (
+                    <Loader2
+                      className="h-4 w-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {loading
+                    ? preview
+                      ? "Importando…"
+                      : "Processando…"
+                    : flow.editor
+                      ? "Aplicar à revisão"
+                      : flow.stage === "summary"
+                        ? "Confirmar importação"
+                        : flow.stage === "review"
+                          ? "Ver resumo"
+                          : preview
+                            ? "Continuar revisão"
+                            : "Conferir arquivos"}
+                </button>
+              </ImportFooter>
+            </>
+          )}
+        </ImportJourney>
       </div>
     </div>
   );

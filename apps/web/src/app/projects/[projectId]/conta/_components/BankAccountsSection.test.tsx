@@ -284,7 +284,8 @@ describe("BankAccountsSection", () => {
 
   function mockImportsFor(accountId: string) {
     apiGetMock.mockImplementation((path: string) => {
-      if (path === "/projects/p1/bank-accounts") return Promise.resolve(ACCOUNTS);
+      if (path === "/projects/p1/bank-accounts")
+        return Promise.resolve(ACCOUNTS);
       if (path === `/projects/p1/bank-accounts/${accountId}/imports`)
         return Promise.resolve(IMPORTS);
       if (path === `/projects/p1/bank-accounts/${accountId}/imports/imp1`)
@@ -311,7 +312,9 @@ describe("BankAccountsSection", () => {
     expect(apiGetMock).not.toHaveBeenCalledWith(
       "/projects/p1/bank-accounts/acc-a/imports",
     );
-    expect(await screen.findByText(/2026-07 · extrato\.ofx/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/2026-07 · extrato\.ofx/),
+    ).toBeInTheDocument();
   });
 
   it("desfazer uma importação invalida bank-accounts e chama onChanged", async () => {
@@ -328,7 +331,7 @@ describe("BankAccountsSection", () => {
     // #569 (blocker 10): a ação da lista tem nome acessível contextual.
     fireEvent.click(
       await screen.findByRole("button", {
-        name: /^Desfazer importação 2026-07 · extrato\.ofx/,
+        name: /^Ver detalhes da importação 2026-07 · extrato\.ofx/,
       }),
     );
     fireEvent.click(
@@ -349,7 +352,9 @@ describe("BankAccountsSection", () => {
   it("sem módulo bankAccounts não expõe a ação Importações", () => {
     hasBankAccountsModule = false;
     renderSection();
-    expect(screen.queryByRole("button", { name: /^Importações de/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^Importações de/ }),
+    ).toBeNull();
   });
 
   it("invalida todos os prefixes financeiros ao salvar pela página Conta", async () => {
