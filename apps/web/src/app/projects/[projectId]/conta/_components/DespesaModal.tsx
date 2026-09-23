@@ -244,7 +244,8 @@ export function DespesaModal({
       const q = Number(form.get('quantidadeParcela'));
       data.quantidadeParcela = q > 0 ? q : null;
       data.dataInicioParcela = nullable('dataInicioParcela');
-      data.dataPagamento = null;
+      // Campo oculto aqui: preserve a âncora importada, mas limpe ao trocar a forma.
+      data.dataPagamento = editing?.formaPagamento === fp ? undefined : null;
       data.recorrente = false;
       data.recorrenciaFim = null;
     }
