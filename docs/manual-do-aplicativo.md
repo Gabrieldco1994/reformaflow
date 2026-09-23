@@ -940,7 +940,11 @@ Gestão dos cartões de crédito.
   aceita `targetExpenseId`, `parcelaIndex` (zero-based), `amountCents` e
   `requestId`. Aloca somente o valor informado à parcela de outro projeto,
   sem criar novo débito nem mudar o valor contratado. O saldo continua
-  pendente; somente saldo zero marca a parcela como paga. Repetições devem
+  pendente; somente saldo zero marca a parcela como paga.
+  Na lente PESSOAL mensal e anual, a parcela coberta pelo aporte não vira outra
+  saída de Carteira quando o alvo fica pago: o débito bancário já representa
+  esse dinheiro. Parcelas irmãs pagas de fato em Carteira continuam no seu mês.
+  Repetições devem
   conservar a mesma chave. O DELETE da mesma rota com `/:settlementId`
   desfaz um aporte específico, não o pagamento bancário. Ao reconsultar, cada
   contribuição autorizada informa `sourceId` para identificar o débito na

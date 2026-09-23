@@ -767,7 +767,11 @@ export class MonthlyOverviewService {
     const expenses = this.excludeFundedPaidFlags(
       allExpenses.filter((expense) => expense.projectId === projectId), additiveByExpense,
     );
-    const foreignExpenses = allExpenses.filter((expense) => expense.projectId !== projectId);
+    // A funded PAGO root is not a wallet payment; retain only genuinely paid sibling occurrences.
+    const foreignExpenses = this.excludeFundedPaidFlags(
+      allExpenses.filter((expense) => expense.projectId !== projectId),
+      additiveByExpense,
+    );
     const primaryAccount = this.pickPrimaryBankAccount(accounts);
     const importAccountById = await this.getImportAccountMap(
       tenantId,

@@ -501,6 +501,282 @@ it("conserves monthly/yearly bank outflow, DRE and origin totals while projectin
   ).toEqual(originsBefore);
 });
 
+it.each([20000, 80000])(
+  "X1: PESSOAL monthly/yearly counts only the bank source for funding %i, including full payment",
+  async (amountCents) => {
+    await expenses.update(
+      tenantId,
+      pessoal,
+      sourceId,
+      { valor: 800 },
+      requester,
+    );
+    const before = await sourceSnapshot();
+    const funding = await apply("pessoal-lens", amountCents);
+    const monthly = new MonthlyOverviewService(
+      prisma,
+      new CardInvoiceSettlementService(prisma),
+    );
+    const month = await monthly.getAccountView(
+      tenantId,
+      pessoal,
+      "2026-09",
+      requester,
+    );
+    expect(month).toMatchObject({
+      saiuMes: 80000,
+      saidaTotal: 160000 - amountCents,
+      faltaPagarMes: 80000 - amountCents,
+      caixaHoje: -80000,
+      carteiraHoje: 0,
+    });
+    expect(month.saidas.filter((row) => row.realizado)).toEqual([
+      expect.objectContaining({
+        id: sourceId,
+        valor: 80000,
+        bankLast4: "0702",
+        foreignExpenseId: null,
+        projetoOrigem: null,
+      }),
+    ]);
+    const year = await monthly.getAccountViewYearly(
+      tenantId,
+      pessoal,
+      2026,
+      requester,
+    );
+    expect(year).toMatchObject({
+      saiuMes: 80000,
+      faltaPagarMes: 80000 - amountCents,
+      caixaHoje: -80000,
+    });
+    expect(year.saidas.reduce((sum, row) => sum + row.valor, 0)).toBe(
+      160000 - amountCents,
+    );
+    expect(
+      year.saidas.filter((row) => row.realizado).map((row) => row.id),
+    ).toEqual([sourceId]);
+    const dre = await monthly.getDreOverview(
+      tenantId,
+      pessoal,
+      { month: "2026-09", year: 2026 },
+      requester,
+    );
+    expect(dre.anual.totalSaiu).toBe(80000);
+    expect(dre.mensal.contaCorrente).toMatchObject({
+      saiuMes: 80000,
+      faltaPagarMes: 80000 - amountCents,
+      despesaTotal: 160000 - amountCents,
+    });
+    const sourceOnly = await monthly.getAccountView(
+      tenantId,
+      pessoal,
+      "2026-09",
+      {
+        ...requester,
+        role: "USER",
+        allowedProjects: [pessoal],
+        allowedProjectTypes: ["PESSOAL"],
+        allowedModules: ["monthlyOverview"],
+      },
+    );
+    expect(sourceOnly).toMatchObject({
+      saiuMes: 80000,
+      saidaTotal: 80000,
+      faltaPagarMes: 0,
+    });
+    expect(JSON.stringify(sourceOnly)).not.toContain(targetId);
+    expect(await sourceSnapshot()).toEqual(before);
+    await expenses.undoParcelaFunding(
+      tenantId,
+      pessoal,
+      sourceId,
+      funding.settlementId,
+      requester,
+    );
+    expect(
+      await monthly.getAccountView(tenantId, pessoal, "2026-09", requester),
+    ).toMatchObject({
+      saiuMes: 80000,
+      saidaTotal: 160000,
+      faltaPagarMes: 80000,
+    });
+  },
+);
+
+it("X1: a paid foreign root retains its legitimate wallet occurrence, not its bank-funded sibling", async () => {
+  await expenses.update(tenantId, pessoal, sourceId, { valor: 800 }, requester);
+  await expenses.update(
+    tenantId,
+    reforma,
+    targetId,
+    {
+      valor: 1600,
+      formaPagamento: "PARCELADO",
+      quantidadeParcela: 2,
+      dataInicioParcela: "2026-08-20",
+    },
+    requester,
+  );
+  await expenses.setParcelaStatus(tenantId, reforma, targetId, 0, true);
+  const walletCash = await prisma.cashFlowEntry.findFirstOrThrow({
+    where: { expenseId: targetId, parcela: "1/2", deletedAt: null },
+  });
+  const before = await sourceSnapshot();
+  const funding = await applyParcelaFunding(
+    prisma,
+    tenantId,
+    pessoal,
+    sourceId,
+    {
+      ...command("pessoal-mixed", 80000),
+      parcelaIndex: 1,
+    },
+    requester,
+  );
+  expect(
+    await db.expense.findUniqueOrThrow({ where: { id: targetId } }),
+  ).toMatchObject({ status: "PAGO", valorTotal: 160000 });
+  const monthly = new MonthlyOverviewService(
+    prisma,
+    new CardInvoiceSettlementService(prisma),
+  );
+  const august = await monthly.getAccountView(
+    tenantId,
+    pessoal,
+    "2026-08",
+    requester,
+  );
+  expect(august).toMatchObject({
+    saiuMes: 80000,
+    saidaTotal: 80000,
+    faltaPagarMes: 0,
+  });
+  expect(august.saidas).toEqual([
+    expect.objectContaining({
+      foreignExpenseId: targetId,
+      parcelaIndex: 0,
+      valor: 80000,
+      data: "2026-08-20T00:00:00.000Z",
+      realizado: true,
+      origem: { tipo: "carteira" },
+    }),
+  ]);
+  const september = await monthly.getAccountView(
+    tenantId,
+    pessoal,
+    "2026-09",
+    requester,
+  );
+  expect(september).toMatchObject({
+    saiuMes: 80000,
+    saidaTotal: 80000,
+    faltaPagarMes: 0,
+    caixaHoje: -80000,
+  });
+  expect(september.saidas).toEqual([
+    expect.objectContaining({
+      id: sourceId,
+      bankLast4: "0702",
+      valor: 80000,
+      realizado: true,
+    }),
+  ]);
+  const year = await monthly.getAccountViewYearly(
+    tenantId,
+    pessoal,
+    2026,
+    requester,
+  );
+  expect(year).toMatchObject({ saiuMes: 160000, faltaPagarMes: 0 });
+  expect(year.saidas).toHaveLength(2);
+  expect(year.saidas.reduce((sum, row) => sum + row.valor, 0)).toBe(160000);
+  expect(
+    await prisma.cashFlowEntry.findUniqueOrThrow({
+      where: { id: walletCash.id },
+    }),
+  ).toEqual(walletCash);
+  expect(await sourceSnapshot()).toEqual(before);
+  await expenses.undoParcelaFunding(
+    tenantId,
+    pessoal,
+    sourceId,
+    funding.settlementId,
+    requester,
+  );
+  expect(
+    (await monthly.getAccountView(tenantId, pessoal, "2026-08", requester))
+      .saidas,
+  ).toEqual(august.saidas);
+  expect(
+    await monthly.getAccountView(tenantId, pessoal, "2026-09", requester),
+  ).toMatchObject({ saiuMes: 80000, saidaTotal: 160000, faltaPagarMes: 80000 });
+});
+
+it("X1: a bankless PESSOAL keeps actual local/foreign wallet payments without inventing funded wallet cash", async () => {
+  await expenses.update(tenantId, pessoal, sourceId, { valor: 800 }, requester);
+  await apply("bankless-lens", 80000);
+  const walletProject = `${pessoal}-wallet`;
+  await seedProject(db, {
+    tenantId,
+    projectId: walletProject,
+    type: "PESSOAL",
+    name: "Synthetic wallet",
+  });
+  const payment = {
+    tipoDespesa: "OUTROS",
+    valor: 123.45,
+    quantidade: 1,
+    formaPagamento: "A_VISTA",
+    status: "PAGO",
+    dataPagamento: "2026-09-10",
+  };
+  const localWallet = await expenses.create(tenantId, walletProject, payment);
+  const foreignWallet = await expenses.create(tenantId, reforma, payment);
+  const monthly = new MonthlyOverviewService(
+    prisma,
+    new CardInvoiceSettlementService(prisma),
+  );
+  const month = await monthly.getAccountView(
+    tenantId,
+    walletProject,
+    "2026-09",
+    requester,
+  );
+  expect(month).toMatchObject({
+    contas: [],
+    caixaHoje: 0,
+    carteiraHoje: -12345,
+    saiuMes: 24690,
+    saidaTotal: 24690,
+    faltaPagarMes: 0,
+  });
+  expect(month.saidas.map((row) => row.id).sort()).toEqual(
+    [localWallet.id, foreignWallet.id].sort(),
+  );
+  expect(
+    month.saidas.every(
+      (row) => row.realizado && row.origem?.tipo === "carteira",
+    ),
+  ).toBe(true);
+  const year = await monthly.getAccountViewYearly(
+    tenantId,
+    walletProject,
+    2026,
+    requester,
+  );
+  expect(year).toMatchObject({
+    saiuMes: 24690,
+    faltaPagarMes: 0,
+    caixaHoje: 0,
+    carteiraHoje: -12345,
+  });
+  expect(year.saidas).toHaveLength(2);
+  for (const hidden of [targetId, sourceId, '"contributions"']) {
+    expect(JSON.stringify(month)).not.toContain(hidden);
+  }
+});
+
 it.each([
   { amountCents: 20000, bank: false },
   { amountCents: 80000, bank: false },
