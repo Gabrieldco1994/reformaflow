@@ -14,6 +14,7 @@
  */
 import { HttpException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { ExpenseType, ExpenseTypeLabels, LaborCategory, LaborCategoryLabels } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ADMIN_REQUESTER,
@@ -674,29 +675,22 @@ it('B9-none reclassifying a PROCESSED_NONE stamped payment to a non-neutral type
   ).toBe(0);
 });
 
-// ── Finding A: a regenerating NON-financial PATCH on an import-claimed purchase ──
-// A COMPRA carimbada por importação como parcela liquidada (`activeAsPurchase>0`)
-// só era barrada por `changedFinancials`; mas `regenerateCashFlow` (soft-delete +
-// recria as `CashFlowEntry` com IDs novos) roda no SUPERSET de insumos —
-// categoria, sala, tipo, meio de pagamento e overrides. Uma dessas edições
-// passava a guarda e órfãozava `imported_invoice_liquidations.cash_flow_entry_id`
-// (aponta para a entrada soft-deletada). Cada representante abaixo é RED antes do
-// fix e vira 409 sem escritas depois dele.
-describe('A regenerating non-financial mutation on an import-claimed purchase', () => {
+// #695: metadata now changes in place; financial regeneration remains protected.
+describe('A non-financial mutation on an import-claimed purchase preserves the ledger', () => {
   it.each([
-    ['categoriaMaoDeObra', async (_projectId: string) => ({ categoriaMaoDeObra: 'ELETRICISTA' })],
-    ['tipoDespesa', async (_projectId: string) => ({ tipoDespesa: 'MATERIAL' })],
+    ['categoriaMaoDeObra', async (_projectId: string) => ({ categoriaMaoDeObra: LaborCategory.ELETRICISTA })],
+    ['tipoDespesa', async (_projectId: string) => ({ tipoDespesa: ExpenseType.MATERIAL_CONSTRUCAO })],
     [
       'roomId',
       async (projectId: string) => {
         const room = await setup.room.create({
-          data: { projectId, name: `Sala rf569 ${Date.now()}` },
+          data: { projectId, name: 'Synthetic12345c' },
         });
         return { roomId: room.id };
       },
     ],
   ] as const)(
-    'A-regen %s is rejected with 409, zero writes, and leaves the claimed CashFlowEntry + ledger intact',
+    'A-metadata %s updates only metadata, preserving every claimed CashFlowEntry and the ledger',
     async (label, buildDto) => {
       const p = await purchase(A, '2026-06-10T12:00:00.000Z');
       await importedPayment(p.id, p.entryIds[0]);
@@ -721,18 +715,28 @@ describe('A regenerating non-financial mutation on an import-claimed purchase', 
             after.entries.find((e) => e.id === p.entryIds[0])?.deletedAt !== null,
           liveClaims: after.ledger.filter((l) => l.deletedAt === null).length,
         });
-        expect(errorStatus(outcome.error)).toBe(409);
-        // PREFLIGHT: a guarda roda ANTES de `expense.update`/`regenerateCashFlow`.
-        expect(writeAttempts).toEqual([]);
-        expect(after).toEqual(before);
+        expect(outcome.error).toBeNull();
+        expect(writeAttempts).toEqual(['Expense.update', 'CashFlowEntry.updateMany']);
+        const metadata = label === 'tipoDespesa'
+          ? { categoria: ExpenseTypeLabels.MATERIAL_CONSTRUCAO }
+          : label === 'categoriaMaoDeObra'
+            ? { subcategoria: LaborCategoryLabels.ELETRICISTA }
+            : { ambiente: 'Synthetic12345c' };
+        expect(after).toEqual({
+          ...before,
+          expenses: before.expenses.map((expense, index) => expense.id === p.id
+            ? { ...expense, ...dto, updatedAt: after.expenses[index].updatedAt }
+            : expense),
+          entries: before.entries.map((entry, index) => entry.expenseId === p.id && entry.deletedAt === null
+            ? { ...entry, ...metadata, updatedAt: after.entries[index].updatedAt }
+            : entry),
+        });
         // O claim ativo continua apontando para uma entrada VIVA.
         expect(
           after.entries.find((e) => e.id === p.entryIds[0])?.deletedAt,
         ).toBeNull();
       } finally {
-        // `resetTenant` (fixture, imutável) não limpa `rooms`; a compra rejeitada
-        // nunca passou a referenciar a sala, então o hard-delete direto é seguro
-        // e mantém o teardown do tenant sem violar a FK de `rooms → projects`.
+        // resetTenant does not clean rooms; the optional expense FK is SET NULL.
         await setup.room.deleteMany({ where: { projectId: A } });
       }
     },
@@ -760,7 +764,7 @@ it('A-desc a title-only edit of an import-claimed purchase stays allowed and pre
   expect(after.ledger).toEqual(before.ledger);
 });
 
-it('A-unclaimed a categoria edit on an UNCLAIMED purchase still regenerates its cash flow — the guard does not over-block', async () => {
+it('A-unclaimed a categoria edit also preserves cash-flow IDs on an UNCLAIMED purchase', async () => {
   const p = await purchase(A, '2026-06-10T12:00:00.000Z');
   expect(
     await setup.importedInvoiceLiquidation.count({
@@ -776,13 +780,13 @@ it('A-unclaimed a categoria edit on an UNCLAIMED purchase still regenerates its 
   expect(outcome.error).toBeNull();
   const raw = await setup.expense.findUniqueOrThrow({ where: { id: p.id } });
   expect(raw.categoriaMaoDeObra).toBe('ELETRICISTA');
-  // Regeneração ocorreu: as entradas originais foram soft-deletadas e novas
-  // (IDs distintos) nasceram vivas.
+  // No regeneration, even without a ledger claim.
   const live = await setup.cashFlowEntry.findMany({
     where: { expenseId: p.id, deletedAt: null },
   });
   expect(live).toHaveLength(3);
-  expect(live.every((e) => !p.entryIds.includes(e.id))).toBe(true);
+  expect(live.map((entry) => entry.id).sort()).toEqual([...p.entryIds].sort());
+  expect(live.every((entry) => entry.subcategoria === LaborCategoryLabels.ELETRICISTA)).toBe(true);
 });
 
 // ── Finding B: desratear/unratearSource must not orphan an import claim ──

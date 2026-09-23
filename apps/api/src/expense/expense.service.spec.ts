@@ -400,6 +400,7 @@ describe('ExpenseService', () => {
     });
 
     it('mesmo comportamento para dataInicioParcela: null limpa', async () => {
+      prisma.expense.findFirst.mockResolvedValueOnce({ ...existing, dataInicioParcela: new Date('2025-01-01') });
       await service.update(tenantId, projectId, 'e1', {
         dataInicioParcela: null,
       } as any, TEST_OWNER_REQUESTER);
@@ -477,7 +478,7 @@ describe('ExpenseService', () => {
       prisma.expense.update.mockImplementation(async ({ data, where }: any) => ({ id: where.id, ...data }));
       prisma.expense.findUnique
         .mockResolvedValueOnce(null) // regenerateCashFlow do principal (early return)
-        .mockResolvedValueOnce({ valor: 20000, quantidade: 1 }) // counterpart p/ valorTotal
+        .mockResolvedValueOnce({ id: 'canon', valor: 20000, quantidade: 1, linkedExpenseId: null })
         .mockResolvedValue(null); // regenerateCashFlow do counterpart
 
       await service.update(tenantId, projectId, 'mir', {

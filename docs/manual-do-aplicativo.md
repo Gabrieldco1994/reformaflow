@@ -788,6 +788,12 @@ planejado.
 - Ações por linha: **Editar rápido**, **Editar completo**, **Copiar para outro
   mês/data**, **Alternar status**, **Excluir**, e (cross-project) **Criar despesa
   em outro projeto e vincular**.
+- Após uma importação concluída, editar categoria, título, fornecedor, mão de
+  obra ou ambiente preserva as parcelas originais (por exemplo, **2/3 e 3/3**),
+  seus valores, datas e status. Trocar só a categoria também preserva o apelido
+  do cartão. Isso previne alterações indevidas; não restaura parcelas já
+  modificadas. Alterações financeiras continuam sujeitas às proteções de
+  fatura, rateio e conciliação.
 - Na visão por mês, **Editar rápido** permite trocar a data de uma única ocorrência
   **PARCELADO** ou **QUINZENAL** (inclusive 1x), paga ou planejada, tanto pela
   REFORMA quanto pelo PESSOAL. Só a data escolhida muda: número da parcela, valor
