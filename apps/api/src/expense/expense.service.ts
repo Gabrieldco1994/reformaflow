@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdditiveSettlementCommand } from '@reformaflow/domain';
+import { ADDITIVE, applyParcelaFunding, undoParcelaFunding, guardActiveFunding, enrichFunding } from '../conciliacao/additive-settlement';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -481,6 +483,7 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     opts: { page?: number; pageSize?: number } = {},
+    requester?: RateioRequester,
   ) {
     await this.validateProject(tenantId, projectId);
 
@@ -507,7 +510,7 @@ export class ExpenseService {
     ]);
 
     return {
-      items,
+      items: await enrichFunding(this.prisma, tenantId, items, requester),
       total,
       page,
       pageSize,
@@ -515,10 +518,10 @@ export class ExpenseService {
     };
   }
 
-  async findPlanned(tenantId: string, projectId: string) {
+  async findPlanned(tenantId: string, projectId: string, requester?: RateioRequester) {
     await this.validateProject(tenantId, projectId);
 
-    return this.prisma.expense.findMany({
+    const items = await this.prisma.expense.findMany({
       where: {
         projectId,
         tenantId,
@@ -529,6 +532,7 @@ export class ExpenseService {
       include: { room: true },
       orderBy: { createdAt: 'desc' },
     });
+    return enrichFunding(this.prisma, tenantId, items, requester);
   }
 
   /**
@@ -592,7 +596,7 @@ export class ExpenseService {
         { fornecedor: { contains: s } },
       ];
     }
-    return this.prisma.expense.findMany({
+    const items = await this.prisma.expense.findMany({
       where,
       include: {
         room: true,
@@ -601,6 +605,7 @@ export class ExpenseService {
       orderBy: [{ createdAt: 'desc' }],
       take: limit,
     });
+    return enrichFunding(this.prisma, tenantId, items, requester);
   }
 
   /**
@@ -854,10 +859,14 @@ export class ExpenseService {
     const rows = await db.crossProjectSettlement.findMany({
       where: {
         tenantId,
+        reversedAt: null,
         OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }],
       },
-      select: { sourceExpenseId: true, targetExpenseId: true },
+      select: { sourceExpenseId: true, targetExpenseId: true, mode: true },
     });
+    if ((!allowSource || !allowTarget) && rows.some(row => row.mode === ADDITIVE)) {
+      throw new ConflictException('Desfaça os aportes antes de alterar os dados financeiros.');
+    }
     const isSource = rows.some((row) => row.sourceExpenseId === expenseId);
     const isTarget = rows.some((row) => row.targetExpenseId === expenseId);
     if ((isSource && !allowSource) || (isTarget && !allowTarget)) {
@@ -1161,9 +1170,14 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     sourceId: string,
-    params: { targetExpenseId: string; parcelaIndex?: number; realValor?: number },
+    params: { targetExpenseId: string; parcelaIndex?: number; realValor?: number; mode?: string } | AdditiveSettlementCommand,
     requester: RateioRequester,
   ) {
+    if (params.mode !== undefined) {
+      if (params.mode !== ADDITIVE) throw new BadRequestException('Modo de conciliação inválido.');
+      // Validation remains in the shared command so bank linking cannot bypass it.
+      return applyParcelaFunding(this.prisma, tenantId, projectId, sourceId, params, requester);
+    }
     assertRateioRequester(requester);
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
@@ -1176,7 +1190,7 @@ export class ExpenseService {
     // faz o override do alvo CASAR com o que aparece no caixa PESSOAL (I10).
     // Quando o chamador informa realValor explícito, ele prevalece.
     const parcelaIndex = params.parcelaIndex ?? 0;
-    const realValor = params.realValor ?? source.valorTotal;
+    const realValor = ('realValor' in params ? params.realValor : undefined) ?? source.valorTotal;
 
     // O clamp do índice vive em settleTargetParcela; passamos o índice cru e
     // lemos de volta o índice EFETIVO (clampado) para o retorno (E2).
@@ -1198,6 +1212,10 @@ export class ExpenseService {
       targetId: params.targetExpenseId,
       parcelaIndex: settleInput._effective ?? parcelaIndex,
     };
+  }
+
+  async undoParcelaFunding(tenantId: string, projectId: string, sourceId: string, settlementId: string, requester: RateioRequester) {
+    return undoParcelaFunding(this.prisma, tenantId, projectId, sourceId, settlementId, requester);
   }
 
   /**
@@ -1420,7 +1438,7 @@ export class ExpenseService {
     return { ok: true, sourceId: source.id, ...result };
   }
 
-  async findById(tenantId: string, projectId: string, id: string) {
+  async findById(tenantId: string, projectId: string, id: string, requester?: RateioRequester) {
     await this.validateProject(tenantId, projectId);
 
     const expense = await this.prisma.expense.findFirst({
@@ -1429,7 +1447,7 @@ export class ExpenseService {
     });
     if (!expense) throw new NotFoundException('Despesa não encontrada');
 
-    return expense;
+    return (await enrichFunding(this.prisma, tenantId, [expense], requester))[0];
   }
 
   /**
@@ -1788,6 +1806,7 @@ export class ExpenseService {
       await this.guardImportedInvoiceTrail(tx, tenantId, expense, {
         changedFinancials: true,
       });
+      await guardActiveFunding(tx, tenantId, [expense.id]);
       if (isSinglePaymentForm(expense.formaPagamento)) {
         throw new BadRequestException('Despesa não é parcelada/quinzenal');
       }
@@ -1808,9 +1827,11 @@ export class ExpenseService {
       const settlements = await tx.crossProjectSettlement.findMany({
         where: {
           tenantId,
+          reversedAt: null,
           OR: [{ sourceExpenseId: expense.id }, { targetExpenseId: expense.id }],
         },
       });
+      if (settlements.some(row => row.mode === ADDITIVE)) throw new ConflictException('Parcela com aportes ativos.');
       if (settlements.some((row) => row.sourceExpenseId === expense.id)) {
         throw new BadRequestException(
           'A fonte real conciliada não pode ter a data alterada aqui. Edite a parcela planejada alvo.',
@@ -1894,6 +1915,7 @@ export class ExpenseService {
           const counterpartSettlements = await tx.crossProjectSettlement.findMany({
             where: {
               tenantId,
+              reversedAt: null,
               OR: [
                 { sourceExpenseId: counterpartId },
                 { targetExpenseId: counterpartId },
@@ -2106,7 +2128,7 @@ export class ExpenseService {
   ): Promise<void> {
     const involvedInSettlement = async (expenseId: string): Promise<boolean> =>
       (await db.crossProjectSettlement.count({
-        where: { tenantId, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
+        where: { tenantId, reversedAt: null, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
       })) > 0;
 
     // Pares de CONCILIAÇÃO (importação de fatura) têm unlink reversível próprio —
@@ -2221,6 +2243,7 @@ export class ExpenseService {
 
     return this.prisma.$transaction(async (tx) => {
       // Create paid expense clone
+      await guardActiveFunding(tx, tenantId, [id]);
       const paidExpense = await tx.expense.create({
         data: {
           projectId,
@@ -2300,6 +2323,7 @@ export class ExpenseService {
     dataPagamento: Date,
     tx: Prisma.TransactionClient,
   ): Promise<void> {
+    await guardActiveFunding(tx, tenantId, [id]);
     const rateio = await tx.rateioAllocation.findUnique({ where: { targetExpenseId: id } });
     if (rateio) return;
 
@@ -2332,6 +2356,7 @@ export class ExpenseService {
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
       await this.guardRateioParticipation(tenantId, id, false, false, tx);
+      await guardActiveFunding(tx, tenantId, [id]);
       // #569 (degrau) — B2: alternar o status de uma parcela regenera TODO o
       // caixa da compra (soft-delete + recria com ids novos). Se qualquer
       // parcela desta compra tem linha de ledger de importação ATIVA, isso
@@ -2470,6 +2495,7 @@ export class ExpenseService {
         (await tx.crossProjectSettlement.count({
           where: {
             tenantId,
+            reversedAt: null,
             OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }],
           },
         })) > 0;

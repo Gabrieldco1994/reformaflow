@@ -23,6 +23,7 @@ describe('MonthlyOverviewService.getDreOverview', () => {
           .mockResolvedValue([{ id: projectId }, { id: 'reforma-1' }]),
       },
       cashFlowEntry: { findMany: jest.fn() },
+      crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
       creditCard: { findMany: jest.fn() },
     };
 

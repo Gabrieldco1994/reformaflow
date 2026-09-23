@@ -9,6 +9,7 @@ import {
   inlineSnapshot, preflightInlineUndo, publicInlineExpenses, INLINE_IMPORT_DRIFT,
 } from './inline-expenses';
 import { PrismaService, INCLUDE_SOFT_DELETED } from '../prisma/prisma.service';
+import { applyParcelaFunding, guardFundingAccount, guardActiveFunding, fundingSummaries, ADDITIVE } from '../conciliacao/additive-settlement';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
 import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
 import {
@@ -338,9 +339,10 @@ export class BankAccountService {
           tipoDespesa: { notIn: Array.from(NEUTRAL_EXPENSE_TYPES) },
           deletedAt: null,
         },
-        select: { bankLast4: true, valorTotal: true },
+        select: { id: true, bankLast4: true, valorTotal: true },
       }),
     ]);
+    const funding = await fundingSummaries(this.prisma, tenantId, expenses.map(expense => expense.id));
 
     // Saldo exibido = recebimentos em caixa/pagos da conta − despesas pagas não neutras da conta.
     const balanceByLast4 = new Map<string, number>();
@@ -350,7 +352,8 @@ export class BankAccountService {
     }
     for (const expense of expenses) {
       if (!expense.bankLast4) continue;
-      balanceByLast4.set(expense.bankLast4, (balanceByLast4.get(expense.bankLast4) ?? 0) - expense.valorTotal);
+      const projectedPaid = (funding.get(expense.id) ?? []).reduce((total, row) => total + row.paidCents, 0);
+      balanceByLast4.set(expense.bankLast4, (balanceByLast4.get(expense.bankLast4) ?? 0) - expense.valorTotal + projectedPaid);
     }
 
     return accounts.map((account) => ({
@@ -452,6 +455,9 @@ export class BankAccountService {
       if (dto.last4 !== undefined) {
         await this.assertNoDuplicateAccount(tx, tenantId, projectId, dto.last4, id);
       }
+      if (dto.last4 !== undefined || dto.institution !== undefined || dto.accountNumber !== undefined || dto.agency !== undefined) {
+        await guardFundingAccount(tx, tenantId, projectId, id);
+      }
       // Use updateMany with complete scope (id, tenantId, projectId, deletedAt: null)
       // to ensure atomicity and prevent TOCTOU race conditions.
       const result = await tx.bankAccount.updateMany({
@@ -470,8 +476,11 @@ export class BankAccountService {
     // Use deleteMany with complete scope (id, tenantId, projectId, deletedAt: null)
     // to ensure atomicity and prevent TOCTOU race conditions.
     // The soft-delete middleware will convert deleteMany to updateMany.
-    const result = await this.prisma.bankAccount.deleteMany({
-      where: { id, tenantId, projectId, deletedAt: null },
+    const result = await this.prisma.$transaction(async tx => {
+      await guardFundingAccount(tx, tenantId, projectId, id);
+      return tx.bankAccount.deleteMany({
+        where: { id, tenantId, projectId, deletedAt: null },
+      });
     });
     if (result.count !== 1) {
       throw new NotFoundException('Conta bancária não encontrada ou foi modificada');
@@ -1517,9 +1526,10 @@ export class BankAccountService {
     tenantId: string,
     sourceExpenseIds: string[],
     requester: RateioRequester,
+    activeSettlements = false,
   ): Promise<number> {
     const rows = await model.findMany({
-      where: { sourceExpenseId: { in: sourceExpenseIds } },
+      where: { tenantId, sourceExpenseId: { in: sourceExpenseIds }, ...(activeSettlements ? { reversedAt: null } : {}) },
       select: { targetExpenseId: true },
     });
     if (rows.length === 0) return 0;
@@ -1603,6 +1613,7 @@ export class BankAccountService {
           tenantId,
           expenseIds,
           requester,
+          true,
         )
       : 0;
     const rateios = expenseIds.length
@@ -2148,8 +2159,11 @@ export class BankAccountService {
     const linkWhere = { tenantId, sourceExpenseId: { in: expenses.map(e => e.id) } };
     const [allocations, settlements] = await Promise.all([
       tx.rateioAllocation.findMany({ where: linkWhere, select: { sourceExpenseId: true, targetExpenseId: true } }),
-      tx.crossProjectSettlement.findMany({ where: linkWhere, select: { sourceExpenseId: true, targetExpenseId: true } }),
+      tx.crossProjectSettlement.findMany({ where: { ...linkWhere, reversedAt: null }, select: { sourceExpenseId: true, targetExpenseId: true, mode: true } }),
     ]);
+    if (settlements.some(row => row.mode === ADDITIVE)) {
+      return { ...inline, canUndo: false, blockReason: 'Desfaça os aportes antes de desfazer a importação.' };
+    }
     // The same claim guard used by unratearSource/unsettleBySource must precede invoice reversal too.
     const claimed = await findExpensesWithActivePurchaseTrail(tx, tenantId,
       [...allocations, ...settlements].flatMap(link => [link.sourceExpenseId, link.targetExpenseId]));
@@ -2195,16 +2209,17 @@ export class BankAccountService {
       if (!c.fornecedor) continue;
       const manualType = await this.merchantClassifier.manualExpenseType(c.fornecedor, tenantId);
       if (!manualType) continue;
-      await this.prisma.$transaction([
-        this.prisma.expense.update({
+      await this.prisma.$transaction(async tx => {
+        if (isNeutralExpenseType(manualType) || manualType === 'INVESTIMENTOS') await guardActiveFunding(tx, tenantId, [c.id]);
+        await tx.expense.update({
           where: { id: c.id },
           data: { tipoDespesa: manualType },
-        }),
-        this.prisma.cashFlowEntry.updateMany({
-          where: { expenseId: c.id },
+        });
+        await tx.cashFlowEntry.updateMany({
+          where: { tenantId, projectId, expenseId: c.id, deletedAt: null },
           data: { categoria: manualType },
-        }),
-      ]);
+        });
+      });
       updated++;
     }
     return updated;
@@ -2458,9 +2473,12 @@ export class BankAccountService {
     projectId: string,
     bankExpenseId: string,
     targetExpenseId: string,
-    opts: { parcelaIndex?: number; realValor?: number } | undefined,
+    opts: { parcelaIndex?: number; realValor?: number; mode?: string; amountCents?: number; requestId?: string } | undefined,
     requester: RateioRequester,
   ) {
+    if (opts?.mode !== undefined) {
+      return applyParcelaFunding(this.prisma, tenantId, projectId, bankExpenseId, { ...opts, targetExpenseId }, requester);
+    }
     assertRateioRequester(requester);
     return this.prisma.$transaction(async (tx) => {
       const source = await tx.expense.findFirst({

@@ -28,6 +28,7 @@ function makePrismaMock() {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     bankStatementImport: {
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: 'bimp1' }),
       update: jest.fn().mockResolvedValue({}),
     },
@@ -65,8 +66,10 @@ function makePrismaMock() {
     creditCard: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null) },
     recurringBill: { create: jest.fn(), findFirst: jest.fn() },
     crossProjectSettlement: {
-      findUnique: jest.fn().mockResolvedValue(null),
-      upsert: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(0),
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -262,7 +265,7 @@ describe('BankAccountService', () => {
           tipoDespesa: { notIn: ['PAGAMENTO_FATURA_CARTAO', 'MOVIMENTACAO_INTERNA'] },
           deletedAt: null,
         },
-        select: { bankLast4: true, valorTotal: true },
+        select: { id: true, bankLast4: true, valorTotal: true },
       });
     });
 
@@ -857,14 +860,15 @@ describe('BankAccountService', () => {
         }
         return Promise.resolve(null);
       });
-      prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 50000 }]);
+      prisma.crossProjectSettlement.findMany.mockImplementation(({ where }: { where: { mode?: string } }) =>
+        Promise.resolve(where.mode === 'ADDITIVE' ? [] : [{ parcelaIndex: 0, realValor: 50000 }]));
 
       await expect(
         service.linkToExpense('t1', 'pessoal1', 'src1', 'tgt1', undefined, TEST_OWNER_REQUESTER),
       ).resolves.toEqual(
         expect.objectContaining({ ok: true, sourceId: 'src1', targetId: 'tgt1' }),
       );
-      expect(prisma.crossProjectSettlement.upsert).toHaveBeenCalled();
+      expect(prisma.crossProjectSettlement.create).toHaveBeenCalled();
     });
   });
 

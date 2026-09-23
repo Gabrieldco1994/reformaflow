@@ -66,10 +66,13 @@ describe('ConciliacaoService', () => {
         }),
       },
       crossProjectSettlement: {
-        findUnique: jest.fn().mockResolvedValue(null),
-        upsert: jest.fn().mockResolvedValue({}),
+        count: jest.fn().mockResolvedValue(0),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockImplementation(({ where }: any) => {
+          if (where.mode === 'ADDITIVE') return Promise.resolve([]);
           if (where.sourceExpenseId && !where.targetExpenseId) {
             return Promise.resolve(opts.sourceRows ?? []);
           }
@@ -118,11 +121,11 @@ describe('ConciliacaoService', () => {
       }, TEST_OWNER_REQUESTER);
 
       // 1) snapshot do planejado guardado na criação
-      const upsertArg = prisma.crossProjectSettlement.upsert.mock.calls[0][0];
-      expect(upsertArg.create.plannedValor).toBe(10000);
-      expect(upsertArg.create.plannedStatus).toBe('PLANEJADO');
-      expect(upsertArg.create.realValor).toBe(11000);
-      expect(upsertArg.create.parcelaIndex).toBe(0);
+      const createArg = prisma.crossProjectSettlement.create.mock.calls[0][0];
+      expect(createArg.data.plannedValor).toBe(10000);
+      expect(createArg.data.plannedStatus).toBe('PLANEJADO');
+      expect(createArg.data.realValor).toBe(11000);
+      expect(createArg.data.parcelaIndex).toBe(0);
 
       // 2) alvo: parcela 0 marcada paga, ainda PLANEJADO (2 abertas)
       const targetUpdate = prisma.expense.update.mock.calls.find((c: any[]) => c[0].where.id === 'tgt');
@@ -201,7 +204,7 @@ describe('ConciliacaoService', () => {
 
       // linhas de liquidação removidas
       expect(prisma.crossProjectSettlement.deleteMany).toHaveBeenCalledWith({
-        where: { targetExpenseId: 'tgt', sourceExpenseId: 'src' },
+        where: { tenantId: 't1', targetExpenseId: 'tgt', sourceExpenseId: 'src', mode: 'LEGACY_REPLACEMENT' },
       });
 
       // fonte desvinculada

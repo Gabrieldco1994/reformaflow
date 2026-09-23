@@ -34,6 +34,9 @@ export class ImportBankStatementQueryDto {
 }
 
 export class LinkToExpenseDto {
+  @IsOptional() @IsIn(['ADDITIVE']) mode?: 'ADDITIVE';
+  @IsOptional() @IsInt() @Min(1) @Max(2147483647) amountCents?: number;
+  @IsOptional() @IsString() @Length(1, 200) requestId?: string;
   @IsString() @Length(1, 50) targetExpenseId!: string;
   /** Parcela 0-based do ALVO a liquidar (default 0). */
   @IsOptional() @IsInt() @Min(0) @Max(120) parcelaIndex?: number;

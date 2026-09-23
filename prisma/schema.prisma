@@ -369,11 +369,22 @@ model CrossProjectSettlement {
   plannedValor    Int      @map("planned_valor") // snapshot do valor planejado da parcela (restore)
   plannedStatus   String   @map("planned_status") // snapshot do status original do alvo (PLANEJADO/PAGO)
   createdAt       DateTime @default(now()) @map("created_at")
+  mode            String   @default("LEGACY_REPLACEMENT")
+  requestId       String?   @map("request_id")
+  reversedAt      DateTime? @map("reversed_at")
+  reversedByUserId String?  @map("reversed_by_user_id")
+  createdByUserId String?   @map("created_by_user_id")
+  sourceCashFlowEntryId String? @map("source_cash_flow_entry_id")
+  targetPaidCashFlowEntryId String? @map("target_paid_cash_flow_entry_id")
+  targetPendingCashFlowEntryId String? @map("target_pending_cash_flow_entry_id")
+  snapshot        String?
 
   source Expense @relation("SettlementSource", fields: [sourceExpenseId], references: [id])
   target Expense @relation("SettlementTarget", fields: [targetExpenseId], references: [id])
 
-  @@unique([targetExpenseId, parcelaIndex])
+  // Partial unique indexes and additive provenance CHECKs live in the #702 migration.
+  // Legacy target/index, active additive source/target/index, tenant/request and paid-CFE identity.
+  @@index([targetExpenseId, parcelaIndex])
   @@index([sourceExpenseId])
   @@index([tenantId])
   @@map("cross_project_settlements")

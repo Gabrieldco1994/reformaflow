@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ADDITIVE, fundingAccount } from '../conciliacao/additive-settlement';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveAccessibleProjectScope } from '../common/access-rules';
 import { buildPaidOrigins } from './paid-origins.builder';
@@ -44,8 +45,9 @@ export class PaidOriginsService {
 
     const [settlementRows, rateioRows, projectScope, projectExpenseIdRows] = await Promise.all([
       this.prisma.crossProjectSettlement.findMany({
-        where: { tenantId, target: { projectId, tenantId, deletedAt: null } },
-        select: { targetExpenseId: true, sourceExpenseId: true, parcelaIndex: true },
+        where: { tenantId, reversedAt: null, target: { projectId, tenantId, deletedAt: null } },
+        select: { id: true, mode: true, realValor: true, targetPaidCashFlowEntryId: true,
+          targetExpenseId: true, sourceExpenseId: true, parcelaIndex: true },
       }),
       this.prisma.rateioAllocation.findMany({
         where: { tenantId, target: { projectId, tenantId, deletedAt: null } },
@@ -65,7 +67,15 @@ export class PaidOriginsService {
       }),
     ]);
 
-    const settlements: PaidOriginSettlementRow[] = settlementRows;
+    const projections = settlementRows.some(row => row.mode === ADDITIVE)
+      ? await this.prisma.cashFlowEntry.findMany({
+        where: { tenantId, deletedAt: null, id: { in: settlementRows.flatMap(row =>
+          row.targetPaidCashFlowEntryId ? [row.targetPaidCashFlowEntryId] : []) } },
+        select: { id: true, data: true },
+      }) : [];
+    const settlements: PaidOriginSettlementRow[] = settlementRows.map(row => ({
+      ...row, paymentDate: projections.find(c => c.id === row.targetPaidCashFlowEntryId)?.data.toISOString(),
+    }));
     const rateios: PaidOriginRateioRow[] = rateioRows;
 
     const coveredTargets = new Set<string>([
@@ -98,18 +108,24 @@ export class PaidOriginsService {
       sourceIds.length > 0
         ? await this.prisma.expense.findMany({
             where: { id: { in: sourceIds }, tenantId, deletedAt: null },
-            select: {
-              id: true,
-              projectId: true,
-              cardLast4: true,
-              bankLast4: true,
-              accountId: true,
+            include: {
               project: { select: { id: true, name: true, type: true } },
             },
           })
         : [];
 
-    const sources: PaidOriginSourceRow[] = sourceRows.map(
+    const invalidSources = new Set<string>();
+    const explicitAccounts = new Map<string, { id: string; last4: string }>();
+    for (const row of sourceRows) {
+      if (!settlements.some(s => s.mode === ADDITIVE && s.sourceExpenseId === row.id)) continue;
+      try {
+        explicitAccounts.set(row.id, await fundingAccount(this.prisma, row, requester));
+      } catch (error) {
+        if (!(error instanceof NotFoundException || error instanceof ConflictException)) throw error;
+        invalidSources.add(row.id);
+      }
+    }
+    const sources: PaidOriginSourceRow[] = sourceRows.filter(row => !invalidSources.has(row.id)).map(
       (row: {
         id: string;
         projectId: string;
@@ -123,8 +139,8 @@ export class PaidOriginsService {
         projectName: row.project.name,
         projectType: row.project.type,
         cardLast4: row.cardLast4,
-        bankLast4: row.bankLast4,
-        accountId: row.accountId,
+        bankLast4: explicitAccounts.get(row.id)?.last4 ?? row.bankLast4,
+        accountId: explicitAccounts.get(row.id)?.id ?? row.accountId,
       }),
     );
 

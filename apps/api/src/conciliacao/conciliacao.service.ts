@@ -27,6 +27,7 @@ import {
 } from '../common/imported-invoice-trail';
 
 type Tx = Prisma.TransactionClient;
+import { ADDITIVE, LEGACY_REPLACEMENT, guardActiveFunding } from './additive-settlement';
 
 const DUPLICATE_RATEIO_TARGET_MESSAGE = 'Despesa planejada duplicada no rateio.';
 const SOURCE_ALREADY_RATEIO_TARGET_MESSAGE = 'A compra fonte já é alvo de outro rateio.';
@@ -237,7 +238,7 @@ export class ConciliacaoService {
         select: { targetExpenseId: true },
       }),
       tx.crossProjectSettlement.findMany({
-        where: { tenantId: params.tenantId, sourceExpenseId: { in: sourceExpenseIds } },
+        where: { tenantId: params.tenantId, sourceExpenseId: { in: sourceExpenseIds }, reversedAt: null },
         select: { targetExpenseId: true },
       }),
     ]);
@@ -369,10 +370,13 @@ export class ConciliacaoService {
     // P1/P2 — idempotência do espelho (1 espelho ativo por target+parcela).
     // Se já existe um settlement nesta parcela apontando para OUTRA source, o
     // espelho antigo virou órfão → soft-delete + limpar o vínculo. Como
-    // `$transaction` ignora o `$use` de soft-delete, setamos `deletedAt` na mão.
     // Duplo clique com a MESMA source → nada a desativar (só update de realValor).
-    const existingSettlement = await tx.crossProjectSettlement.findUnique({
-      where: { targetExpenseId_parcelaIndex: { targetExpenseId, parcelaIndex } },
+    await guardActiveFunding(tx, tenantId, [sourceExpenseId]);
+    if (await tx.crossProjectSettlement.count({
+      where: { tenantId, targetExpenseId, parcelaIndex, mode: ADDITIVE, reversedAt: null },
+    })) throw new ConflictException('Parcela com aportes ativos.');
+    const existingSettlement = await tx.crossProjectSettlement.findFirst({
+      where: { tenantId, targetExpenseId, parcelaIndex, mode: LEGACY_REPLACEMENT },
     });
 
     // #569 (degrau, SIBLING do rateio) — nenhum participante EFETIVO da
@@ -409,9 +413,13 @@ export class ConciliacaoService {
     }
 
     // Snapshot só na criação; em re-import da mesma parcela, atualiza o valor real.
-    await tx.crossProjectSettlement.upsert({
-      where: { targetExpenseId_parcelaIndex: { targetExpenseId, parcelaIndex } },
-      create: {
+    if (existingSettlement) {
+      await tx.crossProjectSettlement.update({
+        where: { id: existingSettlement.id },
+        data: { realValor, sourceExpenseId },
+      });
+    } else {
+      await tx.crossProjectSettlement.create({ data: {
         tenantId,
         sourceExpenseId,
         targetExpenseId,
@@ -419,9 +427,8 @@ export class ConciliacaoService {
         realValor,
         plannedValor,
         plannedStatus,
-      },
-      update: { realValor, sourceExpenseId },
-    });
+      } });
+    }
 
     existingPaid.add(parcelaIndex);
     const allPaid = existingPaid.size >= n;
@@ -458,16 +465,22 @@ export class ConciliacaoService {
     });
     if (!target) return;
 
-    // Sempre limpa as entradas atuais antes de recriar.
+    const additiveHistory = await tx.crossProjectSettlement.findMany({
+      where: { tenantId: target.tenantId, targetExpenseId, mode: ADDITIVE },
+    });
+    const retainedIds = additiveHistory.flatMap(r =>
+      [r.targetPendingCashFlowEntryId, r.targetPaidCashFlowEntryId].filter((id): id is string => id !== null));
+    const retainedIndexes = new Set(additiveHistory.map(r => r.parcelaIndex));
+    // Legacy sibling updates must not replace additive provenance, even after an undo.
     await tx.cashFlowEntry.updateMany({
-      where: { expenseId: targetExpenseId, deletedAt: null },
+      where: { expenseId: targetExpenseId, deletedAt: null, id: { notIn: retainedIds } },
       data: { deletedAt: new Date() },
     });
 
     if (isNeutralExpenseType(target.tipoDespesa)) return;
 
     const settlements = await tx.crossProjectSettlement.findMany({
-      where: { targetExpenseId },
+      where: { targetExpenseId, mode: LEGACY_REPLACEMENT },
     });
 
     const plannedSlices = buildInstallments({
@@ -519,7 +532,7 @@ export class ConciliacaoService {
       data: slice.data,
       formaPagamento: target.formaPagamento,
       parcela: singlePayment ? null : slice.parcela,
-    }));
+    })).filter((_, idx) => !retainedIndexes.has(idx));
 
     if (entries.length > 0) await tx.cashFlowEntry.createMany({ data: entries });
   }
@@ -535,13 +548,14 @@ export class ConciliacaoService {
   ): Promise<{ targets: string[] }> {
     assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
     const { tenantId, sourceExpenseId } = params;
+    await guardActiveFunding(tx, tenantId, [sourceExpenseId]);
     await this.assertCanReverseSources(
       tx,
       { tenantId, sourceExpenseIds: [sourceExpenseId] },
       requester,
     );
     const rows = await tx.crossProjectSettlement.findMany({
-      where: { tenantId, sourceExpenseId },
+      where: { tenantId, sourceExpenseId, mode: LEGACY_REPLACEMENT },
     });
     if (rows.length === 0) return { targets: [] };
 
@@ -598,7 +612,7 @@ export class ConciliacaoService {
       }
 
       await tx.crossProjectSettlement.deleteMany({
-        where: { targetExpenseId, sourceExpenseId },
+        where: { tenantId, targetExpenseId, sourceExpenseId, mode: LEGACY_REPLACEMENT },
       });
 
       if (target) await this.regenerateTargetCashflow(tx, targetExpenseId);
@@ -745,7 +759,8 @@ export class ConciliacaoService {
       throw new BadRequestException(TARGET_ALREADY_RATEIO_SOURCE_MESSAGE);
     }
 
-    const conc = await tx.crossProjectSettlement.count({ where: { sourceExpenseId } });
+    await guardActiveFunding(tx, tenantId, [sourceExpenseId, ...uniqueTargetIds]);
+    const conc = await tx.crossProjectSettlement.count({ where: { tenantId, sourceExpenseId, reversedAt: null } });
     if (conc > 0) {
       throw new BadRequestException('Esta compra já está conciliada por parcela; desfaça antes de ratear.');
     }
@@ -775,7 +790,7 @@ export class ConciliacaoService {
     );
     const [targetSettlements, targetAllocations] = await Promise.all([
       tx.crossProjectSettlement.findMany({
-        where: { tenantId, targetExpenseId: { in: [...uniqueTargetIds] } },
+        where: { tenantId, targetExpenseId: { in: [...uniqueTargetIds] }, reversedAt: null },
         select: { targetExpenseId: true },
       }),
       tx.rateioAllocation.findMany({
@@ -1004,7 +1019,7 @@ export class ConciliacaoService {
       return { mode: 'rateio', targets };
     }
 
-    const settlementCount = await tx.crossProjectSettlement.count({ where: { sourceExpenseId } });
+    const settlementCount = await tx.crossProjectSettlement.count({ where: { tenantId, sourceExpenseId, reversedAt: null } });
     if (settlementCount > 0) {
       const { targets } = await this.unsettleBySource(
         tx,

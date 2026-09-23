@@ -907,6 +907,17 @@ Gestão dos cartões de crédito.
   Não restaura despesas excluídas, não reimporta e não quita faturas.
   É uma operação assistida por API, sem novo botão na tela; publicar o recurso
   não corrige registros antigos automaticamente.
+- **Aporte parcial de um débito bancário existente (API):** o modo
+  `ADDITIVE` de `POST /projects/:projectId/expenses/:sourceId/conciliar-parcela`
+  aceita `targetExpenseId`, `parcelaIndex` (zero-based), `amountCents` e
+  `requestId`. Aloca somente o valor informado à parcela de outro projeto,
+  sem criar novo débito nem mudar o valor contratado. O saldo continua
+  pendente; somente saldo zero marca a parcela como paga. Repetições devem
+  conservar a mesma chave. O DELETE da mesma rota com `/:settlementId`
+  desfaz um aporte específico, não o pagamento bancário. Enquanto houver
+  aporte ativo, desfaça-o antes de editar valores/datas, excluir participantes
+  ou desfazer sua importação. Esta entrega de API não implica um novo botão
+  na interface nem corrige dados antigos automaticamente.
 - **Categoria sugerida na prévia:** cada linha já vem com uma categoria
   pré-selecionada e um chip discreto indicando a origem da sugestão — **"Regra"**
   (regra de categoria já cadastrada), **"IA"** (classificação automática) ou

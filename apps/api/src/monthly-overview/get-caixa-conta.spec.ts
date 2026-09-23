@@ -52,6 +52,7 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
       expense: { findMany: jest.fn().mockResolvedValue(expenses) },
       receipt: { findMany: jest.fn().mockResolvedValue(receipts) },
       bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
+      crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [

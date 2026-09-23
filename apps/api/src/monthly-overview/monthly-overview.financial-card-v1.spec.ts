@@ -53,6 +53,7 @@ describe('MonthlyOverviewService — FinancialItemCardV1 contract', () => {
         ]),
       },
       cashFlowEntry: { findMany: jest.fn().mockResolvedValue([]) },
+      crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
       bankAccount: { findMany: jest.fn().mockResolvedValue([]) },
       expense: { findMany: jest.fn().mockResolvedValue([]) },
       receipt: { findMany: jest.fn().mockResolvedValue([]) },

@@ -50,12 +50,21 @@ function buildSettlementItems(
 
   const items: ExpensePaidOrigin[] = [];
   for (const [targetExpenseId, rows] of rowsByTarget) {
-    const sorted = [...rows].sort((a, b) => a.parcelaIndex - b.parcelaIndex);
+    const sorted = [...rows].sort((a, b) => a.parcelaIndex - b.parcelaIndex ||
+      (a.paymentDate ?? '').localeCompare(b.paymentDate ?? '') || (a.id ?? '').localeCompare(b.id ?? ''));
+    const additive = rows.some(row => row.mode === 'ADDITIVE');
+    if (additive && rows.some(row => !resolveVisibleRef(row.sourceExpenseId, sourceById, input) ||
+      (row.mode === 'ADDITIVE' && (!row.id || !row.realValor || !row.paymentDate)))) continue;
     const parcelas: ExpensePaidOrigin['parcelas'] = [];
+    const contributions: NonNullable<ExpensePaidOrigin['contributions']> = [];
     for (const row of sorted) {
       const ref = resolveVisibleRef(row.sourceExpenseId, sourceById, input);
       if (!ref) continue; // O2 (fonte inativa) / O8 (carteira) / O10 (redação)
       parcelas.push({ parcelaIndex: row.parcelaIndex, origin: ref });
+      if (row.mode === 'ADDITIVE' && row.id && row.realValor && row.paymentDate) {
+        contributions.push({ settlementId: row.id, amountCents: row.realValor,
+          paymentDate: row.paymentDate, parcelaIndex: row.parcelaIndex, origin: ref });
+      }
     }
     if (parcelas.length === 0) continue; // O7: nenhum candidato sobrevivente → alvo some
 
@@ -66,6 +75,7 @@ function buildSettlementItems(
       parcelas,
       origins,
       multiple: origins.length > 1,
+      ...(additive ? { contributions } : {}),
     });
   }
   return items;

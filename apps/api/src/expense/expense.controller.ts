@@ -66,11 +66,12 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @CurrentUser() requester?: RateioRequester,
   ) {
     return this.service.findAll(tenantId, projectId, {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
-    });
+    }, requester);
   }
 
   @Get('planned')
@@ -78,8 +79,9 @@ export class ExpenseController {
   findPlanned(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.findPlanned(tenantId, projectId);
+    return this.service.findPlanned(tenantId, projectId, requester);
   }
 
   @Get('cross-project')
@@ -133,8 +135,9 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.findById(tenantId, projectId, id);
+    return this.service.findById(tenantId, projectId, id, requester);
   }
 
   @Patch(':id')
@@ -223,7 +226,7 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
-    @Body() body: { targetExpenseId: string; parcelaIndex?: number; realValor?: number },
+    @Body() body: { targetExpenseId: string; parcelaIndex?: number; realValor?: number; mode?: string },
     @CurrentUser() requester: RateioRequester,
   ) {
     assertRateioRequester(requester);
@@ -231,13 +234,20 @@ export class ExpenseController {
       tenantId,
       projectId,
       id,
-      {
-        targetExpenseId: body.targetExpenseId,
-        parcelaIndex: body.parcelaIndex,
-        realValor: body.realValor,
-      },
+      body,
       requester,
     );
+  }
+
+  @Delete(':id/conciliar-parcela/:settlementId')
+  undoParcelaFunding(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Param('settlementId') settlementId: string,
+    @CurrentUser() requester: RateioRequester,
+  ) {
+    return this.service.undoParcelaFunding(tenantId, projectId, id, settlementId, requester);
   }
 
   @Delete(':id/conciliar-parcela')

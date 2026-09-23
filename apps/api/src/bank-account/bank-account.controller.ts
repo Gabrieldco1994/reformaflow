@@ -133,10 +133,7 @@ export class BankAccountController {
       projectId,
       expenseId,
       body.targetExpenseId,
-      {
-        parcelaIndex: body.parcelaIndex,
-        realValor: body.realValor,
-      },
+      body,
       requester,
     );
   }

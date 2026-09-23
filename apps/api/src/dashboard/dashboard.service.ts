@@ -93,7 +93,7 @@ export class DashboardService {
     const expenseIds = expenses.map((e) => e.id);
     const settlements = expenseIds.length
       ? await this.prisma.crossProjectSettlement.findMany({
-          where: { targetExpenseId: { in: expenseIds } },
+          where: { tenantId, targetExpenseId: { in: expenseIds }, mode: 'LEGACY_REPLACEMENT' },
         })
       : [];
     const settlementsByTarget = new Map<string, { realValor: number; plannedValor: number }[]>();
@@ -110,7 +110,18 @@ export class DashboardService {
     // Resumo por Ambiente
     // Aplica rateio: despesas de MAO_DE_OBRA / EMPREITEIRO sem ambiente são
     // distribuídas proporcionalmente entre os ambientes com valor > 0.
-    const expensesForRoomBreakdown = allocateEmpreiteiroExpenses(expensesEff);
+    const funding = await this.prisma.crossProjectSettlement.findMany({
+      where: { tenantId, targetExpenseId: { in: expenseIds }, mode: 'ADDITIVE', reversedAt: null },
+      select: { targetExpenseId: true },
+    });
+    const fundedTargets = new Set(funding.map(row => row.targetExpenseId));
+    const expensesForRoomBreakdown = allocateEmpreiteiroExpenses(expensesEff.flatMap(exp => {
+      if (!fundedTargets.has(exp.id)) return [exp];
+      const entries = cashFlowEntries.filter(e => e.expenseId === exp.id && e.tipo === 'DESPESA');
+      return ['PAGO', 'PLANEJADO'].map(status => ({ ...exp, status,
+        valorTotal: entries.filter(e => e.status === status).reduce((sum, e) => sum + e.valor, 0),
+      }));
+    }));
     const byRoomMap = new Map<string, { planejado: number; pago: number }>();
     for (const exp of expensesForRoomBreakdown) {
       const roomName = exp.room?.name ?? 'Sem Ambiente';

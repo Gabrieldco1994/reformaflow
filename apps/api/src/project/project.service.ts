@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { guardFundingProject } from '../conciliacao/additive-settlement';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { defaultRooms } from '@reformaflow/domain';
@@ -164,19 +165,24 @@ export class ProjectService {
 
   async update(tenantId: string, id: string, dto: UpdateProjectDto) {
     await this.findByIdInternal(tenantId, id);
-    return this.prisma.project.update({
-      where: { id },
-      data: {
-        ...(dto.name && { name: dto.name }),
-        ...(dto.type && { type: dto.type }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.startDate !== undefined && {
-          startDate: dto.startDate ? new Date(dto.startDate) : null,
-        }),
-        ...(dto.endDate !== undefined && {
-          endDate: dto.endDate ? new Date(dto.endDate) : null,
-        }),
-      },
+    return this.prisma.$transaction(async tx => {
+      const current = await tx.project.findFirst({ where: { id, tenantId, deletedAt: null } });
+      if (!current) throw new NotFoundException('Projeto não encontrado');
+      if (dto.type && dto.type !== current.type) await guardFundingProject(tx, tenantId, id);
+      return tx.project.update({
+        where: { id },
+        data: {
+          ...(dto.name && { name: dto.name }),
+          ...(dto.type && { type: dto.type }),
+          ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.startDate !== undefined && {
+            startDate: dto.startDate ? new Date(dto.startDate) : null,
+          }),
+          ...(dto.endDate !== undefined && {
+            endDate: dto.endDate ? new Date(dto.endDate) : null,
+          }),
+        },
+      });
     });
   }
 
@@ -193,7 +199,10 @@ export class ProjectService {
 
   async remove(tenantId: string, id: string) {
     await this.findByIdInternal(tenantId, id);
-    await this.prisma.project.delete({ where: { id } });
+    await this.prisma.$transaction(async tx => {
+      await guardFundingProject(tx, tenantId, id);
+      await tx.project.delete({ where: { id } });
+    });
     return { deleted: true };
   }
 }

@@ -13,6 +13,8 @@
  */
 
 export interface SettlementDelta {
+  mode?: string;
+  reversedAt?: Date | string | null;
   /** Valor real pago na parcela (centavos). */
   realValor: number;
   /** Valor planejado original da parcela (centavos) — snapshot. */
@@ -46,7 +48,9 @@ export function parsePaidParcelas(raw: string | null | undefined, n: number): nu
  */
 export function sumSettlementDeltas(settlements: SettlementDelta[]): number {
   let acc = 0;
-  for (const s of settlements) acc += s.realValor - s.plannedValor;
+  for (const s of settlements) {
+    if (s.mode !== 'ADDITIVE' && !s.reversedAt) acc += s.realValor - s.plannedValor;
+  }
   return acc;
 }
 
