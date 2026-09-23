@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Expense, Prisma } from "@prisma/client";
-import { isSinglePaymentForm } from "@reformaflow/domain";
+import { isSinglePaymentForm, localDateUtc } from "@reformaflow/domain";
 import { INCLUDE_SOFT_DELETED, PrismaService } from "../prisma/prisma.service";
 import { RateioRequester } from "../expense/rateio.types";
 import {
@@ -402,6 +402,21 @@ export class RestoreImportedExpensesService {
         ],
       },
     });
+    const undatedPayments = await tx.expense.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        valorTotal: root.valorTotal,
+        status: "PAGO",
+        dataPagamento: null,
+      },
+    });
+    for (const candidate of undatedPayments) {
+      if (!isSinglePaymentForm(candidate.formaPagamento)) continue;
+      // Account dates keep explicit payment dates; only createdAt falls back to the BRT day.
+      const date = localDateUtc(candidate.createdAt);
+      if (date >= start && date < end) candidates.push(candidate);
+    }
     const unownedDebit = await tx.cashFlowEntry.findFirst({
       where: {
         tenantId,

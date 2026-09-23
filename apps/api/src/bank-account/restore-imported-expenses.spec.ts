@@ -3,7 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
-import { Expense, PrismaClient } from "@prisma/client";
+import { Expense, Prisma, PrismaClient } from "@prisma/client";
 import { Test } from "@nestjs/testing";
 import { Reflector } from "@nestjs/core";
 import { JwtService } from "@nestjs/jwt";
@@ -17,6 +17,8 @@ import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { ModulesGuard } from "../common/guards/modules.guard";
 import { ProjectAccessGuard } from "../common/guards/project-access.guard";
+import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.service";
+import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
 import {
   resetTenant,
   seedPessoal,
@@ -37,6 +39,10 @@ const now = new Date("2026-09-23T12:00:00Z");
 const db = new PrismaClient();
 const prisma = new PrismaService();
 const service = new RestoreImportedExpensesService(prisma);
+const overview = new MonthlyOverviewService(
+  prisma,
+  new CardInvoiceSettlementService(prisma),
+);
 let accountId: string;
 let importId: string;
 let root: Expense;
@@ -134,6 +140,28 @@ async function history(externalId: string) {
     },
   });
   return expense;
+}
+
+async function undatedPayment(
+  overrides: Partial<Prisma.ExpenseUncheckedCreateInput> = {},
+) {
+  return db.expense.create({
+    data: {
+      tenantId,
+      projectId,
+      tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+      valor: 12345,
+      quantidade: 1,
+      valorTotal: 12345,
+      formaPagamento: "A_VISTA",
+      dataPagamento: null,
+      status: "PAGO",
+      bankLast4: "1234",
+      accountId,
+      createdAt: new Date("2026-08-11T02:00:00Z"),
+      ...overrides,
+    },
+  });
 }
 
 beforeEach(async () => {
@@ -322,6 +350,109 @@ describe("bank debit selective restoration #700", () => {
     const before = await snapshot();
     await expect(preview()).rejects.toBeInstanceOf(ConflictException);
     expect(await snapshot()).toEqual(before);
+  });
+
+  it.each([
+    ["account-daytime", "2026-08-10T12:00:00Z"],
+    ["account-boundary", "2026-08-11T02:00:00Z"],
+    ["original-import", "2026-08-11T02:00:00Z"],
+    ["ambiguous-identity", "2026-08-11T02:00:00Z"],
+  ])("rejects undated CFE-less equivalent %s (%s)", async (kind, timestamp) => {
+    await undatedPayment({
+      createdAt: new Date(timestamp),
+      accountId: kind.startsWith("account") ? accountId : null,
+      importId: kind === "original-import" ? importId : null,
+    });
+    const before = await snapshot();
+    const cash = await overview.getCaixaConta(tenantId, projectId, now);
+    expect(cash.hoje).toBe(-12345);
+    await expect(preview()).rejects.toMatchObject({ status: 409 });
+    expect(await snapshot()).toEqual(before);
+    expect(await overview.getCaixaConta(tenantId, projectId, now)).toEqual(
+      cash,
+    );
+  });
+
+  it.each(["account", "original-import", "ambiguous-identity"])(
+    "rechecks undated CFE-less equivalent after preview: %s",
+    async (kind) => {
+      const plan = await preview();
+      const competing = await undatedPayment({
+        accountId: kind === "account" ? accountId : null,
+        importId: kind === "original-import" ? importId : null,
+      });
+      expect(
+        await prisma.cashFlowEntry.count({
+          where: { expenseId: competing.id },
+        }),
+      ).toBe(0);
+      const before = await snapshot();
+      const cash = await overview.getCaixaConta(tenantId, projectId, now);
+      expect(cash.hoje).toBe(-12345);
+      await expect(apply(plan.fingerprint)).rejects.toMatchObject({
+        status: 409,
+      });
+      expect(await snapshot()).toEqual(before);
+      expect(await overview.getCaixaConta(tenantId, projectId, now)).toEqual(
+        cash,
+      );
+    },
+  );
+
+  it.each([
+    "previous-BRT-day",
+    "next-BRT-day",
+    "explicit-payment-date",
+    "other-account-id",
+    "other-account-import",
+    "planned",
+    "other-amount",
+    "installment-start-date",
+  ])("does not confuse undated payments: %s", async (kind) => {
+    const overrides: Partial<Prisma.ExpenseUncheckedCreateInput> = {};
+    if (kind === "previous-BRT-day")
+      overrides.createdAt = new Date("2026-08-10T02:00:00Z");
+    if (kind === "next-BRT-day")
+      overrides.createdAt = new Date("2026-08-11T03:00:00Z");
+    if (kind === "explicit-payment-date")
+      overrides.dataPagamento = new Date("2026-08-09T00:00:00Z");
+    if (kind === "planned") overrides.status = "PLANEJADO";
+    if (kind === "other-amount") overrides.valor = overrides.valorTotal = 54321;
+    if (kind === "installment-start-date") {
+      overrides.formaPagamento = "PARCELADO";
+      overrides.quantidadeParcela = 2;
+      overrides.dataInicioParcela = new Date("2026-08-09T00:00:00Z");
+    }
+    if (kind.startsWith("other-account")) {
+      const other = await db.bankAccount.findFirstOrThrow({
+        where: { tenantId, id: { not: accountId }, last4: "1234" },
+      });
+      overrides.accountId = other.id;
+      if (kind === "other-account-import") {
+        const batch = await db.bankStatementImport.create({
+          data: {
+            tenantId,
+            accountId: other.id,
+            source: "OFX",
+            periodLabel: "2026-08",
+          },
+        });
+        overrides.accountId = null;
+        overrides.importId = batch.id;
+      }
+    }
+    const competing = await undatedPayment(overrides);
+    const before = await snapshot();
+    const plan = await preview();
+    expect(await snapshot()).toEqual(before);
+    expect((await apply(plan.fingerprint)).changed).toBe(1);
+    const after = await snapshot();
+    expect(after.expenses.find((row) => row.id === competing.id)).toEqual(
+      competing,
+    );
+    expect(after.imports).toEqual(before.imports);
+    expect(after.ledger).toEqual(before.ledger);
+    expect(after.audit).toHaveLength(1);
   });
 
   it.each([
