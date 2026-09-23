@@ -8,6 +8,7 @@
 // `imported_invoice_liquidations.cash_flow_entry_id`.
 import { PrismaClient } from "@prisma/client";
 import { ConflictException } from "@nestjs/common";
+import { ExpenseType, ExpenseTypeLabels } from "@reformaflow/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   commitStatement,
@@ -236,18 +237,64 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
       await assertRegenerated(id, idsBefore);
     });
 
-    it("changedTipoDespesa — PATCH { tipoDespesa } regenera o caixa", async () => {
+    it("changedTipoDespesa — sincroniza categoria sem recriar o caixa", async () => {
       const { id, idsBefore } = await seedParcelada();
-      await expenses.update(TENANT, PESSOAL, id, { tipoDespesa: "MATERIAL" } as never, R);
-      await assertRegenerated(id, idsBefore);
+      await expenses.update(TENANT, PESSOAL, id, { tipoDespesa: ExpenseType.MATERIAL_CONSTRUCAO }, R);
+      const after = await setup.cashFlowEntry.findMany({ where: { expenseId: id } });
+      expect(after.map((entry) => entry.id).sort()).toEqual(idsBefore.sort());
+      expect(after.every((entry) => entry.deletedAt === null && entry.categoria === ExpenseTypeLabels.MATERIAL_CONSTRUCAO)).toBe(true);
     });
 
-    it("changedRoom — PATCH { roomId } regenera o caixa", async () => {
-      const room = await setup.room.create({ data: { projectId: PESSOAL, name: `Sala ${Math.random()}` } });
+    it("changedRoom — sincroniza ambiente sem recriar o caixa", async () => {
+      const room = await setup.room.create({ data: { projectId: PESSOAL, name: "Synthetic12345c" } });
       const { id, idsBefore } = await seedParcelada();
       await expenses.update(TENANT, PESSOAL, id, { roomId: room.id } as never, R);
-      await assertRegenerated(id, idsBefore);
+      const after = await setup.cashFlowEntry.findMany({ where: { expenseId: id } });
+      expect(after.map((entry) => entry.id).sort()).toEqual(idsBefore.sort());
+      expect(after.every((entry) => entry.deletedAt === null && entry.ambiente === room.name)).toBe(true);
     });
+  });
+
+  it("#695 — metadata preserves active ledger references and bank import remains undoable", async () => {
+    const { purchaseId, entryIds, importId } = await importSettled(2, 12345);
+    const before = await setup.cashFlowEntry.findMany({ where: { expenseId: purchaseId }, orderBy: { data: "asc" } });
+    const ledger = await setup.importedInvoiceLiquidation.findMany({ where: { tenantId: TENANT } });
+    await expenses.update(TENANT, PESSOAL, purchaseId, { tipoDespesa: ExpenseType.MAO_DE_OBRA, titulo: "Synthetic12345c" }, R);
+    const after = await setup.cashFlowEntry.findMany({ where: { expenseId: purchaseId }, orderBy: { data: "asc" } });
+    expect(after).toEqual(before.map((entry, index) => ({
+      ...entry, categoria: ExpenseTypeLabels.MAO_DE_OBRA, updatedAt: after[index].updatedAt,
+    })));
+    expect(await setup.importedInvoiceLiquidation.findMany({ where: { tenantId: TENANT } })).toEqual(ledger);
+    await bank.undoImport(TENANT, PESSOAL, accountId, importId, R);
+    expect(await activeLedger()).toBe(0);
+    expect(await setup.cashFlowEntry.count({ where: { id: { in: entryIds }, deletedAt: null, status: "PLANEJADO" } })).toBe(entryIds.length);
+  });
+
+  it("#695 — counterpart preflight allows preserved metadata but financial rejection rolls back both sides", async () => {
+    const { purchaseId, importId } = await importSettled(2, 12345);
+    const project = await setup.project.create({ data: { tenantId: TENANT, name: "Synthetic12345c", type: "PESSOAL" } });
+    const requester = { ...R, allowedProjects: [PESSOAL, project.id] };
+    const head = await expenses.create(TENANT, project.id, {
+      tipoDespesa: ExpenseType.OUTROS, titulo: "Synthetic12345c",
+      valor: 246.90, quantidade: 1, formaPagamento: "PARCELADO", quantidadeParcela: 2,
+      dataInicioParcela: "2026-06-10", status: "PLANEJADO", linkedExpenseId: purchaseId,
+    }, null, undefined, requester);
+    const entriesBefore = await setup.cashFlowEntry.findMany({ where: { expenseId: purchaseId }, orderBy: { id: "asc" } });
+    await expenses.update(TENANT, project.id, head.id, { tipoDespesa: ExpenseType.MAO_DE_OBRA }, requester);
+    const entriesAfter = await setup.cashFlowEntry.findMany({ where: { expenseId: purchaseId }, orderBy: { id: "asc" } });
+    expect(entriesAfter).toEqual(entriesBefore.map((entry, index) => ({
+      ...entry, categoria: ExpenseTypeLabels.MAO_DE_OBRA, updatedAt: entriesAfter[index].updatedAt,
+    })));
+    // Changed on the source but already equal on the counterpart: no regeneration there.
+    await expenses.update(TENANT, project.id, head.id, { valor: 123.45 }, requester);
+    expect(await setup.cashFlowEntry.findMany({ where: { expenseId: purchaseId }, orderBy: { id: "asc" } })).toEqual(entriesAfter);
+    const before = await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
+    const cashBefore = await setup.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } });
+    await expect(expenses.update(TENANT, project.id, head.id, { quantidade: 3 }, requester)).rejects.toBeInstanceOf(ConflictException);
+    expect(await setup.expense.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(before);
+    expect(await setup.cashFlowEntry.findMany({ where: { tenantId: TENANT }, orderBy: { id: "asc" } })).toEqual(cashBefore);
+    await bank.undoImport(TENANT, PESSOAL, accountId, importId, requester);
+    expect(await activeLedger()).toBe(0);
   });
 
   // ── GAP 2 (#569): pino das guardas de PARTICIPANTE INDIRETO de

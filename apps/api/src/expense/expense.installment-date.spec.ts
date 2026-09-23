@@ -594,6 +594,8 @@ describe("ExpenseService.updateInstallmentDate", () => {
       .mockResolvedValueOnce(linkedRows)
       .mockResolvedValueOnce(linkedRows)
       .mockResolvedValue([]);
+    // The counterpart is its own persisted row, not the just-updated source.
+    tx.expense.findUnique.mockResolvedValueOnce(linkedRows[1]);
 
     await service.update(
       "tenant-1",

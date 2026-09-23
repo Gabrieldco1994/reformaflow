@@ -8,7 +8,7 @@ import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, normalizeInstallmentDateOverrides, parseInstallmentDateOnlyUtc, parseInstallmentDateOverrides, setInstallmentDateOverride, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { createRateioTargets } from './create-rateio-targets';
-import { Prisma } from '@prisma/client';
+import { Expense, Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
 import {
   assertRateioRequester,
@@ -1538,15 +1538,17 @@ export class ExpenseService {
     if (!existing) throw new NotFoundException('Despesa não encontrada');
     await this.assertCanMutateLinkedRows(db, tenantId, existing, requester);
 
+    // Validate supplied room ownership even when a full form resends its current ID.
+    await this.validateRoomOwnership(db, dto.roomId, projectId);
+    dto = this.changedExpenseFields(existing, dto);
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : existing.valor;
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;
-    const valorTotal = valorCents * quantidade;
+    const valorTotal = dto.valor !== undefined || dto.quantidade !== undefined
+      ? valorCents * quantidade
+      : existing.valorTotal;
 
     const links = await this.resolveLinks(tenantId, projectId, dto, db, requester);
 
-    // B1a (#448): mesma regra do `create` — sala do próprio projeto, sem
-    // `tenantId` no schema; valida só existência/posse.
-    await this.validateRoomOwnership(db, dto.roomId, projectId);
     const sameDate = (current: Date | null, incoming: string | null | undefined): boolean =>
       incoming === undefined ||
       (incoming === null ? current === null : current?.getTime() === new Date(incoming).getTime());
@@ -1582,19 +1584,8 @@ export class ExpenseService {
       dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa;
     const changedToNeutralType =
       changedTipoDespesa && isNeutralExpenseType(dto.tipoDespesa as string);
-    const changedCategoriaMaoDeObra =
-      dto.categoriaMaoDeObra !== undefined &&
-      (dto.categoriaMaoDeObra ?? null) !== (existing.categoriaMaoDeObra ?? null);
-    const changedRoom =
-      dto.roomId !== undefined && (dto.roomId ?? null) !== (existing.roomId ?? null);
-    // #569 (degrau, §2b/#1) — superset EXATO dos insumos que fazem
-    // `regenerateCashFlow` (adiante) soft-deletar+recriar as `CashFlowEntry` com
-    // IDs novos. Precisa ser derivado ANTES da guarda: para uma COMPRA com claim
-    // de importação ATIVO, QUALQUER mutação regeneradora (não só a financeira)
-    // órfãozaria `imported_invoice_liquidations.cash_flow_entry_id`. Deriva a
-    // proteção de um único predicado coerente com o que substitui as CFEs — não
-    // um subconjunto menor. `shouldNormalizeInstallmentDateOverrides` é redundante
-    // aqui (é subconjunto de forma/data/parcela, já incluídas abaixo).
+    // #695: metadata is synchronized in place. Only effective financial changes
+    // replace CFEs; this same predicate protects active invoice ledger references.
     const shouldRegenerateCashFlow =
       changedValor ||
       changedQuantidade ||
@@ -1603,9 +1594,6 @@ export class ExpenseService {
       changedDataInicioParcela ||
       changedFormaPagamento ||
       changedStatus ||
-      changedTipoDespesa ||
-      changedCategoriaMaoDeObra ||
-      changedRoom ||
       changedOwnership;
     const hasProtectedChange =
       changedFormaPagamento ||
@@ -1638,11 +1626,7 @@ export class ExpenseService {
     // #569 (degrau) — B3/B4/B9: mutação posterior sobre parcela/pagamento
     // liquidado por importação.
     await this.guardImportedInvoiceTrail(db, tenantId, existing, {
-      // Para uma COMPRA com claim ATIVO, o gatilho de corrupção é a REGENERAÇÃO
-      // do caixa (soft-delete+recria as CFEs reivindicadas), não apenas a mudança
-      // de campos financeiros. Passa o predicado coerente com `regenerateCashFlow`
-      // — que inclui categoria, sala, tipo e ownership — senão um PATCH de sala/
-      // categoria válido passava a guarda e órfãozava o ledger.
+      // Metadata preserves the claimed row; financial regeneration cannot.
       changedFinancials: shouldRegenerateCashFlow,
       changedProtectedPaymentFields:
         changedOwnership ||
@@ -1755,6 +1739,8 @@ export class ExpenseService {
     // a regeneração — não podem divergir.
     if (shouldRegenerateCashFlow) {
       await this.regenerateCashFlow(expense.id, tx);
+    } else {
+      await this.syncCashFlowMetadata(db, expense, dto);
     }
 
     // "Uma coisa só": se esta despesa faz parte de um par cross-project (canônico
@@ -1770,6 +1756,7 @@ export class ExpenseService {
         shouldNormalizeInstallmentDateOverrides,
         db,
         tx,
+        requester,
       );
     }
 
@@ -2060,15 +2047,64 @@ export class ExpenseService {
     );
   }
 
+  /** Compare persisted values, not form keys (money is stored in cents). */
+  private changedExpenseFields(existing: Expense, dto: UpdateExpenseDto): UpdateExpenseDto {
+    const changed = { ...dto };
+    for (const key of [
+      'tipoDespesa', 'categoriaMaoDeObra', 'roomId', 'titulo', 'fornecedor', 'link', 'imageUrl',
+      'valor', 'quantidade', 'formaPagamento', 'quantidadeParcela', 'status',
+      'dataPagamento', 'dataInicioParcela', 'dataCompra', 'recorrente', 'recorrenciaFim', 'recurrenceKey',
+    ] as const) {
+      const incoming = dto[key];
+      if (incoming === undefined) continue;
+      const current = existing[key];
+      const normalized = key === 'valor'
+        ? Math.round((incoming as number) * 100)
+        : key === 'recorrente'
+          ? !!incoming
+          : current instanceof Date && incoming !== null
+            ? new Date(incoming as string).getTime()
+            : incoming;
+      if (normalized === (current instanceof Date ? current.getTime() : current)) {
+        delete changed[key];
+      }
+    }
+    return changed;
+  }
+
+  private async syncCashFlowMetadata(
+    db: ExpenseDb,
+    expense: ExpenseWithRoom,
+    changes: UpdateExpenseDto,
+  ): Promise<void> {
+    const data: Prisma.CashFlowEntryUpdateManyMutationInput = {};
+    if (changes.tipoDespesa !== undefined) {
+      data.categoria = ExpenseTypeLabels[expense.tipoDespesa as keyof typeof ExpenseTypeLabels] ?? expense.tipoDespesa;
+    }
+    if (changes.categoriaMaoDeObra !== undefined) {
+      data.subcategoria = expense.categoriaMaoDeObra
+        ? LaborCategoryLabels[expense.categoriaMaoDeObra as keyof typeof LaborCategoryLabels] ?? expense.categoriaMaoDeObra
+        : null;
+    }
+    if (changes.roomId !== undefined) data.ambiente = expense.room?.name ?? null;
+    if (Object.keys(data).length === 0) return;
+    // ponytail: preserve imported labels/payment form; never reconstruct missing rows.
+    await db.cashFlowEntry.updateMany({
+      where: { tenantId: expense.tenantId, projectId: expense.projectId, expenseId: expense.id, deletedAt: null },
+      data,
+    });
+  }
+
   private async syncLinkedObraPair(
     tenantId: string,
     sourceId: string,
     dto: UpdateExpenseDto,
     shouldSyncInstallmentDateOverrides: boolean,
-    db: ExpenseDb = this.prisma,
-    tx?: Prisma.TransactionClient,
-  ) {
-    const involvedInSettlement = async (expenseId: string) =>
+    db: ExpenseDb,
+    tx: Prisma.TransactionClient | undefined,
+    requester: RateioRequester,
+  ): Promise<void> {
+    const involvedInSettlement = async (expenseId: string): Promise<boolean> =>
       (await db.crossProjectSettlement.count({
         where: { tenantId, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
       })) > 0;
@@ -2100,90 +2136,61 @@ export class ExpenseService {
     }
     if (counterpartIds.size === 0) return;
 
-    const shared: Record<string, unknown> = {};
-    if (shouldSyncInstallmentDateOverrides) {
-      shared.installmentDateOverrides = source.installmentDateOverrides;
-    }
-    if (dto.tipoDespesa !== undefined) shared.tipoDespesa = dto.tipoDespesa;
-    if (dto.categoriaMaoDeObra !== undefined) shared.categoriaMaoDeObra = dto.categoriaMaoDeObra;
-    if (dto.titulo !== undefined) shared.titulo = dto.titulo;
-    if (dto.fornecedor !== undefined) shared.fornecedor = dto.fornecedor;
-    if (dto.formaPagamento !== undefined) shared.formaPagamento = dto.formaPagamento;
-    if (dto.quantidadeParcela !== undefined) shared.quantidadeParcela = dto.quantidadeParcela;
-    if (dto.status !== undefined) shared.status = dto.status;
-    if (dto.dataPagamento !== undefined)
-      shared.dataPagamento = dto.dataPagamento === null ? null : new Date(dto.dataPagamento);
-    if (dto.dataInicioParcela !== undefined)
-      shared.dataInicioParcela =
-        dto.dataInicioParcela === null ? null : new Date(dto.dataInicioParcela);
-    if (dto.dataCompra !== undefined)
-      shared.dataCompra = dto.dataCompra === null ? null : new Date(dto.dataCompra);
-    if (dto.recorrente !== undefined) shared.recorrente = !!dto.recorrente;
-    if (dto.recorrenciaFim !== undefined)
-      shared.recorrenciaFim = dto.recorrenciaFim === null ? null : new Date(dto.recorrenciaFim);
-
-    const resetPaidParcelas =
-      dto.status !== undefined ||
-      dto.formaPagamento !== undefined ||
-      dto.quantidadeParcela !== undefined ||
-      dto.valor !== undefined ||
-      dto.quantidade !== undefined ||
-      dto.dataInicioParcela !== undefined;
-
-    // #569 (degrau) — só regeneramos o caixa da contraparte quando um insumo de
-    // `buildCashFlowEntries` de fato foi propagado. Um PATCH puramente descritivo
-    // (titulo/fornecedor) NÃO pode soft-deletar+recriar as `CashFlowEntry` da
-    // contraparte: isso orfanaria `imported_invoice_liquidations.cash_flow_entry_id`
-    // do par vinculado (ex.: a compra real liquidada por importação). Superset de
-    // `resetPaidParcelas`, incluindo tipo/categoria/overrides.
-    const changedCounterpartCashFlow =
-      shouldSyncInstallmentDateOverrides ||
-      dto.tipoDespesa !== undefined ||
-      dto.categoriaMaoDeObra !== undefined ||
-      dto.formaPagamento !== undefined ||
-      dto.quantidadeParcela !== undefined ||
-      dto.status !== undefined ||
-      dto.dataPagamento !== undefined ||
-      dto.dataInicioParcela !== undefined ||
-      dto.valor !== undefined ||
-      dto.quantidade !== undefined;
-
     for (const cid of counterpartIds) {
       const cp = await db.expense.findUnique({
-        where: { id: cid },
-        select: {
-          id: true,
-          valor: true,
-          quantidade: true,
-          invoiceUndoState: true,
-          invoiceUndoCardId: true,
-          cardLast4: true,
-          settlesInvoiceKey: true,
-        },
+        where: { id: cid, tenantId, deletedAt: null },
       });
       if (!cp) continue;
-
-      // Se a mudança propagada mexe no caixa E a contraparte tem trilha de
-      // liquidação por importação ATIVA (como compra) ou é um pagamento
-      // carimbado, bloqueia — regenerar aqui corromperia o ledger. Descrições
-      // puras (não mexem no caixa) seguem permitidas e preservam os ids.
-      if (changedCounterpartCashFlow) {
-        await this.guardImportedInvoiceTrail(db, tenantId, cp, {
-          changedFinancials: true,
-        });
+      await this.assertCanMutateLinkedRows(db, tenantId, cp, requester);
+      // Rateio targets own their metadata even when a legacy 1:1 pointer exists.
+      if (await this.guardRateioParticipation(tenantId, cid, true, true, db)) continue;
+      const changes = this.changedExpenseFields(cp, dto);
+      const data: Prisma.ExpenseUncheckedUpdateInput = {};
+      const changedOverrides = shouldSyncInstallmentDateOverrides &&
+        source.installmentDateOverrides !== cp.installmentDateOverrides;
+      if (changedOverrides) data.installmentDateOverrides = source.installmentDateOverrides;
+      for (const key of [
+        'tipoDespesa', 'categoriaMaoDeObra', 'titulo', 'fornecedor', 'formaPagamento',
+        'quantidadeParcela', 'status', 'quantidade', 'recorrente',
+      ] as const) {
+        if (changes[key] !== undefined) Object.assign(data, { [key]: changes[key] });
+      }
+      for (const key of ['dataPagamento', 'dataInicioParcela', 'dataCompra', 'recorrenciaFim'] as const) {
+        if (changes[key] !== undefined) data[key] = changes[key] === null ? null : new Date(changes[key]);
+      }
+      if (changes.valor !== undefined) data.valor = Math.round(changes.valor * 100);
+      if (changes.valor !== undefined || changes.quantidade !== undefined) {
+        data.valorTotal = (changes.valor === undefined ? cp.valor : Math.round(changes.valor * 100)) *
+          (changes.quantidade ?? cp.quantidade);
       }
 
-      const data: Record<string, unknown> = { ...shared };
-      if (dto.valor !== undefined) data.valor = Math.round(dto.valor * 100);
-      if (dto.quantidade !== undefined) data.quantidade = dto.quantidade;
-      const newValor = (data.valor as number | undefined) ?? cp.valor;
-      const newQtd = (data.quantidade as number | undefined) ?? cp.quantidade;
-      data.valorTotal = newValor * newQtd;
+      const resetPaidParcelas =
+        changes.status !== undefined ||
+        changes.formaPagamento !== undefined ||
+        changes.quantidadeParcela !== undefined ||
+        changes.valor !== undefined ||
+        changes.quantidade !== undefined ||
+        changes.dataInicioParcela !== undefined;
+      const changedCounterpartCashFlow = resetPaidParcelas ||
+        changedOverrides || changes.dataPagamento !== undefined;
+      await this.guardImportedInvoiceTrail(db, tenantId, cp, {
+        changedFinancials: changedCounterpartCashFlow,
+        changedProtectedPaymentFields: changes.tipoDespesa !== undefined,
+        changedToIncompatibleType: changes.tipoDespesa !== undefined &&
+          !isNeutralExpenseType(changes.tipoDespesa),
+      });
       if (resetPaidParcelas) data.paidParcelas = null;
+      if (Object.keys(data).length === 0) continue;
 
-      await db.expense.update({ where: { id: cid }, data });
+      const counterpart = await db.expense.update({ where: { id: cid }, data, include: { room: true } });
       if (changedCounterpartCashFlow) {
         await this.regenerateCashFlow(cid, tx);
+      } else {
+        // Room is per-side, not a shared field.
+        await this.syncCashFlowMetadata(db, counterpart, {
+          tipoDespesa: changes.tipoDespesa,
+          categoriaMaoDeObra: changes.categoriaMaoDeObra,
+        });
       }
     }
   }
