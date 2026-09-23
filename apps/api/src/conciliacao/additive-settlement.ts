@@ -914,6 +914,7 @@ export async function fundingSummaries(
               contributions: active
                 .map((r) => ({
                   settlementId: r.id,
+                  sourceId: r.sourceExpenseId,
                   amountCents: r.realValor,
                   paymentDate: projections
                     .find((c) => c.id === r.targetPaidCashFlowEntryId)!

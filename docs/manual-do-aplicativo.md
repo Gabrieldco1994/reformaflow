@@ -914,7 +914,11 @@ Gestão dos cartões de crédito.
   sem criar novo débito nem mudar o valor contratado. O saldo continua
   pendente; somente saldo zero marca a parcela como paga. Repetições devem
   conservar a mesma chave. O DELETE da mesma rota com `/:settlementId`
-  desfaz um aporte específico, não o pagamento bancário. Enquanto houver
+  desfaz um aporte específico, não o pagamento bancário. Ao reconsultar, cada
+  contribuição autorizada informa `sourceId` para identificar o débito na
+  rota de desfazer, inclusive quando o alvo já está pago e a fonte sem saldo
+  disponível. Sem acesso a todos os participantes, a lista inteira é omitida.
+  Enquanto houver
   aporte ativo, desfaça-o antes de editar valores/datas, excluir participantes
   ou desfazer sua importação. Esta entrega de API não implica um novo botão
   na interface nem corrige dados antigos automaticamente.

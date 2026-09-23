@@ -8,6 +8,7 @@ export interface AdditiveSettlementCommand {
 }
 export interface InstallmentSettlementContribution {
   settlementId: string;
+  sourceId: string;
   amountCents: number;
   paymentDate: string;
 }

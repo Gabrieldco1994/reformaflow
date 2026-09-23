@@ -1224,11 +1224,13 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
           contributions: expect.arrayContaining([
             {
               settlementId: a.settlementId,
+              sourceId: SOURCE_A,
               amountCents: 20_000,
               paymentDate: "2026-09-10T00:00:00.000Z",
             },
             {
               settlementId: b.settlementId,
+              sourceId: SOURCE_B,
               amountCents: 20_000,
               paymentDate: "2026-09-11T00:00:00.000Z",
             },
@@ -1265,6 +1267,8 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
     expect(body.installmentSettlements[0]).not.toHaveProperty("contributions");
     expect(JSON.stringify(body)).not.toContain(a.settlementId);
     expect(JSON.stringify(body)).not.toContain(b.settlementId);
+    expect(JSON.stringify(body)).not.toContain(SOURCE_A);
+    expect(JSON.stringify(body)).not.toContain(SOURCE_B);
     expect(await (await http.get(`${path}/paid-origins`)).json()).toEqual({
       items: [],
     });

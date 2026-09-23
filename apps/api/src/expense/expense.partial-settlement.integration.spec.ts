@@ -912,6 +912,29 @@ it("omits every contribution identity if any active source is inaccessible", asy
     remainingCents: 0,
   });
   expect(view.installmentSettlements?.[0]).not.toHaveProperty("contributions");
+  const crossProject = await expenses.findCrossProject(
+    tenantId,
+    pessoal,
+    { projectId: reforma, status: "PAGO" },
+    reader,
+  );
+  expect(
+    crossProject.find((row) => row.id === targetId)
+      ?.installmentSettlements?.[0],
+  ).not.toHaveProperty("contributions");
+  expect(JSON.stringify(crossProject)).not.toContain(b.id);
+  const authorized = await expenses.findById(
+    tenantId,
+    reforma,
+    targetId,
+    requester,
+  );
+  expect(authorized.installmentSettlements?.[0]?.contributions).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ sourceId }),
+      expect.objectContaining({ sourceId: b.id }),
+    ]),
+  );
 });
 
 it("rolls back a projection and claim when the conditional target write fails", async () => {
@@ -1006,6 +1029,78 @@ it("routes additive POST and individual DELETE through real HTTP JWT/module/proj
       paidCents: 40000,
       remainingCents: 40000,
     });
+    const planned = await expenses.findPlanned(tenantId, reforma, requester);
+    const listed = await expenses.findAll(tenantId, reforma, {}, requester);
+    for (const item of [
+      planned.find((row) => row.id === targetId),
+      listed.items.find((row) => row.id === targetId),
+    ]) {
+      expect(item?.installmentSettlements?.[0]?.contributions).toEqual([
+        {
+          settlementId: body.settlementId,
+          sourceId,
+          amountCents: 40000,
+          paymentDate: "2026-09-10T00:00:00.000Z",
+        },
+      ]);
+    }
+    const second = await secondSource();
+    await expenses.update(
+      tenantId,
+      pessoal,
+      second.id,
+      { dataPagamento: "2026-09-10" },
+      requester,
+    );
+    const secondPath = `/projects/${pessoal}/expenses/${second.id}/conciliar-parcela`;
+    const secondResponse = await http.post(secondPath, {
+      headers,
+      data: command("http-second"),
+    });
+    expect(secondResponse.status()).toBe(201);
+    const secondBody = await secondResponse.json();
+    const expectedContributions = [
+      {
+        settlementId: body.settlementId,
+        sourceId,
+        amountCents: 40000,
+        paymentDate: "2026-09-10T00:00:00.000Z",
+      },
+      {
+        settlementId: secondBody.settlementId,
+        sourceId: second.id,
+        amountCents: 40000,
+        paymentDate: "2026-09-10T00:00:00.000Z",
+      },
+    ].sort((a, b) => a.settlementId.localeCompare(b.settlementId));
+    const crossPath = `/projects/${pessoal}/expenses/cross-project?targetProjectId=${reforma}`;
+    const reopened = await http.get(`${crossPath}&status=PAGO`, { headers });
+    expect(reopened.status()).toBe(200);
+    expect(await reopened.json()).toEqual([
+      expect.objectContaining({
+        id: targetId,
+        status: "PAGO",
+        installmentSettlements: [
+          expect.objectContaining({
+            settlementStatus: "PAID",
+            paidCents: 80000,
+            remainingCents: 0,
+            contributions: expectedContributions,
+          }),
+        ],
+      }),
+    ]);
+    const sources = await http.get(
+      `/projects/${reforma}/expenses/cross-project?targetProjectId=${pessoal}&status=PAGO`,
+      { headers },
+    );
+    expect(sources.status()).toBe(200);
+    expect(await sources.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: sourceId, sourceAvailableCents: 0 }),
+        expect.objectContaining({ id: second.id, sourceAvailableCents: 0 }),
+      ]),
+    );
     await db.user.update({
       where: { id: requester.id },
       data: {
@@ -1026,6 +1121,45 @@ it("routes additive POST and individual DELETE through real HTTP JWT/module/proj
     expect(undo.status()).toBe(200);
     expect(await undo.json()).toMatchObject({
       state: "REVERSED",
+      remainingCents: 40000,
+    });
+    expect(
+      (
+        await http.delete(`${secondPath}/${secondBody.settlementId}`, {
+          headers,
+        })
+      ).status(),
+    ).toBe(200);
+    const afterUndo = await http.get(crossPath, { headers });
+    expect(afterUndo.status()).toBe(200);
+    expect(await afterUndo.json()).toEqual([
+      expect.objectContaining({
+        id: targetId,
+        status: "PLANEJADO",
+        installmentSettlements: [
+          expect.objectContaining({
+            settlementStatus: "UNPAID",
+            paidCents: 0,
+            remainingCents: 80000,
+            contributions: [],
+          }),
+        ],
+      }),
+    ]);
+    expect(
+      await (
+        await http.get(`/projects/${pessoal}/expenses/${sourceId}`, { headers })
+      ).json(),
+    ).toMatchObject({
+      sourceAvailableCents: 40000,
+    });
+    expect(
+      await (
+        await http.delete(`${path}/${body.settlementId}`, { headers })
+      ).json(),
+    ).toMatchObject({
+      state: "REVERSED",
+      replayed: true,
       remainingCents: 80000,
     });
   } finally {
