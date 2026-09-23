@@ -11,8 +11,16 @@ import { ExpenseController } from "./expense.controller";
 import { Test } from "@nestjs/testing";
 import { Reflector } from "@nestjs/core";
 import { JwtService } from "@nestjs/jwt";
-import { ValidationPipe } from "@nestjs/common";
-import { request as playwrightRequest } from "@playwright/test";
+import { ValidationPipe, type INestApplication } from "@nestjs/common";
+import {
+  request as playwrightRequest,
+  type APIRequestContext,
+} from "@playwright/test";
+import { PendenciaController } from "../pendencia/pendencia.controller";
+import {
+  PendenciaService,
+  type FinancialQueueResponse,
+} from "../pendencia/pendencia.service";
 import { JwtStrategy } from "../auth/jwt.strategy";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
@@ -132,6 +140,294 @@ afterAll(async () => {
   await db.$disconnect();
 });
 afterEach(() => jest.useRealTimers());
+
+describe("Pendencia partial-funding HTTP contract", () => {
+  let app: INestApplication;
+  let http: APIRequestContext;
+  let headers: { Authorization: string };
+
+  beforeAll(async () => {
+    const module = await Test.createTestingModule({
+      controllers: [ExpenseController, PendenciaController],
+      providers: [
+        ExpenseService,
+        ConciliacaoService,
+        PaidOriginsService,
+        PendenciaService,
+        MonthlyOverviewService,
+        MerchantClassifierService,
+        BankAccountService,
+        CardInvoiceSettlementService,
+        JwtStrategy,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    app = module.createNestApplication();
+    const reflector = new Reflector();
+    app.useGlobalGuards(
+      new JwtAuthGuard(reflector),
+      new RolesGuard(reflector),
+      new ModulesGuard(reflector, prisma),
+      new ProjectAccessGuard(prisma),
+    );
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+    await app.listen(0, "127.0.0.1");
+    http = await playwrightRequest.newContext({ baseURL: await app.getUrl() });
+    const jwt = new JwtService({
+      secret: process.env.JWT_SECRET || "dev-secret-change-me",
+    });
+    headers = {
+      Authorization: `Bearer ${jwt.sign({ sub: requester.id, tenantId, sv: 0 })}`,
+    };
+  });
+
+  afterAll(async () => {
+    await http.dispose();
+    await app.close();
+  });
+
+  async function queue(month = "2026-09"): Promise<FinancialQueueResponse> {
+    const response = await http.get(
+      `/projects/${pessoal}/pendencias/financeiras?month=${month}`,
+      { headers },
+    );
+    expect(response.status()).toBe(200);
+    return response.json();
+  }
+
+  it("carries canonical 80000/40000/40000 totals without a legacy payment action, then restores UNPAID after undo", async () => {
+    expect(
+      (
+        await http.get(
+          `/projects/${pessoal}/pendencias/financeiras?month=2026-09`,
+        )
+      ).status(),
+    ).toBe(401);
+    const beforeSource = await sourceSnapshot();
+    const path = `/projects/${pessoal}/expenses/${sourceId}/conciliar-parcela`;
+    const applied = await http.post(path, {
+      headers,
+      data: command("queue-first"),
+    });
+    expect(applied.status()).toBe(201);
+    const first: { settlementId: string } = await applied.json();
+    const beforeRead = await tenantState();
+    const response = await queue();
+    const group = response.grupos.find(
+      (g) => g.tipo === "PARCELA_FOREIGN_PENDENTE",
+    );
+    expect(group).toMatchObject({
+      count: 1,
+      valorTotal: 40000,
+      itens: [
+        {
+          foreignExpenseId: targetId,
+          parcelaIndex: 0,
+          valor: 40000,
+          contractedCents: 80000,
+          paidCents: 40000,
+          remainingCents: 40000,
+          settlementStatus: "PARTIAL",
+          actions: [],
+          label: "Parcela parcialmente paga",
+        },
+      ],
+    });
+    const serialized = JSON.stringify(response);
+    for (const hidden of [
+      sourceId,
+      first.settlementId,
+      '"contributions"',
+      '"sourceId"',
+    ]) {
+      expect(serialized).not.toContain(hidden);
+    }
+    expect(await tenantState()).toEqual(beforeRead);
+    const rejected = await http.post(path, {
+      headers,
+      data: { targetExpenseId: targetId, parcelaIndex: 0, realValor: 40000 },
+    });
+    expect(rejected.status()).toBe(409);
+    expect(await tenantState()).toEqual(beforeRead);
+
+    const second = await secondSource();
+    const secondPath = `/projects/${pessoal}/expenses/${second.id}/conciliar-parcela`;
+    const completed = await http.post(secondPath, {
+      headers,
+      data: command("queue-second"),
+    });
+    expect(completed.status()).toBe(201);
+    const last: { settlementId: string } = await completed.json();
+    expect(
+      (await queue()).grupos
+        .flatMap((g) => g.itens)
+        .filter((item) => item.foreignExpenseId === targetId),
+    ).toEqual([]);
+    expect(
+      (
+        await http.delete(`${secondPath}/${last.settlementId}`, { headers })
+      ).status(),
+    ).toBe(200);
+    expect(
+      (await queue()).grupos.find((g) => g.tipo === "PARCELA_FOREIGN_PENDENTE")
+        ?.itens[0],
+    ).toMatchObject({ valor: 40000, settlementStatus: "PARTIAL", actions: [] });
+    expect(
+      (
+        await http.delete(`${path}/${first.settlementId}`, { headers })
+      ).status(),
+    ).toBe(200);
+    const unpaid = (await queue()).grupos.find(
+      (g) => g.tipo === "PARCELA_FOREIGN_PENDENTE",
+    )?.itens[0];
+    expect(unpaid).toMatchObject({
+      valor: 80000,
+      contractedCents: 80000,
+      paidCents: 0,
+      remainingCents: 80000,
+      settlementStatus: "UNPAID",
+      label: "Quitar parcela",
+    });
+    expect(unpaid).not.toHaveProperty("actions");
+    expect(await sourceSnapshot()).toEqual(beforeSource);
+    expect(
+      await prisma.cashFlowEntry.findFirst({ where: { id: pendingId } }),
+    ).toMatchObject({ valor: 80000, status: "PLANEJADO" });
+  });
+
+  it("also blocks the SEM_CONTA copy while keeping an untouched sibling's legacy action", async () => {
+    await expenses.update(
+      tenantId,
+      reforma,
+      targetId,
+      {
+        valor: 2400,
+        formaPagamento: "PARCELADO",
+        quantidadeParcela: 3,
+        dataInicioParcela: "2026-09-20",
+      },
+      requester,
+    );
+    const legacy = await secondSource();
+    await expenses.conciliarParcela(
+      tenantId,
+      pessoal,
+      legacy.id,
+      {
+        targetExpenseId: targetId,
+        parcelaIndex: 2,
+        realValor: 40000,
+      },
+      requester,
+    );
+    await apply("queue-mixed");
+    const groups = (await queue()).grupos;
+    for (const tipo of ["SEM_CONTA", "PARCELA_FOREIGN_PENDENTE"]) {
+      expect(
+        groups
+          .find((g) => g.tipo === tipo)
+          ?.itens.find((item) => item.foreignExpenseId === targetId),
+      ).toMatchObject({
+        parcelaIndex: 0,
+        valor: 40000,
+        contractedCents: 80000,
+        paidCents: 40000,
+        remainingCents: 40000,
+        settlementStatus: "PARTIAL",
+        actions: [],
+        label: "Parcela parcialmente paga",
+      });
+    }
+    const sibling = (await queue("2026-10")).grupos.find(
+      (g) => g.tipo === "PARCELA_FOREIGN_PENDENTE",
+    )?.itens[0];
+    expect(sibling).toMatchObject({
+      parcelaIndex: 1,
+      valor: 80000,
+      label: "Quitar parcela",
+    });
+    expect(sibling).not.toHaveProperty("actions");
+  });
+
+  it("exposes only target-owned totals with a hidden contributor and rechecks queue visibility", async () => {
+    const hiddenProject = `${pessoal}-hidden`;
+    await seedProject(db, {
+      tenantId,
+      projectId: hiddenProject,
+      type: "PESSOAL",
+      name: "Synthetic private source",
+    });
+    const account = await seedBankAccount(db, {
+      tenantId,
+      projectId: hiddenProject,
+      last4: "7777",
+    });
+    const hiddenSource = await expenses.create(tenantId, hiddenProject, {
+      tipoDespesa: "OUTROS",
+      valor: 400,
+      quantidade: 1,
+      formaPagamento: "A_VISTA",
+      status: "PAGO",
+      dataPagamento: "2026-09-10",
+      bankAccountId: account.id,
+    });
+    const funding = await applyParcelaFunding(
+      prisma,
+      tenantId,
+      hiddenProject,
+      hiddenSource.id,
+      command("queue-private"),
+      requester,
+    );
+    await db.user.update({
+      where: { id: requester.id },
+      data: {
+        role: "USER",
+        allowedProjects: JSON.stringify([pessoal, reforma]),
+        allowedModules: JSON.stringify([
+          "pendencias",
+          "monthlyOverview",
+          "expenses",
+          "bankAccounts",
+        ]),
+        allowedProjectTypes: JSON.stringify(["PESSOAL", "REFORMA"]),
+      },
+    });
+    const response = await queue();
+    expect(
+      response.grupos.find((g) => g.tipo === "PARCELA_FOREIGN_PENDENTE")
+        ?.itens[0],
+    ).toMatchObject({
+      valor: 40000,
+      contractedCents: 80000,
+      paidCents: 40000,
+      remainingCents: 40000,
+      settlementStatus: "PARTIAL",
+      actions: [],
+    });
+    for (const hidden of [
+      hiddenProject,
+      hiddenSource.id,
+      funding.settlementId,
+      account.id,
+      '"contributions"',
+      '"sourceId"',
+    ]) {
+      expect(JSON.stringify(response)).not.toContain(hidden);
+    }
+    await db.user.update({
+      where: { id: requester.id },
+      data: { allowedProjects: JSON.stringify([pessoal]) },
+    });
+    expect(JSON.stringify(await queue())).not.toContain(targetId);
+  });
+});
 
 it("conserves monthly/yearly bank outflow, DRE and origin totals while projecting the target remainder", async () => {
   const monthly = new MonthlyOverviewService(

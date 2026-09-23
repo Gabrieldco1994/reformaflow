@@ -1323,6 +1323,15 @@ export class MonthlyOverviewService {
                 data: parcela.data.toISOString(),
                 forma,
                 valor: partial?.remainingCents ?? parcela.valor,
+                ...(partial
+                  ? {
+                      contractedCents: partial.contractedCents,
+                      paidCents: partial.paidCents,
+                      remainingCents: partial.remainingCents,
+                      settlementStatus: partial.settlementStatus,
+                      ...(partial.paidCents > 0 ? { actions: [] } : {}),
+                    }
+                  : {}),
                 realizado: paidHere,
                 status: paidHere ? 'PAGO' : expense.status,
                 cardLast4: null as string | null,

@@ -946,6 +946,12 @@ Gestão dos cartões de crédito.
   contribuição autorizada informa `sourceId` para identificar o débito na
   rota de desfazer, inclusive quando o alvo já está pago e a fonte sem saldo
   disponível. Sem acesso a todos os participantes, a lista inteira é omitida.
+  Na API de pendências financeiras, a parcela parcialmente paga mantém o
+  restante em `valor` e informa `contractedCents`, `paidCents`, `remainingCents`
+  e `settlementStatus: "PARTIAL"`, sem identificar contribuições ou fontes.
+  `actions: []` significa que a fila não pode executar a quitação legada,
+  que criaria outro débito. Depois de desfazer todos os aportes, o resumo
+  volta a `UNPAID`; a ausência de `actions` preserva a ação legada da fila.
   O resumo também oferece parcelas elegíveis antes do primeiro aporte e irmãs
   ainda sem aportes, com índice local, vencimento e saldo canônicos. Uma lista
   `UNPAID` não significa pagamento existente; parcelas pagas por outra via,
