@@ -47,6 +47,13 @@ ou convertido em aporte parcial.
   autorizada, `sourceAvailableCents`. Após todos os undos, o resumo permanece
   `UNPAID`. Contribuições/origens são omitidas integralmente se algum
   participante não for acessível. Os totais do alvo continuam fatos do alvo.
+- Cada contribuição presente no resumo inclui `sourceId` obrigatório, além de
+  `settlementId`, `amountCents` e `paymentDate`, para correlacionar o débito
+  original ao DELETE após reabrir a tela. Não acrescenta `sourceProjectId` nem
+  outra proveniência; `sourceId` desaparece junto da lista inteira na redação.
+  `cross-project` sem filtro de status (ou com `status=PAGO`) mantém o resumo
+  de alvos quitados. Fonte consumida e autorizada retorna disponibilidade `0`,
+  não ausência; o histórico após todos os undos mantém o resumo `UNPAID`.
 - Projeções pagas aditivas têm `isSettlementProjection: true`, distinto de
   `isEspelho`: aparecem na contabilidade do projeto alvo, mas não somam uma
   segunda saída no consolidado PESSOAL. Na Visão Conta, o débito aparece uma
