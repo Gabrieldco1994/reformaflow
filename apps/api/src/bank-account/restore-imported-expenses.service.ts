@@ -7,7 +7,13 @@ import {
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Expense, Prisma } from "@prisma/client";
-import { isSinglePaymentForm, localDateUtc } from "@reformaflow/domain";
+import {
+  buildInstallments,
+  isSinglePaymentForm,
+  localDateUtc,
+  parsePaidParcelas,
+  todayLocalDateUtc,
+} from "@reformaflow/domain";
 import { INCLUDE_SOFT_DELETED, PrismaService } from "../prisma/prisma.service";
 import { RateioRequester } from "../expense/rateio.types";
 import {
@@ -386,36 +392,57 @@ export class RestoreImportedExpensesService {
         tenantId,
         id: { not: root.id },
         deletedAt: INCLUDE_SOFT_DELETED,
-        OR: [
-          { deletedAt: null, valorTotal: root.valorTotal, dataPagamento: day },
-          {
-            cashFlow: {
-              some: {
-                tenantId,
-                deletedAt: null,
-                tipo: "DESPESA",
-                valor: root.valorTotal,
-                data: day,
-              },
-            },
+        cashFlow: {
+          some: {
+            tenantId,
+            deletedAt: null,
+            tipo: "DESPESA",
+            valor: root.valorTotal,
+            data: day,
           },
-        ],
+        },
       },
     });
-    const undatedPayments = await tx.expense.findMany({
+    const payments = await tx.expense.findMany({
       where: {
         tenantId,
         deletedAt: null,
-        valorTotal: root.valorTotal,
-        status: "PAGO",
-        dataPagamento: null,
+        OR: [{ status: "PAGO" }, { paidParcelas: { not: null } }],
       },
     });
-    for (const candidate of undatedPayments) {
-      if (!isSinglePaymentForm(candidate.formaPagamento)) continue;
-      // Account dates keep explicit payment dates; only createdAt falls back to the BRT day.
-      const date = localDateUtc(candidate.createdAt);
-      if (date >= start && date < end) candidates.push(candidate);
+    const today = todayLocalDateUtc();
+    for (const candidate of payments) {
+      const single = isSinglePaymentForm(candidate.formaPagamento);
+      // Match the account's single-payment date and computeCaixaConta's installment anchors.
+      const installments = buildInstallments({
+        valorTotal: candidate.valorTotal,
+        formaPagamento: candidate.formaPagamento,
+        quantidadeParcela: candidate.quantidadeParcela,
+        dataPagamento:
+          candidate.dataPagamento ??
+          (single ? localDateUtc(candidate.createdAt) : null),
+        dataInicioParcela:
+          candidate.dataInicioParcela ??
+          candidate.dataPagamento ??
+          candidate.createdAt,
+        installmentDateOverrides: candidate.installmentDateOverrides,
+      });
+      const paid = new Set(
+        single
+          ? []
+          : parsePaidParcelas(candidate.paidParcelas, installments.length),
+      );
+      if (
+        installments.some(
+          (entry, index) =>
+            entry.valor === root.valorTotal &&
+            entry.data >= start &&
+            entry.data < end &&
+            (paid.has(index) ||
+              (candidate.status === "PAGO" && entry.data <= today)),
+        )
+      )
+        candidates.push(candidate);
     }
     const unownedDebit = await tx.cashFlowEntry.findFirst({
       where: {

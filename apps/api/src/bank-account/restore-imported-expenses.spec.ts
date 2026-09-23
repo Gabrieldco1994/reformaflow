@@ -455,6 +455,151 @@ describe("bank debit selective restoration #700", () => {
     expect(after.audit).toHaveLength(1);
   });
 
+  describe.each(["preview", "apply"])(
+    "scheduled debit collisions during %s",
+    (mode) => {
+      it.each([
+        ["one-installment", -12345],
+        ["two-installments", -24690],
+        ["planned-paid-index", -12345],
+        ["quinzenal", -24690],
+        ["date-override", -24690],
+        ["last-installment-remainder", -24689],
+        ["prepaid-future", -12345],
+        ["original-import", -24690],
+        ["ambiguous-identity", -24690],
+        ["createdAt-fallback", -24690],
+        ["start-date-precedence", -24690],
+      ] as const)("%s", async (kind, expectedCash) => {
+        const today =
+          kind === "prepaid-future" ? new Date("2026-08-09T00:00:00Z") : now;
+        jest.setSystemTime(today);
+        const plan = mode === "apply" ? await preview() : null;
+        const overrides: Partial<Prisma.ExpenseUncheckedCreateInput> = {
+          formaPagamento: "PARCELADO",
+          quantidadeParcela: 2,
+          valor: 24690,
+          valorTotal: 24690,
+          dataInicioParcela: posted,
+        };
+        if (kind === "one-installment") {
+          overrides.quantidadeParcela = 1;
+          overrides.valor = overrides.valorTotal = 12345;
+        }
+        if (kind === "planned-paid-index") {
+          overrides.status = "PLANEJADO";
+          overrides.dataInicioParcela = new Date("2026-07-10T00:00:00Z");
+          overrides.paidParcelas = "[1]";
+        }
+        if (kind === "quinzenal") {
+          overrides.formaPagamento = "QUINZENAL";
+          overrides.dataInicioParcela = new Date("2026-07-26T00:00:00Z");
+        }
+        if (kind === "date-override") {
+          overrides.dataInicioParcela = new Date("2026-08-09T00:00:00Z");
+          overrides.installmentDateOverrides = '{"0":"2026-08-10"}';
+        }
+        if (kind === "last-installment-remainder") {
+          overrides.valor = overrides.valorTotal = 24689;
+          overrides.dataInicioParcela = new Date("2026-07-10T00:00:00Z");
+        }
+        if (kind === "prepaid-future") overrides.paidParcelas = "[0]";
+        if (kind === "original-import" || kind === "ambiguous-identity")
+          overrides.accountId = null;
+        if (kind === "original-import") overrides.importId = importId;
+        if (kind === "createdAt-fallback") {
+          overrides.dataInicioParcela = null;
+          overrides.createdAt = posted;
+        }
+        if (kind === "start-date-precedence")
+          overrides.dataPagamento = new Date("2026-08-09T00:00:00Z");
+        const competing = await undatedPayment(overrides);
+        expect(
+          await prisma.cashFlowEntry.count({
+            where: { expenseId: competing.id },
+          }),
+        ).toBe(0);
+        const before = await snapshot();
+        const cash = await overview.getCaixaConta(tenantId, projectId, today);
+        expect(cash.hoje).toBe(expectedCash);
+        await expect(
+          plan ? apply(plan.fingerprint) : preview(),
+        ).rejects.toMatchObject({
+          status: 409,
+        });
+        expect(await snapshot()).toEqual(before);
+        expect(
+          await overview.getCaixaConta(tenantId, projectId, today),
+        ).toEqual(cash);
+      });
+    },
+  );
+
+  it.each([
+    "other-account-id",
+    "other-account-import",
+    "different-occurrence-amount",
+    "different-occurrence-date",
+    "unpaid-matching-index",
+    "invalid-paid-index",
+    "future-without-explicit-payment",
+    "explicit-root-is-not-an-occurrence",
+    "raw-createdAt-next-day",
+  ])("does not block unrelated scheduled debit: %s", async (kind) => {
+    if (kind === "future-without-explicit-payment")
+      jest.setSystemTime(new Date("2026-08-09T00:00:00Z"));
+    const overrides: Partial<Prisma.ExpenseUncheckedCreateInput> = {
+      formaPagamento: "PARCELADO",
+      quantidadeParcela: 2,
+      valor: 24690,
+      valorTotal: 24690,
+      dataInicioParcela: posted,
+    };
+    if (kind.startsWith("other-account")) {
+      const other = await db.bankAccount.findFirstOrThrow({
+        where: { tenantId, id: { not: accountId }, last4: "1234" },
+      });
+      overrides.accountId = other.id;
+      if (kind === "other-account-import") {
+        const batch = await db.bankStatementImport.create({
+          data: {
+            tenantId,
+            accountId: other.id,
+            source: "OFX",
+            periodLabel: "2026-08",
+          },
+        });
+        overrides.importId = batch.id;
+        overrides.accountId = null;
+      }
+    }
+    if (kind === "different-occurrence-amount")
+      overrides.valor = overrides.valorTotal = 12345;
+    if (kind === "different-occurrence-date")
+      overrides.dataInicioParcela = new Date("2026-08-09T00:00:00Z");
+    if (kind === "unpaid-matching-index" || kind === "invalid-paid-index") {
+      overrides.status = "PLANEJADO";
+      overrides.paidParcelas = kind === "unpaid-matching-index" ? "[1]" : "[2]";
+    }
+    if (kind === "explicit-root-is-not-an-occurrence") {
+      overrides.dataPagamento = posted;
+      overrides.valor = overrides.valorTotal = 12345;
+    }
+    if (kind === "raw-createdAt-next-day") overrides.dataInicioParcela = null;
+    const competing = await undatedPayment(overrides);
+    const before = await snapshot();
+    const plan = await preview();
+    expect(await snapshot()).toEqual(before);
+    expect((await apply(plan.fingerprint)).changed).toBe(1);
+    const after = await snapshot();
+    expect(after.expenses.find((row) => row.id === competing.id)).toEqual(
+      competing,
+    );
+    expect(after.imports).toEqual(before.imports);
+    expect(after.ledger).toEqual(before.ledger);
+    expect(after.audit).toHaveLength(1);
+  });
+
   it.each([
     "grant",
     "project",
