@@ -537,6 +537,52 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
     });
   }
 
+  it.each(["first contribution", "untouched sibling"] as const)(
+    "the funding selector receives authoritative unpaid balances before the %s",
+    async (scenario) => {
+      const index = scenario === "untouched sibling" ? 2 : 0;
+      if (index === 2) {
+        await seedSiblingInstallments();
+        await apply(SOURCE_A, 20_000, "qa702-existing-sibling");
+      }
+      const before = await snapshot();
+      const response = await http.get(
+        `/projects/${PESSOAL}/expenses/cross-project?limit=2000`,
+      );
+      expect(response.status()).toBe(200);
+      const candidates: unknown = await response.json();
+      expect(await snapshot()).toEqual(before);
+
+      // Prove eligibility through the real writer, not by assuming every planned row qualifies.
+      expect(
+        await apply(SOURCE_A, 20_000, "qa702-selector-eligible", TARGET, index),
+      ).toMatchObject({
+        parcelaIndex: index,
+        contractedCents: 80_000,
+        paidCents: 20_000,
+        remainingCents: 60_000,
+        settlementStatus: "PARTIAL",
+      });
+      expect(candidates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: TARGET,
+            installmentSettlements: expect.arrayContaining([
+              expect.objectContaining({
+                parcelaIndex: index,
+                dueDate: new Date(Date.UTC(2026, 8 + index, 20)).toISOString(),
+                contractedCents: 80_000,
+                paidCents: 0,
+                remainingCents: 80_000,
+                settlementStatus: "UNPAID",
+              }),
+            ]),
+          }),
+        ]),
+      );
+    },
+  );
+
   it("IMPORT-FIRST: an imported debit with null accountId and duplicate last4 remains immutable", async () => {
     const sources = await sourceSnapshot();
     const pending = await setup.cashFlowEntry.findUniqueOrThrow({
