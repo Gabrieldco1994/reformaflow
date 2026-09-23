@@ -24,6 +24,8 @@ import { ModulesGuard } from "../common/guards/modules.guard";
 import { ProjectAccessGuard } from "../common/guards/project-access.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { ConciliacaoService } from "../conciliacao/conciliacao.service";
+import { MonthlyOverviewController } from "../monthly-overview/monthly-overview.controller";
+import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ProjectService } from "../project/project.service";
 import { ExpenseController } from "./expense.controller";
@@ -172,12 +174,17 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
     await prisma.$connect();
     await secondPrisma.$connect();
     const module = await Test.createTestingModule({
-      controllers: [ExpenseController, BankAccountController],
+      controllers: [
+        ExpenseController,
+        BankAccountController,
+        MonthlyOverviewController,
+      ],
       providers: [
         JwtStrategy,
         { provide: PrismaService, useValue: prisma },
         { provide: ExpenseService, useValue: expenses },
         { provide: BankAccountService, useValue: bank },
+        { provide: MonthlyOverviewService, useValue: monthly },
         {
           provide: PaidOriginsService,
           useValue: new PaidOriginsService(prisma),
@@ -1701,6 +1708,177 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
     );
     expect(response.status()).toBe(200);
     expect(await response.json()).not.toHaveProperty("sourceAvailableCents");
+  });
+
+  describe.each(["month", "year"] as const)("reader X1: %s", (period) => {
+    it.each([
+      "bank-only additive",
+      "mixed additive",
+      "bank-only legacy",
+      "mixed legacy",
+    ] as const)(
+      "%s counts the existing bank debit once and preserves only genuine wallet installments",
+      async (scenario) => {
+        const unrelated = [SOURCE_A, SOURCE_B, OTHER_TARGET];
+        await setup.cashFlowEntry.deleteMany({
+          where: { expenseId: { in: unrelated } },
+        });
+        await setup.expense.deleteMany({ where: { id: { in: unrelated } } });
+        await setup.bankAccount.delete({ where: { id: DUPLICATE_ACCOUNT } });
+        const mixed = scenario.startsWith("mixed");
+        const legacy = scenario.endsWith("legacy");
+        if (mixed) {
+          await setup.expense.update({
+            where: { id: TARGET },
+            data: {
+              valor: 160_000,
+              valorTotal: 160_000,
+              formaPagamento: "PARCELADO",
+              quantidadeParcela: 2,
+              dataPagamento: null,
+              dataCompra: new Date("2026-09-05T00:00:00Z"),
+              dataInicioParcela: new Date("2026-09-05T00:00:00Z"),
+              installmentDateOverrides: JSON.stringify({ 1: "2026-09-20" }),
+              paidParcelas: "[0]",
+            },
+          });
+          const wallet = await setup.cashFlowEntry.update({
+            where: { id: `${TARGET}-cash` },
+            data: {
+              data: new Date("2026-09-05T00:00:00Z"),
+              formaPagamento: "PARCELADO",
+              parcela: "1/2",
+              status: "PAGO",
+            },
+          });
+          await setup.cashFlowEntry.create({
+            data: {
+              ...wallet,
+              id: `${TARGET}-second-cash`,
+              data: DUE,
+              parcela: "2/2",
+              status: "PLANEJADO",
+            },
+          });
+        }
+        const sources = await sourceSnapshot();
+        const originalWallet = await setup.cashFlowEntry.findUniqueOrThrow({
+          where: { id: `${TARGET}-cash` },
+        });
+        const initial = await monthly.getAccountView(
+          TENANT,
+          PESSOAL,
+          "2026-09",
+          REQUESTER,
+        );
+        expect(
+          initial.saidas
+            .filter((row) => row.realizado && row.origem?.tipo === "carteira")
+            .reduce((sum, row) => sum + row.valor, 0),
+        ).toBe(mixed ? 80_000 : 0);
+        if (legacy) {
+          const response = await http.post(route(SOURCE_C), {
+            data: {
+              targetExpenseId: TARGET,
+              parcelaIndex: mixed ? 1 : 0,
+              realValor: 80_000,
+            },
+          });
+          expect(response.status()).toBe(201);
+        } else {
+          expect(
+            await apply(
+              SOURCE_C,
+              80_000,
+              "qa702-reader-x1",
+              TARGET,
+              mixed ? 1 : 0,
+            ),
+          ).toMatchObject({
+            state: "ACTIVE",
+            settlementStatus: "PAID",
+            remainingCents: 0,
+            sourceAvailableCents: 0,
+          });
+          expect(await sourceSnapshot()).toEqual(sources);
+          if (mixed) {
+            expect(
+              await setup.cashFlowEntry.findUnique({
+                where: { id: originalWallet.id },
+              }),
+            ).toEqual(originalWallet);
+          }
+        }
+        expect((await sourceSnapshot()).entries).toEqual(sources.entries);
+        expect(
+          await prisma.expense.findUnique({ where: { id: TARGET } }),
+        ).toMatchObject({
+          status: "PAGO",
+          valorTotal: mixed ? 160_000 : 80_000,
+        });
+        const engine = await monthly.getOverview(
+          TENANT,
+          PESSOAL,
+          "2026-09",
+          REQUESTER,
+        );
+        expect(
+          engine.entries
+            .filter((entry) => entry.isSettlementProjection)
+            .map((entry) => entry.valor),
+        ).toEqual(legacy ? [] : [80_000]);
+        const endpoint =
+          period === "month"
+            ? "account-view?month=2026-09"
+            : "account-view-yearly?year=2026";
+        const response = await http.get(
+          `/projects/${PESSOAL}/monthly-overview/${endpoint}`,
+        );
+        expect(response.status()).toBe(200);
+        const view: Pick<
+          Awaited<ReturnType<MonthlyOverviewService["getAccountView"]>>,
+          "saidas" | "saiuMes" | "faltaPagarMes" | "caixaHoje"
+        > = await response.json();
+        const bankRows = view.saidas.filter(
+          (row) => row.realizado && row.bankLast4 === "0702",
+        );
+        const walletRows = view.saidas.filter(
+          (row) => row.realizado && row.origem?.tipo === "carteira",
+        );
+        const total = (rows: typeof view.saidas) =>
+          rows.reduce((sum, row) => sum + row.valor, 0);
+        expect({
+          bank: total(bankRows),
+          wallet: total(walletRows),
+          paidList: total(view.saidas.filter((row) => row.realizado)),
+          saiuMes: view.saiuMes,
+          faltaPagarMes: view.faltaPagarMes,
+          caixaHoje: view.caixaHoje,
+        }).toEqual({
+          bank: 80_000,
+          wallet: mixed ? 80_000 : 0,
+          paidList: mixed ? 160_000 : 80_000,
+          saiuMes: mixed ? 160_000 : 80_000,
+          faltaPagarMes: 0,
+          caixaHoje: -80_000,
+        });
+        if (period === "month") {
+          expect(view).toHaveProperty("saidaTotal", mixed ? 160_000 : 80_000);
+        }
+        expect(walletRows).toEqual(
+          mixed
+            ? [
+                expect.objectContaining({
+                  foreignExpenseId: TARGET,
+                  parcelaIndex: 0,
+                  valor: 80_000,
+                  realizado: true,
+                }),
+              ]
+            : [],
+        );
+      },
+    );
   });
 
   it("monthly marks only the additive paid target as a projection; bank outflow is unchanged", async () => {
