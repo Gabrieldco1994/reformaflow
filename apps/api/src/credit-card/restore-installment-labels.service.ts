@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import {
   buildInstallments,
+  isSinglePaymentForm,
   parseInstallmentDateOverrides,
 } from "@reformaflow/domain";
 import { INCLUDE_SOFT_DELETED, PrismaService } from "../prisma/prisma.service";
@@ -315,7 +316,9 @@ export class RestoreInstallmentLabelsService {
           item.data.getTime() !== active[index].data.getTime() ||
           item.valor !== active[index].valor ||
           active[index].status !==
-            (expense.status === "PAGO" || paid.includes(index)
+            (expense.status === "PAGO" ||
+            (!isSinglePaymentForm(expense.formaPagamento) &&
+              paid.includes(index))
               ? "PAGO"
               : "PLANEJADO"),
       )

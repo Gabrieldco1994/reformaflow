@@ -221,6 +221,110 @@ describe("imported installment label restoration (real Prisma)", () => {
     expect(await snapshot()).toEqual(before);
   });
 
+  it("does not use partial-payment indices as evidence for a single payment", async () => {
+    await db.cashFlowEntry.deleteMany({
+      where: { id: { in: ["restore-active-0", "restore-history-0"] } },
+    });
+    await db.cashFlowEntry.updateMany({
+      where: { expenseId: scope.expenseId },
+      data: { status: "PAGO" },
+    });
+    await db.cashFlowEntry.update({
+      where: { id: "restore-active-1" },
+      data: { parcela: null },
+    });
+    await db.expense.update({
+      where: { id: scope.expenseId },
+      data: {
+        valor: 12345,
+        valorTotal: 12345,
+        quantidadeParcela: null,
+        formaPagamento: "A_VISTA",
+        dataInicioParcela: null,
+        dataPagamento: date(11),
+        status: "PLANEJADO",
+        paidParcelas: "[0]",
+      },
+    });
+    const before = await snapshot();
+    await expect(preview()).rejects.toBeInstanceOf(ConflictException);
+    await expect(apply("a".repeat(64))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it.each(["split-generation", "history-metadata", "active-metadata"])(
+    "revalidates independent historical/active evidence: %s",
+    async (kind) => {
+      const plan = await preview();
+      await db.cashFlowEntry.update({
+        where: {
+          id:
+            kind === "active-metadata"
+              ? "restore-active-0"
+              : "restore-history-0",
+        },
+        data:
+          kind === "split-generation"
+            ? { deletedAt: date(10) }
+            : { subcategoria: "changed" },
+      });
+      const before = await snapshot();
+      if (kind === "split-generation")
+        await expect(preview()).rejects.toBeInstanceOf(ConflictException);
+      await expect(apply(plan.fingerprint)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(await snapshot()).toEqual(before);
+    },
+  );
+
+  it.each([
+    "tenantId",
+    "projectId",
+    "cardId",
+    "importId",
+    "expenseId",
+  ] as const)(
+    "rejects missing/blank %s before evidence or reservation",
+    async (key) => {
+      const missingScope = { ...scope };
+      Reflect.deleteProperty(missingScope, key);
+      events = [];
+      await expect(
+        service.restore(missingScope, requester, { mode: "preview" }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        service.restore({ ...scope, [key]: " " }, requester, {
+          mode: "apply",
+          expectedFingerprint: "a".repeat(64),
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(events).toEqual([]);
+    },
+  );
+
+  it.each([
+    "allowedProjects",
+    "allowedModules",
+    "allowedProjectTypes",
+  ] as const)("rejects missing %s before reading evidence", async (key) => {
+    const user = {
+      id: "test-user",
+      role: "USER",
+      allowedProjects: [projectId],
+      allowedModules: ["creditCards", "expenses"],
+      allowedProjectTypes: ["PESSOAL"],
+    };
+    Reflect.deleteProperty(user, key);
+    events = [];
+    await expect(
+      service.restore(scope, user, { mode: "preview" }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(events).toEqual([]);
+  });
+
   it.each(["2/3", "99/99"])(
     "rejects mixed/arbitrary active labels (%s)",
     async (label) => {
