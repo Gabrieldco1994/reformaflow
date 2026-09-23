@@ -1955,6 +1955,32 @@ export class BankAccountService {
         where: { tenantId, importId, deletedAt: null, createdAt: { lt: importRecord.createdAt } },
         select: { id: true },
       });
+      const batchExpenses = await tx.expense.findMany({
+        where: { tenantId, importId, deletedAt: INCLUDE_SOFT_DELETED },
+        select: { id: true, projectId: true },
+      });
+      const batchIds = batchExpenses.map(expense => expense.id);
+      const funding = await tx.crossProjectSettlement.findMany({
+        where: { tenantId, mode: ADDITIVE, reversedAt: null,
+          OR: [{ sourceExpenseId: { in: batchIds } }, { targetExpenseId: { in: batchIds } }] },
+        select: { sourceExpenseId: true, targetExpenseId: true },
+      });
+      if (funding.length) {
+        requester = await currentInlineRequester(tx, tenantId, requester);
+        await assertInlineAccount(tx, tenantId, projectId, accountId, requester);
+        const participantIds = [...new Set(funding.flatMap(row => [row.sourceExpenseId, row.targetExpenseId]))];
+        const participants = await tx.expense.findMany({
+          where: { tenantId, id: { in: participantIds }, deletedAt: INCLUDE_SOFT_DELETED },
+          select: { id: true, projectId: true },
+        });
+        if (participants.length !== participantIds.length) throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
+        for (const participant of participants) await assertInlineProject(tx, tenantId, participant.projectId, requester);
+      }
+      for (const ownerProjectId of new Set(batchExpenses.map(expense => expense.projectId))) {
+        await assertInlineProject(tx, tenantId, ownerProjectId, requester);
+      }
+      await this.conciliacao.assertCanReverseSources(tx, { tenantId, sourceExpenseIds: batchIds }, requester);
+      await guardActiveFunding(tx, tenantId, batchIds);
       const createdIds = created.map((e) => e.id);
       const receiptIds = receipts.map((r) => r.id);
       const now = new Date();
@@ -2004,11 +2030,6 @@ export class BankAccountService {
         .filter((p) => p.invoiceUndoState === 'PROCESSED_SETTLED')
         .map((p) => ({ id: p.id, invoiceUndoParcelaCount: p.invoiceUndoParcelaCount }));
       const notRevertedInvoiceLiquidations = 0;
-      await this.conciliacao.assertCanReverseSources(
-        tx,
-        { tenantId, sourceExpenseIds: createdIds },
-        requester,
-      );
       await this.conciliacao.assertCanMutateReceiptTargets(
         tx,
         {

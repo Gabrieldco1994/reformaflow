@@ -37,10 +37,11 @@ const makePrismaMock = (settlementCount: number) => ({
     findFirst: jest.fn().mockResolvedValue(null),
   },
   crossProjectSettlement: {
-    count: jest.fn().mockResolvedValue(settlementCount),
+    count: jest.fn().mockImplementation(async ({ where }: { where: { mode?: string } }) =>
+      where.mode === 'ADDITIVE' ? 0 : settlementCount),
     findMany: jest.fn().mockResolvedValue(
       settlementCount > 0
-        ? [{ tenantId, sourceExpenseId: sourceId, targetExpenseId: 'tgt-settlement' }]
+        ? [{ tenantId, sourceExpenseId: sourceId, targetExpenseId: 'tgt-settlement', mode: 'LEGACY_REPLACEMENT' }]
         : [],
     ),
   },

@@ -465,13 +465,13 @@ export class ConciliacaoService {
     });
     if (!target) return;
 
-    const additiveHistory = await tx.crossProjectSettlement.findMany({
-      where: { tenantId: target.tenantId, targetExpenseId, mode: ADDITIVE },
+    const activeAdditive = await tx.crossProjectSettlement.findMany({
+      where: { tenantId: target.tenantId, targetExpenseId, mode: ADDITIVE, reversedAt: null },
     });
-    const retainedIds = additiveHistory.flatMap(r =>
+    const retainedIds = activeAdditive.flatMap(r =>
       [r.targetPendingCashFlowEntryId, r.targetPaidCashFlowEntryId].filter((id): id is string => id !== null));
-    const retainedIndexes = new Set(additiveHistory.map(r => r.parcelaIndex));
-    // Legacy sibling updates must not replace additive provenance, even after an undo.
+    const retainedIndexes = new Set(activeAdditive.map(r => r.parcelaIndex));
+    // Only active contributions own the current pending/paid projections.
     await tx.cashFlowEntry.updateMany({
       where: { expenseId: targetExpenseId, deletedAt: null, id: { notIn: retainedIds } },
       data: { deletedAt: new Date() },

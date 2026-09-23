@@ -24,6 +24,7 @@ import { MerchantClassifierService } from "../merchant-classifier/merchant-class
 import {
   resetTenant,
   seedPessoal,
+  seedProject,
   seedBankAccount,
   seedCardWithClosingDue,
   seedStatementImport,
@@ -43,6 +44,24 @@ const sourceSnapshot = async () => ({
   expense: await db.expense.findUniqueOrThrow({ where: { id: sourceId } }),
   cash: await db.cashFlowEntry.findMany({
     where: { expenseId: sourceId },
+    orderBy: { id: "asc" },
+  }),
+});
+const tenantState = async () => ({
+  expenses: await db.expense.findMany({
+    where: { tenantId },
+    orderBy: { id: "asc" },
+  }),
+  cash: await db.cashFlowEntry.findMany({
+    where: { tenantId },
+    orderBy: { id: "asc" },
+  }),
+  funding: await db.crossProjectSettlement.findMany({
+    where: { tenantId },
+    orderBy: { id: "asc" },
+  }),
+  imports: await db.bankStatementImport.findMany({
+    where: { tenantId },
     orderBy: { id: "asc" },
   }),
 });
@@ -442,6 +461,404 @@ async function secondSource(value = 400) {
     bankAccountId: accountId,
   });
 }
+
+it.each(["authorized", "revoked target"])(
+  "SEC1: preflights adopted import sources before any batch write (%s)",
+  async (access) => {
+    const source = await db.expense.findUniqueOrThrow({
+      where: { id: sourceId },
+    });
+    const importId = await seedStatementImport(db, {
+      tenantId,
+      accountId: source.accountId!,
+      id: "qa702-adopted-batch",
+    });
+    await db.bankStatementImport.update({
+      where: { id: importId },
+      data: {
+        status: "COMPLETED",
+        createdAt: new Date("2026-09-15"),
+        inlineExpenseCreations: null,
+      },
+    });
+    const created = await secondSource();
+    await db.expense.update({
+      where: { id: sourceId },
+      data: {
+        importId,
+        externalId: "synthetic-adopted-12345",
+        accountId: null,
+        origin: "none",
+        createdAt: new Date("2026-09-01"),
+      },
+    });
+    await db.expense.update({
+      where: { id: created.id },
+      data: { importId, createdAt: new Date("2026-09-16") },
+    });
+    const claim = await apply();
+    if (access === "revoked target") {
+      await db.user.update({
+        where: { id: requester.id },
+        data: {
+          role: "USER",
+          allowedProjects: JSON.stringify([pessoal]),
+          allowedProjectTypes: '["PESSOAL","REFORMA"]',
+          allowedModules: '["expenses","bankAccounts"]',
+        },
+      });
+    }
+    const before = await tenantState();
+    const banks = new BankAccountService(
+      prisma,
+      new MerchantClassifierService(prisma),
+      new ConciliacaoService(prisma),
+      new CardInvoiceSettlementService(prisma),
+    );
+    await expect(
+      banks.undoImport(
+        tenantId,
+        pessoal,
+        source.accountId!,
+        importId,
+        requester,
+      ),
+    ).rejects.toMatchObject({ status: access === "authorized" ? 409 : 404 });
+    expect(await tenantState()).toEqual(before);
+    if (access === "authorized") {
+      await expenses.undoParcelaFunding(
+        tenantId,
+        pessoal,
+        sourceId,
+        claim.settlementId,
+        requester,
+      );
+      expect(
+        await banks.undoImport(
+          tenantId,
+          pessoal,
+          source.accountId!,
+          importId,
+          requester,
+        ),
+      ).toMatchObject({ removedExpenses: 1, unstamped: 1 });
+      expect(
+        await db.cashFlowEntry.findMany({
+          where: { expenseId: sourceId },
+          orderBy: { id: "asc" },
+        }),
+      ).toEqual(before.cash.filter((entry) => entry.expenseId === sourceId));
+      expect(
+        await db.expense.findUniqueOrThrow({ where: { id: sourceId } }),
+      ).toMatchObject({
+        valorTotal: 40000,
+        status: "PAGO",
+        dataPagamento: new Date("2026-09-10"),
+        importId: null,
+        externalId: null,
+        accountId: null,
+        deletedAt: null,
+      });
+      expect(
+        await db.crossProjectSettlement.findUniqueOrThrow({
+          where: { id: claim.settlementId },
+        }),
+      ).toMatchObject({
+        reversedAt: expect.any(Date),
+        reversedByUserId: requester.id,
+      });
+    }
+  },
+);
+
+it.each(["expense", "account", "project"])(
+  "SEC2: a reversed source's deleted %s cannot trap another contribution",
+  async (deleted) => {
+    const otherProject = "qa702-independent-bank";
+    await seedProject(db, {
+      tenantId,
+      projectId: otherProject,
+      type: "PESSOAL",
+      name: "Synthetic independent bank",
+    });
+    const account = await seedBankAccount(db, {
+      tenantId,
+      projectId: otherProject,
+      last4: "1702",
+    });
+    const b = await expenses.create(tenantId, otherProject, {
+      tipoDespesa: "OUTROS",
+      valor: 400,
+      quantidade: 1,
+      formaPagamento: "A_VISTA",
+      status: "PAGO",
+      dataPagamento: "2026-09-10",
+      bankAccountId: account.id,
+    });
+    const bBefore = await db.expense.findUniqueOrThrow({ where: { id: b.id } });
+    const bCash = await db.cashFlowEntry.findMany({
+      where: { expenseId: b.id },
+    });
+    const aClaim = await apply();
+    const bClaim = await applyParcelaFunding(
+      prisma,
+      tenantId,
+      otherProject,
+      b.id,
+      command("independent-b"),
+      requester,
+    );
+    await expenses.undoParcelaFunding(
+      tenantId,
+      pessoal,
+      sourceId,
+      aClaim.settlementId,
+      requester,
+    );
+    const aSource = await db.expense.findUniqueOrThrow({
+      where: { id: sourceId },
+    });
+    if (deleted === "expense") {
+      await expenses.remove(tenantId, pessoal, sourceId, requester);
+    } else if (deleted === "account") {
+      const banks = new BankAccountService(
+        prisma,
+        new MerchantClassifierService(prisma),
+        new ConciliacaoService(prisma),
+        new CardInvoiceSettlementService(prisma),
+      );
+      await banks.deleteAccount(tenantId, pessoal, aSource.accountId!);
+    } else {
+      await new ProjectService(prisma).remove(tenantId, pessoal);
+    }
+    const before = await tenantState();
+    await expect(
+      expenses.undoParcelaFunding(
+        tenantId,
+        pessoal,
+        sourceId,
+        aClaim.settlementId,
+        requester,
+      ),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(await tenantState()).toEqual(before);
+    expect(
+      await expenses.undoParcelaFunding(
+        tenantId,
+        otherProject,
+        b.id,
+        bClaim.settlementId,
+        requester,
+      ),
+    ).toMatchObject({
+      state: "REVERSED",
+      paidCents: 0,
+      remainingCents: 80000,
+      sourceAvailableCents: 40000,
+    });
+    expect(await db.expense.findUniqueOrThrow({ where: { id: b.id } })).toEqual(
+      bBefore,
+    );
+    expect(
+      await db.cashFlowEntry.findMany({ where: { expenseId: b.id } }),
+    ).toEqual(bCash);
+    expect(
+      await db.cashFlowEntry.findUniqueOrThrow({ where: { id: pendingId } }),
+    ).toMatchObject({ valor: 80000, status: "PLANEJADO", deletedAt: null });
+    expect(
+      await db.crossProjectSettlement.findMany({ where: { tenantId } }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: aClaim.settlementId,
+          reversedAt: expect.any(Date),
+          reversedByUserId: requester.id,
+        }),
+        expect.objectContaining({
+          id: bClaim.settlementId,
+          reversedAt: expect.any(Date),
+          reversedByUserId: requester.id,
+        }),
+      ]),
+    );
+  },
+);
+
+it("SEC2: a fresh request uses the current plan after all funding is reversed and finance edited", async () => {
+  const before = await sourceSnapshot();
+  const old = await apply();
+  await expenses.undoParcelaFunding(
+    tenantId,
+    pessoal,
+    sourceId,
+    old.settlementId,
+    requester,
+  );
+  await expenses.update(
+    tenantId,
+    reforma,
+    targetId,
+    { valor: 900, dataPagamento: "2026-09-22" },
+    requester,
+  );
+  const pending = await db.cashFlowEntry.findFirstOrThrow({
+    where: { expenseId: targetId, deletedAt: null },
+  });
+  expect(pending.id).not.toBe(pendingId);
+  const next = await apply("new-plan");
+  expect(next).toMatchObject({
+    contractedCents: 90000,
+    paidCents: 40000,
+    remainingCents: 50000,
+  });
+  expect(await apply()).toMatchObject({
+    settlementId: old.settlementId,
+    state: "REVERSED",
+    replayed: true,
+    contractedCents: 90000,
+    paidCents: 40000,
+    remainingCents: 50000,
+    sourceAvailableCents: 0,
+  });
+  await expect(apply("qa702-first", 12345)).rejects.toMatchObject({
+    status: 409,
+  });
+  await expenses.undoParcelaFunding(
+    tenantId,
+    pessoal,
+    sourceId,
+    next.settlementId,
+    requester,
+  );
+  expect(
+    await db.cashFlowEntry.findUniqueOrThrow({ where: { id: pending.id } }),
+  ).toMatchObject({
+    valor: 90000,
+    data: new Date("2026-09-22"),
+    deletedAt: null,
+  });
+  expect(await sourceSnapshot()).toEqual(before);
+});
+
+it.each([
+  ["source", { dataCompra: "2026-09-12" }],
+  ["target", { dataCompra: "2026-09-12" }],
+  ["source", { tipoDespesa: "INVESTIMENTOS" }],
+  ["target", { tipoDespesa: "INVESTIMENTOS" }],
+] as const)(
+  "SEC3: rejects undo-breaking %s metadata %j atomically",
+  async (participant, dto) => {
+    const claim = await apply();
+    const before = await tenantState();
+    await expect(
+      expenses.update(
+        tenantId,
+        participant === "source" ? pessoal : reforma,
+        participant === "source" ? sourceId : targetId,
+        dto,
+        requester,
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await tenantState()).toEqual(before);
+    expect(
+      await expenses.undoParcelaFunding(
+        tenantId,
+        pessoal,
+        sourceId,
+        claim.settlementId,
+        requester,
+      ),
+    ).toMatchObject({ state: "REVERSED", remainingCents: 80000 });
+  },
+);
+
+it("SEC3: equivalent financial fields and genuine category/title metadata keep undo valid", async () => {
+  await expenses.update(
+    tenantId,
+    pessoal,
+    sourceId,
+    { dataCompra: "2026-09-10" },
+    requester,
+  );
+  const claim = await apply();
+  await expenses.update(
+    tenantId,
+    pessoal,
+    sourceId,
+    {
+      dataCompra: "2026-09-10T00:00:00.000Z",
+      tipoDespesa: "MAO_DE_OBRA",
+      titulo: "Synthetic renamed",
+    },
+    requester,
+  );
+  await expenses.update(
+    tenantId,
+    reforma,
+    targetId,
+    { tipoDespesa: "OUTROS", fornecedor: "Synthetic supplier" },
+    requester,
+  );
+  expect(
+    await expenses.undoParcelaFunding(
+      tenantId,
+      pessoal,
+      sourceId,
+      claim.settlementId,
+      requester,
+    ),
+  ).toMatchObject({ state: "REVERSED", remainingCents: 80000 });
+});
+
+it("SEC4: a legacy replacement after additive undo creates its actual paid cashflow", async () => {
+  const old = await apply();
+  await expenses.undoParcelaFunding(
+    tenantId,
+    pessoal,
+    sourceId,
+    old.settlementId,
+    requester,
+  );
+  const b = await secondSource();
+  await expenses.conciliarParcela(
+    tenantId,
+    pessoal,
+    b.id,
+    { targetExpenseId: targetId, parcelaIndex: 0 },
+    requester,
+  );
+  expect(
+    await db.cashFlowEntry.findMany({
+      where: { expenseId: targetId, deletedAt: null },
+    }),
+  ).toEqual([expect.objectContaining({ status: "PAGO", valor: 40000 })]);
+  expect(
+    await db.expense.findUniqueOrThrow({ where: { id: targetId } }),
+  ).toMatchObject({ status: "PAGO", valorTotal: 80000 });
+  expect(
+    await db.crossProjectSettlement.findUniqueOrThrow({
+      where: { id: old.settlementId },
+    }),
+  ).toMatchObject({
+    mode: "ADDITIVE",
+    reversedAt: expect.any(Date),
+    reversedByUserId: requester.id,
+  });
+  expect(
+    (await expenses.findById(tenantId, reforma, targetId, requester))
+      .installmentSettlements,
+  ).toBeUndefined();
+  expect(
+    (await new DashboardService(prisma).getDashboard(tenantId, reforma)).kpis,
+  ).toMatchObject({ jaPaguei: 40000, previsaoGastos: 0 });
+  const monthly = new MonthlyOverviewService(
+    prisma,
+    new CardInvoiceSettlementService(prisma),
+  );
+  expect(await monthly.getCaixaConta(tenantId, pessoal)).toMatchObject({
+    hoje: -80000,
+  });
+});
 
 it.each([
   "manual paid",

@@ -950,6 +950,14 @@ Gestão dos cartões de crédito.
   ainda sem aportes, com índice local, vencimento e saldo canônicos. Uma lista
   `UNPAID` não significa pagamento existente; parcelas pagas por outra via,
   ocupadas pelo legado ou protegidas por trilha de fatura não são oferecidas.
+  Enquanto existir aporte ativo, a data da compra e a reclassificação para
+  investimentos também ficam protegidas; título, fornecedor e categorias
+  elegíveis continuam editáveis. Desfazer uma importação verifica inclusive
+  débitos antigos apenas adotados pelo lote, antes de alterar qualquer registro.
+  Aportes desfeitos conservam sua chave e histórico, mas não prendem outros
+  aportes quando sua antiga fonte é excluída. Após desfazer todos, uma nova
+  chave usa o planejamento atual; uma conciliação legada posterior gera seu
+  próprio caixa, sem reutilizar projeções aditivas desfeitas.
   Enquanto houver
   aporte ativo, desfaça-o antes de editar valores/datas, excluir participantes
   ou desfazer sua importação. Esta entrega de API não implica um novo botão

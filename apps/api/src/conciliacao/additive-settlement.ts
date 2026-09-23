@@ -424,8 +424,8 @@ function targetOccurrence(
   const pendingCandidates = cash.filter(
     (c) =>
       c.status === "PLANEJADO" &&
-      (history.length
-        ? c.id === history[0].targetPendingCashFlowEntryId
+      (active.length
+        ? c.id === active[0].targetPendingCashFlowEntryId
         : !c.deletedAt &&
           c.parcela ===
             (isSinglePaymentForm(target.formaPagamento)
@@ -443,7 +443,7 @@ function targetOccurrence(
     pending.receiptId ||
     pending.budgetAllocationId ||
     Boolean(pending.deletedAt) !== (remainingCents === 0) ||
-    history.some(
+    active.some(
       (r) =>
         r.plannedValor !== slice.valor ||
         r.targetPendingCashFlowEntryId !== pending.id ||
@@ -497,7 +497,7 @@ async function context(
       tenantId,
       OR: [
         { sourceExpenseId: sourceId, reversedAt: null },
-        { targetExpenseId: targetId, parcelaIndex: index },
+        { targetExpenseId: targetId, parcelaIndex: index, reversedAt: null },
         ...(replay ? [{ id: replay.id }] : []),
       ],
     },
@@ -881,7 +881,10 @@ export async function fundingSummaries(
         (r) => r.parcelaIndex === index && !r.reversedAt,
       );
       const slice = slices[index];
-      if (!slice) throw drift();
+      if (!slice) {
+        if (active.length) throw drift();
+        continue;
+      }
       const paid = active.reduce((sum, r) => sum + r.realValor, 0);
       let visible = !!requester;
       if (requester)
@@ -968,7 +971,11 @@ export async function fundingSummaries(
       }),
     ]);
     for (const target of targets) {
-      const summaries = result.get(target.id) ?? [];
+      const summaries = (result.get(target.id) ?? []).filter(
+        (summary) => summary.paidCents > 0,
+      );
+      if (summaries.length) result.set(target.id, summaries);
+      else result.delete(target.id);
       const initial: InstallmentSettlementSummary[] = [];
       const targetCash = cash.filter((entry) => entry.expenseId === target.id);
       for (const [index] of buildInstallments(target).entries()) {

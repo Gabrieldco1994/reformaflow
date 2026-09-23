@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AdditiveSettlementCommand } from '@reformaflow/domain';
+import { AdditiveSettlementCommand, ExpenseType } from '@reformaflow/domain';
 import { ADDITIVE, applyParcelaFunding, undoParcelaFunding, guardActiveFunding, enrichFunding } from '../conciliacao/additive-settlement';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -1602,6 +1602,10 @@ export class ExpenseService {
       dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa;
     const changedToNeutralType =
       changedTipoDespesa && isNeutralExpenseType(dto.tipoDespesa as string);
+    if (!sameDate(existing.dataCompra, dto.dataCompra) ||
+      (changedTipoDespesa && dto.tipoDespesa === ExpenseType.INVESTIMENTOS)) {
+      await guardActiveFunding(db, tenantId, [id]);
+    }
     // #695: metadata is synchronized in place. Only effective financial changes
     // replace CFEs; this same predicate protects active invoice ledger references.
     const shouldRegenerateCashFlow =
