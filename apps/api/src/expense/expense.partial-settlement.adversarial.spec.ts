@@ -11,6 +11,8 @@ import {
 import { PrismaClient } from "@prisma/client";
 import { ExpenseTypeLabels } from "@reformaflow/domain";
 import { JwtStrategy } from "../auth/jwt.strategy";
+import { BankAccountController } from "../bank-account/bank-account.controller";
+import { BankAccountService } from "../bank-account/bank-account.service";
 import {
   makeBankAccountService,
   makeMonthlyOverviewService,
@@ -23,6 +25,7 @@ import { ProjectAccessGuard } from "../common/guards/project-access.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { ConciliacaoService } from "../conciliacao/conciliacao.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { ProjectService } from "../project/project.service";
 import { ExpenseController } from "./expense.controller";
 import { ExpenseService } from "./expense.service";
 import { PaidOriginsService } from "./paid-origins.service";
@@ -169,11 +172,12 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
     await prisma.$connect();
     await secondPrisma.$connect();
     const module = await Test.createTestingModule({
-      controllers: [ExpenseController],
+      controllers: [ExpenseController, BankAccountController],
       providers: [
         JwtStrategy,
         { provide: PrismaService, useValue: prisma },
         { provide: ExpenseService, useValue: expenses },
+        { provide: BankAccountService, useValue: bank },
         {
           provide: PaidOriginsService,
           useValue: new PaidOriginsService(prisma),
@@ -1217,6 +1221,353 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
     ).rejects.toMatchObject({ status: 409 });
     expect(await snapshot()).toEqual(before);
   });
+
+  it.each(["active", "reversed", "never funded", "revoked scope"] as const)(
+    "security G1: adopted debit import undo with %s funding preserves the correct boundary",
+    async (state) => {
+      await setup.bankStatementImport.update({
+        where: { id: IMPORT },
+        data: {
+          createdAt: new Date("2026-09-15T00:00:00Z"),
+          inlineExpenseCreations: null,
+        },
+      });
+      await setup.expense.update({
+        where: { id: SOURCE_A },
+        data: { createdAt: new Date("2026-09-01T00:00:00Z") },
+      });
+      await setup.expense.update({
+        where: { id: SOURCE_C },
+        data: {
+          importId: IMPORT,
+          externalId: "qa702-unrelated-created",
+          createdAt: new Date("2026-09-16T00:00:00Z"),
+        },
+      });
+      if (state !== "never funded") {
+        const funding = await apply();
+        if (state === "reversed") await undo(SOURCE_A, funding.settlementId);
+      }
+      if (state === "revoked scope") {
+        await setup.user.update({
+          where: { id: USER },
+          data: {
+            allowedProjects: JSON.stringify([SECOND_PESSOAL, TARGET_PROJECT]),
+          },
+        });
+      }
+      const before = await snapshot();
+      const response = await http.delete(
+        `/projects/${PESSOAL}/bank-accounts/${ACCOUNT}/imports/${IMPORT}`,
+      );
+      if (state === "active" || state === "revoked scope") {
+        const after = await snapshot();
+        const source = after.expenses.find((row) => row.id === SOURCE_A)!;
+        expect({
+          status: response.status(),
+          unchanged: JSON.stringify(after) === JSON.stringify(before),
+          importId: source.importId,
+          externalId: source.externalId,
+        }).toEqual({
+          status: state === "active" ? 409 : 403,
+          unchanged: true,
+          importId: IMPORT,
+          externalId: `synthetic-external-${SOURCE_A}`,
+        });
+      } else {
+        expect(response.status()).toBe(200);
+        expect(await response.json()).toMatchObject({
+          ok: true,
+          unstamped: 1,
+          removedExpenses: 1,
+        });
+        const original = before.expenses.find((row) => row.id === SOURCE_A)!;
+        const adopted = await setup.expense.findUniqueOrThrow({
+          where: { id: SOURCE_A },
+        });
+        expect(adopted).toEqual({
+          ...original,
+          importId: null,
+          externalId: null,
+          updatedAt: adopted.updatedAt,
+        });
+        expect(
+          await setup.cashFlowEntry.findMany({
+            where: { expenseId: SOURCE_A },
+          }),
+        ).toEqual(before.entries.filter((row) => row.expenseId === SOURCE_A));
+        expect(
+          await setup.crossProjectSettlement.findMany({
+            where: { tenantId: TENANT },
+            orderBy: { id: "asc" },
+          }),
+        ).toEqual(before.settlements);
+      }
+    },
+  );
+
+  it.each(["expense", "account", "project"] as const)(
+    "security G2: removing reversed A's %s cannot prevent independent active B undo",
+    async (resource) => {
+      const a = await apply(SOURCE_A, 20_000, "qa702-retired-a");
+      const b = await apply(SOURCE_B, 20_000, "qa702-live-b");
+      await undo(SOURCE_A, a.settlementId);
+      const retired = await setup.crossProjectSettlement.findUniqueOrThrow({
+        where: { id: a.settlementId },
+      });
+      if (resource === "project") {
+        expect(
+          await new ProjectService(prisma).remove(TENANT, PESSOAL),
+        ).toEqual({
+          deleted: true,
+        });
+      } else {
+        const path =
+          resource === "expense"
+            ? `/projects/${PESSOAL}/expenses/${SOURCE_A}`
+            : `/projects/${PESSOAL}/bank-accounts/${ACCOUNT}`;
+        expect((await http.delete(path)).status()).toBe(200);
+      }
+      const removed =
+        resource === "project"
+          ? await setup.project.findUnique({ where: { id: PESSOAL } })
+          : resource === "account"
+            ? await setup.bankAccount.findUnique({ where: { id: ACCOUNT } })
+            : await setup.expense.findUnique({ where: { id: SOURCE_A } });
+      expect(removed).toMatchObject({ deletedAt: expect.any(Date) });
+      const sources = await sourceSnapshot();
+      expect(await undo(SOURCE_B, b.settlementId)).toMatchObject({
+        state: "REVERSED",
+        paidCents: 0,
+        remainingCents: 80_000,
+        sourceAvailableCents: 50_000,
+      });
+      expect(await sourceSnapshot()).toEqual(sources);
+      expect(
+        await setup.crossProjectSettlement.findUnique({
+          where: { id: a.settlementId },
+        }),
+      ).toEqual(retired);
+      expect(
+        await prisma.cashFlowEntry.findMany({ where: { expenseId: TARGET } }),
+      ).toEqual([
+        expect.objectContaining({
+          id: `${TARGET}-cash`,
+          valor: 80_000,
+          data: DUE,
+          status: "PLANEJADO",
+        }),
+      ]);
+    },
+  );
+
+  it.each(["new key", "original reversed key"] as const)(
+    "security G2: after all undos and a legitimate target edit, %s uses current balances",
+    async (kind) => {
+      const a = await apply(SOURCE_A, 20_000, "qa702-old-generation");
+      await undo(SOURCE_A, a.settlementId);
+      const retired = await setup.crossProjectSettlement.findUniqueOrThrow({
+        where: { id: a.settlementId },
+      });
+      const edited = await http.patch(
+        `/projects/${TARGET_PROJECT}/expenses/${TARGET}`,
+        { data: { valor: 1000, dataPagamento: "2026-10-20" } },
+      );
+      expect(edited.status()).toBe(200);
+      const current = await prisma.cashFlowEntry.findFirstOrThrow({
+        where: { expenseId: TARGET },
+      });
+      const before = await snapshot();
+      const replay = kind === "original reversed key";
+      const response = await http.post(route(), {
+        data: command(
+          20_000,
+          replay ? "qa702-old-generation" : "qa702-new-generation",
+        ),
+      });
+      expect({
+        applyStatus: response.status(),
+        canonicalPending: {
+          valor: current.valor,
+          status: current.status,
+          data: current.data,
+        },
+      }).toEqual({
+        applyStatus: 201,
+        canonicalPending: {
+          valor: 100_000,
+          status: "PLANEJADO",
+          data: new Date("2026-10-20T00:00:00Z"),
+        },
+      });
+      const result: unknown = await response.json();
+      assertFunding(result);
+      expect(result).toMatchObject({
+        state: replay ? "REVERSED" : "ACTIVE",
+        replayed: replay,
+        contractedCents: 100_000,
+        paidCents: replay ? 0 : 20_000,
+        remainingCents: replay ? 100_000 : 80_000,
+        sourceAvailableCents: replay ? 50_000 : 30_000,
+      });
+      if (replay) {
+        expect(result.settlementId).toBe(a.settlementId);
+        expect(await snapshot()).toEqual(before);
+      } else {
+        expect(result.settlementId).not.toBe(a.settlementId);
+        expect(
+          await prisma.cashFlowEntry.findFirst({ where: { id: current.id } }),
+        ).toEqual({ ...current, valor: 80_000, updatedAt: expect.any(Date) });
+      }
+      expect(
+        await setup.crossProjectSettlement.findUnique({
+          where: { id: a.settlementId },
+        }),
+      ).toEqual(retired);
+      await setup.user.update({
+        where: { id: USER },
+        data: { allowedProjects: JSON.stringify([PESSOAL, SECOND_PESSOAL]) },
+      });
+      await assertRejected(command(20_000, "qa702-old-generation"), 404);
+    },
+  );
+
+  it.each([
+    [SOURCE_A, { dataCompra: "2026-09-09" }],
+    [TARGET, { dataCompra: "2026-09-09" }],
+    [SOURCE_A, { tipoDespesa: "INVESTIMENTOS" }],
+    [TARGET, { tipoDespesa: "INVESTIMENTOS" }],
+  ] as const)(
+    "security G3: protected PATCH on %s with %j is atomic and leaves undo usable",
+    async (id, data) => {
+      const a = await apply();
+      const before = JSON.stringify(await snapshot());
+      const response = await http.patch(
+        `/projects/${id === TARGET ? TARGET_PROJECT : PESSOAL}/expenses/${id}`,
+        { data },
+      );
+      const unchanged = JSON.stringify(await snapshot()) === before;
+      const reversed = await http.delete(`${route()}/${a.settlementId}`);
+      expect({
+        patchStatus: response.status(),
+        unchanged,
+        undoStatus: reversed.status(),
+      }).toEqual({ patchStatus: 409, unchanged: true, undoStatus: 200 });
+      const body: unknown = await reversed.json();
+      assertFunding(body);
+      expect(body).toMatchObject({
+        state: "REVERSED",
+        remainingCents: 80_000,
+        sourceAvailableCents: 50_000,
+      });
+    },
+  );
+
+  it.each([SOURCE_A, TARGET])(
+    "security G3 control: descriptive metadata on %s remains editable and reversible",
+    async (id) => {
+      const a = await apply();
+      const before = await setup.cashFlowEntry.findMany({
+        where: { expenseId: id },
+        orderBy: { id: "asc" },
+      });
+      const response = await http.patch(
+        `/projects/${id === TARGET ? TARGET_PROJECT : PESSOAL}/expenses/${id}`,
+        {
+          data: {
+            titulo: "Updated synthetic title",
+            fornecedor: "Updated supplier",
+          },
+        },
+      );
+      expect(response.status()).toBe(200);
+      expect(await response.json()).toMatchObject({
+        titulo: "Updated synthetic title",
+        fornecedor: "Updated supplier",
+      });
+      expect(
+        await setup.cashFlowEntry.findMany({
+          where: { expenseId: id },
+          orderBy: { id: "asc" },
+        }),
+      ).toEqual(before);
+      expect(await undo(SOURCE_A, a.settlementId)).toMatchObject({
+        state: "REVERSED",
+        remainingCents: 80_000,
+      });
+    },
+  );
+
+  it.each(["never funded", "reversed additive"] as const)(
+    "security G4: legacy settlement after %s has coherent paid target CFEs and unchanged bank cash",
+    async (history) => {
+      if (history === "reversed additive") {
+        const a = await apply();
+        await undo(SOURCE_A, a.settlementId);
+      }
+      const retired = await setup.crossProjectSettlement.findMany({
+        where: { tenantId: TENANT, mode: "ADDITIVE" },
+      });
+      const bankBefore = await monthly.getAccountView(
+        TENANT,
+        PESSOAL,
+        "2026-09",
+        REQUESTER,
+      );
+      const response = await http.post(route(SOURCE_C), {
+        data: { targetExpenseId: TARGET, parcelaIndex: 0, realValor: 80_000 },
+      });
+      expect(response.status()).toBe(201);
+      expect(
+        await prisma.expense.findUnique({ where: { id: TARGET } }),
+      ).toMatchObject({ status: "PAGO", valorTotal: 80_000 });
+      expect(
+        await setup.crossProjectSettlement.findMany({
+          where: { tenantId: TENANT, mode: "ADDITIVE" },
+        }),
+      ).toEqual(retired);
+      for (const row of retired) {
+        expect(row.reversedAt).toBeInstanceOf(Date);
+        expect(
+          await prisma.cashFlowEntry.findUnique({
+            where: { id: row.targetPaidCashFlowEntryId! },
+          }),
+        ).toMatchObject({ deletedAt: expect.any(Date) });
+      }
+      expect(
+        await prisma.crossProjectSettlement.findMany({
+          where: { tenantId: TENANT, mode: "LEGACY_REPLACEMENT" },
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          sourceExpenseId: SOURCE_C,
+          targetExpenseId: TARGET,
+          realValor: 80_000,
+          parcelaIndex: 0,
+          reversedAt: null,
+        }),
+      ]);
+      const bankAfter = await monthly.getAccountView(
+        TENANT,
+        PESSOAL,
+        "2026-09",
+        REQUESTER,
+      );
+      expect(bankAfter.caixaHoje).toBe(bankBefore.caixaHoje);
+      expect(
+        await prisma.cashFlowEntry.findMany({
+          where: { expenseId: TARGET },
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          valor: 80_000,
+          status: "PAGO",
+          data: DUE,
+          deletedAt: null,
+        }),
+      ]);
+    },
+  );
 
   it.each([SOURCE_A, TARGET])(
     "markPaidInPlace cannot bypass active funding for %s inside a real transaction",
