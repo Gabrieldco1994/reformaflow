@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectType } from '@reformaflow/domain';
 import { AvulsasTab } from './AvulsasTab';
@@ -95,5 +95,80 @@ describe('AvulsasTab — preservação de quantidade na edição (issue #369)', 
         expect.objectContaining({ quantidade: 1 }),
       ),
     );
+  });
+
+  it.each([ProjectType.CASA, ProjectType.CARRO])('mostra saldo parcial canônico e salva somente metadados em %s', async (projectType) => {
+    const expense = makeExpense({
+      titulo: 'Contrato sintético', quantidade: 1, valor: 80_000, valorTotal: 80_000,
+      formaPagamento: 'PARCELADO', quantidadeParcela: 1, status: 'PLANEJADO',
+      dataPagamento: null, dataInicioParcela: '2026-07-10T00:00:00.000Z',
+      installmentSettlements: [{
+        parcelaIndex: 0, dueDate: '2026-07-10T00:00:00.000Z',
+        contractedCents: 80_000, paidCents: 40_000, remainingCents: 40_000,
+        settlementStatus: 'PARTIAL',
+      }],
+    });
+    apiMock.get.mockResolvedValue({ items: [expense], total: 1 });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <AvulsasTab projectId="p1" projectType={projectType} />
+      </QueryClientProvider>,
+    );
+    const card = await screen.findByRole('article', { name: 'Contrato sintético' });
+    const row = screen.getByRole('row', { name: /Contrato sintético/ });
+    for (const surface of [card, row]) {
+      expect(within(surface).getByText('Parcial')).toBeInTheDocument();
+      expect(within(surface).getByText(/Restante:/)).toHaveTextContent('R$ 400,00');
+      expect(within(surface).getByText(/Contratado:/)).toHaveTextContent('R$ 800,00');
+      expect(within(surface).getByText(/Pago:/)).toHaveTextContent('R$ 400,00');
+      expect(within(surface).getByRole('button', { name: 'Excluir' })).toBeDisabled();
+    }
+    fireEvent.click(within(card).getByRole('button', { name: 'Editar' }));
+    const balance = screen.getByRole('region', { name: 'Saldo da despesa' });
+    expect(within(balance).getByText('Parcial')).toBeInTheDocument();
+    expect(within(balance).getByText(/Restante:/)).toHaveTextContent('R$ 400,00');
+    for (const name of ['valor', 'status', 'formaPagamento', 'quantidadeParcela', 'dataInicioParcela']) {
+      expect(container.querySelector(`[name="${name}"]`)).toBeDisabled();
+    }
+    fireEvent.change(container.querySelector('input[name="titulo"]')!, { target: { value: 'Título corrigido' } });
+    fireEvent.change(container.querySelector('select[name="tipoDespesa"]')!, { target: { value: 'OUTROS' } });
+    fireEvent.change(container.querySelector('input[name="fornecedor"]')!, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(apiMock.patch).toHaveBeenCalledWith('/projects/p1/expenses/exp-1', {
+      titulo: 'Título corrigido', tipoDespesa: 'OUTROS', fornecedor: null,
+    }));
+    expect(apiMock.post).not.toHaveBeenCalled();
+    expect(apiMock.delete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { paidCents: 0, settlementStatus: 'UNPAID', label: 'Planejado' },
+    { paidCents: 80_000, settlementStatus: 'PAID', label: 'Pago' },
+  ] as const)('respeita o estado canônico $settlementStatus, sem bloquear resumo inicial', async ({ paidCents, settlementStatus, label }) => {
+    apiMock.get.mockResolvedValue({ items: [makeExpense({
+      titulo: 'Contrato sintético', valor: 80_000, valorTotal: 80_000, quantidade: 1,
+      status: 'PLANEJADO', formaPagamento: 'PARCELADO', quantidadeParcela: 1,
+      dataPagamento: null, dataInicioParcela: '2026-07-10',
+      installmentSettlements: [{
+        parcelaIndex: 0, dueDate: '2026-07-10T00:00:00.000Z',
+        contractedCents: 80_000, paidCents, remainingCents: 80_000 - paidCents,
+        settlementStatus,
+      }],
+    })], total: 1 });
+    const { container } = renderTab();
+    const card = await screen.findByRole('article', { name: 'Contrato sintético' });
+    expect(within(card).getByText(label)).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: 'Editar' }));
+    if (paidCents) {
+      expect(getValorInput(container)).toBeDisabled();
+    } else {
+      expect(getValorInput(container)).toBeEnabled();
+      fireEvent.change(getValorInput(container), { target: { value: '900,00' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+      await waitFor(() => expect(apiMock.patch).toHaveBeenCalledWith(
+        '/projects/p1/expenses/exp-1', expect.objectContaining({ valor: 900 }),
+      ));
+    }
   });
 });

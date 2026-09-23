@@ -105,6 +105,23 @@ describe("cash grouping — additive funding #702", () => {
     });
   });
 
+  it("uses canonical totals without needing a count, dates or contribution details", () => {
+    expect(
+      expensePaymentTotals({
+        status: "PLANEJADO",
+        valorTotal: 240_000,
+        installmentSettlements: [
+          { ...target.installmentSettlements![0], contributions: undefined },
+        ],
+      }),
+    ).toEqual({ paid: 40_000, remaining: 40_000 });
+    expect(expandExpenseOccurrences(target).map(expensePaymentTotals)).toEqual([
+      { paid: 25_000, remaining: 0 },
+      { paid: 15_000, remaining: 0 },
+      { paid: 0, remaining: 40_000 },
+    ]);
+  });
+
   it("keeps the original pending occurrence after the last contribution is undone", () => {
     const rows = expandExpenseOccurrences({
       ...target,

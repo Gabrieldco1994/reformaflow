@@ -240,13 +240,17 @@ export function mesKeyFromDate(data: string): string {
   return data.slice(0, 7);
 }
 
-export function expensePaymentTotals(e: Expense): { paid: number; remaining: number } {
+export function expensePaymentTotals(e: Pick<Expense, 'status' | 'valorTotal' | 'installmentSettlements'>): { paid: number; remaining: number } {
+  // A sliced occurrence already represents only its rendered payment or remainder.
+  if ('occKey' in e && typeof e.occKey === 'string' && 'occValue' in e && typeof e.occValue === 'number') {
+    return e.status === 'PAGO' ? { paid: e.occValue, remaining: 0 } : { paid: 0, remaining: e.occValue };
+  }
   if (!e.installmentSettlements?.length) {
     return e.status === 'PAGO' ? { paid: e.valorTotal, remaining: 0 } : { paid: 0, remaining: e.valorTotal };
   }
-  return expandExpenseOccurrences(e).reduce((totals, occ) => {
-    if (occ.status === 'PAGO') totals.paid += occ.occValue;
-    else totals.remaining += occ.occValue;
+  return e.installmentSettlements.reduce((totals, summary) => {
+    totals.paid += summary.paidCents;
+    totals.remaining += summary.remainingCents;
     return totals;
   }, { paid: 0, remaining: 0 });
 }

@@ -499,11 +499,17 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
 - **Card "Precisa de você (N)"** (quando `N > 0`): mostra pendências financeiras
-  acionáveis (sem conta, sem categoria com sugestão, **pagamento de fatura sem
+  do mês (sem conta, sem categoria com sugestão, **pagamento de fatura sem
   cartão identificado**, fatura a vencer, parcela cross-project pendente e
   recebimento previsto atrasado). Ao tocar, abre um
   painel que dispara os modais já existentes (vincular, pagar fatura, quitar
   parcela, editar despesa/recebimento) sem criar um fluxo paralelo.
+  - **Parcela parcialmente paga:** a própria linha mostra **Parcial**, o
+    **Restante**, o valor **Contratado** e o **Pago**, conforme o servidor.
+    Por exemplo: contratado R$ 800,00, pago R$ 400,00, restante R$ 400,00.
+    Com contribuições ativas, a linha é informativa: não oferece a quitação
+    integral legada nem cria outro débito. Uma lista de ações vazia também
+    impede a execução; não é substituída por outro pagamento.
   - **Pagamento de fatura sem cartão**: um pagamento de fatura que ficou sem cartão
     vinculado sai do seu caixa mas deixa a fatura em aberto — o mesmo dinheiro conta
     duas vezes. A fila é a única superfície que mostra esse item (ele é neutro, então
@@ -1470,6 +1476,12 @@ Contas fixas (luz, água, internet, gás…) e avulsas.
   `/expenses` foi descontinuada para esses dois tipos e redireciona para cá
   (veja §6.6). O módulo `expenses` (dados/permissão) continua existindo por
   baixo — só a tela dedicada saiu do ar.
+  Quando há resumo de pagamentos, a tabela e os cards de Avulsas mostram
+  **Restante**, **Contratado**, **Pago** e o estado **Parcial/Pago/Planejado**
+  calculado a partir dos saldos canônicos, sem dividir o total pelo número de parcelas.
+  Contribuições ativas bloqueiam exclusão e alterações financeiras no formulário;
+  título, categoria e fornecedor continuam editáveis, sem reenviar valores ou datas.
+  Um resumo inicial sem pagamentos não bloqueia as ações ordinárias.
 
 ### 6.4 Manutenção (`/maintenance`)
 Histórico e agenda de manutenções.

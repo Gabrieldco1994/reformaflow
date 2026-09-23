@@ -4,11 +4,12 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import type { FinancialItemCardV1 } from '@reformaflow/domain';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { Modal } from '@/components/ui/modal';
-import type { Expense } from '@/types';
+import type { Expense, InstallmentSettlement } from '@/types';
 import { getExpenseOptions } from '../../expenses/_types';
 import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
 import { PagarFaturaDialog } from '../../conta/_components/PagarFaturaDialog';
@@ -35,7 +36,9 @@ type CardCandidate = {
   deltaCents: number;
 };
 
-type QueueItem = {
+type QueueItem = Partial<Pick<InstallmentSettlement,
+  'contractedCents' | 'paidCents' | 'remainingCents' | 'settlementStatus'
+>> & {
   id: string;
   tipo: QueueType;
   label: string;
@@ -50,6 +53,13 @@ type QueueItem = {
   parcelaIndex?: number;
   suggestionTipoDespesa?: string;
   cardCandidates?: CardCandidate[];
+  actions?: FinancialItemCardV1['actions'];
+};
+
+const SETTLEMENT_STATUS_LABELS: Record<InstallmentSettlement['settlementStatus'], string> = {
+  UNPAID: 'Pendente',
+  PARTIAL: 'Parcial',
+  PAID: 'Pago',
 };
 
 type QueueGroup = {
@@ -177,6 +187,7 @@ export function PendenciasQueueCard({
 
   /**
    * Motivo pelo qual a fila NÃO oferece a ação, ou `null` (oferece).
+   * Ações vazias e aportes ativos nunca caem na quitação legada.
    *
    * A fila é montada por `/pendencias`, que não conhece as capabilities da
    * fatura; quem conhece é a Visão Conta. Quando ela DIZ que aquele cartão não
@@ -187,6 +198,10 @@ export function PendenciasQueueCard({
    * do diálogo continua sendo a rede de segurança.
    */
   const queueItemBlockedReason = (item: QueueItem): string | null => {
+    if (item.settlementStatus === 'PARTIAL' || (item.foreignExpenseId && (item.paidCents ?? 0) > 0)) {
+      return 'Contribuições ativas — quitação integral indisponível.';
+    }
+    if (item.actions?.length === 0) return 'Nenhuma ação disponível para esta pendência.';
     if (item.tipo !== 'FATURA_NAO_PAGA' || !item.cardLast4) return null;
     const card = (accountView?.cartoes ?? []).find((c) => c.last4 === item.cardLast4);
     if (!card) return null;
@@ -300,6 +315,11 @@ export function PendenciasQueueCard({
   });
 
   const handleItemAction = (item: QueueItem) => {
+    const blockedReason = queueItemBlockedReason(item);
+    if (blockedReason) {
+      toast.error(blockedReason);
+      return;
+    }
     if (item.tipo === 'SEM_CONTA' && item.foreignExpenseId && item.parcelaIndex != null) {
       setOpen(false);
       setQuitar({
@@ -385,7 +405,7 @@ export function PendenciasQueueCard({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-[#FDB022] bg-white px-3 text-xs font-semibold text-[#B54708] transition hover:bg-[#FFFAEB]"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[#FDB022] bg-white px-3 text-xs font-semibold text-[#B54708] transition hover:bg-[#FFFAEB]"
           >
             <AlertTriangle className="h-3.5 w-3.5" />
             Resolver
@@ -399,22 +419,38 @@ export function PendenciasQueueCard({
             <section key={group.tipo} className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-lifeone-ink">{group.label}</p>
-                <p className="text-[11px] font-medium text-lifeone-ink-3">
+                <p className="whitespace-nowrap text-[11px] font-medium text-lifeone-ink-3">
                   {group.count} · {formatCurrency(group.valorTotal / 100)}
                 </p>
               </div>
               <div className="space-y-2">
                 {group.itens.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-lifeone-hairline px-2.5 py-2">
-                    <div className="flex items-start justify-between gap-2">
+                  <div key={item.id} role="group" aria-label={item.descricao} className="rounded-lg border border-lifeone-hairline px-2.5 py-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-[13px] font-medium text-lifeone-ink">{item.descricao}</p>
-                        <p className="text-[11px] text-lifeone-ink-3">
-                          {formatCurrency(item.valor / 100)} · {new Date(item.data).toLocaleDateString('pt-BR')}
+                        <p className="flex flex-wrap gap-x-2 text-[11px] text-lifeone-ink-3">
+                          <span className="whitespace-nowrap">
+                            {item.remainingCents !== undefined
+                              ? `Restante: ${formatCurrency(item.remainingCents / 100)}`
+                              : formatCurrency(item.valor / 100)}
+                          </span>
+                          <span>{formatDateBR(item.data)}</span>
+                        </p>
+                        {item.settlementStatus && <p className="text-xs font-semibold text-lifeone-ink">
+                          {SETTLEMENT_STATUS_LABELS[item.settlementStatus]}
+                        </p>}
+                        <p className="flex flex-wrap gap-x-2 text-[11px] text-lifeone-ink-3">
+                          {item.contractedCents !== undefined && <span className="whitespace-nowrap">
+                            Contratado: {formatCurrency(item.contractedCents / 100)}
+                          </span>}
+                          {item.paidCents !== undefined && <span className="whitespace-nowrap">
+                            Pago: {formatCurrency(item.paidCents / 100)}
+                          </span>}
                         </p>
                       </div>
                       {queueItemBlockedReason(item) ? (
-                        <span className="shrink-0 max-w-[52%] text-right text-[11px] font-medium text-[#B54708]">
+                        <span className="basis-full text-[11px] font-medium text-[#B54708]">
                           {queueItemBlockedReason(item)}
                         </span>
                       ) : (
