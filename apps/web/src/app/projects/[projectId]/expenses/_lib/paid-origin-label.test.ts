@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPaidOriginIndex, formatPaidOriginLabel, pickOriginForOccurrence } from './paid-origin-label';
+import { buildPaidOriginIndex, formatPaidOriginLabel, pickOriginForOccurrence, pickOriginsForOccurrence } from './paid-origin-label';
 import type { ExpensePaidOrigin, PaidOriginRef } from '@/types';
 
 const nubank: PaidOriginRef = { kind: 'card', last4: '3541', nickname: 'Nubank',
@@ -59,5 +59,21 @@ describe('buildPaidOriginIndex', () => {
     const map = buildPaidOriginIndex({ items: [
       { expenseId: 'a', via: 'link', parcelas: [], origins: [nubank], multiple: false }] });
     expect(map.get('a')!.origins[0].last4).toBe('3541');
+  });
+
+  it('returns every origin for index zero, deduped by kind:last4 (#702)', () => {
+    const entry: ExpensePaidOrigin = {
+      expenseId: 't', via: 'settlement', multiple: true, origins: [nubank, latam],
+      parcelas: [
+        { parcelaIndex: 0, origin: nubank }, { parcelaIndex: 0, origin: latam },
+        { parcelaIndex: 0, origin: nubank }, { parcelaIndex: 1, origin: contaSemApelido },
+      ],
+    };
+    expect(pickOriginsForOccurrence(entry, 1)).toEqual([nubank, latam]);
+    expect(pickOriginsForOccurrence(entry, 2)).toEqual([contaSemApelido]);
+    expect(pickOriginsForOccurrence(entry, 3)).toEqual([]);
+    expect(pickOriginsForOccurrence(undefined, 1)).toEqual([]);
+    expect(pickOriginsForOccurrence({ ...entry, via: 'rateio' }, 99)).toEqual([nubank, latam]);
+    expect(pickOriginsForOccurrence({ ...entry, via: 'link' }, 99)).toEqual([nubank, latam]);
   });
 });

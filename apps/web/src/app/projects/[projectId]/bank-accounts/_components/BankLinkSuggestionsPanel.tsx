@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { X, Link2, Unlink, ExternalLink } from 'lucide-react';
+import { Unlink, ExternalLink } from 'lucide-react';
+import { Modal } from '@/components/ui/modal';
+import { ParcelaFundingForm } from '../../expenses/_components/ParcelaFundingForm';
 import type { BankAccountRow, BankSuggestionRow } from '../_types';
 
 interface Props {
@@ -24,6 +26,9 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
   const [rows, setRows] = useState<BankSuggestionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [actingOn, setActingOn] = useState<string | null>(null);
+  const [funding, setFunding] = useState<{ sourceId: string; targetId: string; parcelaIndex: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [fundingPending, setFundingPending] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,27 +37,15 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
         `/projects/${projectId}/bank-accounts/${account.id}/suggest-links`,
       );
       setRows(data);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao carregar transações');
     } finally {
       setLoading(false);
     }
   }, [projectId, account.id]);
 
   useEffect(() => { void load(); }, [load]);
-
-  async function handleLink(expenseId: string, targetId: string, parcelaIndex?: number) {
-    setActingOn(expenseId);
-    try {
-      await api.post(`/projects/${projectId}/bank-accounts/transactions/${expenseId}/link`, {
-        targetExpenseId: targetId,
-        ...(parcelaIndex != null ? { parcelaIndex } : {}),
-      });
-      await load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Erro ao vincular');
-    } finally {
-      setActingOn(null);
-    }
-  }
 
   async function handleUnlink(expenseId: string) {
     setActingOn(expenseId);
@@ -67,18 +60,18 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90dvh] overflow-y-auto p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <Link2 className="w-5 h-5" /> Vincular transações — {account.nickname ?? account.last4}
-          </h2>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+    <Modal open onClose={onClose} size="xl" trapFocus closeDisabled={fundingPending} title={`Vincular transações — ${account.nickname ?? account.last4}`}>
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {funding ? (
+        <div className="space-y-3">
+          <button type="button" className="min-h-11 rounded-lg border px-3" disabled={fundingPending} onClick={() => { setFunding(null); void load(); }}>Voltar às transações</button>
+          <ParcelaFundingForm projectId={projectId} sourceId={funding.sourceId}
+            initialTargetId={funding.targetId} initialParcelaIndex={funding.parcelaIndex} onPendingChange={setFundingPending} />
         </div>
-
+      ) : <>
         <p className="text-sm text-gray-600 mb-4">
           Vincule transações do extrato a despesas planejadas de outros projetos (reforma, casa, carro).
-          A despesa alvo vira PAGA e a transação aqui deixa de contar como pessoal (evita dupla contagem).
+          O débito original é preservado. A parcela só fica paga quando o saldo restante chega a zero.
         </p>
 
         {loading ? (
@@ -96,7 +89,7 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
                     <div className="font-medium truncate">{expense.titulo ?? expense.fornecedor}</div>
                     <div className="text-xs text-gray-500">
                       {formatDateBR(expense.data)} ·
-                      <span className="font-mono ml-1">{formatCurrency(expense.valor / 100)}</span>
+                      <span className="font-mono ml-1 whitespace-nowrap">{formatCurrency(expense.valor / 100)}</span>
                       {expense.status === 'PAGO' && <span className="ml-1 text-green-700">· pago</span>}
                     </div>
                   </div>
@@ -104,7 +97,7 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
                     <button
                       onClick={() => handleUnlink(expense.id)}
                       disabled={actingOn === expense.id}
-                      className="text-xs px-2 py-1 border border-red-200 text-red-600 rounded hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
+                      className="min-h-11 text-xs px-2 py-1 border border-red-200 text-red-600 rounded hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
                     >
                       <Unlink className="w-3 h-3" /> Desvincular
                     </button>
@@ -117,7 +110,7 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
                     {suggestions.map((s) => {
                       const badge = TYPE_BADGE[s.projectType] ?? { label: s.projectType, color: 'bg-gray-100 text-gray-700' };
                       return (
-                        <div key={s.expenseId} className="flex items-center justify-between gap-2 text-sm">
+                        <div key={`${s.expenseId}#${s.installmentCurrent ?? 1}`} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                           <div className="min-w-0 flex-1">
                             <span className={`text-xs px-1.5 py-0.5 rounded ${badge.color} mr-1`}>{badge.label}</span>
                             <span className="text-gray-700">{s.projectName} · {s.titulo ?? s.fornecedor}</span>
@@ -125,13 +118,13 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
                               {s.installmentCurrent && s.installmentTotal
                                 ? `parcela ${s.installmentCurrent}/${s.installmentTotal} · `
                                 : ''}
-                              {formatCurrency(s.valor / 100)} · {formatDateBR(s.data)}
+                              <span className="whitespace-nowrap">{formatCurrency(s.valor / 100)}</span> · {formatDateBR(s.data)}
                             </span>
                           </div>
                           <button
-                            onClick={() => handleLink(expense.id, s.expenseId, s.installmentCurrent ? s.installmentCurrent - 1 : 0)}
+                            onClick={() => setFunding({ sourceId: expense.id, targetId: s.expenseId, parcelaIndex: s.installmentCurrent ? s.installmentCurrent - 1 : 0 })}
                             disabled={actingOn === expense.id}
-                            className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50"
+                            className="min-h-11 text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50"
                           >
                             <ExternalLink className="w-3 h-3" /> Vincular
                           </button>
@@ -148,7 +141,7 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
             ))}
           </div>
         )}
-      </div>
-    </div>
+      </>}
+    </Modal>
   );
 }

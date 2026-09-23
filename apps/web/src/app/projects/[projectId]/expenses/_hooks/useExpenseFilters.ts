@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ExpenseQueryState } from '../_lib/expense-query-state';
 import { tipoLabel, formaLabel } from '@/lib/expense-options';
 import type { Expense } from '@/types';
+import { expensePaymentTotals } from '../_lib/grouping-by-month';
 
 export interface ExpenseFilters {
   tipoDespesa: string;
@@ -99,8 +100,8 @@ export function useExpenseFilters(
       tipo: cat,
       label: tipoLabel(cat),
       expenses: items.sort((a, b) => b.valorTotal - a.valorTotal),
-      totalPlanejado: items.filter((e) => e.status === 'PLANEJADO').reduce((sum, e) => sum + e.valorTotal, 0),
-      totalPago: items.filter((e) => e.status === 'PAGO').reduce((sum, e) => sum + e.valorTotal, 0),
+      totalPlanejado: items.reduce((sum, e) => sum + expensePaymentTotals(e).remaining, 0),
+      totalPago: items.reduce((sum, e) => sum + expensePaymentTotals(e).paid, 0),
       total: items.reduce((sum, e) => sum + e.valorTotal, 0),
     })).sort((a, b) => b.total - a.total);
   }, [filteredExpenses]);

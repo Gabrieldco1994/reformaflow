@@ -132,6 +132,7 @@ interface Props {
    * (cartão/conta) continuam editáveis normalmente.
    */
   lockLinkedExpense?: boolean;
+  hideLinkedExpense?: boolean;
 }
 
 /**
@@ -151,6 +152,7 @@ export function VinculosFields({
   initialSettlesInvoiceKey,
   baseDraft,
   lockLinkedExpense,
+  hideLinkedExpense,
 }: Props) {
   const latestValueRef = useRef(value);
   const cardPrefillDoneRef = useRef(false);
@@ -375,7 +377,7 @@ export function VinculosFields({
         onChange={(e) => onChange({ ...value, bankAccountId: e.target.value, bankAccountTouched: true })}
       />
 
-      <div>
+      {!hideLinkedExpense && <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Vincular a despesa de outro projeto
         </label>
@@ -476,7 +478,7 @@ export function VinculosFields({
             </button>
           </div>
         )}
-      </div>
+      </div>}
 
       <CreateLinkedExpenseModal
         open={createModalOpen}

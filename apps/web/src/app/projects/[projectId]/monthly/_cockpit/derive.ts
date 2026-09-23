@@ -42,7 +42,7 @@ export function mediaMensalPorTipo(
     if (e.tipo !== 'DESPESA') continue;
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
     if (!isRealized(e.status)) continue;
-    if (e.isEspelho) continue; // consolidado: alvo do projeto é o canônico
+    if (e.isEspelho || e.isSettlementProjection) continue;
     if (entryIsConsumptionNeutral(e)) continue;
     const tipo = e.categoria?.trim() || 'Outros';
     totalPorTipo.set(tipo, (totalPorTipo.get(tipo) ?? 0) + e.valor);
@@ -74,7 +74,7 @@ export function mediaMensalPorCodigo(
     if (e.tipo !== 'DESPESA') continue;
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
     // Inclui PLANEJADO (compromisso real do ano), diferente da média só-paga.
-    if (e.isEspelho) continue;
+    if (e.isEspelho || e.isSettlementProjection) continue;
     if (entryIsConsumptionNeutral(e)) continue;
     const codigo = e.tipoDespesaCodigo?.trim();
     if (!codigo) continue;
@@ -101,7 +101,7 @@ export function categoriasDoAno(
   for (const e of entries) {
     if (e.tipo !== 'DESPESA') continue;
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
-    if (e.isEspelho) continue;
+    if (e.isEspelho || e.isSettlementProjection) continue;
     if (entryIsConsumptionNeutral(e)) continue;
     if (statusMode === 'real' && !isRealized(e.status)) continue;
     const tipo = e.categoria?.trim() || 'Outros';
@@ -128,7 +128,7 @@ export function despesasDaCategoriaAno(
   return entries
     .filter((e) => e.tipo === 'DESPESA')
     .filter((e) => (e.data ?? '').slice(0, 4) === String(year))
-    .filter((e) => !e.isEspelho)
+    .filter((e) => !e.isEspelho && !e.isSettlementProjection)
     .filter((e) => !entryIsConsumptionNeutral(e))
     .filter((e) => (e.categoria?.trim() || 'Outros') === categoria)
     .filter((e) => (statusMode === 'real' ? isRealized(e.status) : true))
@@ -158,7 +158,7 @@ export function gastoMedioMensal(
     if (e.tipo !== 'DESPESA') continue;
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
     if (!isRealized(e.status)) continue;
-    if (e.isEspelho) continue;
+    if (e.isEspelho || e.isSettlementProjection) continue;
     if (entryIsConsumptionNeutral(e)) continue;
     total += e.valor;
     mesesAtivos.add((e.data ?? '').slice(0, 7));
@@ -337,7 +337,7 @@ export function deriveMonth(
   for (const e of entries) {
     // Consolidado (deriveMonth não filtra projeto): espelho deduplicado — o registro
     // do projeto-alvo é o canônico, coerente com data.meses (linhas espelho-free).
-    if (e.isEspelho) continue;
+    if (e.isEspelho || e.isSettlementProjection) continue;
     // Neutros (pagamento de fatura / movimentação interna) não são consumo — senão a
     // fatura DOBRA a despesa já contada nas compras do cartão. Fora de gastei/planejado.
     if (entryIsConsumptionNeutral(e)) continue;
@@ -449,7 +449,7 @@ export function buildSaldoSeries(m: MonthDerived, entries: MonthlyEntry[], ritmo
   const realizadoPorDia = new Map<number, number>();
   for (const e of entries) {
     // Mesmo filtro do deriveMonth: espelho cross-project é deduplicado (não dobra).
-    if (e.isEspelho) continue;
+    if (e.isEspelho || e.isSettlementProjection) continue;
     if (!isRealized(e.status)) continue;
     const dia = dayOfMonth(e.data);
     const sign = e.tipo === 'RECEBIMENTO' ? e.valor : -e.valor;
@@ -539,7 +539,7 @@ export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDer
   const despAll = new Map<string, number>();
   const netRealizado = new Map<string, number>();
   for (const e of data.entries ?? []) {
-    if (e.isEspelho) continue;
+    if (e.isEspelho || e.isSettlementProjection) continue;
     if (entryIsConsumptionNeutral(e)) continue;
     const mes = (e.data ?? '').slice(0, 7);
     if (!mes) continue;
@@ -636,7 +636,7 @@ interface MonthAgg {
 function monthlyAggFromEntries(entries: MonthlyEntry[]): Map<string, MonthAgg> {
   const map = new Map<string, MonthAgg>();
   for (const e of entries) {
-    if (e.isEspelho) continue;
+    if (e.isEspelho || e.isSettlementProjection) continue;
     if (entryIsConsumptionNeutral(e)) continue;
     const mes = (e.data ?? '').slice(0, 7);
     if (!mes) continue;
@@ -672,7 +672,7 @@ export function deriveTotals(
     // Consolidado: o espelho (despesa PESSOAL vinculada) é deduplicado — o registro do
     // projeto-alvo é o canônico. No PESSOAL-only o espelho CONTA (a grana saiu da conta
     // pessoal; o alvo do outro projeto é filtrado pelo projectType acima).
-    if (!onlyPessoal && e.isEspelho) continue;
+    if (e.isSettlementProjection || (!onlyPessoal && e.isEspelho)) continue;
     // Neutros (fatura / movimentação interna) não são consumo nem renda.
     if (entryIsConsumptionNeutral(e)) continue;
     const realizado = e.status === 'PAGO' || e.status === 'EM_CAIXA';
@@ -866,7 +866,7 @@ export function buildCaixaData(data: MonthlyOverviewResponse): MonthlyOverviewRe
     .filter((e): e is MonthlyEntry => e !== null);
 
   const adapted: MonthlyOverviewEntry[] = remappedEntries
-    .filter((e) => !e.isEspelho)
+    .filter((e) => !e.isEspelho && !e.isSettlementProjection)
     .map((e) => ({
       tipo: e.tipo,
       valor: e.valor,
@@ -991,7 +991,7 @@ export interface ExtratoMes {
 export function buildExtratoDespesas(entries: MonthlyEntry[]): ExtratoMes {
   const despesas = entries
     .filter((e) => e.tipo === 'DESPESA')
-    .filter((e) => !e.isEspelho)
+    .filter((e) => !e.isEspelho && !e.isSettlementProjection)
     .filter((e) => !entryIsConsumptionNeutral(e));
 
   const ordenadas = [...despesas].sort((a, b) => {

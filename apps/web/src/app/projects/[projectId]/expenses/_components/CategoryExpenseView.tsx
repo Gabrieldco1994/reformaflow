@@ -14,7 +14,7 @@ import {
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense, ExpensePaidOrigin } from '@/types';
 import type { ExpenseCategoryGroup } from '../_hooks/useExpenseFilters';
-import { effectiveDate } from '../_lib/grouping-by-month';
+import { effectiveDate, expensePaymentTotals } from '../_lib/grouping-by-month';
 import { centsToReais, maskReaisInput, reaisToCents } from '../_lib/money';
 import { formatPaidOriginLabel } from '../_lib/paid-origin-label';
 import { BulkCheckbox } from './BulkDateSelection';
@@ -158,6 +158,8 @@ function CategoryExpenseViewImpl({
                       e.formaPagamento === 'QUINZENAL') &&
                     parcelas > 1;
                   const paidOriginEntry = paidOrigins?.get(e.id);
+                  const paymentTotals = expensePaymentTotals(e);
+                  const hasFunding = e.installmentSettlements?.some((s) => s.paidCents > 0);
                   const paidOriginLabel = paidOriginEntry
                     ? paidOriginEntry.multiple
                       ? 'Múltiplas origens'
@@ -274,9 +276,10 @@ function CategoryExpenseViewImpl({
                             <p className="text-sm text-darc-velvet font-medium truncate">
                               {e.titulo || tipoLabel(e.tipoDespesa)}
                             </p>
-                            <div className="mt-0.5 flex items-center gap-2">
+                            <div className="mt-0.5 flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
+                                disabled={hasFunding}
                                 onClick={(ev) => {
                                   ev.stopPropagation();
                                   const newStatusVal =
@@ -330,10 +333,16 @@ function CategoryExpenseViewImpl({
                                 </span>
                               )}
                             </div>
+                            {!!e.installmentSettlements?.length && (
+                              <p className="mt-1 flex flex-wrap gap-x-2 text-xs text-darc-velvet/70">
+                                <span className="whitespace-nowrap">Pago: {formatCurrency(paymentTotals.paid / 100)}</span>
+                                <span className="whitespace-nowrap">Restante: {formatCurrency(paymentTotals.remaining / 100)}</span>
+                              </p>
+                            )}
                           </div>
 
                           <p
-                            className={`font-semibold tabular-nums text-sm flex-shrink-0 ${
+                            className={`whitespace-nowrap font-semibold tabular-nums text-sm flex-shrink-0 ${
                               e.status === 'PAGO'
                                 ? 'text-darc-velvet'
                                 : 'text-darc-velvet/60'
@@ -367,6 +376,7 @@ function CategoryExpenseViewImpl({
                                 setEditData((dateStr || '').slice(0, 10));
                               }}
                               aria-label="Editar rápido"
+                              disabled={hasFunding}
                               className="p-1.5 rounded-full hover:bg-darc-linen/60"
                               title="Edição rápida"
                             >

@@ -25,6 +25,8 @@ export interface Occurrence extends Expense {
   occValue: number;
   occIndex: number;
   occTotalParcelas: number;
+  settlementId?: string;
+  settlementManaged?: boolean;
 }
 
 export interface GrupoDespesaPorMes {
@@ -36,6 +38,17 @@ export interface GrupoDespesaPorMes {
   totalPlanejado: number;
   isCurrentMonth: boolean;
   isFuture: boolean;
+}
+
+export function occurrenceSlice(occurrence: Occurrence): Occurrence {
+  return {
+    ...occurrence,
+    valor: occurrence.occValue,
+    quantidade: 1,
+    valorTotal: occurrence.occValue,
+    dataPagamento: occurrence.occDate,
+    status: occurrence.status,
+  };
 }
 
 /**
@@ -56,7 +69,7 @@ export function effectiveDate(
   axis: ExpenseDateAxis = 'caixa',
 ): string | null {
   const occurrenceDate = (e as Partial<Occurrence>).occDate;
-  if (occurrenceDate) return occurrenceDate;
+  if (occurrenceDate !== undefined) return occurrenceDate;
   if (axis === 'competencia') {
     const dc = (e as { dataCompra?: string }).dataCompra;
     if (dc) return dc;
@@ -80,10 +93,33 @@ function parsePaidSet(raw: string | null | undefined, n: number): Set<number> {
       const i = Number(v);
       if (Number.isInteger(i) && i >= 0 && i < n) s.add(i);
     }
+
     return s;
   } catch {
     return new Set();
   }
+}
+
+function applyFunding(e: Expense, occurrences: Occurrence[]): Occurrence[] {
+  if (!e.installmentSettlements?.length) return occurrences;
+  return occurrences.flatMap((occ) => {
+    const summary = e.installmentSettlements?.find((s) => s.parcelaIndex === occ.occIndex - 1);
+    if (!summary) return [occ];
+    const base = { ...occ, settlementManaged: summary.paidCents > 0 };
+    const paid: Occurrence[] = summary.contributions
+      ? summary.contributions.map((c) => ({
+          ...base, occKey: `${occ.occKey}:funding:${c.settlementId}`,
+          occDate: c.paymentDate.slice(0, 10), occValue: c.amountCents,
+          status: 'PAGO', settlementId: c.settlementId,
+        }))
+      : summary.paidCents > 0
+        ? [{ ...base, occKey: `${occ.occKey}:funded`, occDate: '', occValue: summary.paidCents, status: 'PAGO' }]
+        : [];
+    // An inaccessible contribution has no authorized payment date. Keep it undated.
+    return summary.remainingCents > 0
+      ? [...paid, { ...base, occDate: summary.dueDate.slice(0, 10), occValue: summary.remainingCents, status: 'PLANEJADO' }]
+      : paid;
+  });
 }
 
 /**
@@ -99,7 +135,7 @@ export function expandExpenseOccurrences(
   const slicedOccurrence = e as Partial<Occurrence>;
   if (
     slicedOccurrence.occKey &&
-    slicedOccurrence.occDate &&
+    slicedOccurrence.occDate !== undefined &&
     slicedOccurrence.occIndex != null &&
     slicedOccurrence.occValue != null &&
     slicedOccurrence.occTotalParcelas != null
@@ -159,7 +195,7 @@ export function expandExpenseOccurrences(
 
   if (!isInstallment) {
     const d = effectiveDate(e) || '';
-    return [
+    return applyFunding(e, [
       {
         ...e,
         occKey: e.id,
@@ -168,7 +204,7 @@ export function expandExpenseOccurrences(
         occIndex: 1,
         occTotalParcelas: 1,
       },
-    ];
+    ]);
   }
 
   // Usa o MESMO cálculo de parcelas do backend (@reformaflow/domain) para
@@ -189,7 +225,7 @@ export function expandExpenseOccurrences(
   const paidSet = parsePaidSet(e.paidParcelas, installments.length);
   const fullyPaid = e.status === 'PAGO';
 
-  return installments.map((inst, i) => ({
+  return applyFunding(e, installments.map((inst, i) => ({
     ...e,
     occKey: `${e.id}#${i}`,
     occDate: inst.data.toISOString().slice(0, 10),
@@ -197,11 +233,22 @@ export function expandExpenseOccurrences(
     occIndex: i + 1,
     occTotalParcelas: installments.length,
     status: (fullyPaid || paidSet.has(i) ? 'PAGO' : 'PLANEJADO') as Expense['status'],
-  }));
+  })));
 }
 
 export function mesKeyFromDate(data: string): string {
   return data.slice(0, 7);
+}
+
+export function expensePaymentTotals(e: Expense): { paid: number; remaining: number } {
+  if (!e.installmentSettlements?.length) {
+    return e.status === 'PAGO' ? { paid: e.valorTotal, remaining: 0 } : { paid: 0, remaining: e.valorTotal };
+  }
+  return expandExpenseOccurrences(e).reduce((totals, occ) => {
+    if (occ.status === 'PAGO') totals.paid += occ.occValue;
+    else totals.remaining += occ.occValue;
+    return totals;
+  }, { paid: 0, remaining: 0 });
 }
 
 export function mesLabelFromKey(key: string): string {

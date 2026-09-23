@@ -55,6 +55,8 @@ export interface MonthlyEntry {
   bankLast4?: string | null;
   /** Despesa PESSOAL vinculada a outro projeto (espelho). Conta no PESSOAL-only; dedup no consolidado. */
   isEspelho?: boolean;
+  /** Target accounting projection of an existing bank debit; exclude from consolidated cash. */
+  isSettlementProjection?: boolean;
   /** Id da Expense de origem (null = lançamento manual de cashflow). Para editar o tipo. */
   expenseId?: string | null;
 }

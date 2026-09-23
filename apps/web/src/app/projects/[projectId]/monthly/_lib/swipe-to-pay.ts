@@ -28,7 +28,7 @@ export function resolveSwipeToPayTarget(
   if (!entry.expenseId) return null;
   if (entryIsNeutral(entry)) return null;
   if (entryIsConsumptionNeutral(entry)) return null;
-  if (entry.isEspelho) return null;
+  if (entry.isEspelho || entry.isSettlementProjection) return null;
   if (entry.projectId !== viewingProjectId) return null;
 
   return { expenseId: entry.expenseId, ownerProjectId: entry.projectId };

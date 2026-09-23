@@ -802,12 +802,32 @@ planejado.
   a data deve ser alterada na parcela planejada alvo.
 - Seleção múltipla → **alterar data em lote** / marcar como pago em lote.
 
+- **Pagamento parcial com um débito já existente:** na Conta, abra **Editar**
+  no débito bancário pago e use **Pagar parcela com este débito**. Escolha a
+  parcela de outro projeto, confira **Contratado / Pago / Restante** e confirme
+  o valor. Não é criada outra despesa e o débito original não muda.
+  - O valor inicial e o limite são o menor entre a disponibilidade do débito e
+    o saldo da parcela, informados pelo servidor. Sem esses dados, a confirmação
+    fica indisponível; o aplicativo não presume disponibilidade pelo valor original.
+  - Uma parcela de R$ 800,00 pode receber R$ 400,00 de um débito e continuar
+    **Parcialmente paga**, com R$ 400,00 restantes. Outro débito pode completar
+    o pagamento sem mudar o valor contratado.
+  - Após confirmar, **Desfazer esta contribuição** remove só aquela aplicação;
+    não apaga o débito bancário nem as demais contribuições.
+  - Na lista por mês, cada contribuição entra na data do pagamento e o restante
+    continua no vencimento. Os totais por categoria mostram pago e restante,
+    sem somar novamente o valor contratado. Detalhes de origens só aparecem
+    quando todas as contribuições são acessíveis.
+  - Enquanto houver contribuições ativas, mudanças financeiras dependem de
+    desfazê-las primeiro; alterações de título e categoria continuam permitidas.
+
 - **Origem do pagamento (cross-project, somente leitura):** fora do PESSOAL
   (ex.: REFORMA), cada linha/ocorrência de uma despesa que foi paga através de
   uma conciliação, rateio ou vínculo cross-project mostra um **badge
   discreto** com o cartão/conta que efetivamente pagou (ex.: "Nubank ••3541"
   ou, sem apelido, "Cartão ••3541"/"Conta ••5572"). Regras visíveis:
-  - Cada **parcela** pode mostrar uma origem diferente (ex.: parcelas pagas
+  - Uma mesma **parcela** pode mostrar todas as origens de suas contribuições.
+    Parcelas diferentes também podem mostrar origens diferentes (ex.: parcelas pagas
     por cartões distintos); na visão por categoria, quando a despesa tem mais
     de uma origem entre suas parcelas, o agregado mostra **"Múltiplas
     origens"**.
