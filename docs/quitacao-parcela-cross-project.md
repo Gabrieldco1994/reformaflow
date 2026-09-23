@@ -1,6 +1,60 @@
 # Quitação de parcela cross-project (PESSOAL)
 
-Atualizado em: **2026-08-12**
+Atualizado em: **2026-09-23**
+
+## Aportes aditivos de débito existente (#702)
+
+O modo explícito `ADDITIVE` complementa, sem reinterpretar, a conciliação
+histórica `LEGACY_REPLACEMENT` descrita neste documento. A migração apenas
+nomeia as linhas antigas como legado: nenhum valor, pagamento ou ID é corrigido
+ou convertido em aporte parcial.
+
+- `POST /projects/:projectId/expenses/:sourceId/conciliar-parcela` recebe
+  `{mode:"ADDITIVE", targetExpenseId, parcelaIndex, amountCents, requestId}`.
+  O índice é local, inteiro, zero-based e nunca clampado. O valor é inteiro
+  positivo em centavos; `realValor` e campos extras são recusados.
+- A fonte é um débito bancário realizado já existente no PESSOAL. Sua despesa
+  e todas as suas CFEs permanecem financeiramente imutáveis; não se cria
+  espelho nem se preenche `linkedExpenseId`. A identidade da conta vem
+  primeiro da importação bancária original, depois da FK explícita, e só na
+  ausência de ambas usa resolução legada inequívoca de `last4`.
+  Proveniência explícita inválida nunca permite fallback.
+- O valor contratado do alvo continua vindo de `buildInstallments`. Aporte
+  não reprecifica `valorTotal`, não redistribui parcelas e não aplica tolerância
+  de fatura. Disponibilidade da fonte é seu débito menos seus aportes ativos;
+  saldo da parcela é o contratado menos seus aportes ativos.
+- Cada aporte gera uma projeção contábil paga no projeto alvo, na data do
+  pagamento, sem nova origem bancária/cartão. A CFE pendente original mantém
+  seu ID e o saldo restante; quando zerada, fica soft-deletada. Desfazer
+  reativa esse mesmo ID. Parcelas irmãs não são regeneradas pelo aporte.
+- `paidParcelas` inclui apenas índices com saldo exatamente zero; `PAGO`
+  exige todas as parcelas quitadas. Legado e aditivo podem coexistir em
+  índices distintos, nunca no mesmo índice.
+- `DELETE /projects/:projectId/expenses/:sourceId/conciliar-parcela/:settlementId`
+  desfaz somente o aporte indicado, preservando os demais e o débito original.
+  Repetir apply com a mesma chave/payload devolve a mesma identidade e saldos
+  atuais; mudar o payload ou duplicar uma tupla ativa com nova chave é 409.
+  A chave de um aporte desfeito continua reservada e nunca o reativa.
+- Apply/undo reservam o escritor SQLite, releem grants atuais e autorizam
+  participantes dentro da transação antes de saldos/proveniência. Snapshot
+  versionado, CAS e índices parciais protegem contra drift e concorrência.
+  Metadados editáveis não invalidam a proveniência financeira.
+- Edição financeira, exclusão, rateio, pagamento manual, mudança de identidade
+  da conta/projeto e undo de importação de participante com aporte ativo
+  são bloqueados. O unlink legado não apaga nem desfaz aportes implicitamente:
+  use o DELETE individual antes de executar outra operação.
+- Leitores de despesas expõem `installmentSettlements` e, quando conhecida e
+  autorizada, `sourceAvailableCents`. Após todos os undos, o resumo permanece
+  `UNPAID`. Contribuições/origens são omitidas integralmente se algum
+  participante não for acessível. Os totais do alvo continuam fatos do alvo.
+- Projeções pagas aditivas têm `isSettlementProjection: true`, distinto de
+  `isEspelho`: aparecem na contabilidade do projeto alvo, mas não somam uma
+  segunda saída no consolidado PESSOAL. Na Visão Conta, o débito aparece uma
+  vez e a parcela estrangeira mantém somente o saldo pendente.
+
+Referências: `additive-settlement.ts`, testes de integração/adversariais de
+despesas e `migrations-partial-settlement-upgrade.spec.ts`. A restauração de
+despesas e o cronograma documentado #701 são operações separadas.
 
 Documento canônico da feature que permite **pagar/quitar, pela conta do projeto
 PESSOAL, uma parcela de uma despesa que vive em OUTRO projeto** (REFORMA, CASA,
