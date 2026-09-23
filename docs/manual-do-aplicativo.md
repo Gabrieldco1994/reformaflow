@@ -895,6 +895,18 @@ Gestão dos cartões de crédito.
   **Editar**, **Excluir** (com confirmação).
 - **Importação de fatura:** ao importar, é possível **marcar a despesa planejada
   como paga** (vinculando a importação a ela) ou **excluir itens** da importação.
+- **Recuperação assistida da numeração importada:** a API
+  `POST /projects/:ownerProjectId/credit-cards/:cardId/imports/:importId/expenses/:expenseId/restore-installment-labels`
+  aceita `{"mode":"preview"}` sem gravar; a confirmação usa
+  `{"mode":"apply","expectedFingerprint":"<fingerprint da prévia>"}`.
+  Recupera somente rótulos comprovados por uma única geração histórica completa
+  (por exemplo, `1/2, 2/2` volta a `2/3, 3/3`), mantendo os IDs atuais, valores,
+  datas e pagamentos. Exige acesso ao projeto, cartão, importação e despesa;
+  não recebe rótulos do cliente. Histórico incompleto, múltiplas gerações,
+  vínculos/rateios/quitações ou alterações desde a prévia impedem o reparo.
+  Não restaura despesas excluídas, não reimporta e não quita faturas.
+  É uma operação assistida por API, sem novo botão na tela; publicar o recurso
+  não corrige registros antigos automaticamente.
 - **Categoria sugerida na prévia:** cada linha já vem com uma categoria
   pré-selecionada e um chip discreto indicando a origem da sugestão — **"Regra"**
   (regra de categoria já cadastrada), **"IA"** (classificação automática) ou
