@@ -21,6 +21,7 @@ interface PrismaMock {
   creditCard: { findFirst: AnyFn };
   bankAccount: { findFirst: AnyFn };
   cashFlowEntry: {
+    findMany: AnyFn;
     updateMany: AnyFn;
     createMany: AnyFn;
   };
@@ -47,6 +48,7 @@ interface PrismaMock {
 
 const makePrismaMock = (): PrismaMock => {
   const cashFlowMock = {
+    findMany: jest.fn().mockResolvedValue([]),
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     createMany: jest.fn().mockResolvedValue({ count: 0 }),
   };

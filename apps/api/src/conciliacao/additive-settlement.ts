@@ -392,6 +392,96 @@ async function ordinary(
   if (links || rateio || ledger || financing) throw drift();
 }
 
+function targetOccurrence(
+  target: Expense,
+  cash: CashFlowEntry[],
+  rows: CrossProjectSettlement[],
+  index: number,
+) {
+  const slices = buildInstallments(target);
+  const slice = slices[index];
+  if (!slice || slice.valor <= 0)
+    throw new BadRequestException("Parcela inválida.");
+  if (
+    rows.some(
+      (row) =>
+        row.mode === LEGACY_REPLACEMENT &&
+        row.targetExpenseId === target.id &&
+        row.parcelaIndex === index,
+    )
+  )
+    throw drift();
+  const history = rows.filter(
+    (row) =>
+      row.mode === ADDITIVE &&
+      row.targetExpenseId === target.id &&
+      row.parcelaIndex === index,
+  );
+  const active = history.filter((row) => !row.reversedAt);
+  const paidCents = active.reduce((sum, row) => sum + row.realValor, 0);
+  const remainingCents = slice.valor - paidCents;
+  if (remainingCents < 0) throw drift();
+  const pendingCandidates = cash.filter(
+    (c) =>
+      c.status === "PLANEJADO" &&
+      (history.length
+        ? c.id === history[0].targetPendingCashFlowEntryId
+        : !c.deletedAt &&
+          c.parcela ===
+            (isSinglePaymentForm(target.formaPagamento)
+              ? null
+              : slice.parcela)),
+  );
+  const pending = pendingCandidates[0];
+  if (
+    pendingCandidates.length !== 1 ||
+    !pending ||
+    pending.valor !== remainingCents ||
+    pending.data.getTime() !== slice.data.getTime() ||
+    pending.tipo !== "DESPESA" ||
+    pending.projectId !== target.projectId ||
+    pending.receiptId ||
+    pending.budgetAllocationId ||
+    Boolean(pending.deletedAt) !== (remainingCents === 0) ||
+    history.some(
+      (r) =>
+        r.plannedValor !== slice.valor ||
+        r.targetPendingCashFlowEntryId !== pending.id ||
+        snapshot(r).pending !== pendingHash(pending),
+    )
+  )
+    throw drift();
+  const paidSet = new Set(
+    target.status === "PAGO"
+      ? slices.map((_, i) => i)
+      : parsePaidParcelas(target.paidParcelas, slices.length),
+  );
+  const allowedCashIds = new Set([
+    pending.id,
+    ...active.map((r) => r.targetPaidCashFlowEntryId),
+  ]);
+  if (
+    cash.some(
+      (c) =>
+        !c.deletedAt &&
+        c.parcela === pending.parcela &&
+        !allowedCashIds.has(c.id),
+    )
+  )
+    throw drift();
+  if (paidSet.has(index) !== (remainingCents === 0)) throw drift();
+  return {
+    slices,
+    slice,
+    history,
+    active,
+    pending,
+    paidSet,
+    paidCents,
+    remainingCents,
+  };
+}
+
 async function context(
   tx: Tx,
   tenantId: string,
@@ -461,26 +551,13 @@ async function context(
     sourceCash[0].data.getTime() !== source.dataPagamento.getTime()
   )
     throw drift();
-  const slices = buildInstallments(target);
-  const slice = slices[index];
-  if (!slice || slice.valor <= 0)
-    throw new BadRequestException("Parcela inválida.");
+  const occurrence = targetOccurrence(target, cashFor(targetId), rows, index);
   if (
     rows.some(
-      (r) =>
-        r.mode === LEGACY_REPLACEMENT &&
-        (r.sourceExpenseId === sourceId ||
-          (r.targetExpenseId === targetId && r.parcelaIndex === index)),
+      (r) => r.mode === LEGACY_REPLACEMENT && r.sourceExpenseId === sourceId,
     )
   )
     throw drift();
-  const history = rows.filter(
-    (r) =>
-      r.targetExpenseId === targetId &&
-      r.parcelaIndex === index &&
-      r.mode === ADDITIVE,
-  );
-  const active = history.filter((r) => !r.reversedAt);
   for (const row of rows.filter((r) => r.mode === ADDITIVE && !r.reversedAt)) {
     const proof = snapshot(row);
     const paid = cash.find((c) => c.id === row.targetPaidCashFlowEntryId);
@@ -497,76 +574,18 @@ async function context(
     )
       throw drift();
   }
-  const paidCents = active.reduce((sum, r) => sum + r.realValor, 0);
-  const remainingCents = slice.valor - paidCents;
   const consumed = rows
     .filter(
       (r) =>
         r.mode === ADDITIVE && !r.reversedAt && r.sourceExpenseId === sourceId,
     )
     .reduce((sum, r) => sum + r.realValor, 0);
-  if (remainingCents < 0 || consumed > source.valorTotal) throw drift();
-  const pendingCandidates = cashFor(targetId).filter(
-    (c) =>
-      c.status === "PLANEJADO" &&
-      (history.length
-        ? c.id === history[0].targetPendingCashFlowEntryId
-        : !c.deletedAt &&
-          c.parcela ===
-            (isSinglePaymentForm(target.formaPagamento)
-              ? null
-              : slice.parcela)),
-  );
-  const pending = pendingCandidates[0];
-  if (
-    pendingCandidates.length !== 1 ||
-    !pending ||
-    pending.valor !== remainingCents ||
-    pending.data.getTime() !== slice.data.getTime() ||
-    pending.tipo !== "DESPESA" ||
-    pending.projectId !== target.projectId ||
-    pending.receiptId ||
-    pending.budgetAllocationId ||
-    Boolean(pending.deletedAt) !== (remainingCents === 0) ||
-    history.some(
-      (r) =>
-        r.plannedValor !== slice.valor ||
-        r.targetPendingCashFlowEntryId !== pending.id ||
-        snapshot(r).pending !== pendingHash(pending),
-    )
-  )
-    throw drift();
-  const paidSet = new Set(
-    target.status === "PAGO"
-      ? slices.map((_, i) => i)
-      : parsePaidParcelas(target.paidParcelas, slices.length),
-  );
-  const allowedCashIds = new Set([
-    pending.id,
-    ...active.map((r) => r.targetPaidCashFlowEntryId),
-  ]);
-  if (
-    cashFor(targetId).some(
-      (c) =>
-        !c.deletedAt &&
-        c.parcela === pending.parcela &&
-        !allowedCashIds.has(c.id),
-    )
-  )
-    throw drift();
-  if (paidSet.has(index) !== (remainingCents === 0)) throw drift();
+  if (consumed > source.valorTotal) throw drift();
   return {
     source,
     target,
-    slices,
-    slice,
     rows,
-    history,
-    active,
-    pending,
-    paidSet,
-    paidCents,
-    remainingCents,
+    ...occurrence,
     sourceAvailableCents: source.valorTotal - consumed,
     sourceCash: sourceCash[0],
     sourceProof: sourceHash(source, cashFor(sourceId), accounts.get(sourceId)!),
@@ -930,6 +949,78 @@ export async function fundingSummaries(
       });
     }
     result.set(targetId, summaries);
+  }
+  // Accounting callers consume history only; authorized expense reads also offer first contributions.
+  if (requester && ids.length) {
+    const [targets, cash, legacy] = await Promise.all([
+      tx.expense.findMany({
+        where: { tenantId, id: { in: ids }, deletedAt: null },
+      }),
+      tx.cashFlowEntry.findMany({
+        where: { tenantId, expenseId: { in: ids }, deletedAt: null },
+      }),
+      tx.crossProjectSettlement.findMany({
+        where: {
+          tenantId,
+          mode: LEGACY_REPLACEMENT,
+          targetExpenseId: { in: ids },
+        },
+      }),
+    ]);
+    for (const target of targets) {
+      const summaries = result.get(target.id) ?? [];
+      const initial: InstallmentSettlementSummary[] = [];
+      const targetCash = cash.filter((entry) => entry.expenseId === target.id);
+      for (const [index] of buildInstallments(target).entries()) {
+        if (summaries.some((summary) => summary.parcelaIndex === index))
+          continue;
+        try {
+          const occurrence = targetOccurrence(
+            target,
+            targetCash,
+            legacy,
+            index,
+          );
+          initial.push({
+            parcelaIndex: index,
+            dueDate: occurrence.slice.data.toISOString(),
+            contractedCents: occurrence.slice.valor,
+            paidCents: 0,
+            remainingCents: occurrence.remainingCents,
+            settlementStatus: "UNPAID",
+            contributions: [],
+          });
+        } catch (error) {
+          if (
+            !(
+              error instanceof ConflictException ||
+              error instanceof BadRequestException
+            )
+          )
+            throw error;
+        }
+      }
+      if (!initial.length) continue;
+      try {
+        await assertInlineProject(tx, tenantId, target.projectId, requester);
+        await ordinary(tx, target, true);
+      } catch (error) {
+        if (
+          !(
+            error instanceof ConflictException ||
+            error instanceof NotFoundException
+          )
+        )
+          throw error;
+        continue;
+      }
+      result.set(
+        target.id,
+        [...summaries, ...initial].sort(
+          (a, b) => a.parcelaIndex - b.parcelaIndex,
+        ),
+      );
+    }
   }
   return result;
 }

@@ -946,6 +946,10 @@ Gestão dos cartões de crédito.
   contribuição autorizada informa `sourceId` para identificar o débito na
   rota de desfazer, inclusive quando o alvo já está pago e a fonte sem saldo
   disponível. Sem acesso a todos os participantes, a lista inteira é omitida.
+  O resumo também oferece parcelas elegíveis antes do primeiro aporte e irmãs
+  ainda sem aportes, com índice local, vencimento e saldo canônicos. Uma lista
+  `UNPAID` não significa pagamento existente; parcelas pagas por outra via,
+  ocupadas pelo legado ou protegidas por trilha de fatura não são oferecidas.
   Enquanto houver
   aporte ativo, desfaça-o antes de editar valores/datas, excluir participantes
   ou desfazer sua importação. Esta entrega de API não implica um novo botão

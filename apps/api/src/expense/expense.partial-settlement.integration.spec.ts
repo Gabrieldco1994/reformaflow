@@ -25,6 +25,8 @@ import {
   resetTenant,
   seedPessoal,
   seedBankAccount,
+  seedCardWithClosingDue,
+  seedStatementImport,
 } from "../bank-account/__tests__/invoice-undo.fixtures";
 
 const tenantId = "qa702-tenant";
@@ -440,6 +442,173 @@ async function secondSource(value = 400) {
     bankAccountId: accountId,
   });
 }
+
+it.each([
+  "manual paid",
+  "card origin",
+  "missing pending",
+  "ambiguous pending",
+  "money drift",
+  "card claim",
+])(
+  "does not offer a first contribution that the writer rejects: %s",
+  async (reason) => {
+    const pending = await db.cashFlowEntry.findUniqueOrThrow({
+      where: { id: pendingId },
+    });
+    if (reason === "manual paid") {
+      await expenses.update(
+        tenantId,
+        reforma,
+        targetId,
+        { status: "PAGO" },
+        requester,
+      );
+    } else if (reason === "card origin") {
+      await db.expense.update({
+        where: { id: targetId },
+        data: { cardLast4: "0702" },
+      });
+    } else if (reason === "missing pending") {
+      await db.cashFlowEntry.delete({ where: { id: pendingId } });
+    } else if (reason === "ambiguous pending") {
+      await db.cashFlowEntry.create({
+        data: { ...pending, id: "qa702-duplicate-pending" },
+      });
+    } else if (reason === "money drift") {
+      await db.cashFlowEntry.update({
+        where: { id: pendingId },
+        data: { valor: 79999 },
+      });
+    } else {
+      const source = await db.expense.findUniqueOrThrow({
+        where: { id: sourceId },
+      });
+      const card = await seedCardWithClosingDue(db, {
+        tenantId,
+        projectId: pessoal,
+        last4: "0702",
+      });
+      const importId = await seedStatementImport(db, {
+        tenantId,
+        accountId: source.accountId!,
+        id: "qa702-claimed-import",
+      });
+      await db.importedInvoiceLiquidation.create({
+        data: {
+          tenantId,
+          paymentExpenseId: sourceId,
+          purchaseExpenseId: targetId,
+          cashFlowEntryId: pendingId,
+          cardId: card.id,
+          importId,
+          prevStatus: "PLANEJADO",
+          entryValorCents: 80000,
+          dueMonth: "2026-09",
+        },
+      });
+    }
+    const before = await sourceSnapshot();
+    const rows = await expenses.findCrossProject(
+      tenantId,
+      pessoal,
+      {},
+      requester,
+    );
+    expect(rows.find((row) => row.id === targetId)).not.toHaveProperty(
+      "installmentSettlements",
+    );
+    await expect(apply()).rejects.toMatchObject({ status: 409 });
+    expect(await sourceSnapshot()).toEqual(before);
+    expect(await db.crossProjectSettlement.count({ where: { tenantId } })).toBe(
+      0,
+    );
+  },
+);
+
+it.each(["manual", "legacy"])(
+  "offers the untouched canonical index, not its %s-paid sibling",
+  async (kind) => {
+    await expenses.update(
+      tenantId,
+      reforma,
+      targetId,
+      {
+        valor: 1600,
+        formaPagamento: "PARCELADO",
+        quantidadeParcela: 2,
+        dataInicioParcela: "2026-09-20",
+      },
+      requester,
+    );
+    await expenses.updateInstallmentDate(
+      tenantId,
+      reforma,
+      targetId,
+      1,
+      "2026-10-23",
+      requester,
+    );
+    const source = await secondSource();
+    if (kind === "legacy") {
+      await expenses.conciliarParcela(
+        tenantId,
+        pessoal,
+        sourceId,
+        { targetExpenseId: targetId, parcelaIndex: 0 },
+        requester,
+      );
+    } else {
+      await expenses.setParcelaStatus(tenantId, reforma, targetId, 0, true);
+    }
+    const rows = await expenses.findCrossProject(
+      tenantId,
+      pessoal,
+      {},
+      requester,
+    );
+    expect(
+      rows.find((row) => row.id === targetId)?.installmentSettlements,
+    ).toEqual([
+      {
+        parcelaIndex: 1,
+        dueDate: "2026-10-23T00:00:00.000Z",
+        contractedCents: 80000,
+        paidCents: 0,
+        remainingCents: 80000,
+        settlementStatus: "UNPAID",
+        contributions: [],
+      },
+    ]);
+    await expect(
+      applyParcelaFunding(
+        prisma,
+        tenantId,
+        pessoal,
+        source.id,
+        command("paid-sibling"),
+        requester,
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(
+      await applyParcelaFunding(
+        prisma,
+        tenantId,
+        pessoal,
+        source.id,
+        {
+          ...command("initial-sibling"),
+          parcelaIndex: 1,
+        },
+        requester,
+      ),
+    ).toMatchObject({
+      parcelaIndex: 1,
+      contractedCents: 80000,
+      remainingCents: 40000,
+    });
+  },
+);
 
 it("adds two contributions, replays current balances, and reverses individually without changing either source", async () => {
   const sourceBefore = await sourceSnapshot();
