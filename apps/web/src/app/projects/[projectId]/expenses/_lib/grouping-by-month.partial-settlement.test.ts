@@ -28,11 +28,13 @@ const target: Expense = {
       contributions: [
         {
           settlementId: "a",
+          sourceId: "source-a",
           amountCents: 25_000,
           paymentDate: "2026-09-05T00:00:00.000Z",
         },
         {
           settlementId: "b",
+          sourceId: "source-b",
           amountCents: 15_000,
           paymentDate: "2026-09-20T00:00:00.000Z",
         },

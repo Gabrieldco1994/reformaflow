@@ -20,7 +20,7 @@ async function touchTarget(control: Locator) {
 }
 
 for (const width of [375, 390, 1280]) {
-  test(`existing bank debit: partial confirmation and individual undo at ${width}px`, async ({
+  test(`existing bank debit: reload and source-specific undo at ${width}px`, async ({
     page,
     baseURL,
   }, testInfo) => {
@@ -39,6 +39,7 @@ for (const width of [375, 390, 1280]) {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     let paid = 0;
+    const otherPaid = 40_000;
     const contracted = width === 375 ? 12_345_678 : 80_000;
     const json = (body: unknown) => ({
       status: 200,
@@ -74,10 +75,11 @@ for (const width of [375, 390, 1280]) {
               parcelaIndex: 0,
               amountCents: 40_000,
               contractedCents: contracted,
-              paidCents: paid,
-              remainingCents: contracted - paid,
+              paidCents: paid + otherPaid,
+              remainingCents: contracted - paid - otherPaid,
               sourceAvailableCents: 40_000 - paid,
-              settlementStatus: paid ? "PARTIAL" : "UNPAID",
+              settlementStatus:
+                paid + otherPaid === contracted ? "PAID" : "PARTIAL",
             }),
           );
         }
@@ -142,24 +144,34 @@ for (const width of [375, 390, 1280]) {
               formaPagamento: "PARCELADO",
               quantidadeParcela: 1,
               dataInicioParcela: "2026-10-10",
-              status: "PLANEJADO",
+              status: paid + otherPaid === contracted ? "PAGO" : "PLANEJADO",
               installmentSettlements: [
                 {
                   parcelaIndex: 0,
                   dueDate: "2026-10-10T00:00:00.000Z",
                   contractedCents: contracted,
-                  paidCents: paid,
-                  remainingCents: contracted - paid,
-                  settlementStatus: paid ? "PARTIAL" : "UNPAID",
-                  contributions: paid
-                    ? [
-                        {
-                          settlementId: "funding-a",
-                          amountCents: 40_000,
-                          paymentDate: "2026-09-10T00:00:00.000Z",
-                        },
-                      ]
-                    : [],
+                  paidCents: paid + otherPaid,
+                  remainingCents: contracted - paid - otherPaid,
+                  settlementStatus:
+                    paid + otherPaid === contracted ? "PAID" : "PARTIAL",
+                  contributions: [
+                    ...(paid
+                      ? [
+                          {
+                            settlementId: "funding-a",
+                            sourceId: "source",
+                            amountCents: 40_000,
+                            paymentDate: "2026-09-10T00:00:00.000Z",
+                          },
+                        ]
+                      : []),
+                    {
+                      settlementId: "funding-other",
+                      sourceId: "other-source",
+                      amountCents: otherPaid,
+                      paymentDate: "2026-09-10T00:00:00.000Z",
+                    },
+                  ],
                 },
               ],
             },
@@ -237,15 +249,26 @@ for (const width of [375, 390, 1280]) {
     await touchTarget(input);
     await touchTarget(confirm);
     await confirm.click();
-    await expect(section.getByRole("status")).toHaveText("Parcialmente pago");
+    await expect(section.getByRole("status")).toHaveText(
+      width === 375 ? "Parcialmente pago" : "Pago",
+    );
+    await page.reload();
+    await page.getByText("Débito existente", { exact: true }).click();
+    await select.selectOption("target#0");
+    await expect(confirm).toBeDisabled();
     await expect(
-      section.getByText(width === 375 ? "R$ 123.456,78" : "R$ 800,00", {
-        exact: true,
-      }),
-    ).toBeVisible();
+      section
+        .locator("dl > div")
+        .filter({ hasText: "Contratado" })
+        .locator("dd"),
+    ).toHaveText(width === 375 ? "R$ 123.456,78" : "R$ 800,00");
     const undo = section.getByRole("button", {
       name: "Desfazer esta contribuição",
     });
+    await expect(undo).toHaveCount(1);
+    await expect(
+      section.getByRole("group", { name: "Obra · Contrato · parcela 1" }),
+    ).toBeVisible();
     await touchTarget(undo);
     expect(
       await section.evaluate(
@@ -270,6 +293,16 @@ for (const width of [375, 390, 1280]) {
     await expect(section.getByRole("status")).toHaveText(
       "Contribuição desfeita",
     );
+    await page.reload();
+    await page.getByText("Débito existente", { exact: true }).click();
+    await select.selectOption("target#0");
+    await expect(undo).toHaveCount(0);
+    await expect(
+      section
+        .locator("dl > div")
+        .filter({ has: page.getByText("Pago", { exact: true }) })
+        .locator("dd"),
+    ).toHaveText("R$ 400,00");
     expect(writes).toEqual([
       {
         method: "POST",

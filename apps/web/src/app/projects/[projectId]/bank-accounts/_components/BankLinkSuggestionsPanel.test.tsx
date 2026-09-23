@@ -85,7 +85,15 @@ const result: ParcelaFundingResult = {
 };
 let currentSource: Expense;
 let currentTarget: Expense;
+let otherTarget: Expense;
+let omitPaidTarget: boolean;
 let serverResult: ParcelaFundingResult | undefined;
+const contribution = {
+  settlementId: "funding-a",
+  sourceId: "source",
+  amountCents: 40_000,
+  paymentDate: "2026-09-10T00:00:00.000Z",
+};
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -93,6 +101,8 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
   currentSource = { ...source };
   currentTarget = { ...target };
+  otherTarget = { ...target, id: "target-b", titulo: "Contrato B" };
+  omitPaidTarget = false;
   serverResult = undefined;
   vi.mocked(api.get).mockImplementation(async (path) => {
     if (path.endsWith("/suggest-links"))
@@ -137,20 +147,24 @@ beforeEach(() => {
       return { id: "pessoal", name: "Pessoal", type: "PESSOAL", rooms: [] };
     if (path.includes("/expenses/cross-project"))
       return [
-        serverResult
-          ? {
-              ...currentTarget,
-              installmentSettlements: [
-                {
-                  ...currentTarget.installmentSettlements![0],
-                  paidCents: serverResult.paidCents,
-                  remainingCents: serverResult.remainingCents,
-                  settlementStatus: serverResult.settlementStatus,
-                },
-              ],
-            }
-          : currentTarget,
-        { ...target, id: "target-b", titulo: "Contrato B" },
+        ...(omitPaidTarget && serverResult?.settlementStatus === "PAID"
+          ? []
+          : [
+              serverResult
+                ? {
+                    ...currentTarget,
+                    installmentSettlements: [
+                      {
+                        ...currentTarget.installmentSettlements![0],
+                        paidCents: serverResult.paidCents,
+                        remainingCents: serverResult.remainingCents,
+                        settlementStatus: serverResult.settlementStatus,
+                      },
+                    ],
+                  }
+                : currentTarget,
+            ]),
+        otherTarget,
       ];
     if (path.endsWith("/rateio")) return { rateado: false };
     return [];
@@ -178,7 +192,7 @@ async function open(surface: "bank" | "editor" | "view", selectTarget = true) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const invalidate = vi.spyOn(client, "invalidateQueries");
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={client}>
       {surface === "bank" ? (
         <BankLinkSuggestionsPanel
@@ -224,7 +238,7 @@ async function open(surface: "bank" | "editor" | "view", selectTarget = true) {
     );
     fireEvent.change(select, { target: { value: "target#0" } });
   }
-  return { client, invalidate };
+  return { client, invalidate, unmount };
 }
 
 describe.each(["bank", "editor", "view"] as const)(
@@ -269,40 +283,196 @@ describe.each(["bank", "editor", "view"] as const)(
       expect(api.post).toHaveBeenCalledTimes(1);
     });
 
-    it("replays the original command if refreshed balances already include a response lost on the network", async () => {
-      vi.mocked(api.post).mockImplementationOnce(async () => {
-        serverResult = result;
-        throw new Error("Resposta perdida");
+    it("restores only this source's contribution after remount, even on a paid target with zero source budget", async () => {
+      const { unmount } = await open(surface);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirmar pagamento parcial" }),
+      );
+      await screen.findByRole("status");
+      const otherContribution = {
+        ...contribution,
+        settlementId: "funding-other",
+        sourceId: "other-source",
+      };
+      currentTarget = {
+        ...target,
+        status: "PAGO",
+        installmentSettlements: [
+          {
+            ...target.installmentSettlements![0],
+            contributions: [contribution, otherContribution],
+          },
+        ],
+      };
+      serverResult = {
+        ...result,
+        paidCents: 80_000,
+        remainingCents: 0,
+        settlementStatus: "PAID",
+      };
+      unmount();
+      await open(surface, false);
+      const undo = await screen.findByRole("button", {
+        name: "Desfazer esta contribuição",
       });
+      expect(
+        screen.getAllByRole("button", { name: "Desfazer esta contribuição" }),
+      ).toHaveLength(1);
+      expect(
+        screen.getByRole("button", { name: "Confirmar pagamento parcial" }),
+      ).toBeDisabled();
+      vi.mocked(api.delete).mockImplementationOnce(async () => {
+        currentTarget = {
+          ...currentTarget,
+          installmentSettlements: [
+            {
+              ...currentTarget.installmentSettlements![0],
+              contributions: [otherContribution],
+            },
+          ],
+        };
+        serverResult = {
+          ...result,
+          state: "REVERSED",
+          sourceAvailableCents: 40_000,
+        };
+        return serverResult;
+      });
+      fireEvent.click(undo);
+      await waitFor(() =>
+        expect(vi.mocked(api.delete).mock.calls).toEqual([
+          ["/projects/pessoal/expenses/source/conciliar-parcela/funding-a"],
+        ]),
+      );
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Desfazer esta contribuição" }),
+        ).toBeNull(),
+      );
+      expect(api.post).toHaveBeenCalledTimes(1);
+      expect(api.patch).not.toHaveBeenCalled();
+    });
+
+    it("deduplicates a recent confirmation against history and hides it when the server redacts contributions", async () => {
+      currentTarget = {
+        ...target,
+        installmentSettlements: [
+          {
+            ...target.installmentSettlements![0],
+            contributions: [contribution],
+          },
+        ],
+      };
       const { client } = await open(surface);
       fireEvent.click(
         screen.getByRole("button", { name: "Confirmar pagamento parcial" }),
       );
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Resposta perdida",
-      );
-      const original = vi.mocked(api.post).mock.calls[0];
+      await screen.findByRole("status");
+      expect(
+        screen.getAllByRole("button", { name: "Desfazer esta contribuição" }),
+      ).toHaveLength(1);
+      currentTarget = {
+        ...target,
+        installmentSettlements: [
+          {
+            ...target.installmentSettlements![0],
+            contributions: undefined,
+          },
+        ],
+      };
       await act(async () => {
-        await client.invalidateQueries({ queryKey: ["expense"] });
         await client.invalidateQueries({
           queryKey: ["cross-project-expenses"],
         });
       });
       await waitFor(() =>
-        expect(screen.getByLabelText("Valor a aplicar (R$)")).toHaveAttribute(
-          "max",
-          "0",
-        ),
+        expect(
+          screen.queryByRole("button", { name: "Desfazer esta contribuição" }),
+        ).toBeNull(),
       );
-      expect(screen.getByLabelText("Valor a aplicar (R$)")).toHaveValue(400);
-      const retry = screen.getByRole("button", {
-        name: "Confirmar pagamento parcial",
-      });
-      expect(retry).toBeEnabled();
-      fireEvent.click(retry);
-      await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
-      expect(vi.mocked(api.post).mock.calls[1]).toEqual(original);
+      expect(api.delete).not.toHaveBeenCalled();
     });
+
+    it.each([false, true])(
+      "replays a lost response after refresh, including a removed paid target: %s",
+      async (removed) => {
+        omitPaidTarget = removed;
+        if (removed) {
+          currentTarget = {
+            ...target,
+            installmentSettlements: [
+              {
+                ...target.installmentSettlements![0],
+                paidCents: 40_000,
+                remainingCents: 40_000,
+                settlementStatus: "PARTIAL",
+                contributions: [
+                  {
+                    ...contribution,
+                    sourceId: "other-source",
+                    settlementId: "funding-other",
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        const applied: ParcelaFundingResult = removed
+          ? {
+              ...result,
+              paidCents: 80_000,
+              remainingCents: 0,
+              settlementStatus: "PAID",
+            }
+          : result;
+        vi.mocked(api.post)
+          .mockImplementationOnce(async () => {
+            serverResult = applied;
+            throw new Error("Resposta perdida");
+          })
+          .mockResolvedValueOnce({ ...applied, replayed: true });
+        const { client } = await open(surface);
+        fireEvent.click(
+          screen.getByRole("button", { name: "Confirmar pagamento parcial" }),
+        );
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+          "Resposta perdida",
+        );
+        const original = vi.mocked(api.post).mock.calls[0];
+        await act(async () => {
+          await client.invalidateQueries({ queryKey: ["expense"] });
+          await client.invalidateQueries({
+            queryKey: ["cross-project-expenses"],
+          });
+        });
+        if (removed) {
+          await waitFor(() =>
+            expect(
+              screen
+                .getByLabelText("Parcela a pagar")
+                .querySelector('option[value="target#0"]'),
+            ).toBeNull(),
+          );
+        } else {
+          await waitFor(() =>
+            expect(
+              screen.getByLabelText("Valor a aplicar (R$)"),
+            ).toHaveAttribute("max", "0"),
+          );
+        }
+        expect(screen.getByLabelText("Valor a aplicar (R$)")).toHaveValue(400);
+        const retry = screen.getByRole("button", {
+          name: "Confirmar pagamento parcial",
+        });
+        expect(retry).toBeEnabled();
+        fireEvent.click(retry);
+        await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+        expect(vi.mocked(api.post).mock.calls[1]).toEqual(original);
+        expect(await screen.findByRole("status")).toHaveTextContent(
+          removed ? "Pago" : "Parcialmente pago",
+        );
+      },
+    );
 
     it("keeps requestId on network retry, but changes it when the amount changes", async () => {
       vi.mocked(api.post).mockRejectedValue(new Error("Falha de rede"));
@@ -423,6 +593,101 @@ describe.each(["bank", "editor", "view"] as const)(
       ).toBeDisabled();
       expect(api.post).not.toHaveBeenCalled();
     });
+  },
+);
+
+it("enumerates every target and installment, distinguishing equal amounts before undo", async () => {
+  currentTarget = {
+    ...target,
+    installmentSettlements: [
+      { ...target.installmentSettlements![0], contributions: [contribution] },
+      {
+        ...target.installmentSettlements![0],
+        parcelaIndex: 1,
+        contributions: [{ ...contribution, settlementId: "funding-second" }],
+      },
+    ],
+  };
+  otherTarget = {
+    ...otherTarget,
+    installmentSettlements: [
+      {
+        ...target.installmentSettlements![0],
+        contributions: [{ ...contribution, settlementId: "funding-b" }],
+      },
+    ],
+  };
+  await open("editor", false);
+  const second = await screen.findByRole("group", {
+    name: "Obra · Contrato · parcela 2",
+  });
+  expect(
+    screen.getByRole("group", { name: "Obra · Contrato B · parcela 1" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getAllByRole("button", { name: "Desfazer esta contribuição" }),
+  ).toHaveLength(3);
+  vi.mocked(api.delete).mockResolvedValueOnce({
+    ...result,
+    settlementId: "funding-second",
+    parcelaIndex: 1,
+    state: "REVERSED",
+  });
+  fireEvent.click(
+    within(second).getByRole("button", { name: "Desfazer esta contribuição" }),
+  );
+  await waitFor(() =>
+    expect(vi.mocked(api.delete).mock.calls).toEqual([
+      ["/projects/pessoal/expenses/source/conciliar-parcela/funding-second"],
+    ]),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole("button", { name: "Desfazer esta contribuição" }),
+    ).toHaveLength(2),
+  );
+  expect(api.post).not.toHaveBeenCalled();
+});
+
+it.each(["redacted", "missing-source", "missing-settlement"] as const)(
+  "does not offer persisted undo with %s history",
+  async (state) => {
+    const get = vi.mocked(api.get).getMockImplementation()!;
+    vi.mocked(api.get).mockImplementation(async (path) => {
+      if (!path.includes("/expenses/cross-project")) return get(path);
+      return [
+        {
+          ...target,
+          installmentSettlements: [
+            {
+              ...target.installmentSettlements![0],
+              contributions:
+                state === "redacted"
+                  ? undefined
+                  : [
+                      {
+                        ...contribution,
+                        sourceId:
+                          state === "missing-source"
+                            ? undefined
+                            : contribution.sourceId,
+                        settlementId:
+                          state === "missing-settlement"
+                            ? undefined
+                            : contribution.settlementId,
+                      },
+                    ],
+            },
+          ],
+        },
+      ];
+    });
+    await open("editor");
+    expect(
+      screen.queryByRole("button", { name: "Desfazer esta contribuição" }),
+    ).toBeNull();
+    expect(api.delete).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
   },
 );
 

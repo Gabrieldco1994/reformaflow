@@ -69,6 +69,45 @@ export function ParcelaFundingForm({
       key: `${expense.id}#${summary.parcelaIndex}`,
     })),
   );
+  const contributions = new Map<
+    string,
+    {
+      settlementId: string;
+      amountCents: number;
+      expense: Expense;
+      parcelaIndex: number;
+    }
+  >();
+  const reversed = new Set(
+    confirmed.filter((r) => r.state === "REVERSED").map((r) => r.settlementId),
+  );
+  if (!source.isError && !targets.isError) {
+    for (const { expense, summary } of options) {
+      // An omitted history is redacted; a recent response must not restore it.
+      const history = summary.contributions;
+      if (!history) continue;
+      const recent = confirmed.filter(
+        (r) =>
+          r.targetId === expense.id &&
+          r.parcelaIndex === summary.parcelaIndex &&
+          !history.some((c) => c.settlementId === r.settlementId),
+      );
+      for (const c of [...history, ...recent]) {
+        if (
+          c.sourceId !== sourceId ||
+          !c.settlementId ||
+          reversed.has(c.settlementId)
+        )
+          continue;
+        contributions.set(c.settlementId, {
+          settlementId: c.settlementId,
+          amountCents: c.amountCents,
+          expense,
+          parcelaIndex: summary.parcelaIndex,
+        });
+      }
+    }
+  }
   const option = options.find((o) => o.key === selected);
   const summary = option?.summary;
   const available = source.data?.sourceAvailableCents;
@@ -154,19 +193,25 @@ export function ParcelaFundingForm({
   }, [busy, onPendingChange]);
   const retrying = apply.isError && command.current !== null;
   const valid =
-    !!option &&
-    !source.isError &&
-    !targets.isError &&
-    (retrying ||
-      (maxCents !== undefined &&
-        cents > 0 &&
-        Number.isSafeInteger(cents) &&
-        cents <= maxCents));
+    retrying ||
+    (!!option &&
+      !source.isError &&
+      !targets.isError &&
+      maxCents !== undefined &&
+      cents > 0 &&
+      Number.isSafeInteger(cents) &&
+      cents <= maxCents);
   const error = source.error ?? targets.error ?? apply.error ?? undo.error;
 
   function confirm() {
-    if (!valid || !option || busy) return;
-    if (!retrying && !amountInput.current?.reportValidity()) return;
+    if (busy) return;
+    // A successful payment can disappear from candidates before its lost response is retried.
+    if (retrying && command.current) {
+      apply.mutate(command.current);
+      return;
+    }
+    if (!valid || !option) return;
+    if (!amountInput.current?.reportValidity()) return;
     // Keep the exact command on network retry; field edits explicitly discard it.
     if (
       command.current &&
@@ -251,7 +296,7 @@ export function ParcelaFundingForm({
             : formatCurrency(available / 100)}
         </span>
       </p>
-      {maxCents === undefined && (
+      {maxCents === undefined && !retrying && (
         <p className="text-sm text-amber-800">
           Selecione uma parcela com saldo e disponibilidade informados pelo
           servidor.
@@ -303,13 +348,16 @@ export function ParcelaFundingForm({
             : SETTLEMENT_LABELS[latest.settlementStatus]}
         </p>
       )}
-      {confirmed
-        .filter((r) => r.state === "ACTIVE")
-        .map((r) => (
+      {Array.from(contributions.values()).map((r) => {
+        const context = `${r.expense.project?.name ?? "Projeto"} · ${r.expense.titulo || r.expense.fornecedor || "Despesa"} · parcela ${r.parcelaIndex + 1}`;
+        return (
           <div
             key={r.settlementId}
+            role="group"
+            aria-label={context}
             className="flex flex-wrap items-center justify-between gap-2 text-sm"
           >
+            <p className="w-full min-w-0 break-words">{context}</p>
             <span className="whitespace-nowrap">
               Aplicado: {formatCurrency(r.amountCents / 100)}
             </span>
@@ -322,7 +370,8 @@ export function ParcelaFundingForm({
               Desfazer esta contribuição
             </button>
           </div>
-        ))}
+        );
+      })}
     </section>
   );
 }

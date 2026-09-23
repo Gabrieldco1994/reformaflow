@@ -814,6 +814,14 @@ planejado.
     o pagamento sem mudar o valor contratado.
   - Após confirmar, **Desfazer esta contribuição** remove só aquela aplicação;
     não apaga o débito bancário nem as demais contribuições.
+    Ao reabrir o débito, as contribuições autorizadas são recuperadas do servidor,
+    identificadas por projeto, despesa e parcela. É possível desfazê-las mesmo
+    quando a parcela já está paga ou o débito não tem saldo disponível.
+    Históricos ocultos por permissão ou sem identificação da origem não oferecem
+    esse botão; contribuições de outros débitos não são desfeitas.
+  - Se a resposta da confirmação se perder, tentar novamente repete a mesma
+    operação, inclusive se a parcela paga já tiver saído da lista de candidatas.
+    Alterar a parcela ou o valor inicia outra operação.
   - Na lista por mês, cada contribuição entra na data do pagamento e o restante
     continua no vencimento. Os totais por categoria mostram pago e restante,
     sem somar novamente o valor contratado. Detalhes de origens só aparecem

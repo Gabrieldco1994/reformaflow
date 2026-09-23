@@ -134,7 +134,7 @@ export interface InstallmentSettlement {
   remainingCents: number;
   settlementStatus: 'UNPAID' | 'PARTIAL' | 'PAID';
   /** Omitted in full when any contributor is inaccessible. */
-  contributions?: Array<{ settlementId: string; amountCents: number; paymentDate: string }>;
+  contributions?: Array<{ settlementId: string; sourceId: string; amountCents: number; paymentDate: string }>;
 }
 
 export interface ParcelaFundingResult {
