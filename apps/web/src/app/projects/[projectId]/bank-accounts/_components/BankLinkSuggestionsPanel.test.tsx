@@ -353,6 +353,55 @@ describe.each(["bank", "editor", "view"] as const)(
       expect(api.patch).not.toHaveBeenCalled();
     });
 
+    it("offers the untouched UNPAID sibling alongside an installment with history", async () => {
+      currentTarget = {
+        ...target,
+        valor: 160_000,
+        valorTotal: 160_000,
+        quantidadeParcela: 2,
+        installmentSettlements: [
+          {
+            ...target.installmentSettlements![0],
+            paidCents: 40_000,
+            remainingCents: 40_000,
+            settlementStatus: "PARTIAL",
+            contributions: [{ ...contribution, sourceId: "other-source" }],
+          },
+          {
+            ...target.installmentSettlements![0],
+            parcelaIndex: 1,
+            dueDate: "2026-11-10T00:00:00.000Z",
+          },
+        ],
+      };
+      vi.mocked(api.post).mockResolvedValueOnce({ ...result, parcelaIndex: 1 });
+      await open(surface);
+      fireEvent.change(screen.getByLabelText("Parcela a pagar"), {
+        target: { value: "target#1" },
+      });
+      expect(screen.getByLabelText("Valor a aplicar (R$)")).toHaveValue(400);
+      expect(
+        screen.queryByRole("button", { name: "Desfazer esta contribuição" }),
+      ).toBeNull();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirmar pagamento parcial" }),
+      );
+      await waitFor(() =>
+        expect(api.post).toHaveBeenCalledWith(
+          "/projects/pessoal/expenses/source/conciliar-parcela",
+          {
+            mode: "ADDITIVE",
+            targetExpenseId: "target",
+            parcelaIndex: 1,
+            amountCents: 40_000,
+            requestId: expect.any(String),
+          },
+        ),
+      );
+      expect(api.post).toHaveBeenCalledTimes(1);
+      expect(api.patch).not.toHaveBeenCalled();
+    });
+
     it("deduplicates a recent confirmation against history and hides it when the server redacts contributions", async () => {
       currentTarget = {
         ...target,
