@@ -1506,6 +1506,8 @@ Contas fixas (luz, água, internet, gás…) e avulsas.
   Quando há resumo de pagamentos, a tabela e os cards de Avulsas mostram
   **Restante**, **Contratado**, **Pago** e o estado **Parcial/Pago/Planejado**
   calculado a partir dos saldos canônicos, sem dividir o total pelo número de parcelas.
+  O contratado é o total da despesa; o pago inclui também as parcelas irmãs já
+  quitadas pelo fluxo nativo ou legado, mesmo quando elas não aparecem no resumo de contribuições.
   Contribuições ativas bloqueiam exclusão e alterações financeiras no formulário;
   título, categoria e fornecedor continuam editáveis, sem reenviar valores ou datas.
   Um resumo inicial sem pagamentos não bloqueia as ações ordinárias.

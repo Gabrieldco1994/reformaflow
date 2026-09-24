@@ -71,8 +71,10 @@ export function getRecurringBillDisplay(bill: RecurringBillRow) {
   };
 }
 
-export interface AvulsaRow {
-  installmentSettlements?: Expense['installmentSettlements'];
+export interface AvulsaRow extends Pick<Expense,
+  'installmentSettlements' | 'paidParcelas' | 'installmentDateOverrides' |
+  'recorrente' | 'recorrenciaFim'
+> {
   id: string;
   tipoDespesa: string;
   titulo?: string | null;
@@ -123,7 +125,7 @@ export function getAvulsaDisplay(expense: AvulsaRow, projectType: ProjectType) {
       ? `Restante: ${formatCurrency(totals.remaining / 100)}`
       : formatCurrency((expense.valorTotal ?? 0) / 100),
     fundingDetails: summaries?.length ? [
-      `Contratado: ${formatCurrency(summaries.reduce((sum, summary) => sum + summary.contractedCents, 0) / 100)}`,
+      `Contratado: ${formatCurrency(expense.valorTotal / 100)}`,
       `Pago: ${formatCurrency(totals.paid / 100)}`,
     ] : [],
     hasFunding: !!expense.installmentSettlements?.some((summary) => summary.paidCents > 0),

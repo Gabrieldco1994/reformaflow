@@ -171,4 +171,45 @@ describe('AvulsasTab — preservação de quantidade na edição (issue #369)', 
       ));
     }
   });
+
+  it.each([
+    { projectType: ProjectType.CASA, paidCents: 40_000, remainingCents: 40_000, settlementStatus: 'PARTIAL', paid: 'R$ 1.200,00', remaining: 'R$ 400,00', label: 'Parcial' },
+    { projectType: ProjectType.CARRO, paidCents: 40_000, remainingCents: 40_000, settlementStatus: 'PARTIAL', paid: 'R$ 1.200,00', remaining: 'R$ 400,00', label: 'Parcial' },
+    { projectType: ProjectType.CASA, paidCents: 80_000, remainingCents: 0, settlementStatus: 'PAID', paid: 'R$ 1.600,00', remaining: 'R$ 0,00', label: 'Pago' },
+    { projectType: ProjectType.CARRO, paidCents: 80_000, remainingCents: 0, settlementStatus: 'PAID', paid: 'R$ 1.600,00', remaining: 'R$ 0,00', label: 'Pago' },
+    { projectType: ProjectType.CASA, paidCents: 0, remainingCents: 80_000, settlementStatus: 'UNPAID', paid: 'R$ 800,00', remaining: 'R$ 800,00', label: 'Parcial' },
+    { projectType: ProjectType.CARRO, paidCents: 0, remainingCents: 80_000, settlementStatus: 'UNPAID', paid: 'R$ 800,00', remaining: 'R$ 800,00', label: 'Parcial' },
+  ] as const)('#702-X3 renders the whole mixed contract in $projectType ($settlementStatus)', async ({ projectType, paidCents, remainingCents, settlementStatus, paid, remaining, label }) => {
+    const expense = {
+      ...makeExpense({
+        titulo: 'Contrato misto', valor: 160_000, valorTotal: 160_000, quantidade: 1,
+        status: settlementStatus === 'PAID' ? 'PAGO' : 'PLANEJADO',
+        formaPagamento: 'PARCELADO', quantidadeParcela: 2,
+        dataPagamento: null, dataInicioParcela: '2026-07-10',
+        installmentSettlements: [{
+          parcelaIndex: 1, dueDate: '2026-08-10', contractedCents: 80_000,
+          paidCents, remainingCents, settlementStatus,
+        }],
+      }),
+      paidParcelas: settlementStatus === 'PAID' ? '[0,1]' : '[0]',
+    };
+    apiMock.get.mockResolvedValue({ items: [expense], total: 1 });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AvulsasTab projectId="p1" projectType={projectType} />
+      </QueryClientProvider>,
+    );
+    const card = await screen.findByRole('article', { name: 'Contrato misto' });
+    const row = screen.getByRole('row', { name: /Contrato misto/ });
+    fireEvent.click(within(card).getByRole('button', { name: 'Editar' }));
+    const balance = screen.getByRole('region', { name: 'Saldo da despesa' });
+    for (const surface of [card, row, balance]) {
+      expect(within(surface).getByText(label)).toBeInTheDocument();
+      expect(within(surface).getByText(/Contratado:/)).toHaveTextContent('R$ 1.600,00');
+      expect(within(surface).getByText(/Pago:/)).toHaveTextContent(paid);
+      expect(within(surface).getByText(/Restante:/)).toHaveTextContent(remaining);
+    }
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
 });

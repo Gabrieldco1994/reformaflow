@@ -105,21 +105,85 @@ describe("cash grouping — additive funding #702", () => {
     });
   });
 
-  it("uses canonical totals without needing a count, dates or contribution details", () => {
+  it("includes unpaid sisters without needing contribution details", () => {
     expect(
       expensePaymentTotals({
-        status: "PLANEJADO",
+        ...target,
+        valor: 240_000,
         valorTotal: 240_000,
+        quantidadeParcela: 3,
         installmentSettlements: [
           { ...target.installmentSettlements![0], contributions: undefined },
         ],
       }),
-    ).toEqual({ paid: 40_000, remaining: 40_000 });
+    ).toEqual({ paid: 40_000, remaining: 200_000 });
     expect(expandExpenseOccurrences(target).map(expensePaymentTotals)).toEqual([
       { paid: 25_000, remaining: 0 },
       { paid: 15_000, remaining: 0 },
       { paid: 0, remaining: 40_000 },
     ]);
+  });
+
+  it.each([
+    { funded: 40_000, paid: 120_000, remaining: 40_000, status: "PARTIAL" },
+    { funded: 80_000, paid: 160_000, remaining: 0, status: "PAID" },
+    { funded: 0, paid: 80_000, remaining: 80_000, status: "UNPAID" },
+  ] as const)("#702-X3 keeps native/legacy-paid sisters with $status funding", ({ funded, paid, remaining, status }) => {
+    const expense: Expense = {
+      ...target,
+      valor: 160_000,
+      valorTotal: 160_000,
+      quantidadeParcela: 2,
+      paidParcelas: "[0]",
+      installmentSettlements: [{
+        ...target.installmentSettlements![0],
+        parcelaIndex: 1,
+        dueDate: "2026-12-15",
+        paidCents: funded,
+        remainingCents: remaining,
+        settlementStatus: status,
+        contributions: undefined,
+      }],
+    };
+    expect(expensePaymentTotals(expense)).toEqual({ paid, remaining });
+    const slices = expandExpenseOccurrences(expense);
+    expect(slices.reduce((sum, occurrence) => sum + occurrence.occValue, 0)).toBe(160_000);
+    for (const occurrence of slices) {
+      expect(expensePaymentTotals(occurrence)).toEqual(
+        occurrence.status === "PAGO"
+          ? { paid: occurrence.occValue, remaining: 0 }
+          : { paid: 0, remaining: occurrence.occValue },
+      );
+    }
+    if (remaining) {
+      expect(slices.find((occurrence) => occurrence.status === "PLANEJADO"))
+        .toMatchObject({ occKey: "contract#1", occDate: "2026-12-15" });
+    }
+  });
+
+  it("#702-X3 counts a legacy-paid summary only once, even with its native paid flag", () => {
+    expect(expensePaymentTotals({
+      ...target,
+      valor: 160_000,
+      valorTotal: 160_000,
+      quantidadeParcela: 2,
+      paidParcelas: "[0]",
+      installmentSettlements: [
+        { ...target.installmentSettlements![0], paidCents: 80_000, remainingCents: 0, settlementStatus: "PAID", contributions: undefined },
+        { ...target.installmentSettlements![0], parcelaIndex: 1 },
+      ],
+    })).toEqual({ paid: 120_000, remaining: 40_000 });
+  });
+
+  it("#702-X3 leaves non-funded roots and exhausted source debits unchanged", () => {
+    for (const installmentSettlements of [undefined, []]) {
+      expect(expensePaymentTotals({
+        ...target, installmentSettlements, paidParcelas: "[0]",
+      })).toEqual({ paid: 0, remaining: 80_000 });
+      expect(expensePaymentTotals({
+        ...target, installmentSettlements, status: "PAGO", sourceAvailableCents: 0,
+      })).toEqual({ paid: 80_000, remaining: 0 });
+    }
   });
 
   it("keeps the original pending occurrence after the last contribution is undone", () => {

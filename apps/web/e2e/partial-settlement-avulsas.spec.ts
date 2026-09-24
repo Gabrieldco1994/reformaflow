@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 for (const projectType of ["CASA", "CARRO"]) {
   for (const width of [375, 390, 1280]) {
-    test(`${projectType}: canonical partial Avulsas and metadata-only edit at ${width}px`, async ({
+    test(`${projectType}: canonical partial/mixed Avulsas and metadata-only edit at ${width}px`, async ({
       page,
       baseURL,
     }, testInfo) => {
@@ -56,6 +56,37 @@ for (const projectType of ["CASA", "CARRO"]) {
             ...expense.installmentSettlements[0],
             contractedCents: 12_345_678,
             remainingCents: 12_305_678,
+          },
+        ],
+      };
+      const mixed = {
+        ...expense,
+        id: "mixed",
+        titulo: "Contrato misto",
+        valor: 160_000,
+        valorTotal: 160_000,
+        quantidadeParcela: 2,
+        paidParcelas: "[0]",
+        installmentSettlements: [
+          {
+            ...expense.installmentSettlements[0],
+            parcelaIndex: 1,
+            dueDate: "2026-08-10T00:00:00.000Z",
+          },
+        ],
+      };
+      const fullyPaid = {
+        ...mixed,
+        id: "mixed-paid",
+        titulo: "Contrato misto quitado",
+        status: "PAGO",
+        paidParcelas: "[0,1]",
+        installmentSettlements: [
+          {
+            ...mixed.installmentSettlements[0],
+            paidCents: 80_000,
+            remainingCents: 0,
+            settlementStatus: "PAID",
           },
         ],
       };
@@ -125,8 +156,8 @@ for (const projectType of ["CASA", "CARRO"]) {
         if (path === "/projects/asset/expenses") {
           return route.fulfill(
             json({
-              items: [expense, large],
-              total: 2,
+              items: [expense, large, mixed, fullyPaid],
+              total: 4,
               page: 1,
               pageSize: 2000,
               totalPages: 1,
@@ -154,6 +185,46 @@ for (const projectType of ["CASA", "CARRO"]) {
       await expect(
         row.getByRole("button", { name: "Excluir", exact: true }),
       ).toBeDisabled();
+      for (const expected of [
+        {
+          title: "Contrato misto",
+          paid: "R$ 1.200,00",
+          remaining: "R$ 400,00",
+          status: "Parcial",
+        },
+        {
+          title: "Contrato misto quitado",
+          paid: "R$ 1.600,00",
+          remaining: "R$ 0,00",
+          status: "Pago",
+        },
+      ]) {
+        const mixedRow =
+          width < 768
+            ? page.getByRole("article", { name: expected.title, exact: true })
+            : page
+                .getByRole("row")
+                .filter({
+                  has: page.getByRole("cell", {
+                    name: expected.title,
+                    exact: true,
+                  }),
+                });
+        await expect(
+          mixedRow.getByText(expected.status, { exact: true }),
+        ).toBeVisible();
+        await expect(
+          mixedRow.getByText("Contratado: R$ 1.600,00", { exact: true }),
+        ).toBeVisible();
+        await expect(
+          mixedRow.getByText(`Pago: ${expected.paid}`, { exact: true }),
+        ).toBeVisible();
+        await expect(
+          mixedRow.getByText(`Restante: ${expected.remaining}`, {
+            exact: true,
+          }),
+        ).toBeVisible();
+      }
       const largeRow =
         width < 768
           ? page.getByRole("article", { name: "Contrato extenso" })

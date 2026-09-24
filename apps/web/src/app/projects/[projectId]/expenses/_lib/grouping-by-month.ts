@@ -13,13 +13,22 @@ const MESES_PT = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
 
+type OccurrenceInput = Omit<Expense,
+  'tipoDespesa' | 'valor' | 'quantidade' | 'titulo' | 'fornecedor' |
+  'dataPagamento' | 'dataInicioParcela' | 'quantidadeParcela'
+> & {
+  dataPagamento?: string | null;
+  dataInicioParcela?: string | null;
+  quantidadeParcela?: number | null;
+};
+
 /**
  * Uma ocorrência é uma "instância" de uma despesa em um mês específico.
  * Despesas PARCELADO/QUINZENAL geram várias ocorrências (uma por parcela),
  * cada uma com sua própria data e valor (valor da parcela/quinzena).
  * Despesas à vista geram uma única ocorrência com o valor cheio.
  */
-export interface Occurrence extends Expense {
+export type Occurrence<T = Expense> = T & {
   occKey: string;
   occDate: string;
   occValue: number;
@@ -27,7 +36,7 @@ export interface Occurrence extends Expense {
   occTotalParcelas: number;
   settlementId?: string;
   settlementManaged?: boolean;
-}
+};
 
 export interface GrupoDespesaPorMes {
   mesKey: string;
@@ -65,7 +74,7 @@ export function occurrenceSlice(occurrence: Occurrence): Occurrence {
 export type ExpenseDateAxis = 'caixa' | 'competencia';
 
 export function effectiveDate(
-  e: Expense,
+  e: OccurrenceInput,
   axis: ExpenseDateAxis = 'caixa',
 ): string | null {
   const occurrenceDate = (e as Partial<Occurrence>).occDate;
@@ -100,13 +109,13 @@ function parsePaidSet(raw: string | null | undefined, n: number): Set<number> {
   }
 }
 
-function applyFunding(e: Expense, occurrences: Occurrence[]): Occurrence[] {
+function applyFunding<T extends OccurrenceInput>(e: T, occurrences: Occurrence<T>[]): Occurrence<T>[] {
   if (!e.installmentSettlements?.length) return occurrences;
   return occurrences.flatMap((occ) => {
     const summary = e.installmentSettlements?.find((s) => s.parcelaIndex === occ.occIndex - 1);
     if (!summary) return [occ];
     const base = { ...occ, settlementManaged: summary.paidCents > 0 };
-    const paid: Occurrence[] = summary.contributions
+    const paid: Occurrence<T>[] = summary.contributions
       ? summary.contributions.map((c) => ({
           ...base, occKey: `${occ.occKey}:funding:${c.settlementId}`,
           occDate: c.paymentDate.slice(0, 10), occValue: c.amountCents,
@@ -128,10 +137,10 @@ function applyFunding(e: Expense, occurrences: Occurrence[]): Occurrence[] {
  * Cada ocorrência tem status próprio: paga se a parcela está em `paidParcelas`
  * (ou se a despesa inteira está PAGO).
  */
-export function expandExpenseOccurrences(
-  e: Expense,
+export function expandExpenseOccurrences<T extends OccurrenceInput>(
+  e: T,
   axis: ExpenseDateAxis = 'caixa',
-): Occurrence[] {
+): Occurrence<T>[] {
   const slicedOccurrence = e as Partial<Occurrence>;
   if (
     slicedOccurrence.occKey &&
@@ -140,7 +149,7 @@ export function expandExpenseOccurrences(
     slicedOccurrence.occValue != null &&
     slicedOccurrence.occTotalParcelas != null
   ) {
-    return [e as Occurrence];
+    return [e as Occurrence<T>];
   }
 
   // COMPETÊNCIA com data de compra conhecida: a compra inteira cai UMA vez
@@ -240,7 +249,7 @@ export function mesKeyFromDate(data: string): string {
   return data.slice(0, 7);
 }
 
-export function expensePaymentTotals(e: Pick<Expense, 'status' | 'valorTotal' | 'installmentSettlements'>): { paid: number; remaining: number } {
+export function expensePaymentTotals<T extends OccurrenceInput>(e: T): { paid: number; remaining: number } {
   // A sliced occurrence already represents only its rendered payment or remainder.
   if ('occKey' in e && typeof e.occKey === 'string' && 'occValue' in e && typeof e.occValue === 'number') {
     return e.status === 'PAGO' ? { paid: e.occValue, remaining: 0 } : { paid: 0, remaining: e.occValue };
@@ -248,9 +257,10 @@ export function expensePaymentTotals(e: Pick<Expense, 'status' | 'valorTotal' | 
   if (!e.installmentSettlements?.length) {
     return e.status === 'PAGO' ? { paid: e.valorTotal, remaining: 0 } : { paid: 0, remaining: e.valorTotal };
   }
-  return e.installmentSettlements.reduce((totals, summary) => {
-    totals.paid += summary.paidCents;
-    totals.remaining += summary.remainingCents;
+  // Summaries are sparse; canonical expansion preserves unlisted native-paid sisters.
+  return expandExpenseOccurrences(e).reduce((totals, occurrence) => {
+    if (occurrence.status === 'PAGO') totals.paid += occurrence.occValue;
+    else totals.remaining += occurrence.occValue;
     return totals;
   }, { paid: 0, remaining: 0 });
 }
