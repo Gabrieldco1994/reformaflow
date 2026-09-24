@@ -236,7 +236,7 @@ function buildDefaultAssumptions(data: MonthlyOverviewResponse): PlanningAssumpt
   for (const entry of data.entries ?? []) {
     if (entry.tipo !== 'DESPESA') continue;
     if (entry.projectType !== 'PESSOAL') continue;
-    if (entry.isEspelho) continue;
+    if (entry.isEspelho || entry.isSettlementProjection) continue;
 
     const typeCode = entry.categoriaCodigo ?? '';
     if (!typeCode || isNeutralExpenseType(typeCode)) continue;

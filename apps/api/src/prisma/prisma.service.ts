@@ -18,8 +18,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     this.$use(async (params, next) => {
       const skipSoftDelete = modelsWithoutSoftDelete.has(params.model ?? '');
 
-      // Filtra soft-deleted records em findMany, findFirst, findUnique
-      if (!skipSoftDelete && (params.action === 'findMany' || params.action === 'findFirst')) {
+      // Only these reads infer deletedAt; other read actions require explicit filters.
+      if (
+        !skipSoftDelete &&
+        (params.action === 'findMany' || params.action === 'findFirst')
+      ) {
         if (!params.args) params.args = {};
         if (!params.args.where) params.args.where = {};
         if (params.args.where.deletedAt === undefined) {

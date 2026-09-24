@@ -1,5 +1,8 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { ExpenseType } from '@reformaflow/domain';
+import {
+  ExpenseType,
+  type InstallmentSettlementSummary,
+} from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/pendencia.dto';
 import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
@@ -57,6 +60,12 @@ export interface FinancialQueueItem {
   parcelaIndex?: number;
   suggestionTipoDespesa?: string;
   cardCandidates?: CardInvoiceCandidate[];
+  installmentSettlement?: Pick<
+    InstallmentSettlementSummary,
+    'contractedCents' | 'paidCents' | 'remainingCents' | 'settlementStatus'
+  >;
+  /** A summary requires explicit true to offer the existing queue action. */
+  canExecuteAction?: boolean;
 }
 
 export interface FinancialQueueGroup {
@@ -190,13 +199,29 @@ export class PendenciaService {
       .map((s) => ({
         id: `sem-conta-${s.id}`,
         tipo: 'SEM_CONTA',
-        label: s.foreignExpenseId && s.parcelaIndex != null ? 'Quitar parcela' : 'Vincular origem',
+        label:
+          s.installmentSettlement?.settlementStatus === 'PARTIAL'
+            ? 'Parcela parcialmente paga'
+            : s.foreignExpenseId && s.parcelaIndex != null
+              ? 'Quitar parcela'
+              : 'Vincular origem',
         descricao: s.descricao,
-        valor: s.valor,
+        valor: s.installmentSettlement?.remainingCents ?? s.valor,
         data: s.data,
         expenseId: s.id ?? undefined,
         foreignExpenseId: s.foreignExpenseId ?? undefined,
         parcelaIndex: s.parcelaIndex ?? undefined,
+        ...(s.installmentSettlement
+          ? {
+              installmentSettlement: {
+                contractedCents: s.installmentSettlement.contractedCents,
+                paidCents: s.installmentSettlement.paidCents,
+                remainingCents: s.installmentSettlement.remainingCents,
+                settlementStatus: s.installmentSettlement.settlementStatus,
+              },
+              canExecuteAction: s.canExecuteAction === true,
+            }
+          : {}),
       }));
 
     const semCategoriaBase = accountView.saidas.filter(
@@ -298,13 +323,27 @@ export class PendenciaService {
       .map((s) => ({
         id: `foreign-${s.id}`,
         tipo: 'PARCELA_FOREIGN_PENDENTE',
-        label: 'Quitar parcela',
+        label:
+          s.installmentSettlement?.settlementStatus === 'PARTIAL'
+            ? 'Parcela parcialmente paga'
+            : 'Quitar parcela',
         descricao: s.descricao,
-        valor: s.valor,
+        valor: s.installmentSettlement?.remainingCents ?? s.valor,
         data: s.data,
         expenseId: s.id ?? undefined,
         foreignExpenseId: s.foreignExpenseId ?? undefined,
         parcelaIndex: s.parcelaIndex ?? undefined,
+        ...(s.installmentSettlement
+          ? {
+              installmentSettlement: {
+                contractedCents: s.installmentSettlement.contractedCents,
+                paidCents: s.installmentSettlement.paidCents,
+                remainingCents: s.installmentSettlement.remainingCents,
+                settlementStatus: s.installmentSettlement.settlementStatus,
+              },
+              canExecuteAction: s.canExecuteAction === true,
+            }
+          : {}),
       }));
 
     const recebimentosAtrasados: FinancialQueueItem[] = accountView.entradas

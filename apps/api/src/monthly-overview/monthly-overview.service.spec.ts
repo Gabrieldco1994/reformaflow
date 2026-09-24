@@ -28,6 +28,7 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
         ]),
       },
       cashFlowEntry: { findMany: jest.fn() },
+      crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
       creditCard: { findMany: jest.fn().mockResolvedValue([]) },
       // §10 computeCaixaConta (pode existir no working tree concorrente) — mocks neutros.
       bankAccount: { findMany: jest.fn().mockResolvedValue([]) },

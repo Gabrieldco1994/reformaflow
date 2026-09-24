@@ -1,22 +1,12 @@
 import type { Expense } from '@/types';
 import {
   expandExpenseOccurrences,
+  occurrenceSlice,
   type Occurrence,
 } from './grouping-by-month';
 import { inPeriod, type PeriodFilter } from './personal-hierarchy';
 
 export type SlicedExpense = Expense & Partial<Occurrence>;
-
-function occurrenceSlice(occurrence: Occurrence): SlicedExpense {
-  return {
-    ...occurrence,
-    valor: occurrence.occValue,
-    quantidade: 1,
-    valorTotal: occurrence.occValue,
-    dataPagamento: occurrence.occDate,
-    status: occurrence.status,
-  };
-}
 
 /**
  * Fatia a base consolidada do PESSOAL sem descartar a identidade sintética da

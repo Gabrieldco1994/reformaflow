@@ -240,8 +240,12 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await setup.user.deleteMany({ where: { tenantId: TENANT } });
   await resetTenant(setup, TENANT);
   await seedPessoal(setup, { tenantId: TENANT, projectId: A });
+  await setup.user.create({
+    data: { id: ADMIN.id, tenantId: TENANT, username: `${TENANT}-admin`, name: 'Synthetic admin', role: ADMIN.role },
+  });
   await seedProject(setup, {
     tenantId: TENANT,
     projectId: B,
@@ -263,6 +267,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await setup.user.deleteMany({ where: { tenantId: TENANT } });
   await resetTenant(setup, TENANT);
 });
 

@@ -13,7 +13,7 @@ import { Modal } from '@/components/ui/modal';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
 import { AvulsasView } from './AvulsasView';
-import type { AvulsaRow } from '../_display';
+import { getAvulsaDisplay, type AvulsaRow } from '../_display';
 
 type Expense = AvulsaRow;
 
@@ -93,6 +93,9 @@ export function AvulsasTab({ projectId, projectType }: Props) {
     queryFn: () => api.get(`/projects/${projectId}/expenses?pageSize=2000`),
   });
   const all = page?.items ?? [];
+  const editingExpense = all.find((expense) => expense.id === draft.id);
+  const editingDisplay = editingExpense ? getAvulsaDisplay(editingExpense, projectType) : null;
+  const hasActiveFunding = !!editingExpense?.installmentSettlements?.some((summary) => summary.paidCents > 0);
 
   // Aplica filtro de mês olhando dataPagamento ou dataInicioParcela.
   const filtered = useMemo(() => {
@@ -110,6 +113,13 @@ export function AvulsasTab({ projectId, projectType }: Props) {
 
   const createMutation = useMutation({
     mutationFn: async (d: DraftForm) => {
+      if (d.id && all.find((expense) => expense.id === d.id)?.installmentSettlements?.some((summary) => summary.paidCents > 0)) {
+        return api.patch(`/projects/${projectId}/expenses/${d.id}`, {
+          tipoDespesa: d.tipoDespesa,
+          titulo: d.titulo || null,
+          fornecedor: d.fornecedor || null,
+        });
+      }
       const valorNum = currencyInputToNumber(d.valor);
       if (!valorNum || valorNum <= 0) throw new Error('Valor inválido');
       const payload: Record<string, unknown> = {
@@ -185,14 +195,14 @@ export function AvulsasTab({ projectId, projectType }: Props) {
         <div>
           <p className="text-sm text-gray-500">
             Despesas avulsas (não recorrentes). Total do mês selecionado:{' '}
-            <span className="font-semibold text-brand-700">{formatCurrency(totalDoMes / 100)}</span>
+            <span className="whitespace-nowrap font-semibold text-brand-700">{formatCurrency(totalDoMes / 100)}</span>
           </p>
         </div>
         <div className="flex gap-2 items-center">
           <select
             value={monthFilter}
             onChange={(e) => setMonthFilter(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm"
+            className="min-h-11 border rounded-lg px-3 py-1.5 text-sm"
           >
             <option value="">Todos</option>
             {monthOptions.map((m) => (
@@ -206,7 +216,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
               setDraft(emptyDraft(defaultTipo));
               setShowForm(true);
             }}
-            className="flex items-center gap-2"
+            className="min-h-11 flex items-center gap-2"
           >
             <Plus className="w-4 h-4" /> Nova despesa avulsa
           </Button>
@@ -246,7 +256,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
             ev.preventDefault();
             createMutation.mutate(draft);
           }}
-          className="space-y-3"
+          className="space-y-3 [&_input]:min-h-11 [&_select]:min-h-11"
         >
           <Select
             label="Categoria"
@@ -268,6 +278,22 @@ export function AvulsasTab({ projectId, projectType }: Props) {
             value={draft.fornecedor}
             onChange={(e) => setDraft({ ...draft, fornecedor: e.target.value })}
           />
+          {!!editingDisplay?.fundingDetails.length && (
+            <section aria-label="Saldo da despesa" className="rounded-lg border p-3 text-sm">
+              <p className="font-semibold">{editingDisplay.label}</p>
+              <p className="whitespace-nowrap font-semibold">{editingDisplay.value}</p>
+              {editingDisplay.fundingDetails.map((detail) => (
+                <p key={detail} className="whitespace-nowrap">{detail}</p>
+              ))}
+            </section>
+          )}
+          {hasActiveFunding && (
+            <p className="text-sm text-amber-800">
+              Há contribuições ativas. Título, fornecedor e categoria continuam editáveis;
+              desfaça as contribuições antes de alterar valores, datas ou pagamento.
+            </p>
+          )}
+          <fieldset disabled={hasActiveFunding} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Input
               label="Valor (R$)"
@@ -326,16 +352,17 @@ export function AvulsasTab({ projectId, projectType }: Props) {
               />
             </div>
           )}
+          </fieldset>
           {createMutation.error && (
             <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {(createMutation.error as Error).message || 'Erro ao salvar'}
             </div>
           )}
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={() => setShowForm(false)}>
+            <Button type="button" variant="secondary" className="min-h-11" onClick={() => setShowForm(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={createMutation.isPending}>
+            <Button type="submit" className="min-h-11" disabled={createMutation.isPending}>
               {createMutation.isPending ? 'Salvando…' : draft.id ? 'Salvar' : 'Criar'}
             </Button>
           </div>

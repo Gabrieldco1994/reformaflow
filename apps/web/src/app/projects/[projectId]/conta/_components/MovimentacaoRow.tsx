@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 import type { LucideIcon } from 'lucide-react';
 import {
   ChevronDown,
@@ -20,13 +21,14 @@ import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { getExpenseIcon, getReceiptIcon } from '@/lib/expense-icons';
 import { invoiceActionAllowed } from '../_lib';
+import { foreignParcelaActionAllowed } from '../../expenses/_lib/quitarParcelaCross';
 import type {
   AccountViewEntrada,
   AccountViewMovimentacao,
   AccountViewSaida,
 } from '../_types';
 
-export interface QuitarTarget {
+export interface QuitarTarget extends Pick<AccountViewSaida, 'canExecuteAction' | 'installmentSettlement'> {
   foreignExpenseId: string;
   parcelaIndex: number;
   valorSugerido: number;
@@ -190,6 +192,22 @@ export function MovimentacaoRow({
     !item.realizado &&
     item.parcelaIndex != null &&
     !!item.foreignExpenseId;
+  const canQuitar = isPendingForeignParcela && foreignParcelaActionAllowed(item);
+  const openQuitar = () => {
+    if (!canQuitar || item.kind !== 'saida' || !item.foreignExpenseId || item.parcelaIndex == null) {
+      toast.error('Quitação integral indisponível para esta parcela.');
+      return;
+    }
+    onQuitar({
+      foreignExpenseId: item.foreignExpenseId,
+      parcelaIndex: item.parcelaIndex,
+      valorSugerido: item.valor,
+      descricao: item.descricao,
+      dataSugerida: item.data.slice(0, 10),
+      ...(item.canExecuteAction !== undefined ? { canExecuteAction: item.canExecuteAction } : {}),
+      ...(item.installmentSettlement ? { installmentSettlement: item.installmentSettlement } : {}),
+    });
+  };
   const canEdit = isSaidaEditavelBase || canEditInvoicePayment || (isEntrada && !!item.id);
   const canToggleReceita = item.kind === 'entrada' && !!item.id;
   // Linhas de outro projeto usam `id` composto (`${expenseId}#${parcelaIndex}`) só p/
@@ -301,22 +319,18 @@ export function MovimentacaoRow({
     >
       {status.txt}
     </button>
+  ) : isPendingForeignParcela && !canQuitar ? (
+    <span className={`${statusBaseClass} text-lifeone-ink-3`} title="Quitação integral indisponível para esta parcela.">
+      Indisponível
+    </span>
   ) : isPendingForeignParcela ? (
     <button
       type="button"
       onClick={(ev) => {
         ev.stopPropagation();
-        if (item.kind === 'saida' && item.foreignExpenseId && item.parcelaIndex != null) {
-          onQuitar({
-            foreignExpenseId: item.foreignExpenseId,
-            parcelaIndex: item.parcelaIndex,
-            valorSugerido: item.valor,
-            descricao: item.descricao,
-            dataSugerida: item.data.slice(0, 10),
-          });
-        }
+        openQuitar();
       }}
-      className="inline-flex min-h-6 items-center justify-end text-[11px] font-semibold text-lifeone-blue transition hover:brightness-90 md:min-h-[30px] md:justify-center md:rounded-full md:bg-lifeone-blue md:px-3.5 md:text-white"
+      className="inline-flex min-h-11 min-w-11 items-center justify-end text-[11px] font-semibold text-lifeone-blue transition hover:brightness-90 md:justify-center md:rounded-full md:bg-lifeone-blue md:px-3.5 md:text-white"
       title="Quitar parcela pela conta pessoal"
     >
       Quitar
@@ -407,17 +421,12 @@ export function MovimentacaoRow({
             {isCarteira && !isPendingForeignParcela && (
               <button
                 type="button"
+                disabled={item.kind === 'saida' && !!item.foreignExpenseId && item.parcelaIndex != null && !canQuitar}
                 onClick={(ev) => {
                   ev.stopPropagation();
                   if (item.kind !== 'saida') return;
                   if (item.foreignExpenseId && item.parcelaIndex != null) {
-                    onQuitar({
-                      foreignExpenseId: item.foreignExpenseId,
-                      parcelaIndex: item.parcelaIndex,
-                      valorSugerido: item.valor,
-                      descricao: item.descricao,
-                      dataSugerida: item.data.slice(0, 10),
-                    });
+                    openQuitar();
                     return;
                   }
                   if (onVincular) onVincular(item);

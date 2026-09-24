@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
+import { ADDITIVE, fundingSummaries } from '../conciliacao/additive-settlement';
 import { resolveAccessibleProjectScope } from '../common/access-rules';
 import {
   ambiguousLast4Set,
@@ -14,6 +15,7 @@ import {
 } from '../common/manual-invoice-key';
 import {
   buildInstallments,
+  InstallmentSettlementSummary,
   buildMonthlyOverview,
   caixaMonthForCardPurchase,
   compareMonths,
@@ -221,6 +223,7 @@ export class MonthlyOverviewService {
     expenses: CarteiraExpenseRow[],
     receipts: CarteiraReceiptRow[],
     today: Date,
+    funding = new Map<string, InstallmentSettlementSummary[]>(),
   ): { localCarteiraOccurrences: CarteiraOccurrence[]; carteiraHoje: number } {
     const localCarteiraOccurrences = expenses
       .filter(
@@ -229,7 +232,7 @@ export class MonthlyOverviewService {
           !expense.bankLast4 &&
           !isNeutralExpenseType(expense.tipoDespesa),
       )
-      .flatMap((expense) => this.localExpenseOccurrences(expense, purchaseDate(expense)))
+      .flatMap((expense) => this.localExpenseOccurrences(expense, purchaseDate(expense), funding.get(expense.id)))
       .filter(({ expense }) => expense.status === 'PAGO' || !expense.settledByExpenseId);
 
     const carteiraHoje =
@@ -251,7 +254,18 @@ export class MonthlyOverviewService {
   private localExpenseOccurrences(
     expense: CarteiraExpenseRow,
     singlePaymentDate: Date,
+    funding: InstallmentSettlementSummary[] = [],
   ): CarteiraOccurrence[] {
+    if (funding.some(row => row.paidCents > 0)) {
+      return this.localExpenseOccurrences(expense, singlePaymentDate).flatMap(occurrence => {
+        const partial = funding.find(row => row.parcelaIndex === (occurrence.parcelaIndex ?? 0));
+        if (!partial?.paidCents) return [occurrence];
+        return partial.remainingCents > 0 ? [{
+          ...occurrence, valor: partial.remainingCents, status: 'PLANEJADO',
+          realizado: false, explicitlyPaid: false,
+        }] : [];
+      });
+    }
     if (isSinglePaymentForm(expense.formaPagamento)) {
       const realizado = expense.status === 'PAGO';
       return [
@@ -403,13 +417,18 @@ export class MonthlyOverviewService {
     });
 
     // Espelho = despesa PESSOAL vinculada a uma despesa de outro projeto.
+    const projections = await this.prisma.crossProjectSettlement.findMany({
+      where: { tenantId, mode: ADDITIVE, reversedAt: null, target: { projectId: { in: projectIds } } },
+      select: { targetPaidCashFlowEntryId: true },
+    });
+    const projectionIds = new Set(projections.map(row => row.targetPaidCashFlowEntryId));
     const isEspelho = (e: (typeof entries)[number]) => !!e.expense?.linkedExpenseId;
 
     // Adapta para o helper do domain (acrescenta projectOrigin e label de categoria).
     // Linhas mês-a-mês são consolidadas → excluem espelhos (o alvo do projeto é o canônico),
     // mantendo os totais idênticos ao comportamento anterior.
     const adapted: MonthlyOverviewEntry[] = entries
-      .filter((e) => !isEspelho(e))
+      .filter((e) => !isEspelho(e) && !projectionIds.has(e.id))
       .map((e) => ({
         tipo: e.tipo,
         valor: e.valor,
@@ -462,9 +481,10 @@ export class MonthlyOverviewService {
       projectId: e.projectId,
       projectName: projectNameById.get(e.projectId) ?? '',
       projectType: projectTypeById.get(e.projectId) ?? 'OUTROS',
-      cardLast4: e.expense?.cardLast4 ?? null,
-      bankLast4: e.expense?.bankLast4 ?? null,
+      cardLast4: projectionIds.has(e.id) ? null : e.expense?.cardLast4 ?? null,
+      bankLast4: projectionIds.has(e.id) ? null : e.expense?.bankLast4 ?? null,
       isEspelho: isEspelho(e),
+      ...(projectionIds.has(e.id) ? { isSettlementProjection: true as const } : {}),
       expenseId: e.expenseId ?? null,
       // ── V1 card fields (issue #452) ──────────────────────────────
       kind: (e.tipo === 'DESPESA' ? 'expense' : 'receipt') as 'expense' | 'receipt',
@@ -481,7 +501,7 @@ export class MonthlyOverviewService {
       supplier: e.expense?.fornecedor ?? null,
       installment: e.parcela ?? null,
       paymentForm: e.formaPagamento ?? null,
-      relationship: (e.expense?.cardLast4 || e.expense?.bankLast4 || e.receipt?.bankLast4)
+      relationship: !projectionIds.has(e.id) && (e.expense?.cardLast4 || e.expense?.bankLast4 || e.receipt?.bankLast4)
         ? {
             cardLast4: e.expense?.cardLast4 ?? null,
             bankLast4: e.expense?.bankLast4 ?? e.receipt?.bankLast4 ?? null,
@@ -491,7 +511,7 @@ export class MonthlyOverviewService {
       // U4 (#453): actions passam a ser derivadas no servidor a partir do estado
       // da entry. O invariante da #452 permanece — quem MUTA reautoriza no
       // handler; este campo só declara o que é oferecível.
-      actions: deriveEntryActions(e, isEspelho(e)),
+      actions: projectionIds.has(e.id) ? [] : deriveEntryActions(e, isEspelho(e)),
     });
 
     // Todas as entries (todos os meses) para permitir navegação de mês no cockpit.
@@ -719,7 +739,7 @@ export class MonthlyOverviewService {
         // a fatura/movimentação) — nunca outro PESSOAL do mesmo tenant. Escopo
         // explícito na query (não só no filtro em memória via allExpensesById)
         // para que a leitura nunca carregue linhas de um PESSOAL irmão.
-        where: { tenantId, source: { projectId } },
+        where: { tenantId, source: { projectId }, reversedAt: null },
       }),
       this.prisma.rateioAllocation.findMany({
         // Idem: rateio SEMPRE distribui de uma compra-fonte no PESSOAL âncora.
@@ -743,8 +763,15 @@ export class MonthlyOverviewService {
     // caixa/saídas (conta-only, §10); as de outros projetos servem para (a)
     // rotular a origem dos espelhos e (b) somar o planejado cross-project que
     // ainda sairá da conta pessoal em "Ainda falta pagar".
-    const expenses = allExpenses.filter((expense) => expense.projectId === projectId);
-    const foreignExpenses = allExpenses.filter((expense) => expense.projectId !== projectId);
+    const additiveByExpense = await fundingSummaries(this.prisma, tenantId, allExpenses.map(expense => expense.id));
+    const expenses = this.excludeFundedPaidFlags(
+      allExpenses.filter((expense) => expense.projectId === projectId), additiveByExpense,
+    );
+    // A funded PAGO root is not a wallet payment; retain only genuinely paid sibling occurrences.
+    const foreignExpenses = this.excludeFundedPaidFlags(
+      allExpenses.filter((expense) => expense.projectId !== projectId),
+      additiveByExpense,
+    );
     const primaryAccount = this.pickPrimaryBankAccount(accounts);
     const importAccountById = await this.getImportAccountMap(
       tenantId,
@@ -879,8 +906,10 @@ export class MonthlyOverviewService {
       | { origem: 'card' }
       | { origem: 'bank'; bankLast4: string | null };
     const parcelaOriginByForeign = new Map<string, Map<number, ParcelaOrigin>>();
-    const hasSettlements = new Set<string>();
+    const additiveByForeign = additiveByExpense;
+    const hasSettlements = new Set<string>(additiveByForeign.keys());
     for (const s of settlements) {
+      if (s.mode === ADDITIVE) continue;
       const mirror = allExpensesById.get(s.sourceExpenseId);
       if (!mirror) continue; // espelho inexistente/soft-deletado → não suprime a parcela
       hasSettlements.add(s.targetExpenseId);
@@ -940,6 +969,7 @@ export class MonthlyOverviewService {
         e.status === 'PAGO' &&
         !isNeutralExpenseType(e.tipoDespesa) &&
         !rateioTargetIds.has(e.id) &&
+        !hasSettlements.has(e.id) &&
         (espelhosByForeignId.get(e.id) ?? []).length === 0;
       return pass;
     });
@@ -974,6 +1004,7 @@ export class MonthlyOverviewService {
       expenses,
       receipts,
       today,
+      additiveByExpense,
     );
     const localCarteiraThisMonth = localCarteiraOccurrences.filter(
       ({ expense, data }) =>
@@ -1162,7 +1193,7 @@ export class MonthlyOverviewService {
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
         return true;
       })
-      .flatMap((expense) => this.localExpenseOccurrences(expense, accountExpenseDate(expense)))
+      .flatMap((expense) => this.localExpenseOccurrences(expense, accountExpenseDate(expense), additiveByExpense.get(expense.id)))
       .filter(({ data }) => isInRange(data, monthStart, monthEnd))
       .sort((a, b) => a.data.getTime() - b.data.getTime());
 
@@ -1219,7 +1250,8 @@ export class MonthlyOverviewService {
     //  - sem espelho → mantém o lump (valorTotal) na data de compra (comportamento legado).
     const foreignPendingItems: Array<any> = foreignExpenses
       .filter((expense) => {
-        if (expense.status === 'PAGO') return false;
+        if (expense.status === 'PAGO' && !hasSettlements.has(expense.id))
+          return false;
         if (expense.settledByExpenseId) return false;
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
         return true;
@@ -1265,16 +1297,17 @@ export class MonthlyOverviewService {
             dataPagamento: expense.dataPagamento,
             installmentDateOverrides: expense.installmentDateOverrides,
           });
-          let paidByOther: Set<number>;
-          try {
-            const parsed = JSON.parse(expense.paidParcelas ?? '[]');
-            paidByOther = new Set(Array.isArray(parsed) ? (parsed as number[]) : []);
-          } catch {
-            paidByOther = new Set<number>();
-          }
+          // Completed LEGACY roots clear paidParcelas; uncovered occurrences remain paid.
+          const paidByOther = new Set(
+            expense.status === 'PAGO'
+              ? perParcela.map((_, index) => index)
+              : parsePaidParcelas(expense.paidParcelas, perParcela.length),
+          );
           return perParcela.flatMap((parcela, index) => {
             // Parcela quitada cross-project → coberta pela fatura/espelho, não re-emite.
             if (parcelaOrigins.has(index)) return [];
+            const partial = additiveByForeign.get(expense.id)?.find(s => s.parcelaIndex === index);
+            if (partial?.remainingCents === 0) return [];
             if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
             // Parcela já paga por outra via (paidParcelas), sem settlement cobrindo-a:
             // mantém a linha como REALIZADO em vez de descartar — senão o valor some
@@ -1283,10 +1316,11 @@ export class MonthlyOverviewService {
             // Espelho PESSOAL manual em carteira representa o caixa com sua data
             // real; não duplicar a parcela planejada do alvo no mesmo mês (#309).
             if (paidHere && manualWalletMirrorTargetsThisMonth.has(expense.id)) return [];
-            // Determine origem based on the foreign expense origin
-            const itemOrigem = origin.origem === 'bank'
-              ? { tipo: 'conta' as const, bankLast4: origin.bankLast4 }
-              : { tipo: 'carteira' as const };
+            // A sibling's bank settlement is not this uncovered payment's origin.
+            const itemOrigem =
+              !paidHere && origin.origem === 'bank'
+                ? { tipo: 'conta' as const, bankLast4: origin.bankLast4 }
+                : { tipo: 'carteira' as const };
             return [
               {
                 id: `${expense.id}#${index}` as string | null,
@@ -1294,7 +1328,18 @@ export class MonthlyOverviewService {
                 descricao,
                 data: parcela.data.toISOString(),
                 forma,
-                valor: parcela.valor,
+                valor: partial?.remainingCents ?? parcela.valor,
+                ...(partial
+                  ? {
+                      installmentSettlement: {
+                        contractedCents: partial.contractedCents,
+                        paidCents: partial.paidCents,
+                        remainingCents: partial.remainingCents,
+                        settlementStatus: partial.settlementStatus,
+                      },
+                      canExecuteAction: partial.paidCents === 0 && !paidHere,
+                    }
+                  : {}),
                 realizado: paidHere,
                 status: paidHere ? 'PAGO' : expense.status,
                 cardLast4: null as string | null,
@@ -1944,11 +1989,13 @@ export class MonthlyOverviewService {
 
     const projectIds = [projectId];
 
+    const projectionIds = await this.settlementProjectionIds(tenantId, projectId);
     const [entries, cards] = await Promise.all([
       this.prisma.cashFlowEntry.findMany({
         where: {
           tenantId,
           projectId: { in: projectIds },
+          id: { notIn: projectionIds },
           deletedAt: null,
           budgetAllocationId: null,
           OR: [{ expenseId: null }, { expense: { deletedAt: null } }],
@@ -2896,10 +2943,12 @@ export class MonthlyOverviewService {
           })
         : null;
 
+    const projectionIds = await this.settlementProjectionIds(tenantId, projectId);
     const entries = await this.prisma.cashFlowEntry.findMany({
       where: {
         tenantId,
         projectId,
+        id: { notIn: projectionIds },
         deletedAt: null,
         tipo: 'DESPESA',
         expense: {
@@ -2993,6 +3042,7 @@ export class MonthlyOverviewService {
     projectId: string,
     targetYear: number,
   ) {
+    const projectionIds = await this.settlementProjectionIds(tenantId, projectId);
     const [cards, accounts, entries] = await Promise.all([
       this.prisma.creditCard.findMany({
         where: { tenantId, projectId, deletedAt: null },
@@ -3006,6 +3056,7 @@ export class MonthlyOverviewService {
         where: {
           tenantId,
           projectId,
+          id: { notIn: projectionIds },
           deletedAt: null,
           tipo: 'DESPESA',
           expense: { deletedAt: null },
@@ -3130,7 +3181,7 @@ export class MonthlyOverviewService {
     projectId: string,
     today: Date = todayLocalDateUtc(FINANCIAL_TIME_ZONE),
   ) {
-    const [accounts, expenses, receipts] = await Promise.all([
+    const [accounts, rawExpenses, receipts] = await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
         select: {
@@ -3171,6 +3222,8 @@ export class MonthlyOverviewService {
         select: { valor: true, status: true, data: true, bankLast4: true, importId: true },
       }),
     ]);
+    const funding = await fundingSummaries(this.prisma, tenantId, rawExpenses.map(expense => expense.id));
+    const expenses = this.excludeFundedPaidFlags(rawExpenses, funding);
     const primaryAccount = this.pickPrimaryBankAccount(accounts);
     const importAccountById = await this.getImportAccountMap(
       tenantId,
@@ -3203,7 +3256,7 @@ export class MonthlyOverviewService {
       bankReceipts,
       today,
     );
-    const { carteiraHoje } = this.buildCarteiraSnapshot(expenses, receipts, today);
+    const { carteiraHoje } = this.buildCarteiraSnapshot(expenses, receipts, today, funding);
 
     // Conta que ANCORA o §10 (`pickPrimaryBankAccount`). Quem exibe o número
     // precisa saber a QUE conta ele se refere; sem isto cada consumidor
@@ -3233,6 +3286,29 @@ export class MonthlyOverviewService {
    */
   async getCaixaConta(tenantId: string, projectId: string, today?: Date) {
     return this.computeCaixaConta(tenantId, projectId, today);
+  }
+
+  private excludeFundedPaidFlags<T extends CarteiraExpenseRow>(
+    expenses: T[], funding: Map<string, InstallmentSettlementSummary[]>,
+  ): T[] {
+    return expenses.map(expense => {
+      const funded = funding.get(expense.id)?.filter(row => row.paidCents > 0);
+      if (!funded?.length) return expense;
+      const count = isSinglePaymentForm(expense.formaPagamento) ? 1 : Math.max(1, expense.quantidadeParcela ?? 1);
+      const paid = new Set(expense.status === 'PAGO'
+        ? Array.from({ length: count }, (_, index) => index)
+        : parsePaidParcelas(expense.paidParcelas, count));
+      for (const row of funded) paid.delete(row.parcelaIndex);
+      return { ...expense, status: 'PLANEJADO', paidParcelas: paid.size ? JSON.stringify([...paid]) : null };
+    });
+  }
+
+  private async settlementProjectionIds(tenantId: string, projectId: string): Promise<string[]> {
+    const claims = await this.prisma.crossProjectSettlement.findMany({
+      where: { tenantId, mode: ADDITIVE, reversedAt: null, target: { tenantId, projectId } },
+      select: { targetPaidCashFlowEntryId: true },
+    });
+    return claims.flatMap(row => row.targetPaidCashFlowEntryId ? [row.targetPaidCashFlowEntryId] : []);
   }
 
   private pickPrimaryBankAccount(

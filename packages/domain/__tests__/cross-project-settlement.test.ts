@@ -34,6 +34,16 @@ describe('sumSettlementDeltas', () => {
 });
 
 describe('effectiveValorTotal', () => {
+  it('keeps additive contracted values and applies only active legacy deltas', () => {
+    expect(effectiveValorTotal(80000, [
+      { mode: 'ADDITIVE', realValor: 40000, plannedValor: 80000 },
+      { mode: 'ADDITIVE', realValor: 12345, plannedValor: 80000, reversedAt: '2026-09-23' },
+    ])).toBe(80000);
+    expect(effectiveValorTotal(160000, [
+      { mode: 'ADDITIVE', realValor: 40000, plannedValor: 80000 },
+      { mode: 'LEGACY_REPLACEMENT', realValor: 70000, plannedValor: 80000 },
+    ])).toBe(150000);
+  });
   it('valor efetivo = planejado + Σ deltas (real substitui planejado por parcela)', () => {
     // alvo planejado 30000 (3x 10000); parcela 0 real = 11000
     expect(

@@ -53,7 +53,12 @@ export function AvulsasView({
                 <td className="px-4 py-3 text-gray-700">{row.date}</td>
                 <td className="px-4 py-3 font-medium">{row.title}</td>
                 <td className="px-4 py-3 text-gray-600">{row.category}</td>
-                <td className="px-4 py-3 text-right font-mono">{row.value}</td>
+                <td className="px-4 py-3 text-right font-mono">
+                  <p className="whitespace-nowrap">{row.value}</p>
+                  {row.fundingDetails.map((detail) => (
+                    <p key={detail} className="whitespace-nowrap text-xs text-gray-600">{detail}</p>
+                  ))}
+                </td>
                 <td className="px-4 py-3 text-center">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${row.className}`}
@@ -66,7 +71,7 @@ export function AvulsasView({
                     <button
                       type="button"
                       onClick={() => onEdit(row.source)}
-                      className="p-1 text-gray-400 hover:text-brand-600"
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-brand-600"
                       title="Editar"
                       aria-label="Editar"
                     >
@@ -75,8 +80,9 @@ export function AvulsasView({
                     <button
                       type="button"
                       onClick={() => onDelete(row.source.id)}
-                      className="p-1 text-gray-400 hover:text-red-500"
-                      title="Excluir"
+                      disabled={row.hasFunding}
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-red-500 disabled:opacity-50"
+                      title={row.hasFunding ? 'Desfaça as contribuições antes de excluir' : 'Excluir'}
                       aria-label="Excluir"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -96,7 +102,7 @@ export function AvulsasView({
             aria-label={row.title}
             className="rounded-2xl border bg-white p-3.5 shadow-sm"
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-[15px] font-semibold">
                   {row.title}
@@ -105,9 +111,12 @@ export function AvulsasView({
                   {row.category} · {row.date}
                 </p>
               </div>
-              <p className="shrink-0 font-mono text-[15px] font-bold">
-                {row.value}
-              </p>
+              <div className="font-mono text-[15px] font-bold">
+                <p className="whitespace-nowrap">{row.value}</p>
+                {row.fundingDetails.map((detail) => (
+                  <p key={detail} className="whitespace-nowrap text-xs font-normal text-gray-600">{detail}</p>
+                ))}
+              </div>
             </div>
             <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
               <span
@@ -126,7 +135,9 @@ export function AvulsasView({
                 <button
                   type="button"
                   onClick={() => onDelete(row.source.id)}
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center px-3 text-red-500"
+                  disabled={row.hasFunding}
+                  title={row.hasFunding ? 'Desfaça as contribuições antes de excluir' : undefined}
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center px-3 text-red-500 disabled:opacity-50"
                 >
                   Excluir
                 </button>

@@ -4,6 +4,8 @@ function makePrismaMock() {
   const tx = {
     project: {
       create: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
     },
     room: {
       create: jest.fn(),
@@ -11,10 +13,7 @@ function makePrismaMock() {
   };
 
   const prisma: any = {
-    project: {
-      findFirst: jest.fn(),
-      update: jest.fn(),
-    },
+    project: tx.project,
     $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
 

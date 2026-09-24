@@ -21,6 +21,13 @@ export interface PaidOriginRef {
 }
 
 export interface ExpensePaidOrigin {
+  contributions?: Array<{
+    settlementId: string;
+    amountCents: number;
+    paymentDate: string;
+    parcelaIndex: number;
+    origin: PaidOriginRef;
+  }>;
   expenseId: string;
   via: 'settlement' | 'rateio' | 'link';
   /** Só para via='settlement'. parcelaIndex é 0-based. Ordenado asc. */
@@ -45,6 +52,10 @@ export interface PaidOriginsViewer {
 
 /** Linha crua de CrossProjectSettlement relevante ao alvo do projeto. */
 export interface PaidOriginSettlementRow {
+  id?: string;
+  mode?: string;
+  realValor?: number;
+  paymentDate?: string;
   targetExpenseId: string;
   sourceExpenseId: string;
   parcelaIndex: number;

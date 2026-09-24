@@ -196,6 +196,60 @@ describe('PendenciaService', () => {
   });
 
   describe('findFinancialQueue', () => {
+    it('copies only the canonical summary and fails closed when capability is missing', async () => {
+      const summary = {
+        contractedCents: 80000,
+        paidCents: 40000,
+        remainingCents: 40000,
+        settlementStatus: 'PARTIAL',
+      };
+      monthlyOverviewService.getAccountView.mockResolvedValue({
+        mesSelecionado: '2026-09',
+        cartoes: [],
+        entradas: [],
+        saidas: [
+          {
+            id: 'synthetic-target#0',
+            foreignExpenseId: 'synthetic-target',
+            parcelaIndex: 0,
+            descricao: 'Synthetic installment',
+            valor: 80000,
+            data: '2026-09-20T00:00:00.000Z',
+            isInvoice: false,
+            realizado: false,
+            cardLast4: null,
+            bankLast4: null,
+            tipoDespesa: 'MAO_DE_OBRA',
+            installmentSettlement: {
+              ...summary,
+              dueDate: '2026-09-20T00:00:00.000Z',
+              contributions: [{ sourceId: 'never-forward-source' }],
+            },
+          },
+        ],
+      });
+      const result = await service.findFinancialQueue(
+        TENANT,
+        PROJECT,
+        '2026-09',
+        REQUESTER,
+      );
+      expect(result.grupos.map((group) => group.tipo)).toEqual([
+        'SEM_CONTA',
+        'PARCELA_FOREIGN_PENDENTE',
+      ]);
+      for (const group of result.grupos) {
+        expect(group.valorTotal).toBe(40000);
+        expect(group.itens[0]).toMatchObject({
+          valor: 40000,
+          canExecuteAction: false,
+          label: 'Parcela parcialmente paga',
+        });
+        expect(group.itens[0]).toHaveProperty('installmentSettlement', summary);
+      }
+      expect(JSON.stringify(result)).not.toContain('never-forward-source');
+    });
+
     it('aggregates queue groups and keeps only rows with actionable payload', async () => {
       const dueSoon = new Date();
       dueSoon.setDate(dueSoon.getDate() + 2);

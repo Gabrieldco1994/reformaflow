@@ -17,7 +17,7 @@ import type { Expense, ExpensePaidOrigin } from '@/types';
 import type { GrupoDespesaPorMes } from '../_lib/grouping-by-month';
 import { effectiveDate } from '../_lib/grouping-by-month';
 import { centsToReais, maskReaisInput, reaisToCents } from '../_lib/money';
-import { formatPaidOriginLabel, pickOriginForOccurrence } from '../_lib/paid-origin-label';
+import { formatPaidOriginLabel, pickOriginsForOccurrence } from '../_lib/paid-origin-label';
 import { BulkCheckbox } from './BulkDateSelection';
 
 interface Props {
@@ -208,7 +208,7 @@ function MonthlyExpenseViewImpl({
                   const isInstallmentOccurrence = !isSinglePaymentForm(
                     e.formaPagamento,
                   );
-                  const paidOrigin = pickOriginForOccurrence(
+                  const occurrenceOrigins = pickOriginsForOccurrence(
                     paidOrigins?.get(e.id),
                     e.occIndex,
                   );
@@ -351,9 +351,10 @@ function MonthlyExpenseViewImpl({
                             <p className="text-sm text-darc-velvet font-medium truncate">
                               {e.titulo || tipoLabel(e.tipoDespesa)}
                             </p>
-                            <div className="mt-0.5 flex items-center gap-2">
+                            <div className="mt-0.5 flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
+                                disabled={e.settlementManaged}
                                 onClick={(ev) => {
                                   ev.stopPropagation();
                                   const newStatus = e.status === 'PAGO' ? 'PLANEJADO' : 'PAGO';
@@ -419,16 +420,16 @@ function MonthlyExpenseViewImpl({
                                   {e.formaPagamento === 'QUINZENAL' ? 'quinzena' : 'parcela'} {e.occIndex}/{e.occTotalParcelas}
                                 </span>
                               )}
-                              {paidOrigin && (
-                                <span className="text-[10px] font-medium text-darc-velvet/60 bg-darc-mist/30 rounded-full px-1.5 py-0.5 flex-shrink-0 truncate">
-                                  {formatPaidOriginLabel(paidOrigin)}
+                              {occurrenceOrigins.map((origin) => (
+                                <span key={`${origin.kind}:${origin.last4}`} className="text-[10px] font-medium text-darc-velvet/60 bg-darc-mist/30 rounded-full px-1.5 py-0.5 truncate">
+                                  {formatPaidOriginLabel(origin)}
                                 </span>
-                              )}
+                              ))}
                             </div>
                           </div>
 
                           <p
-                            className={`font-semibold tabular-nums text-sm flex-shrink-0 ${
+                            className={`whitespace-nowrap font-semibold tabular-nums text-sm flex-shrink-0 ${
                               e.status === 'PAGO'
                                 ? 'text-darc-velvet'
                                 : 'text-darc-velvet/60'
@@ -460,6 +461,7 @@ function MonthlyExpenseViewImpl({
                                 setEditData(dateStr.slice(0, 10));
                               }}
                               aria-label="Editar rápido"
+                              disabled={e.settlementManaged}
                               className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full hover:bg-darc-linen/60"
                               title="Edição rápida"
                             >

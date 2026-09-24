@@ -107,6 +107,7 @@ export function DespesaModal({
     }
     if (isEdit) {
       if (!editing) return; // aguarda o fetch
+      if (hydratedId === editing.id) return;
       setFormStatus((editing.status as 'PLANEJADO' | 'PAGO') ?? 'PAGO');
       setTipoDespesa(editing.tipoDespesa);
       setFormaPagamento(editing.formaPagamento);
@@ -139,7 +140,7 @@ export function DespesaModal({
       setDataInicioParcela(defaultData ?? '');
       setFormVinculos(EMPTY_VINCULOS);
     }
-  }, [open, isEdit, editing, defaultData]);
+  }, [open, isEdit, editing, defaultData, hydratedId]);
 
   const invalidate = () => {
     invalidateExpenseQueries(queryClient, projectId);

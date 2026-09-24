@@ -5,6 +5,12 @@ import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { withAclRequester } from '../test-utils/acl-requester-test-helper';
+import type { RateioRequester } from './rateio.types';
+
+jest.mock('../bank-account/inline-expenses', () => ({
+  ...jest.requireActual('../bank-account/inline-expenses'),
+  currentInlineRequester: jest.fn(async (_db: unknown, _tenantId: string, requester: RateioRequester) => requester),
+}));
 
 const tenantId = 'tenant-1';
 const projectId = 'pessoal-1';
@@ -16,6 +22,7 @@ const sourceRow = {
   formaPagamento: 'A_VISTA', quantidadeParcela: null, status: 'PAGO',
 };
 const makePrismaMock = (settlementCount: number) => ({
+  $executeRaw: jest.fn().mockResolvedValue(1),
   project: {
     findFirst: jest
       .fn()
@@ -37,10 +44,11 @@ const makePrismaMock = (settlementCount: number) => ({
     findFirst: jest.fn().mockResolvedValue(null),
   },
   crossProjectSettlement: {
-    count: jest.fn().mockResolvedValue(settlementCount),
+    count: jest.fn().mockImplementation(async ({ where }: { where: { mode?: string } }) =>
+      where.mode === 'ADDITIVE' ? 0 : settlementCount),
     findMany: jest.fn().mockResolvedValue(
       settlementCount > 0
-        ? [{ tenantId, sourceExpenseId: sourceId, targetExpenseId: 'tgt-settlement' }]
+        ? [{ tenantId, sourceExpenseId: sourceId, targetExpenseId: 'tgt-settlement', mode: 'LEGACY_REPLACEMENT' }]
         : [],
     ),
   },

@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdditiveSettlementCommand, ExpenseType } from '@reformaflow/domain';
+import { ADDITIVE, applyParcelaFunding, undoParcelaFunding, guardActiveFunding, enrichFunding } from '../conciliacao/additive-settlement';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -10,6 +12,7 @@ import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { createRateioTargets } from './create-rateio-targets';
 import { Expense, Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
+import { currentInlineRequester } from '../bank-account/inline-expenses';
 import {
   assertRateioRequester,
   RateioDetalhe,
@@ -58,6 +61,51 @@ export class ExpenseService {
     private readonly conciliacao: ConciliacaoService,
   ) {}
 
+  private async linkedMutationRequester(
+    db: Prisma.TransactionClient,
+    tenantId: string,
+    projectId: string,
+    requester: RateioRequester,
+  ): Promise<RateioRequester> {
+    // Reserve the SQLite writer before ACL/participation reads, including caller-owned transactions.
+    await db.$executeRaw`UPDATE tenants SET id = id WHERE id = ${tenantId}`;
+    const actor = await currentInlineRequester(db, tenantId, requester);
+    const project = await db.project.findFirst({
+      where: { id: projectId, tenantId, deletedAt: null },
+    });
+    if (!project || !this.canRequesterSeeProject(actor, project, EXPENSE_MODULE)) {
+      throw new NotFoundException('Projeto não encontrado');
+    }
+    return actor;
+  }
+
+  private async resolveLinkedExpenseId(
+    db: Prisma.TransactionClient,
+    tenantId: string,
+    projectId: string,
+    targetExpenseId: string,
+    requester: RateioRequester | undefined,
+    notFoundMessage: string,
+    previousTargetId?: string | null,
+  ): Promise<string> {
+    const target = await db.expense.findFirst({
+      where: { id: targetExpenseId, tenantId, deletedAt: null },
+      select: { projectId: true, project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
+    });
+    if (!target?.project || target.project.tenantId !== tenantId ||
+        target.project.deletedAt != null ||
+        !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)) {
+      throw new BadRequestException(notFoundMessage);
+    }
+    if (target.projectId === projectId) {
+      throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
+    }
+    if (targetExpenseId !== previousTargetId) {
+      await guardActiveFunding(db, tenantId, [targetExpenseId]);
+    }
+    return targetExpenseId;
+  }
+
   /**
    * Resolve creditCardId/bankAccountId/linkedExpenseId em valores armazenáveis.
    * - creditCardId → cardLast4 (denormalizado)
@@ -77,6 +125,7 @@ export class ExpenseService {
     dto: Pick<CreateExpenseDto, 'creditCardId' | 'bankAccountId' | 'linkedExpenseId' | 'settlesInvoiceCardId' | 'settlesInvoiceDueMonth'>,
     db: ExpenseDb = this.prisma,
     requester?: RateioRequester,
+    previousTargetId?: string | null,
   ): Promise<{
     cardLast4?: string | null;
     bankLast4?: string | null;
@@ -85,7 +134,7 @@ export class ExpenseService {
     settlesInvoiceKey?: string | null;
   }> {
     // Parallel queries for better performance
-    const [cardRow, accRow, linkedRow, settlesCardRow] = await Promise.all([
+    const [cardRow, accRow, settlesCardRow] = await Promise.all([
       dto.creditCardId && dto.creditCardId !== null && dto.creditCardId !== ''
         ? db.creditCard.findFirst({
             where: { id: dto.creditCardId, tenantId, deletedAt: null },
@@ -96,15 +145,6 @@ export class ExpenseService {
         ? db.bankAccount.findFirst({
             where: { id: dto.bankAccountId, tenantId, deletedAt: null },
             select: { id: true, last4: true },
-          })
-        : null,
-      dto.linkedExpenseId && dto.linkedExpenseId !== null && dto.linkedExpenseId !== ''
-        ? db.expense.findFirst({
-            where: { id: dto.linkedExpenseId, tenantId, deletedAt: null },
-            select: {
-              projectId: true,
-              project: { select: { id: true, type: true, tenantId: true } },
-            },
           })
         : null,
       dto.settlesInvoiceCardId && dto.settlesInvoiceCardId !== null && dto.settlesInvoiceCardId !== ''
@@ -151,20 +191,11 @@ export class ExpenseService {
     if (dto.linkedExpenseId !== undefined) {
       if (!dto.linkedExpenseId) {
         out.linkedExpenseId = null;
-      } else if (!linkedRow) {
-        throw new BadRequestException('Despesa vinculada não encontrada neste tenant');
-      } else if (linkedRow.projectId === currentProjectId) {
-        throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
-      } else if (
-        !linkedRow.project ||
-        linkedRow.project.tenantId !== tenantId ||
-        !this.canRequesterSeeProject(requester, linkedRow.project, EXPENSE_MODULE)
-      ) {
-        // Colapsa no MESMO 400 de "não encontrada" — nunca confirma a
-        // existência de uma despesa em projeto fora da lente do requisitante.
-        throw new BadRequestException('Despesa vinculada não encontrada neste tenant');
       } else {
-        out.linkedExpenseId = dto.linkedExpenseId;
+        out.linkedExpenseId = await this.resolveLinkedExpenseId(
+          db, tenantId, currentProjectId, dto.linkedExpenseId, requester,
+          'Despesa vinculada não encontrada neste tenant', previousTargetId,
+        );
       }
     }
 
@@ -236,12 +267,16 @@ export class ExpenseService {
     ) {
       assertRateioRequester(requester);
     }
-    if (dto.settlesInvoiceCardId !== undefined && !tx) {
+    if ((dto.settlesInvoiceCardId !== undefined || dto.linkedExpenseId !== undefined) && !tx) {
       return this.prisma.$transaction((transaction) =>
         this.create(tenantId, projectId, dto, createdByUserId, transaction, requester),
       );
     }
     const db = tx ?? this.prisma;
+    if (dto.linkedExpenseId !== undefined) {
+      assertRateioRequester(requester);
+      requester = await this.linkedMutationRequester(db, tenantId, projectId, requester);
+    }
     await this.validateProject(tenantId, projectId, db);
 
     const valorCents = Math.round(dto.valor * 100);
@@ -481,6 +516,7 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     opts: { page?: number; pageSize?: number } = {},
+    requester?: RateioRequester,
   ) {
     await this.validateProject(tenantId, projectId);
 
@@ -507,7 +543,7 @@ export class ExpenseService {
     ]);
 
     return {
-      items,
+      items: await enrichFunding(this.prisma, tenantId, items, requester),
       total,
       page,
       pageSize,
@@ -515,10 +551,10 @@ export class ExpenseService {
     };
   }
 
-  async findPlanned(tenantId: string, projectId: string) {
+  async findPlanned(tenantId: string, projectId: string, requester?: RateioRequester) {
     await this.validateProject(tenantId, projectId);
 
-    return this.prisma.expense.findMany({
+    const items = await this.prisma.expense.findMany({
       where: {
         projectId,
         tenantId,
@@ -529,6 +565,7 @@ export class ExpenseService {
       include: { room: true },
       orderBy: { createdAt: 'desc' },
     });
+    return enrichFunding(this.prisma, tenantId, items, requester);
   }
 
   /**
@@ -592,7 +629,7 @@ export class ExpenseService {
         { fornecedor: { contains: s } },
       ];
     }
-    return this.prisma.expense.findMany({
+    const items = await this.prisma.expense.findMany({
       where,
       include: {
         room: true,
@@ -601,6 +638,7 @@ export class ExpenseService {
       orderBy: [{ createdAt: 'desc' }],
       take: limit,
     });
+    return enrichFunding(this.prisma, tenantId, items, requester);
   }
 
   /**
@@ -621,27 +659,20 @@ export class ExpenseService {
   ) {
     assertRateioRequester(requester);
     return this.prisma.$transaction(async tx => {
+      requester = await this.linkedMutationRequester(tx, tenantId, projectId, requester);
       await this.validateProject(tenantId, projectId, tx);
       const source = await tx.expense.findFirst({
         where: { id, projectId, tenantId, deletedAt: null },
       });
       if (!source) throw new NotFoundException('Despesa não encontrada');
+      await this.resolveLinkedExpenseId(
+        tx, tenantId, projectId, targetExpenseId, requester,
+        'Despesa alvo não encontrada', source.linkedExpenseId,
+      );
       // Same-target retries remain idempotent; all guard reads share the writer's snapshot.
       if (source.linkedExpenseId !== targetExpenseId) {
         await this.guardRateioParticipation(tenantId, id, false, false, tx);
         await this.guardSettlementParticipation(tenantId, id, false, true, tx);
-      }
-      const target = await tx.expense.findFirst({
-        where: { id: targetExpenseId, tenantId, deletedAt: null },
-        select: { projectId: true, project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
-      });
-      if (!target || !target.project || target.project.tenantId !== tenantId ||
-          target.project.deletedAt != null ||
-          !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)) {
-        throw new BadRequestException('Despesa alvo não encontrada');
-      }
-      if (target.projectId === projectId) {
-        throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
       }
       return tx.expense.update({
         where: { id, projectId, tenantId, deletedAt: null },
@@ -854,10 +885,14 @@ export class ExpenseService {
     const rows = await db.crossProjectSettlement.findMany({
       where: {
         tenantId,
+        reversedAt: null,
         OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }],
       },
-      select: { sourceExpenseId: true, targetExpenseId: true },
+      select: { sourceExpenseId: true, targetExpenseId: true, mode: true },
     });
+    if ((!allowSource || !allowTarget) && rows.some(row => row.mode === ADDITIVE)) {
+      throw new ConflictException('Desfaça os aportes antes de alterar os dados financeiros.');
+    }
     const isSource = rows.some((row) => row.sourceExpenseId === expenseId);
     const isTarget = rows.some((row) => row.targetExpenseId === expenseId);
     if ((isSource && !allowSource) || (isTarget && !allowTarget)) {
@@ -1161,9 +1196,14 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     sourceId: string,
-    params: { targetExpenseId: string; parcelaIndex?: number; realValor?: number },
+    params: { targetExpenseId: string; parcelaIndex?: number; realValor?: number; mode?: string } | AdditiveSettlementCommand,
     requester: RateioRequester,
   ) {
+    if (params.mode !== undefined) {
+      if (params.mode !== ADDITIVE) throw new BadRequestException('Modo de conciliação inválido.');
+      // Validation remains in the shared command so bank linking cannot bypass it.
+      return applyParcelaFunding(this.prisma, tenantId, projectId, sourceId, params, requester);
+    }
     assertRateioRequester(requester);
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
@@ -1176,7 +1216,7 @@ export class ExpenseService {
     // faz o override do alvo CASAR com o que aparece no caixa PESSOAL (I10).
     // Quando o chamador informa realValor explícito, ele prevalece.
     const parcelaIndex = params.parcelaIndex ?? 0;
-    const realValor = params.realValor ?? source.valorTotal;
+    const realValor = ('realValor' in params ? params.realValor : undefined) ?? source.valorTotal;
 
     // O clamp do índice vive em settleTargetParcela; passamos o índice cru e
     // lemos de volta o índice EFETIVO (clampado) para o retorno (E2).
@@ -1198,6 +1238,10 @@ export class ExpenseService {
       targetId: params.targetExpenseId,
       parcelaIndex: settleInput._effective ?? parcelaIndex,
     };
+  }
+
+  async undoParcelaFunding(tenantId: string, projectId: string, sourceId: string, settlementId: string, requester: RateioRequester) {
+    return undoParcelaFunding(this.prisma, tenantId, projectId, sourceId, settlementId, requester);
   }
 
   /**
@@ -1420,7 +1464,7 @@ export class ExpenseService {
     return { ok: true, sourceId: source.id, ...result };
   }
 
-  async findById(tenantId: string, projectId: string, id: string) {
+  async findById(tenantId: string, projectId: string, id: string, requester?: RateioRequester) {
     await this.validateProject(tenantId, projectId);
 
     const expense = await this.prisma.expense.findFirst({
@@ -1429,7 +1473,7 @@ export class ExpenseService {
     });
     if (!expense) throw new NotFoundException('Despesa não encontrada');
 
-    return expense;
+    return (await enrichFunding(this.prisma, tenantId, [expense], requester))[0];
   }
 
   /**
@@ -1530,6 +1574,9 @@ export class ExpenseService {
       );
     }
     const db = tx ?? this.prisma;
+    if (dto.linkedExpenseId !== undefined) {
+      requester = await this.linkedMutationRequester(db, tenantId, projectId, requester);
+    }
     await this.validateProject(tenantId, projectId, db);
 
     const existing = await db.expense.findFirst({
@@ -1547,7 +1594,7 @@ export class ExpenseService {
       ? valorCents * quantidade
       : existing.valorTotal;
 
-    const links = await this.resolveLinks(tenantId, projectId, dto, db, requester);
+    const links = await this.resolveLinks(tenantId, projectId, dto, db, requester, existing.linkedExpenseId);
 
     const sameDate = (current: Date | null, incoming: string | null | undefined): boolean =>
       incoming === undefined ||
@@ -1584,6 +1631,10 @@ export class ExpenseService {
       dto.tipoDespesa !== undefined && dto.tipoDespesa !== existing.tipoDespesa;
     const changedToNeutralType =
       changedTipoDespesa && isNeutralExpenseType(dto.tipoDespesa as string);
+    if (!sameDate(existing.dataCompra, dto.dataCompra) ||
+      (changedTipoDespesa && dto.tipoDespesa === ExpenseType.INVESTIMENTOS)) {
+      await guardActiveFunding(db, tenantId, [id]);
+    }
     // #695: metadata is synchronized in place. Only effective financial changes
     // replace CFEs; this same predicate protects active invoice ledger references.
     const shouldRegenerateCashFlow =
@@ -1788,6 +1839,7 @@ export class ExpenseService {
       await this.guardImportedInvoiceTrail(tx, tenantId, expense, {
         changedFinancials: true,
       });
+      await guardActiveFunding(tx, tenantId, [expense.id]);
       if (isSinglePaymentForm(expense.formaPagamento)) {
         throw new BadRequestException('Despesa não é parcelada/quinzenal');
       }
@@ -1808,9 +1860,11 @@ export class ExpenseService {
       const settlements = await tx.crossProjectSettlement.findMany({
         where: {
           tenantId,
+          reversedAt: null,
           OR: [{ sourceExpenseId: expense.id }, { targetExpenseId: expense.id }],
         },
       });
+      if (settlements.some(row => row.mode === ADDITIVE)) throw new ConflictException('Parcela com aportes ativos.');
       if (settlements.some((row) => row.sourceExpenseId === expense.id)) {
         throw new BadRequestException(
           'A fonte real conciliada não pode ter a data alterada aqui. Edite a parcela planejada alvo.',
@@ -1894,6 +1948,7 @@ export class ExpenseService {
           const counterpartSettlements = await tx.crossProjectSettlement.findMany({
             where: {
               tenantId,
+              reversedAt: null,
               OR: [
                 { sourceExpenseId: counterpartId },
                 { targetExpenseId: counterpartId },
@@ -2106,7 +2161,7 @@ export class ExpenseService {
   ): Promise<void> {
     const involvedInSettlement = async (expenseId: string): Promise<boolean> =>
       (await db.crossProjectSettlement.count({
-        where: { tenantId, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
+        where: { tenantId, reversedAt: null, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
       })) > 0;
 
     // Pares de CONCILIAÇÃO (importação de fatura) têm unlink reversível próprio —
@@ -2221,6 +2276,7 @@ export class ExpenseService {
 
     return this.prisma.$transaction(async (tx) => {
       // Create paid expense clone
+      await guardActiveFunding(tx, tenantId, [id]);
       const paidExpense = await tx.expense.create({
         data: {
           projectId,
@@ -2300,6 +2356,7 @@ export class ExpenseService {
     dataPagamento: Date,
     tx: Prisma.TransactionClient,
   ): Promise<void> {
+    await guardActiveFunding(tx, tenantId, [id]);
     const rateio = await tx.rateioAllocation.findUnique({ where: { targetExpenseId: id } });
     if (rateio) return;
 
@@ -2332,6 +2389,7 @@ export class ExpenseService {
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
       await this.guardRateioParticipation(tenantId, id, false, false, tx);
+      await guardActiveFunding(tx, tenantId, [id]);
       // #569 (degrau) — B2: alternar o status de uma parcela regenera TODO o
       // caixa da compra (soft-delete + recria com ids novos). Se qualquer
       // parcela desta compra tem linha de ledger de importação ATIVA, isso
@@ -2470,6 +2528,7 @@ export class ExpenseService {
         (await tx.crossProjectSettlement.count({
           where: {
             tenantId,
+            reversedAt: null,
             OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }],
           },
         })) > 0;

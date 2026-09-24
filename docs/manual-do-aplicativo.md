@@ -499,11 +499,18 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
 - **Card "Precisa de você (N)"** (quando `N > 0`): mostra pendências financeiras
-  acionáveis (sem conta, sem categoria com sugestão, **pagamento de fatura sem
+  do mês (sem conta, sem categoria com sugestão, **pagamento de fatura sem
   cartão identificado**, fatura a vencer, parcela cross-project pendente e
   recebimento previsto atrasado). Ao tocar, abre um
   painel que dispara os modais já existentes (vincular, pagar fatura, quitar
   parcela, editar despesa/recebimento) sem criar um fluxo paralelo.
+  - **Parcela parcialmente paga:** a própria linha mostra **Parcial**, o
+    **Restante**, o valor **Contratado** e o **Pago**, conforme o servidor.
+    Por exemplo: contratado R$ 800,00, pago R$ 400,00, restante R$ 400,00.
+    Com contribuições ativas, a linha é informativa: não oferece a quitação
+    integral legada nem cria outro débito. Quando o servidor nega a execução
+    ou envia um resumo sem autorização explícita, a linha continua informativa.
+    Itens legados sem os novos campos mantêm suas ações e proteções anteriores.
   - **Pagamento de fatura sem cartão**: um pagamento de fatura que ficou sem cartão
     vinculado sai do seu caixa mas deixa a fatura em aberto — o mesmo dinheiro conta
     duas vezes. A fila é a única superfície que mostra esse item (ele é neutro, então
@@ -802,12 +809,40 @@ planejado.
   a data deve ser alterada na parcela planejada alvo.
 - Seleção múltipla → **alterar data em lote** / marcar como pago em lote.
 
+- **Pagamento parcial com um débito já existente:** na Conta, abra **Editar**
+  no débito bancário pago e use **Pagar parcela com este débito**. Escolha a
+  parcela de outro projeto, confira **Contratado / Pago / Restante** e confirme
+  o valor. Não é criada outra despesa e o débito original não muda.
+  - O valor inicial e o limite são o menor entre a disponibilidade do débito e
+    o saldo da parcela, informados pelo servidor. Sem esses dados, a confirmação
+    fica indisponível; o aplicativo não presume disponibilidade pelo valor original.
+  - Uma parcela de R$ 800,00 pode receber R$ 400,00 de um débito e continuar
+    **Parcialmente paga**, com R$ 400,00 restantes. Outro débito pode completar
+    o pagamento sem mudar o valor contratado.
+  - Após confirmar, **Desfazer esta contribuição** remove só aquela aplicação;
+    não apaga o débito bancário nem as demais contribuições.
+    Ao reabrir o débito, as contribuições autorizadas são recuperadas do servidor,
+    identificadas por projeto, despesa e parcela. É possível desfazê-las mesmo
+    quando a parcela já está paga ou o débito não tem saldo disponível.
+    Históricos ocultos por permissão ou sem identificação da origem não oferecem
+    esse botão; contribuições de outros débitos não são desfeitas.
+  - Se a resposta da confirmação se perder, tentar novamente repete a mesma
+    operação, inclusive se a parcela paga já tiver saído da lista de candidatas.
+    Alterar a parcela ou o valor inicia outra operação.
+  - Na lista por mês, cada contribuição entra na data do pagamento e o restante
+    continua no vencimento. Os totais por categoria mostram pago e restante,
+    sem somar novamente o valor contratado. Detalhes de origens só aparecem
+    quando todas as contribuições são acessíveis.
+  - Enquanto houver contribuições ativas, mudanças financeiras dependem de
+    desfazê-las primeiro; alterações de título e categoria continuam permitidas.
+
 - **Origem do pagamento (cross-project, somente leitura):** fora do PESSOAL
   (ex.: REFORMA), cada linha/ocorrência de uma despesa que foi paga através de
   uma conciliação, rateio ou vínculo cross-project mostra um **badge
   discreto** com o cartão/conta que efetivamente pagou (ex.: "Nubank ••3541"
   ou, sem apelido, "Cartão ••3541"/"Conta ••5572"). Regras visíveis:
-  - Cada **parcela** pode mostrar uma origem diferente (ex.: parcelas pagas
+  - Uma mesma **parcela** pode mostrar todas as origens de suas contribuições.
+    Parcelas diferentes também podem mostrar origens diferentes (ex.: parcelas pagas
     por cartões distintos); na visão por categoria, quando a despesa tem mais
     de uma origem entre suas parcelas, o agregado mostra **"Múltiplas
     origens"**.
@@ -907,6 +942,55 @@ Gestão dos cartões de crédito.
   Não restaura despesas excluídas, não reimporta e não quita faturas.
   É uma operação assistida por API, sem novo botão na tela; publicar o recurso
   não corrige registros antigos automaticamente.
+- **Aporte parcial de um débito bancário existente (API):** o modo
+  `ADDITIVE` de `POST /projects/:projectId/expenses/:sourceId/conciliar-parcela`
+  aceita `targetExpenseId`, `parcelaIndex` (zero-based), `amountCents` e
+  `requestId`. Aloca somente o valor informado à parcela de outro projeto,
+  sem criar novo débito nem mudar o valor contratado. O saldo continua
+  pendente; somente saldo zero marca a parcela como paga.
+  Na lente PESSOAL mensal e anual, a parcela coberta pelo aporte ou pela
+  quitação legada não vira outra saída de Carteira quando o alvo fica pago:
+  o débito bancário já representa esse dinheiro. Parcelas irmãs pagas de fato
+  em Carteira continuam no seu mês, inclusive quando todo o alvo fica pago.
+  Repetições devem
+  conservar a mesma chave. O DELETE da mesma rota com `/:settlementId`
+  desfaz um aporte específico, não o pagamento bancário. Ao reconsultar, cada
+  contribuição autorizada informa `sourceId` para identificar o débito na
+  rota de desfazer, inclusive quando o alvo já está pago e a fonte sem saldo
+  disponível. Sem acesso a todos os participantes, a lista inteira é omitida.
+  Na API de pendências financeiras, a parcela parcialmente paga mantém o
+  restante em `valor` e informa `installmentSettlement`, contendo somente
+  `contractedCents`, `paidCents`, `remainingCents` e `settlementStatus: "PARTIAL"`,
+  sem identificar contribuições ou fontes. Com resumo, `canExecuteAction` é
+  sempre explícito: `false` impede a quitação legada, que criaria outro débito.
+  Isso vale também quando a parcela aparece no grupo `SEM_CONTA`. Depois de
+  desfazer todos os aportes, o resumo volta a `UNPAID` e a capacidade a `true`.
+  Um resumo sem capacidade explícita não autoriza executar a ação; itens
+  legados sem ambos os campos preservam seu comportamento e proteções.
+  Na Visão Conta, a parcela vetada mostra **Indisponível** no lugar de
+  **Quitar**, sem criar outro débito. Parcelas irmãs elegíveis continuam
+  quitáveis; se a capacidade mudar com o diálogo aberto, **Confirmar** fica
+  bloqueado antes de qualquer pagamento.
+  O resumo também oferece parcelas elegíveis antes do primeiro aporte e irmãs
+  ainda sem aportes, com índice local, vencimento e saldo canônicos. Uma lista
+  `UNPAID` não significa pagamento existente; parcelas pagas por outra via,
+  ocupadas pelo legado ou protegidas por trilha de fatura não são oferecidas.
+  Enquanto existir aporte ativo, a data da compra e a reclassificação para
+  investimentos também ficam protegidas; título, fornecedor e categorias
+  elegíveis continuam editáveis. Desfazer uma importação verifica inclusive
+  débitos antigos apenas adotados pelo lote, antes de alterar qualquer registro.
+  Aportes desfeitos conservam sua chave e histórico, mas não prendem outros
+  aportes quando sua antiga fonte é excluída. Após desfazer todos, uma nova
+  chave usa o planejamento atual; uma conciliação legada posterior gera seu
+  próprio caixa, sem reutilizar projeções aditivas desfeitas.
+  Enquanto houver
+  aporte ativo, desfaça-o antes de editar valores/datas, excluir participantes
+  ou desfazer sua importação. Criar ou reapontar um vínculo comum para uma fonte
+  ou um alvo com aporte ativo também é bloqueado, sem gravar despesas ou fluxos.
+  Repetir um vínculo válido já existente continua permitido; após desfazer todos
+  os aportes, vínculos comuns voltam a ser permitidos.
+  Esta entrega de API não implica um novo botão
+  na interface nem corrige dados antigos automaticamente.
 - **Recuperação assistida de débito bancário excluído:** a API
   `POST /projects/:ownerProjectId/bank-accounts/:accountId/restore-imported-expenses`
   recebe `{"mode":"preview","externalIds":["<identificador original>"]}` sem gravar.
@@ -1427,6 +1511,14 @@ Contas fixas (luz, água, internet, gás…) e avulsas.
   `/expenses` foi descontinuada para esses dois tipos e redireciona para cá
   (veja §6.6). O módulo `expenses` (dados/permissão) continua existindo por
   baixo — só a tela dedicada saiu do ar.
+  Quando há resumo de pagamentos, a tabela e os cards de Avulsas mostram
+  **Restante**, **Contratado**, **Pago** e o estado **Parcial/Pago/Planejado**
+  calculado a partir dos saldos canônicos, sem dividir o total pelo número de parcelas.
+  O contratado é o total da despesa; o pago inclui também as parcelas irmãs já
+  quitadas pelo fluxo nativo ou legado, mesmo quando elas não aparecem no resumo de contribuições.
+  Contribuições ativas bloqueiam exclusão e alterações financeiras no formulário;
+  título, categoria e fornecedor continuam editáveis, sem reenviar valores ou datas.
+  Um resumo inicial sem pagamentos não bloqueia as ações ordinárias.
 
 ### 6.4 Manutenção (`/maintenance`)
 Histórico e agenda de manutenções.

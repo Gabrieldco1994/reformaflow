@@ -1,5 +1,5 @@
 import type { Expense } from '@/types';
-import { effectiveDate, expandExpenseOccurrences, type ExpenseDateAxis } from './grouping-by-month';
+import { effectiveDate, expandExpenseOccurrences, occurrenceSlice, expensePaymentTotals, type ExpenseDateAxis } from './grouping-by-month';
 import { isNeutralExpenseType, isSinglePaymentForm } from '@reformaflow/domain';
 
 export interface CrossProjectMeta {
@@ -100,7 +100,7 @@ export function splitPersonalExpenseBase(
  * movimentos reais dos espelhos —, mantendo os espelhos.
  */
 export function toCaixaBase(filtered: Expense[], parceladoTargetIds: Set<string>): Expense[] {
-  return filtered.filter((e) => !parceladoTargetIds.has(e.id));
+  return withoutFundingProjections(filtered.filter((e) => !parceladoTargetIds.has(e.id)));
 }
 
 /**
@@ -108,9 +108,17 @@ export function toCaixaBase(filtered: Expense[], parceladoTargetIds: Set<string>
  * parcelado; mantém o alvo canônico, os espelhos single (legado) e as demais.
  */
 export function toDisplayBase(filtered: Expense[], parceladoTargetIds: Set<string>): Expense[] {
-  return filtered.filter(
+  return withoutFundingProjections(filtered.filter(
     (e) => !(e.linkedExpenseId && parceladoTargetIds.has(e.linkedExpenseId)),
-  );
+  ));
+}
+
+function withoutFundingProjections(expenses: Expense[]): Expense[] {
+  return expenses.flatMap((e) => e.installmentSettlements?.length
+    ? expandExpenseOccurrences(e)
+        .filter((occ) => !(occ.settlementManaged && occ.status === 'PAGO'))
+        .map(occurrenceSlice)
+    : [e]);
 }
 
 export interface OriginGroup {
@@ -231,8 +239,9 @@ export function groupPersonalExpenses(
     // Neutras (pagamento de fatura, transferência interna) NÃO entram no total —
     // mesma regra de `totalsOf`. Contá-las duplicaria os itens do cartão.
     if (isNeutralExpenseType(e.tipoDespesa)) continue;
-    if (e.status === 'PAGO') g.totalPago += e.valorTotal;
-    else g.totalPlanejado += e.valorTotal;
+    const totals = expensePaymentTotals(e);
+    g.totalPago += totals.paid;
+    g.totalPlanejado += totals.remaining;
   }
 
   // Sort projects: Pessoal primeiro, depois por nome

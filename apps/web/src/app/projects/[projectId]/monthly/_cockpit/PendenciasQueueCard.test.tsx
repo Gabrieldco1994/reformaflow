@@ -68,6 +68,207 @@ describe('PendenciasQueueCard', () => {
     expect(await screen.queryByText(/Precisa de você/i)).not.toBeInTheDocument();
   });
 
+  it.each([
+    { tipo: "PARCELA_FOREIGN_PENDENTE", canExecuteAction: false },
+    { tipo: "SEM_CONTA", canExecuteAction: false },
+    { tipo: "PARCELA_FOREIGN_PENDENTE", canExecuteAction: undefined },
+    { tipo: "SEM_CONTA", canExecuteAction: undefined },
+    { tipo: "PARCELA_FOREIGN_PENDENTE", canExecuteAction: true },
+    { tipo: "SEM_CONTA", canExecuteAction: true },
+  ])(
+    "renders canonical partial balances without the legacy payment action for $tipo ($canExecuteAction)",
+    async ({ tipo, canExecuteAction }) => {
+      vi.mocked(api.get).mockImplementation(async (url: string) => {
+        if (url.includes("/pendencias/financeiras"))
+          return {
+            total: 1,
+            grupos: [
+              {
+                tipo,
+                label: "Parcela pendente",
+                count: 1,
+                valorTotal: 40_000,
+                itens: [
+                  {
+                    id: "partial",
+                    tipo,
+                    label: "Quitar parcela",
+                    descricao: "Contrato sintético",
+                    valor: 40_000,
+                    data: "2026-07-10T00:00:00.000Z",
+                    foreignExpenseId: "target",
+                    parcelaIndex: 0,
+                    installmentSettlement: {
+                      contractedCents: 80_000,
+                      paidCents: 40_000,
+                      remainingCents: 40_000,
+                      settlementStatus: "PARTIAL",
+                    },
+                    canExecuteAction,
+                  },
+                ],
+              },
+            ],
+          };
+        if (url.includes("/monthly-overview/account-view"))
+          return { cartoes: [], contas: [] };
+        return null;
+      });
+      renderWithQuery(
+        <PendenciasQueueCard
+          projectId="p1"
+          monthKey="2026-07"
+          projectType="PESSOAL"
+        />,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: /Resolver/i }));
+      expect(screen.getByText("Parcial", { exact: true })).toBeInTheDocument();
+      expect(screen.getByText(/Restante:/)).toHaveTextContent("R$ 400,00");
+      expect(screen.getByText(/Contratado:/)).toHaveTextContent("R$ 800,00");
+      expect(screen.getByText(/Pago:/)).toHaveTextContent("R$ 400,00");
+      expect(
+        screen.queryByRole("button", {
+          name: /Parcela parcialmente paga|Quitar parcela/,
+        }),
+      ).toBeNull();
+      expect(screen.queryByText("Quitar parcela", { exact: true })).toBeNull();
+      expect(screen.queryByText(/QuitarParcelaModal aberto/)).toBeNull();
+      expect(api.post).not.toHaveBeenCalled();
+      expect(api.patch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["PARCELA_FOREIGN_PENDENTE", "SEM_CONTA"])(
+    "never repays a PAID %s even with an explicit capability",
+    async (tipo) => {
+      vi.mocked(api.get).mockImplementation(async (url: string) => {
+        if (url.includes("/pendencias/financeiras"))
+          return {
+            total: 1,
+            grupos: [
+              {
+                tipo,
+                label: "Parcela pendente",
+                count: 1,
+                valorTotal: 0,
+                itens: [
+                  {
+                    id: "paid",
+                    tipo,
+                    label: "Quitar parcela",
+                    descricao: "Contrato pago",
+                    valor: 0,
+                    data: "2026-07-10T00:00:00.000Z",
+                    foreignExpenseId: "target",
+                    parcelaIndex: 0,
+                    installmentSettlement: {
+                      contractedCents: 80_000,
+                      paidCents: 80_000,
+                      remainingCents: 0,
+                      settlementStatus: "PAID",
+                    },
+                    canExecuteAction: true,
+                  },
+                ],
+              },
+            ],
+          };
+        return [];
+      });
+      renderWithQuery(
+        <PendenciasQueueCard
+          projectId="p1"
+          monthKey="2026-07"
+          projectType="PESSOAL"
+        />,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: /Resolver/i }));
+      expect(screen.getByText("Pago", { exact: true })).toBeInTheDocument();
+      expect(screen.getByText(/Restante:/)).toHaveTextContent("R$ 0,00");
+      expect(
+        screen.queryByRole("button", { name: "Quitar parcela" }),
+      ).toBeNull();
+      expect(api.post).not.toHaveBeenCalled();
+      expect(api.patch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    [
+      { withSummary: false, canExecuteAction: undefined, allowed: true },
+      { withSummary: false, canExecuteAction: false, allowed: false },
+      { withSummary: true, canExecuteAction: undefined, allowed: false },
+      { withSummary: true, canExecuteAction: false, allowed: false },
+      { withSummary: true, canExecuteAction: true, allowed: true },
+    ].flatMap((entry) =>
+      ["PARCELA_FOREIGN_PENDENTE", "SEM_CONTA"].map((tipo) => ({
+        ...entry,
+        tipo,
+      })),
+    ),
+  )(
+    "gates unpaid $tipo: summary=$withSummary capability=$canExecuteAction",
+    async ({ tipo, withSummary, canExecuteAction, allowed }) => {
+      vi.mocked(api.get).mockImplementation(async (url: string) => {
+        if (url.includes("/pendencias/financeiras"))
+          return {
+            total: 1,
+            grupos: [
+              {
+                tipo,
+                label: "Parcela pendente",
+                count: 1,
+                valorTotal: 80_000,
+                itens: [
+                  {
+                    id: "unpaid",
+                    tipo,
+                    label: "Quitar parcela",
+                    descricao: "Contrato sintético",
+                    valor: 80_000,
+                    data: "2026-07-10T00:00:00.000Z",
+                    foreignExpenseId: "target",
+                    parcelaIndex: 0,
+                    installmentSettlement: withSummary
+                      ? {
+                          contractedCents: 80_000,
+                          paidCents: 0,
+                          remainingCents: 80_000,
+                          settlementStatus: "UNPAID",
+                        }
+                      : undefined,
+                    canExecuteAction,
+                  },
+                ],
+              },
+            ],
+          };
+        return { cartoes: [], contas: [] };
+      });
+      renderWithQuery(
+        <PendenciasQueueCard
+          projectId="p1"
+          monthKey="2026-07"
+          projectType="PESSOAL"
+        />,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: /Resolver/i }));
+      if (allowed) {
+        fireEvent.click(screen.getByRole("button", { name: "Quitar parcela" }));
+        expect(
+          screen.getByText("QuitarParcelaModal aberto: target"),
+        ).toBeInTheDocument();
+      } else {
+        expect(
+          screen.queryByRole("button", { name: "Quitar parcela" }),
+        ).toBeNull();
+        expect(screen.queryByText(/QuitarParcelaModal aberto/)).toBeNull();
+        expect(api.post).not.toHaveBeenCalled();
+        expect(api.patch).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it('renders card and group details', async () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url.includes('/pendencias/financeiras')) {
@@ -342,24 +543,25 @@ describe('PendenciasQueueCard', () => {
   // A fila (`/pendencias/financeiras`) não conhece capabilities de fatura; quem
   // conhece é `account-view`. Sem o veto, um cartão de último4 ambíguo mostraria
   // "Pagar fatura" cuja única resposta possível é 409.
-  function faturaQueue() {
+  function faturaQueue(canExecuteAction?: boolean) {
     return {
       total: 1,
       grupos: [
         {
-          tipo: 'FATURA_NAO_PAGA',
-          label: 'Fatura não paga',
+          tipo: "FATURA_NAO_PAGA",
+          label: "Fatura não paga",
           count: 1,
           valorTotal: 45000,
           itens: [
             {
-              id: 'i-fatura',
-              tipo: 'FATURA_NAO_PAGA',
-              label: 'Pagar fatura',
-              descricao: 'Fatura Nubank',
+              id: "i-fatura",
+              tipo: "FATURA_NAO_PAGA",
+              label: "Pagar fatura",
+              descricao: "Fatura Nubank",
               valor: 45000,
-              data: '2026-08-20T00:00:00.000Z',
-              cardLast4: '4488',
+              data: "2026-08-20T00:00:00.000Z",
+              cardLast4: "4488",
+              canExecuteAction,
             },
           ],
         },
@@ -388,22 +590,39 @@ describe('PendenciasQueueCard', () => {
     };
   }
 
-  it('final ambíguo (actions: []) troca o botão por aviso de duplicidade, sem POST', async () => {
-    vi.mocked(api.get).mockImplementation(async (url: string) => {
-      if (url.includes('/pendencias/financeiras')) return faturaQueue();
-      if (url.includes('/monthly-overview/account-view')) {
-        return { cartoes: [cardSummary({ actions: [], cardId: null })], contas: [] };
-      }
-      return null;
-    });
+  it.each([undefined, true])(
+    "final ambíguo (actions: []) veta a capacidade %s da fila, sem POST",
+    async (canExecuteAction) => {
+      vi.mocked(api.get).mockImplementation(async (url: string) => {
+        if (url.includes("/pendencias/financeiras"))
+          return faturaQueue(canExecuteAction);
+        if (url.includes("/monthly-overview/account-view")) {
+          return {
+            cartoes: [cardSummary({ actions: [], cardId: null })],
+            contas: [],
+          };
+        }
+        return null;
+      });
 
-    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-08" projectType="PESSOAL" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
+      renderWithQuery(
+        <PendenciasQueueCard
+          projectId="p1"
+          monthKey="2026-08"
+          projectType="PESSOAL"
+        />,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: /Resolver/i }));
 
-    expect(await screen.findByText(/Mais de um cartão com esse final/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Pagar fatura$/ })).not.toBeInTheDocument();
-    expect(api.post).not.toHaveBeenCalled();
-  });
+      expect(
+        await screen.findByText(/Mais de um cartão com esse final/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /^Pagar fatura$/ }),
+      ).not.toBeInTheDocument();
+      expect(api.post).not.toHaveBeenCalled();
+    },
+  );
 
   it('sem pendente (fila velha, fatura já paga) NÃO acusa duplicidade — diz que a fatura já consta paga', async () => {
     // `actions` sem 'pay' tem DOIS motivos possíveis no servidor: final ambíguo

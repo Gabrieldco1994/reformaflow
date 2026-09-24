@@ -26,6 +26,14 @@ export interface PendingForeignParcela {
   projetoOrigem: { id: string; name: string; type: string } | null;
 }
 
+/** A summary needs explicit authorization; only payloads without both fields use the legacy path. */
+export function foreignParcelaActionAllowed(
+  item: Pick<AccountViewSaida, 'canExecuteAction' | 'installmentSettlement'>,
+): boolean {
+  return item.canExecuteAction !== false &&
+    (!item.installmentSettlement || item.canExecuteAction === true);
+}
+
 /**
  * Parseia o id sintético "<foreignExpenseId>#<parcelaIndex>" emitido pelo
  * backend para parcelas cross-project pendentes (ex.: "cmow625abc#3").
@@ -59,6 +67,7 @@ export function expandPendingForeignParcelas(
     if (!s.foreignExpenseId) continue;
     if (s.parcelaIndex == null) continue;
     if (s.realizado) continue;
+    if (!foreignParcelaActionAllowed(s)) continue;
     out.push({
       foreignExpenseId: s.foreignExpenseId,
       parcelaIndex: s.parcelaIndex,

@@ -32,6 +32,7 @@ import { PorTipoView } from './PorTipoView';
 import { RatearCompraModal } from '../../expenses/_components/RatearCompraModal';
 import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
 import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutations';
+import { foreignParcelaActionAllowed } from '../../expenses/_lib/quitarParcelaCross';
 import type { ResumoQuickFilterKey } from './ResumoCards';
 import { FinancialItemDetail } from '../../monthly/_components/FinancialItemDetail';
 import type { FinancialItemCardV1 } from '@reformaflow/domain';
@@ -188,6 +189,10 @@ export function MovimentacoesSection({
   const [editExpenseTarget, setEditExpenseTarget] = useState<{ id: string; type: string } | null>(null);
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
   const [quitarTarget, setQuitarTarget] = useState<QuitarTarget | null>(null);
+  const quitarItem = quitarTarget && data.saidas.find((item) =>
+    item.foreignExpenseId === quitarTarget.foreignExpenseId &&
+    item.parcelaIndex === quitarTarget.parcelaIndex,
+  );
   // Ratear/Vincular por linha: guarda o id da compra e a ação; a despesa completa
   // é buscada sob demanda (os modais precisam do objeto Expense, ex. valorTotal).
   const [actionExpenseId, setActionExpenseId] = useState<string | null>(null);
@@ -1435,6 +1440,8 @@ export function MovimentacoesSection({
           valorSugerido={quitarTarget.valorSugerido}
           descricao={quitarTarget.descricao}
           dataSugerida={quitarTarget.dataSugerida}
+          installmentSettlement={quitarItem?.installmentSettlement}
+          canExecuteAction={!!quitarItem && !quitarItem.realizado && foreignParcelaActionAllowed(quitarItem)}
           onClose={() => setQuitarTarget(null)}
           onDone={() => setQuitarTarget(null)}
         />

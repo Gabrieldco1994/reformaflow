@@ -52,6 +52,7 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
   });
 
   afterEach(async () => {
+    await setup.user.deleteMany({ where: { tenantId: TENANT } });
     await setup.importedInvoiceLiquidation.deleteMany({ where: { tenantId: TENANT } });
     await setup.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
@@ -273,7 +274,16 @@ describe("#569 §4 — ExpenseService.update guarda a trilha (status/formaPagame
   it("#695 — counterpart preflight allows preserved metadata but financial rejection rolls back both sides", async () => {
     const { purchaseId, importId } = await importSettled(2, 12345);
     const project = await setup.project.create({ data: { tenantId: TENANT, name: "Synthetic12345c", type: "PESSOAL" } });
-    const requester = { ...R, allowedProjects: [PESSOAL, project.id] };
+    const requester = { ...R, id: `${TENANT}-user`, allowedProjects: [PESSOAL, project.id] };
+    await setup.user.create({
+      data: {
+        id: requester.id, username: requester.id, name: "Synthetic ACL fixture",
+        tenantId: TENANT, role: requester.role,
+        allowedProjects: JSON.stringify(requester.allowedProjects),
+        allowedModules: JSON.stringify(requester.allowedModules),
+        allowedProjectTypes: JSON.stringify(requester.allowedProjectTypes),
+      },
+    });
     const head = await expenses.create(TENANT, project.id, {
       tipoDespesa: ExpenseType.OUTROS, titulo: "Synthetic12345c",
       valor: 246.90, quantidade: 1, formaPagamento: "PARCELADO", quantidadeParcela: 2,

@@ -355,6 +355,7 @@ describe("bank debit selective restoration #700", () => {
   it.each([
     ["account-daytime", "2026-08-10T12:00:00Z"],
     ["account-boundary", "2026-08-11T02:00:00Z"],
+    ["account-before-BRT-midnight", "2026-08-11T02:59:59.999Z"],
     ["original-import", "2026-08-11T02:00:00Z"],
     ["ambiguous-identity", "2026-08-11T02:00:00Z"],
   ])("rejects undated CFE-less equivalent %s (%s)", async (kind, timestamp) => {
@@ -889,13 +890,14 @@ describe("bank debit selective restoration #700", () => {
       where: { tenantId, importId: imported.importId },
     });
     const tombstone = new Date("2026-09-24");
+    // Prisma's engine-generated timestamps do not use Jest's frozen clock.
     await db.expense.update({
       where: { id: root.id },
-      data: { deletedAt: tombstone },
+      data: { createdAt: now, updatedAt: tombstone, deletedAt: tombstone },
     });
     await db.cashFlowEntry.updateMany({
       where: { expenseId: root.id },
-      data: { deletedAt: tombstone },
+      data: { createdAt: now, updatedAt: tombstone, deletedAt: tombstone },
     });
     const before = await snapshot();
     expect((await commit()).inserted).toBe(0);

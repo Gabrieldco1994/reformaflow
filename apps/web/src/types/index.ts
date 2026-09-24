@@ -110,6 +110,9 @@ export interface Expense {
   recorrenciaFim?: string | null; // último mês da recorrência (ISO) ou null
   paidParcelas?: string | null; // JSON array de índices 0-based de parcelas pagas
   installmentDateOverrides?: string | null; // JSON de índice 0-based → data efetiva YYYY-MM-DD
+  installmentSettlements?: InstallmentSettlement[];
+  /** Available real bank debit, scoped by the server. Absent means unknown. */
+  sourceAvailableCents?: number;
   // Vínculos
   cardLast4?: string | null;
   bankLast4?: string | null;
@@ -122,6 +125,33 @@ export interface Expense {
 }
 
 export type ExpenseStatus = 'PLANEJADO' | 'PAGO';
+
+export interface InstallmentSettlement {
+  parcelaIndex: number;
+  dueDate: string;
+  contractedCents: number;
+  paidCents: number;
+  remainingCents: number;
+  settlementStatus: 'UNPAID' | 'PARTIAL' | 'PAID';
+  /** Omitted in full when any contributor is inaccessible. */
+  contributions?: Array<{ settlementId: string; sourceId: string; amountCents: number; paymentDate: string }>;
+}
+
+export interface ParcelaFundingResult {
+  ok: true;
+  settlementId: string;
+  state: 'ACTIVE' | 'REVERSED';
+  replayed: boolean;
+  sourceId: string;
+  targetId: string;
+  parcelaIndex: number;
+  amountCents: number;
+  contractedCents: number;
+  paidCents: number;
+  remainingCents: number;
+  sourceAvailableCents: number;
+  settlementStatus: InstallmentSettlement['settlementStatus'];
+}
 
 export interface ExpensesPage {
   items: Expense[];
@@ -203,6 +233,13 @@ export interface ExpensePaidOrigin {
   origins: PaidOriginRef[];
   /** origins.length > 1 — calculado APÓS a redação. */
   multiple: boolean;
+  contributions?: Array<{
+    settlementId: string;
+    amountCents: number;
+    paymentDate: string;
+    parcelaIndex: number;
+    origin: PaidOriginRef;
+  }>;
 }
 
 export interface PaidOriginsResponse { items: ExpensePaidOrigin[] }

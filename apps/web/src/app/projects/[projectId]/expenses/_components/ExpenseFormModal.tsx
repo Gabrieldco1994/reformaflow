@@ -12,6 +12,8 @@ import { RateioDetalheSection } from './RateioDetalheSection';
 import { useRateioDetalhe } from '../_hooks/useRateioDetalhe';
 import type { LinkedExpenseDraft } from './CreateLinkedExpenseModal';
 import type { Expense } from '@/types';
+import { ParcelaFundingForm, SETTLEMENT_LABELS } from './ParcelaFundingForm';
+import { formatCurrency } from '@/lib/utils';
 
 interface ExpenseOption {
   value: string;
@@ -125,6 +127,7 @@ export function ExpenseFormModal({
     Boolean(editing?.cardLast4 || editing?.bankLast4 || editing?.linkedExpenseId || editing?.link || editing?.imageUrl),
   );
   const [recorrente, setRecorrente] = useState(Boolean(editing?.recorrente));
+  const [fundingPending, setFundingPending] = useState(false);
   useEffect(() => {
     if (open) setRecorrente(Boolean(editing?.recorrente));
   }, [open, editing]);
@@ -144,14 +147,30 @@ export function ExpenseFormModal({
     enabled: Boolean(sourceExpenseId),
   });
   const isRateioSource = Boolean(rateioQuery.data?.rateado);
+  const canUseExistingDebit = !!editing && !isRateioSource && !editing.linkedExpenseId &&
+    (editing.sourceAvailableCents !== undefined ||
+      (!!editing.bankLast4 && !editing.cardLast4 && editing.status === 'PAGO' && !editing.recorrente));
 
   return (
     <Modal
       open={open}
       onClose={onClose}
+      closeDisabled={fundingPending}
+      trapFocus
       title={editing ? 'Editar Despesa' : formStatus === 'PLANEJADO' ? 'Planejar Despesa' : 'Nova Despesa (Paga)'}
     >
       <form onSubmit={onSubmit} className="space-y-4">
+        {editing?.installmentSettlements?.map((summary) => (
+          <section key={summary.parcelaIndex} aria-label={`Saldo da parcela ${summary.parcelaIndex + 1}`} className="rounded-lg border border-darc-linen p-3 text-sm">
+            <p className="font-semibold">Parcela {summary.parcelaIndex + 1} · {SETTLEMENT_LABELS[summary.settlementStatus]}</p>
+            <div className="mt-1 flex flex-wrap gap-x-3">
+              <span className="whitespace-nowrap">Contratado: {formatCurrency(summary.contractedCents / 100)}</span>
+              <span className="whitespace-nowrap">Pago: {formatCurrency(summary.paidCents / 100)}</span>
+              <span className="whitespace-nowrap">Restante: {formatCurrency(summary.remainingCents / 100)}</span>
+            </div>
+            {summary.paidCents > 0 && <p className="mt-1 text-xs">Para alterar valor, data ou status, desfaça primeiro as contribuições na origem.</p>}
+          </section>
+        ))}
         {sourceExpenseId && (
           <RateioDetalheSection
             isLoading={rateioQuery.isLoading}
@@ -193,6 +212,10 @@ export function ExpenseFormModal({
           valorTotalCents={valorTotal}
         />
 
+        {canUseExistingDebit && editing && (
+          <ParcelaFundingForm key={editing.id} projectId={projectId} sourceId={editing.id} onPendingChange={setFundingPending} />
+        )}
+
         {/* Mais opções — campos avançados recolhidos para reduzir fricção */}
         <div className="rounded-xl border border-darc-linen">
           <button
@@ -225,18 +248,19 @@ export function ExpenseFormModal({
               initialSettlesInvoiceKey={editing?.settlesInvoiceKey ?? null}
               baseDraft={linkedExpenseDraft}
               lockLinkedExpense={isRateioSource}
+              hideLinkedExpense={canUseExistingDebit}
             />
           </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
           {editing && onRatear && (
-            <Button type="button" variant="ghost" onClick={onRatear} className="mr-auto">
+            <Button type="button" variant="ghost" onClick={onRatear} className="mr-auto" disabled={fundingPending}>
               Ratear compra
             </Button>
           )}
-          <Button type="button" variant="secondary" className="min-h-[44px]" onClick={onClose}>Cancelar</Button>
-          <Button type="submit" disabled={isPending}>
+          <Button type="button" variant="secondary" className="min-h-[44px]" onClick={onClose} disabled={fundingPending}>Cancelar</Button>
+          <Button type="submit" disabled={isPending || fundingPending}>
             {editing ? 'Salvar' : 'Criar'}
           </Button>
         </div>

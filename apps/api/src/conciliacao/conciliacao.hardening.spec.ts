@@ -53,18 +53,22 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
         }),
       },
       crossProjectSettlement: {
-        findUnique: jest.fn().mockImplementation(({ where }: any) => {
-          const k = `${where.targetExpenseId_parcelaIndex.targetExpenseId}|${where.targetExpenseId_parcelaIndex.parcelaIndex}`;
+        count: jest.fn().mockResolvedValue(0),
+        findFirst: jest.fn().mockImplementation(({ where }: any) => {
+          const k = `${where.targetExpenseId}|${where.parcelaIndex}`;
           return Promise.resolve(settlementStore.get(k) ?? null);
         }),
-        upsert: jest.fn().mockImplementation(({ where, create, update }: any) => {
-          const k = `${where.targetExpenseId_parcelaIndex.targetExpenseId}|${where.targetExpenseId_parcelaIndex.parcelaIndex}`;
-          const cur = settlementStore.get(k);
-          if (cur) Object.assign(cur, update); else settlementStore.set(k, { ...create });
+        create: jest.fn().mockImplementation(({ data }: any) => {
+          const k = `${data.targetExpenseId}|${data.parcelaIndex}`;
+          settlementStore.set(k, { id: k, mode: 'LEGACY_REPLACEMENT', ...data });
           return Promise.resolve({});
         }),
-        findMany: jest.fn().mockImplementation(() =>
-          Promise.resolve(Array.from(settlementStore.values()))),
+        update: jest.fn().mockImplementation(({ where, data }: any) => {
+          Object.assign(settlementStore.get(where.id), data);
+          return Promise.resolve({});
+        }),
+        findMany: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve(Array.from(settlementStore.values()).filter(row => !where.mode || row.mode === where.mode))),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       rateioAllocation: {

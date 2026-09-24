@@ -33,6 +33,7 @@ describe('#505 — concessão do convidado == tipos que a demonstração semeia'
   const prisma = new PrismaService();
   let previousAppMode: string | undefined;
   let tenantId: string;
+  let requester: { id: string; role: string };
 
   beforeAll(async () => {
     previousAppMode = process.env['APP_MODE'];
@@ -43,6 +44,13 @@ describe('#505 — concessão do convidado == tipos que a demonstração semeia'
       data: { name: `guest-demo-parity-${Date.now()}` },
     });
     tenantId = tenant.id;
+    const user = await setupPrisma.user.create({
+      data: {
+        tenantId, username: tenantId, name: 'Synthetic guest', role: 'ADMIN',
+        isGuest: true, allowedProjectTypes: JSON.stringify(GUEST_PROJECT_TYPES),
+      },
+    });
+    requester = { id: user.id, role: user.role };
   });
 
   afterAll(async () => {
@@ -56,6 +64,7 @@ describe('#505 — concessão do convidado == tipos que a demonstração semeia'
     await setupPrisma.demoSeed.deleteMany({ where: { tenantId } });
     await setupPrisma.room.deleteMany({ where: { project: { tenantId } } });
     await setupPrisma.project.deleteMany({ where: { tenantId } });
+    await setupPrisma.user.deleteMany({ where: { tenantId } });
     await setupPrisma.tenant.deleteMany({ where: { id: tenantId } });
     await prisma.onModuleDestroy();
     await setupPrisma.$disconnect();
@@ -72,7 +81,7 @@ describe('#505 — concessão do convidado == tipos que a demonstração semeia'
       new ExpenseService(prisma, new ConciliacaoService(prisma)),
     );
 
-    await service.seedTenant(tenantId);
+    await service.seedTenant(tenantId, requester);
 
     const seeded = await setupPrisma.project.findMany({
       where: { tenantId, deletedAt: null },

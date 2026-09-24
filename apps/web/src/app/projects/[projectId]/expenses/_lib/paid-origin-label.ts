@@ -23,14 +23,18 @@ export function pickOriginForOccurrence(
   entry: ExpensePaidOrigin | undefined,
   occIndex: number,
 ): PaidOriginRef | null {
-  if (!entry) return null;
-  if (entry.via === 'settlement') {
-    const parcelaIndex = occIndex - 1;
-    const match = entry.parcelas.find((p) => p.parcelaIndex === parcelaIndex);
-    return match ? match.origin : null;
-  }
-  // rateio | link: uma única origem agregada, aplicada a todas as ocorrências.
-  return entry.origins[0] ?? null;
+  return pickOriginsForOccurrence(entry, occIndex)[0] ?? null;
+}
+
+export function pickOriginsForOccurrence(
+  entry: ExpensePaidOrigin | undefined,
+  occIndex: number,
+): PaidOriginRef[] {
+  if (!entry) return [];
+  const origins = entry.via === 'settlement'
+    ? entry.parcelas.filter((p) => p.parcelaIndex === occIndex - 1).map((p) => p.origin)
+    : entry.origins;
+  return Array.from(new Map(origins.map((origin) => [`${origin.kind}:${origin.last4}`, origin])).values());
 }
 
 /** Indexa a resposta do endpoint por expenseId; tolera resposta ausente. */

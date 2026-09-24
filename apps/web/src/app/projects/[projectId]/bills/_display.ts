@@ -1,6 +1,8 @@
 import type { ProjectType } from '@reformaflow/domain';
+import type { Expense } from '@/types';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { getExpenseOptions } from '../expenses/_types';
+import { expensePaymentTotals } from '../expenses/_lib/grouping-by-month';
 
 export const BILL_CATEGORIES = [
   { value: 'LUZ', label: 'Luz' },
@@ -69,7 +71,10 @@ export function getRecurringBillDisplay(bill: RecurringBillRow) {
   };
 }
 
-export interface AvulsaRow {
+export interface AvulsaRow extends Pick<Expense,
+  'installmentSettlements' | 'paidParcelas' | 'installmentDateOverrides' |
+  'recorrente' | 'recorrenciaFim'
+> {
   id: string;
   tipoDespesa: string;
   titulo?: string | null;
@@ -93,12 +98,21 @@ const AVULSA_STATUS_DISPLAY = {
     label: 'Pago',
     className: 'bg-green-100 text-green-700',
   },
-} as const satisfies Record<AvulsaRow['status'], object>;
+  PARTIAL: {
+    label: 'Parcial',
+    className: 'bg-amber-100 text-amber-700',
+  },
+} as const satisfies Record<AvulsaRow['status'] | 'PARTIAL', object>;
 
 export function getAvulsaDisplay(expense: AvulsaRow, projectType: ProjectType) {
   const referenceDate = expense.dataPagamento ?? expense.dataInicioParcela;
   const formattedDate = referenceDate ? formatDateBR(referenceDate) : '—';
-  const status = AVULSA_STATUS_DISPLAY[expense.status];
+  const summaries = expense.installmentSettlements;
+  const hasSummary = !!summaries?.length;
+  const totals = expensePaymentTotals(expense);
+  const status = AVULSA_STATUS_DISPLAY[hasSummary
+    ? totals.paid > 0 ? totals.remaining > 0 ? 'PARTIAL' : 'PAGO' : 'PLANEJADO'
+    : expense.status];
   return {
     source: expense,
     date: formattedDate === '-' ? '—' : formattedDate,
@@ -107,7 +121,14 @@ export function getAvulsaDisplay(expense: AvulsaRow, projectType: ProjectType) {
       getExpenseOptions(projectType).find(
         (option) => option.value === expense.tipoDespesa,
       )?.label ?? expense.tipoDespesa,
-    value: formatCurrency((expense.valorTotal ?? 0) / 100),
+    value: hasSummary
+      ? `Restante: ${formatCurrency(totals.remaining / 100)}`
+      : formatCurrency((expense.valorTotal ?? 0) / 100),
+    fundingDetails: summaries?.length ? [
+      `Contratado: ${formatCurrency(expense.valorTotal / 100)}`,
+      `Pago: ${formatCurrency(totals.paid / 100)}`,
+    ] : [],
+    hasFunding: !!expense.installmentSettlements?.some((summary) => summary.paidCents > 0),
     ...status,
   };
 }

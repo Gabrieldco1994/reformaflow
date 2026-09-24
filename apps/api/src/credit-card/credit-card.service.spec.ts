@@ -45,8 +45,10 @@ function makePrismaMock() {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     crossProjectSettlement: {
-      findUnique: jest.fn().mockResolvedValue(null),
-      upsert: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(0),
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -704,7 +706,10 @@ describe('CreditCardService', () => {
         return Promise.resolve(null);
       });
       // regen lê as liquidações do alvo
-      prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 10000 }]);
+      prisma.crossProjectSettlement.findMany.mockImplementation(
+        ({ where }: { where: { mode: string } }) =>
+          Promise.resolve(where.mode === 'ADDITIVE' ? [] : [{ parcelaIndex: 0, realValor: 10000 }]),
+      );
 
       prisma.expense.create.mockResolvedValueOnce({ id: 'src1' });
       const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
@@ -720,10 +725,26 @@ describe('CreditCardService', () => {
       expect(res.linked).toBe(1);
       expect(res.inserted).toBe(1);
       // núcleo: guardou snapshot do planejado (não sobrescreveu o alvo)
-      expect(prisma.crossProjectSettlement.upsert).toHaveBeenCalled();
-      const upsertArg = prisma.crossProjectSettlement.upsert.mock.calls[0][0];
-      expect(upsertArg.create.plannedValor).toBe(10000);
-      expect(upsertArg.create.realValor).toBe(10000);
+      expect(prisma.crossProjectSettlement.create).toHaveBeenCalledTimes(1);
+      expect(prisma.crossProjectSettlement.create).toHaveBeenCalledWith({
+        data: {
+          tenantId: 't1',
+          sourceExpenseId: 'src1',
+          targetExpenseId: 'tgt1',
+          parcelaIndex: 0,
+          plannedValor: 10000,
+          plannedStatus: 'PLANEJADO',
+          realValor: 10000,
+        },
+      });
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: 'src1' },
+        data: { linkedExpenseId: 'tgt1' },
+      });
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: 'tgt1' },
+        data: { status: 'PAGO', paidParcelas: null },
+      });
     });
 
     it('decision.link funciona com alvo parcelado (liquida só a parcela atual)', async () => {
@@ -748,7 +769,10 @@ describe('CreditCardService', () => {
         }
         return Promise.resolve(null);
       });
-      prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 10000 }]);
+      prisma.crossProjectSettlement.findMany.mockImplementation(
+        ({ where }: { where: { mode: string } }) =>
+          Promise.resolve(where.mode === 'ADDITIVE' ? [] : [{ parcelaIndex: 0, realValor: 10000 }]),
+      );
 
       prisma.expense.create.mockResolvedValueOnce({ id: 'src2' });
       const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
@@ -766,6 +790,17 @@ describe('CreditCardService', () => {
       const targetUpdate = prisma.expense.update.mock.calls.find((c: any[]) => c[0].where.id === 'tgt2');
       expect(targetUpdate[0].data.status).toBe('PLANEJADO');
       expect(targetUpdate[0].data.paidParcelas).toBe('[0]');
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: 'src2' },
+        data: { linkedExpenseId: 'tgt2' },
+      });
+      expect(prisma.cashFlowEntry.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({ expenseId: 'tgt2', parcela: '1/3', valor: 10000, status: 'PAGO' }),
+          expect.objectContaining({ expenseId: 'tgt2', parcela: '2/3', valor: 10000, status: 'PLANEJADO' }),
+          expect.objectContaining({ expenseId: 'tgt2', parcela: '3/3', valor: 10000, status: 'PLANEJADO' }),
+        ],
+      });
     });
 
     it('repassa createdByUserId para a Expense criada (KPI "despesas criadas" depende disso)', async () => {
@@ -841,7 +876,7 @@ describe('CreditCardService', () => {
       // findExistingExternalIds usa $queryRaw: simula duplicateId já existente.
       prisma.$queryRaw.mockResolvedValue([{ external_id: duplicateId }]);
       prisma.expense.create.mockClear();
-      prisma.crossProjectSettlement.upsert.mockClear();
+      prisma.crossProjectSettlement.create.mockClear();
 
       await expect(
         service.commitImport(
@@ -870,7 +905,7 @@ describe('CreditCardService', () => {
         ),
       ).resolves.toEqual(expect.objectContaining({ inserted: 0 }));
       expect(prisma.expense.create).not.toHaveBeenCalled();
-      expect(prisma.crossProjectSettlement.upsert).not.toHaveBeenCalled();
+      expect(prisma.crossProjectSettlement.create).not.toHaveBeenCalled();
     });
 
     it('bloqueia link hidden processável antes da primeira escrita', async () => {

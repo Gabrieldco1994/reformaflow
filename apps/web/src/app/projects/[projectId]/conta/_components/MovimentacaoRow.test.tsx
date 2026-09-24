@@ -83,6 +83,57 @@ describe('MovimentacaoRow — entrada', () => {
 });
 
 describe('MovimentacaoRow — saída', () => {
+  it.each([false, undefined])('#706 honors installment capability %s instead of offering legacy Quitar', (canExecuteAction) => {
+    const item = {
+      ...makeSaida({
+        id: 'target#0', foreignExpenseId: 'target', parcelaIndex: 0,
+        bankLast4: null, valor: 40_000,
+        projetoOrigem: { id: 'obra', name: 'Obra', type: 'REFORMA' },
+      }),
+      canExecuteAction,
+      installmentSettlement: {
+        contractedCents: 80_000, paidCents: 40_000, remainingCents: 40_000,
+        settlementStatus: 'PARTIAL' as const,
+      },
+    };
+    const props = renderRow({ item });
+    expect(screen.queryByRole('button', { name: 'Quitar' })).toBeNull();
+    expect(screen.getByText('Indisponível')).toBeInTheDocument();
+    expect(props.onQuitar).not.toHaveBeenCalled();
+  });
+
+  it('#706 keeps an unfunded sister eligible and forwards its server capability', () => {
+    const item = {
+      ...makeSaida({ id: 'target#1', foreignExpenseId: 'target', parcelaIndex: 1, valor: 80_000 }),
+      canExecuteAction: true,
+      installmentSettlement: {
+        contractedCents: 80_000, paidCents: 0, remainingCents: 80_000,
+        settlementStatus: 'UNPAID' as const,
+      },
+    };
+    const props = renderRow({ item });
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar' }));
+    expect(props.onQuitar).toHaveBeenCalledWith(expect.objectContaining({
+      foreignExpenseId: 'target', parcelaIndex: 1, canExecuteAction: true,
+      installmentSettlement: item.installmentSettlement,
+    }));
+  });
+
+  it('#706 does not reopen Quitar through the wallet chip on a paid foreign installment', () => {
+    const item = {
+      ...makeSaida({
+        id: 'target#0', foreignExpenseId: 'target', parcelaIndex: 0,
+        bankLast4: null, realizado: true, status: 'PAGO',
+        projetoOrigem: { id: 'obra', name: 'Obra', type: 'REFORMA' },
+      }),
+      canExecuteAction: false,
+    };
+    const props = renderRow({ item });
+    expect(screen.queryByRole('button', { name: 'Quitar' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Sem conta' }));
+    expect(props.onQuitar).not.toHaveBeenCalled();
+  });
+
   it('mostra status "A pagar" quando a saída ainda não foi realizada e alterna para pago', () => {
     const props = renderRow({ item: makeSaida({ realizado: false }) });
     const status = screen.getByRole('button', { name: /a pagar/i });

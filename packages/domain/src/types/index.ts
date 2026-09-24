@@ -8,6 +8,8 @@ import {
   CashFlowType,
   CashFlowStatus,
 } from '../enums';
+export * from './partial-settlement';
+import type { InstallmentSettlementSummary } from './partial-settlement';
 
 export interface Tenant {
   id: string;
@@ -67,6 +69,8 @@ export interface Receipt {
 // ─── Despesas ───────────────────────────────────────────────
 
 export interface Expense {
+  installmentSettlements?: InstallmentSettlementSummary[];
+  sourceAvailableCents?: number;
   id: string;
   projectId: string;
   tenantId: string;

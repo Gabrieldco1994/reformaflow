@@ -20,7 +20,7 @@ export class DemoService {
     private readonly expenses: ExpenseService,
   ) {}
 
-  async seedTenant(tenantId: string) {
+  async seedTenant(tenantId: string, requester: RateioRequester) {
     if (process.env['APP_MODE'] !== 'demo') {
       throw new NotFoundException();
     }
@@ -71,13 +71,6 @@ export class DemoService {
         name: 'Reforma (Demo)',
         description: 'Projeto de reforma seedado para demonstração',
       });
-      const requester: RateioRequester = {
-        role: 'OWNER',
-        allowedProjects: [pessoal.id, reforma.id],
-        allowedProjectTypes: ['PESSOAL', 'REFORMA'],
-        allowedModules: ['expenses'],
-      };
-
       await this.receipts.create(tenantId, pessoal.id, {
         valor: 12000,
         data: '2026-07-01',

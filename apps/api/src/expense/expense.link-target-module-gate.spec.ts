@@ -41,6 +41,7 @@ const REFORMA_TARGET = 'qa484-twin-reforma-target';
  * `expenses`. `allowedProjectTypes: []` é o legado "sem restrição por tipo".
  */
 const PLANTS_MODULE_REQUESTER: RateioRequester = {
+  id: 'qa484-twin-user',
   role: 'USER',
   allowedProjects: [],
   allowedProjectTypes: [],
@@ -48,6 +49,7 @@ const PLANTS_MODULE_REQUESTER: RateioRequester = {
 };
 
 const OWNER: RateioRequester = {
+  id: 'qa484-twin-owner',
   role: 'OWNER',
   allowedProjects: [],
   allowedProjectTypes: [],
@@ -68,6 +70,7 @@ describe('Expense × Conciliação: mesmo predicado para o mesmo recurso (#484 D
   const service = new ExpenseService(prisma, conciliacao);
 
   async function cleanupAll(): Promise<void> {
+    await setup.user.deleteMany({ where: { tenantId: TENANT } });
     await setup.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
     await setup.expense.deleteMany({ where: { tenantId: TENANT } });
     await setup.project.deleteMany({ where: { tenantId: TENANT } });
@@ -104,6 +107,15 @@ describe('Expense × Conciliação: mesmo predicado para o mesmo recurso (#484 D
     await prisma.onModuleInit();
     await cleanupAll();
     await setup.tenant.create({ data: { id: TENANT, name: 'QA 484 gêmeos' } });
+    await setup.user.createMany({
+      data: [PLANTS_MODULE_REQUESTER, OWNER].map((actor) => ({
+        id: actor.id, username: actor.id!, name: 'Synthetic ACL fixture',
+        tenantId: TENANT, role: actor.role,
+        allowedProjects: JSON.stringify(actor.allowedProjects),
+        allowedModules: JSON.stringify(actor.allowedModules),
+        allowedProjectTypes: JSON.stringify(actor.allowedProjectTypes),
+      })),
+    });
     await setup.project.createMany({
       data: [
         { id: PESSOAL, tenantId: TENANT, type: 'PESSOAL', name: 'Pessoal QA 484 gêmeos' },

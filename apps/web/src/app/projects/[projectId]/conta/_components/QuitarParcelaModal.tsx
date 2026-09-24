@@ -12,8 +12,10 @@ import { getExpenseOptions } from '../../expenses/_types';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
 import {
   buildEspelhoQuitacaoPayload,
+  foreignParcelaActionAllowed,
   type QuitacaoMeio,
 } from '../../expenses/_lib/quitarParcelaCross';
+import type { AccountViewSaida } from '../_types';
 
 interface TenantCard {
   id: string;
@@ -29,7 +31,7 @@ interface TenantAccount {
   last4?: string | null;
 }
 
-interface Props {
+interface Props extends Pick<AccountViewSaida, 'canExecuteAction' | 'installmentSettlement'> {
   projectId: string;
   foreignExpenseId: string;
   parcelaIndex: number;
@@ -63,6 +65,8 @@ export function QuitarParcelaModal({
   valorSugerido,
   descricao,
   dataSugerida,
+  canExecuteAction,
+  installmentSettlement,
   onClose,
   onDone,
 }: Props) {
@@ -91,6 +95,8 @@ export function QuitarParcelaModal({
   const [dataPagamento, setDataPagamento] = useState(dataSugerida);
   const [tipoDespesa, setTipoDespesa] = useState<string>(tipoOptions[0]?.value ?? '');
   const [erro, setErro] = useState<string | null>(null);
+  const actionAllowed = foreignParcelaActionAllowed({ canExecuteAction, installmentSettlement });
+  const blockedMessage = 'Quitação integral indisponível para esta parcela.';
 
   const meioOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [];
@@ -122,6 +128,7 @@ export function QuitarParcelaModal({
 
   const quitar = useMutation({
     mutationFn: async () => {
+      if (!actionAllowed) throw new Error(blockedMessage);
       const meio = parseMeio();
       if (!meio) throw new Error('Escolha a conta ou cartão de pagamento.');
       const valorCentavos = currencyInputToCents(valorReais);
@@ -226,9 +233,9 @@ export function QuitarParcelaModal({
           onChange={(e) => setDataPagamento(e.target.value)}
         />
 
-        {erro && (
+        {(erro || !actionAllowed) && (
           <p className="rounded-lg bg-[#FCEBE9] px-3 py-2 text-xs font-medium text-[#D92D20]">
-            {erro}
+            {erro || blockedMessage}
           </p>
         )}
 
@@ -236,14 +243,14 @@ export function QuitarParcelaModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm font-semibold text-lifeone-ink-3 hover:bg-lifeone-surface"
+            className="min-h-11 min-w-11 rounded-lg px-3 py-2 text-sm font-semibold text-lifeone-ink-3 hover:bg-lifeone-surface"
           >
             Cancelar
           </button>
           <button
             type="submit"
-            disabled={quitar.isPending}
-            className="rounded-lg bg-lifeone-blue px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-60"
+            disabled={quitar.isPending || !actionAllowed}
+            className="min-h-11 min-w-11 rounded-lg bg-lifeone-blue px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-60"
           >
             {quitar.isPending ? 'Quitando…' : 'Confirmar'}
           </button>

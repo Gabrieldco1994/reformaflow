@@ -151,20 +151,20 @@ function makeHarness() {
       findMany: jest.fn().mockResolvedValue([]),
     },
     crossProjectSettlement: {
-      findUnique: jest.fn(async ({ where }: any) => {
-        const k = `${where.targetExpenseId_parcelaIndex.targetExpenseId}|${where.targetExpenseId_parcelaIndex.parcelaIndex}`;
+      findFirst: jest.fn(async ({ where }: any) => {
+        const k = `${where.targetExpenseId}|${where.parcelaIndex}`;
         return settlements.get(k) ?? null;
       }),
-      upsert: jest.fn(async ({ where, create, update }: any) => {
-        const k = `${where.targetExpenseId_parcelaIndex.targetExpenseId}|${where.targetExpenseId_parcelaIndex.parcelaIndex}`;
-        const cur = settlements.get(k);
-        if (cur) Object.assign(cur, update);
-        else settlements.set(k, { ...create });
+      create: jest.fn(async ({ data }: any) => {
+        const k = `${data.targetExpenseId}|${data.parcelaIndex}`;
+        settlements.set(k, { id: k, mode: 'LEGACY_REPLACEMENT', ...data });
         return settlements.get(k);
       }),
+      update: jest.fn(async ({ where, data }: any) => Object.assign(settlements.get(where.id), data)),
       findMany: jest.fn(async ({ where }: any) =>
         [...settlements.values()].filter(
           (row) =>
+            (!where.mode || row.mode === where.mode) &&
             row.tenantId === where.tenantId &&
             (where.sourceExpenseId === undefined || row.sourceExpenseId === where.sourceExpenseId),
         ),
@@ -184,6 +184,7 @@ function makeHarness() {
       }),
       count: jest.fn(async ({ where }: any) =>
         [...settlements.values()].filter((row) => {
+          if (where.mode && row.mode !== where.mode) return false;
           if (where.OR) {
             return where.OR.some(
               (clause: any) =>
@@ -197,7 +198,6 @@ function makeHarness() {
           );
         }).length,
       ),
-      findFirst: jest.fn().mockResolvedValue(null),
     },
     cashFlowEntry: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),

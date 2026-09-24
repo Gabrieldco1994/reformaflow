@@ -25,6 +25,7 @@ const PROJECT = `${TENANT}-pessoal`;
 const OTHER_PROJECT = `${TENANT}-other`;
 const REQUESTER = {
   ...pessoalRequester(PROJECT),
+  id: `${TENANT}-user`,
   allowedProjects: [PROJECT, OTHER_PROJECT],
 };
 const setup = new PrismaClient();
@@ -53,12 +54,22 @@ describe("#695 completed card imports preserve original cash-flow metadata", () 
     await setup.$connect();
   });
   beforeEach(async () => {
+    await setup.user.deleteMany({ where: { tenantId: TENANT } });
     await setup.room.deleteMany({ where: { projectId: PROJECT } });
     await resetTenant(setup, TENANT);
     await seedPessoal(setup, {
       tenantId: TENANT,
       projectId: PROJECT,
       name: TENANT,
+    });
+    await setup.user.create({
+      data: {
+        id: REQUESTER.id, username: REQUESTER.id, name: "Synthetic ACL fixture",
+        tenantId: TENANT, role: REQUESTER.role,
+        allowedProjects: JSON.stringify(REQUESTER.allowedProjects),
+        allowedModules: JSON.stringify(REQUESTER.allowedModules),
+        allowedProjectTypes: JSON.stringify(REQUESTER.allowedProjectTypes),
+      },
     });
     ({ id: cardId } = await seedCardWithClosingDue(setup, {
       tenantId: TENANT,
@@ -68,6 +79,7 @@ describe("#695 completed card imports preserve original cash-flow metadata", () 
     }));
   });
   afterAll(async () => {
+    await setup.user.deleteMany({ where: { tenantId: TENANT } });
     await setup.room.deleteMany({ where: { projectId: PROJECT } });
     await resetTenant(setup, TENANT);
     await prisma.$disconnect();

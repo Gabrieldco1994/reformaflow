@@ -3,6 +3,12 @@ import { BadRequestException } from '@nestjs/common';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { ExpenseService } from './expense.service';
 import { withAclRequester } from '../test-utils/acl-requester-test-helper';
+import type { RateioRequester } from './rateio.types';
+
+jest.mock('../bank-account/inline-expenses', () => ({
+  ...jest.requireActual('../bank-account/inline-expenses'),
+  currentInlineRequester: jest.fn(async (_db: unknown, _tenantId: string, requester: RateioRequester) => requester),
+}));
 
 const TENANT_ID = 'tenant-1';
 const SOURCE_ID = 'source-1';
@@ -213,6 +219,7 @@ function makeHarness() {
     $transaction: jest.fn(async (work: any) =>
       typeof work === 'function' ? work(prisma) : Promise.all(work),
     ),
+    $executeRaw: jest.fn().mockResolvedValue(1),
   };
   const conciliacao = new ConciliacaoService(prisma);
   const service = withAclRequester(new ExpenseService(prisma, conciliacao), prisma);
