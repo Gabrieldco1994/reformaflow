@@ -5,6 +5,12 @@ import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { withAclRequester } from '../test-utils/acl-requester-test-helper';
+import type { RateioRequester } from './rateio.types';
+
+jest.mock('../bank-account/inline-expenses', () => ({
+  ...jest.requireActual('../bank-account/inline-expenses'),
+  currentInlineRequester: jest.fn(async (_db: unknown, _tenantId: string, requester: RateioRequester) => requester),
+}));
 
 type AnyFn = jest.Mock;
 
@@ -44,6 +50,7 @@ interface PrismaMock {
     findMany: AnyFn;
   };
   $transaction: AnyFn;
+  $executeRaw: AnyFn;
 }
 
 const makePrismaMock = (): PrismaMock => {
@@ -85,6 +92,7 @@ const makePrismaMock = (): PrismaMock => {
       findMany: jest.fn().mockResolvedValue([]),
     },
     $transaction: jest.fn(),
+    $executeRaw: jest.fn().mockResolvedValue(1),
   } as PrismaMock;
 
   // Default $transaction implementation: runs callback with the mock itself.

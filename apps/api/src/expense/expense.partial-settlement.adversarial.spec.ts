@@ -976,6 +976,10 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
     expect(
       results.filter((result) => result.status === "fulfilled"),
     ).toHaveLength(1);
+    for (const result of results) {
+      if (result.status === "rejected")
+        expect(result.reason).toMatchObject({ status: 409 });
+    }
     expect(
       results.find((result) => result.status === "rejected"),
     ).toMatchObject({ reason: { status: 409 } });
@@ -1879,6 +1883,409 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
         );
       },
     );
+  });
+
+  describe("#706 incoming ordinary links", () => {
+    const methods = ["create", "patch", "link"] as const;
+    type Method = (typeof methods)[number];
+    const incomingDto = (linkedExpenseId: string) => ({
+      tipoDespesa: "MAO_DE_OBRA",
+      valor: 10,
+      quantidade: 1,
+      formaPagamento: "A_VISTA",
+      status: "PLANEJADO",
+      dataPagamento: "2026-09-20",
+      linkedExpenseId,
+    });
+
+    function incoming(method: Method, destination = TARGET, source = SOURCE_C) {
+      const project = source === OTHER_TARGET ? TARGET_PROJECT : PESSOAL;
+      const path = `/projects/${project}/expenses`;
+      if (method === "create")
+        return http.post(path, { data: incomingDto(destination) });
+      if (method === "patch")
+        return http.patch(`${path}/${source}`, {
+          data: { linkedExpenseId: destination },
+        });
+      return http.post(`${path}/${source}/link`, {
+        data: { targetExpenseId: destination },
+      });
+    }
+
+    function incomingOn(method: Method, destination = TARGET) {
+      if (method === "create")
+        return expenses.create(
+          TENANT,
+          PESSOAL,
+          incomingDto(destination),
+          USER,
+          undefined,
+          REQUESTER,
+        );
+      if (method === "patch")
+        return expenses.update(
+          TENANT,
+          PESSOAL,
+          SOURCE_C,
+          { linkedExpenseId: destination },
+          REQUESTER,
+        );
+      return expenses.linkCrossProject(
+        TENANT,
+        PESSOAL,
+        SOURCE_C,
+        destination,
+        REQUESTER,
+      );
+    }
+
+    async function state() {
+      return {
+        financial: await snapshot(),
+        audit: await setup.userActivityLog.findMany({
+          where: { tenantId: TENANT },
+          orderBy: { id: "asc" },
+        }),
+        account: await monthly.getAccountView(
+          TENANT,
+          PESSOAL,
+          "2026-09",
+          REQUESTER,
+        ),
+      };
+    }
+
+    function pauseTransaction(client: PrismaService) {
+      let reached!: () => void;
+      let release!: () => void;
+      const arrived = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const transaction = client.$transaction.bind(client);
+      const spy = jest
+        .spyOn(client, "$transaction")
+        .mockImplementationOnce(
+          async (...args: Parameters<typeof client.$transaction>) => {
+            reached();
+            await gate;
+            return transaction(...args);
+          },
+        );
+      return { arrived, release, restore: () => spy.mockRestore() };
+    }
+
+    describe.each(methods)("%s", (method) => {
+      it.each(["target", "source"])(
+        "rejects an incoming link to an active funding %s without stranding either contribution",
+        async (participant) => {
+          const sources = await sourceSnapshot();
+          const a = await apply(SOURCE_A, 20_000, "incoming-a");
+          const b = await apply(SOURCE_B, 20_000, "incoming-b");
+          const before = await state();
+          const response = await incoming(
+            method,
+            participant === "target" ? TARGET : SOURCE_A,
+            participant === "target" ? SOURCE_C : OTHER_TARGET,
+          );
+          expect(response.status()).toBe(409);
+          expect(await state()).toEqual(before);
+          expect(await undo(SOURCE_A, a.settlementId)).toMatchObject({
+            paidCents: 20_000,
+            remainingCents: 60_000,
+            sourceAvailableCents: 50_000,
+          });
+          expect(await undo(SOURCE_B, b.settlementId)).toMatchObject({
+            paidCents: 0,
+            remainingCents: 80_000,
+            sourceAvailableCents: 50_000,
+          });
+          expect(await sourceSnapshot()).toEqual(sources);
+          expect(
+            await setup.cashFlowEntry.findUnique({
+              where: { id: `${TARGET}-cash` },
+            }),
+          ).toMatchObject({
+            valor: 80_000,
+            status: "PLANEJADO",
+            deletedAt: null,
+          });
+        },
+      );
+
+      it("allows ordinary links after every contribution is reversed", async () => {
+        const a = await apply();
+        await undo(SOURCE_A, a.settlementId);
+        const before = await setup.crossProjectSettlement.findMany({
+          where: { tenantId: TENANT },
+        });
+        expect((await incoming(method)).ok()).toBe(true);
+        expect(
+          await setup.crossProjectSettlement.findMany({
+            where: { tenantId: TENANT },
+          }),
+        ).toEqual(before);
+      });
+
+      it("reserves the writer before fresh ACL and destination participation, in the write transaction", async () => {
+        const reads: {
+          model?: string;
+          action: string;
+          inTransaction: boolean;
+        }[] = [];
+        let recording = true;
+        prisma.$use(async (params, next) => {
+          if (recording)
+            reads.push({
+              model: params.model,
+              action: params.action,
+              inTransaction: params.runInTransaction,
+            });
+          return next(params);
+        });
+        try {
+          await incomingOn(method);
+        } finally {
+          recording = false;
+        }
+        expect(reads[0]).toMatchObject({
+          action: "executeRaw",
+          inTransaction: true,
+        });
+        expect(reads[1]).toMatchObject({ model: "User", action: "findUnique" });
+        expect(
+          reads.some(
+            (read) =>
+              read.model === "CrossProjectSettlement" &&
+              read.action === "count",
+          ),
+        ).toBe(true);
+        expect(reads.every((read) => read.inTransaction)).toBe(true);
+      });
+
+      it("cannot commit both a simultaneous incoming link and funding", async () => {
+        const before = await snapshot();
+        const results = await Promise.allSettled([
+          incomingOn(method),
+          applyOn(secondExpenses, SOURCE_A, 20_000, "simultaneous-link"),
+        ]);
+        expect(
+          results.filter((result) => result.status === "fulfilled"),
+        ).toHaveLength(1);
+        if (results[1].status === "fulfilled") {
+          const after = await snapshot();
+          expect(after.expenses.filter((row) => row.id !== TARGET)).toEqual(
+            before.expenses.filter((row) => row.id !== TARGET),
+          );
+          expect(
+            after.entries.filter((row) => row.expenseId !== TARGET),
+          ).toEqual(before.entries.filter((row) => row.expenseId !== TARGET));
+          await undo(SOURCE_A, results[1].value.settlementId);
+        } else {
+          const after = await snapshot();
+          expect(after.settlements).toEqual(before.settlements);
+          expect(
+            after.entries.filter((row) => row.expenseId === TARGET),
+          ).toEqual(before.entries.filter((row) => row.expenseId === TARGET));
+          expect(
+            after.expenses.some((row) => row.linkedExpenseId === TARGET),
+          ).toBe(true);
+        }
+      });
+
+      it.each(["missing", "foreign", "hidden", "deleted project"])(
+        "keeps %s destination opaque before inspecting funding",
+        async (scenario) => {
+          await apply();
+          let destination = TARGET;
+          if (scenario === "missing") destination = "qa706-missing";
+          if (scenario === "foreign") {
+            destination = "qa706-foreign";
+            await setup.expense.create({
+              data: {
+                id: destination,
+                tenantId: FOREIGN_TENANT,
+                projectId: FOREIGN_PROJECT,
+                tipoDespesa: "OUTROS",
+                valor: 100,
+                quantidade: 1,
+                valorTotal: 100,
+                formaPagamento: "A_VISTA",
+                status: "PLANEJADO",
+              },
+            });
+          }
+          if (scenario === "hidden")
+            await setup.user.update({
+              where: { id: USER },
+              data: {
+                allowedProjects: JSON.stringify([PESSOAL, SECOND_PESSOAL]),
+              },
+            });
+          if (scenario === "deleted project")
+            await setup.project.update({
+              where: { id: TARGET_PROJECT },
+              data: { deletedAt: NOW },
+            });
+          const before = await snapshot();
+          const response = await incoming(method, destination);
+          expect(response.status()).toBe(400);
+          expect((await response.json()).message).toBe(
+            method === "link"
+              ? "Despesa alvo não encontrada"
+              : "Despesa vinculada não encontrada neste tenant",
+          );
+          expect(await snapshot()).toEqual(before);
+        },
+      );
+
+      it("rechecks funding committed while the link waits for its writer reservation", async () => {
+        const paused = pauseTransaction(prisma);
+        const pending = incomingOn(method);
+        try {
+          await paused.arrived;
+          const contribution = await applyOn(
+            secondExpenses,
+            SOURCE_A,
+            20_000,
+            "late-funding",
+          );
+          const before = await snapshot();
+          paused.release();
+          await expect(pending).rejects.toMatchObject({ status: 409 });
+          expect(await snapshot()).toEqual(before);
+          await undo(SOURCE_A, contribution.settlementId);
+        } finally {
+          paused.release();
+          paused.restore();
+        }
+      });
+
+      it("rechecks persisted destination ACL after acquiring the writer", async () => {
+        const paused = pauseTransaction(prisma);
+        const pending = incomingOn(method);
+        try {
+          await paused.arrived;
+          await setup.user.update({
+            where: { id: USER },
+            data: { allowedProjects: JSON.stringify([PESSOAL]) },
+          });
+          const before = await snapshot();
+          paused.release();
+          await expect(pending).rejects.toMatchObject({ status: 400 });
+          expect(await snapshot()).toEqual(before);
+        } finally {
+          paused.release();
+          paused.restore();
+        }
+      });
+
+      it("funding rejects a link committed before its writer reservation", async () => {
+        const paused = pauseTransaction(secondPrisma);
+        const pending = applyOn(secondExpenses, SOURCE_A, 20_000, "late-link");
+        try {
+          await paused.arrived;
+          expect((await incoming(method)).ok()).toBe(true);
+          const before = await snapshot();
+          paused.release();
+          await expect(pending).rejects.toMatchObject({ status: 409 });
+          expect(await snapshot()).toEqual(before);
+        } finally {
+          paused.release();
+          paused.restore();
+        }
+      });
+    });
+
+    it.each(["patch", "link"] as const)(
+      "rejects %s repoint without destroying the original unfunded link",
+      async (method) => {
+        expect((await incoming("link", OTHER_TARGET)).ok()).toBe(true);
+        const a = await apply();
+        const before = await state();
+        expect((await incoming(method)).status()).toBe(409);
+        expect(await state()).toEqual(before);
+        await undo(SOURCE_A, a.settlementId);
+      },
+    );
+
+    it.each(["create", "patch"] as const)(
+      "rolls back the caller-owned %s transaction on a funded destination",
+      async (method) => {
+        const a = await apply();
+        const before = await state();
+        await expect(
+          prisma.$transaction(async (tx) => {
+            await tx.expense.update({
+              where: { id: SOURCE_C },
+              data: { titulo: "Must roll back too" },
+            });
+            if (method === "create")
+              return expenses.create(
+                TENANT,
+                PESSOAL,
+                incomingDto(TARGET),
+                USER,
+                tx,
+                REQUESTER,
+              );
+            return expenses.update(
+              TENANT,
+              PESSOAL,
+              SOURCE_C,
+              {
+                linkedExpenseId: TARGET,
+              },
+              REQUESTER,
+              tx,
+            );
+          }),
+        ).rejects.toMatchObject({ status: 409 });
+        expect(await state()).toEqual(before);
+        await undo(SOURCE_A, a.settlementId);
+      },
+    );
+
+    it("keeps a valid same-target legacy sibling retry and metadata editable", async () => {
+      await expenses.update(
+        TENANT,
+        TARGET_PROJECT,
+        TARGET,
+        {
+          valor: 1600,
+          formaPagamento: "PARCELADO",
+          quantidadeParcela: 2,
+          dataInicioParcela: "2026-09-20",
+        },
+        REQUESTER,
+      );
+      const a = await apply();
+      await expenses.conciliarParcela(
+        TENANT,
+        PESSOAL,
+        SOURCE_C,
+        {
+          targetExpenseId: TARGET,
+          parcelaIndex: 1,
+        },
+        REQUESTER,
+      );
+      const before = await snapshot();
+      expect((await incoming("link")).ok()).toBe(true);
+      expect((await incoming("patch")).ok()).toBe(true);
+      const metadata = await http.patch(
+        `/projects/${TARGET_PROJECT}/expenses/${TARGET}`,
+        {
+          data: { titulo: "Updated metadata only" },
+        },
+      );
+      expect(metadata.ok()).toBe(true);
+      expect((await snapshot()).entries).toEqual(before.entries);
+      expect((await snapshot()).settlements).toEqual(before.settlements);
+      await undo(SOURCE_A, a.settlementId);
+    });
   });
 
   it("monthly marks only the additive paid target as a projection; bank outflow is unchanged", async () => {

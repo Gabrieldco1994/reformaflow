@@ -45,12 +45,13 @@ const HIDDEN = 'eacl-hidden';         // outro projeto do MESMO tenant, FORA do 
 const OTHER_TENANT_PROJECT = 'eacl-other-tenant-project';
 
 const MANAGED: RateioRequester = {
+  id: 'eacl-managed',
   role: 'USER',
   allowedProjects: [PESSOAL, ALLOWED],
   allowedProjectTypes: ['PESSOAL', 'REFORMA'],
   allowedModules: ['expenses'],
 };
-const ADMIN: RateioRequester = { role: 'ADMIN', allowedProjects: [], allowedProjectTypes: [], allowedModules: [] };
+const ADMIN: RateioRequester = { id: 'eacl-admin', role: 'ADMIN', allowedProjects: [], allowedProjectTypes: [], allowedModules: [] };
 
 async function cleanupTransient() {
   await setupPrisma.rateioAllocation.deleteMany({ where: { tenantId: { in: [TENANT, TENANT_OTHER] } } });
@@ -61,6 +62,7 @@ async function cleanupTransient() {
 
 async function cleanupAll() {
   await cleanupTransient();
+  await setupPrisma.user.deleteMany({ where: { tenantId: TENANT } });
   await setupPrisma.creditCard.deleteMany({ where: { tenantId: { in: [TENANT, TENANT_OTHER] } } });
   await setupPrisma.project.deleteMany({ where: { tenantId: { in: [TENANT, TENANT_OTHER] } } });
   await setupPrisma.tenant.deleteMany({ where: { id: { in: [TENANT, TENANT_OTHER] } } });
@@ -108,6 +110,15 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
         { id: HIDDEN, tenantId: TENANT, type: 'CASA', name: 'Casa oculta' },
         { id: OTHER_TENANT_PROJECT, tenantId: TENANT_OTHER, type: 'PESSOAL', name: 'Pessoal outro tenant' },
       ],
+    });
+    await setupPrisma.user.createMany({
+      data: [MANAGED, ADMIN].map((actor) => ({
+        id: actor.id, username: actor.id!, name: 'Synthetic ACL fixture',
+        tenantId: TENANT, role: actor.role,
+        allowedProjects: JSON.stringify(actor.allowedProjects),
+        allowedModules: JSON.stringify(actor.allowedModules),
+        allowedProjectTypes: JSON.stringify(actor.allowedProjectTypes),
+      })),
     });
     const card = await setupPrisma.creditCard.create({
       data: {

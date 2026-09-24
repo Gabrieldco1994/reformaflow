@@ -985,7 +985,11 @@ Gestão dos cartões de crédito.
   próprio caixa, sem reutilizar projeções aditivas desfeitas.
   Enquanto houver
   aporte ativo, desfaça-o antes de editar valores/datas, excluir participantes
-  ou desfazer sua importação. Esta entrega de API não implica um novo botão
+  ou desfazer sua importação. Criar ou reapontar um vínculo comum para uma fonte
+  ou um alvo com aporte ativo também é bloqueado, sem gravar despesas ou fluxos.
+  Repetir um vínculo válido já existente continua permitido; após desfazer todos
+  os aportes, vínculos comuns voltam a ser permitidos.
+  Esta entrega de API não implica um novo botão
   na interface nem corrige dados antigos automaticamente.
 - **Recuperação assistida de débito bancário excluído:** a API
   `POST /projects/:ownerProjectId/bank-accounts/:accountId/restore-imported-expenses`

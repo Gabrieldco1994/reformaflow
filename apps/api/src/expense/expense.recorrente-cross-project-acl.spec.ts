@@ -45,6 +45,7 @@ const HIDDEN = 'erec-hidden';           // outro projeto do MESMO tenant, FORA d
 const OTHER_TENANT_OBRA = 'erec-other-tenant-obra';
 
 const MANAGED: RateioRequester = {
+  id: 'erec-managed',
   role: 'USER',
   allowedProjects: [PESSOAL, ALLOWED],
   allowedProjectTypes: ['PESSOAL', 'REFORMA'],
@@ -58,6 +59,7 @@ async function cleanupTransient() {
 
 async function cleanupAll() {
   await cleanupTransient();
+  await setupPrisma.user.deleteMany({ where: { tenantId: TENANT } });
   await setupPrisma.project.deleteMany({ where: { tenantId: { in: [TENANT, TENANT_OTHER] } } });
   await setupPrisma.tenant.deleteMany({ where: { id: { in: [TENANT, TENANT_OTHER] } } });
 }
@@ -83,6 +85,15 @@ describe('ExpenseService.createRecorrente — child ACL do obraProjectId real DB
         { id: HIDDEN, tenantId: TENANT, type: 'CASA', name: 'Casa oculta' },
         { id: OTHER_TENANT_OBRA, tenantId: TENANT_OTHER, type: 'REFORMA', name: 'Obra de outro tenant' },
       ],
+    });
+    await setupPrisma.user.create({
+      data: {
+        id: MANAGED.id, username: MANAGED.id!, name: 'Synthetic ACL fixture',
+        tenantId: TENANT, role: MANAGED.role,
+        allowedProjects: JSON.stringify(MANAGED.allowedProjects),
+        allowedModules: JSON.stringify(MANAGED.allowedModules),
+        allowedProjectTypes: JSON.stringify(MANAGED.allowedProjectTypes),
+      },
     });
 
     service = new ExpenseService(prisma, new ConciliacaoService(prisma));

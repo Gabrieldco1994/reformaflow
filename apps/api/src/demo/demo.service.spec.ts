@@ -2,6 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { DemoService } from './demo.service';
 
 describe('DemoService', () => {
+  const requester = { id: 'demo-admin', role: 'ADMIN' };
   let prisma: any;
   let projects: any;
   let receipts: any;
@@ -27,7 +28,7 @@ describe('DemoService', () => {
   });
 
   it('bloqueia seed fora de APP_MODE=demo', async () => {
-    await expect(service.seedTenant('t1')).rejects.toBeInstanceOf(
+    await expect(service.seedTenant('t1', requester)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
@@ -41,7 +42,7 @@ describe('DemoService', () => {
       status: 'DONE',
     });
 
-    await expect(service.seedTenant('t1')).rejects.toBeInstanceOf(
+    await expect(service.seedTenant('t1', requester)).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
@@ -60,7 +61,7 @@ describe('DemoService', () => {
       .mockResolvedValueOnce({ id: 'e-espelho' });
     prisma.demoSeed.update.mockResolvedValue({ id: 's1', status: 'DONE' });
 
-    await expect(service.seedTenant('t1')).resolves.toEqual(
+    await expect(service.seedTenant('t1', requester)).resolves.toEqual(
       expect.objectContaining({
         ok: true,
         projects: { pessoalId: 'pessoal', reformaId: 'reforma' },
@@ -72,5 +73,6 @@ describe('DemoService', () => {
         data: expect.objectContaining({ status: 'DONE' }),
       }),
     );
+    expect(expenses.create.mock.calls[1][5]).toBe(requester);
   });
 });

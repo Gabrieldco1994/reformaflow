@@ -5,6 +5,12 @@ import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { withAclRequester } from '../test-utils/acl-requester-test-helper';
+import type { RateioRequester } from './rateio.types';
+
+jest.mock('../bank-account/inline-expenses', () => ({
+  ...jest.requireActual('../bank-account/inline-expenses'),
+  currentInlineRequester: jest.fn(async (_db: unknown, _tenantId: string, requester: RateioRequester) => requester),
+}));
 
 const tenantId = 'tenant-1';
 const projectId = 'pessoal-1';
@@ -16,6 +22,7 @@ const sourceRow = {
   formaPagamento: 'PARCELADO', quantidadeParcela: 10, status: 'PAGO',
 };
 const makePrismaMock = (rateioCount: number) => ({
+  $executeRaw: jest.fn().mockResolvedValue(1),
   project: {
     findFirst: jest
       .fn()
