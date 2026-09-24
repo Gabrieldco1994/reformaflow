@@ -1335,46 +1335,6 @@ it("SEC2: a fresh request uses the current plan after all funding is reversed an
   expect(await sourceSnapshot()).toEqual(before);
 });
 
-it.each([false, true])(
-  "throwing reads exclude retired CFEs after replanning (transaction: %s)",
-  async (inTransaction) => {
-    await expenses.update(
-      tenantId,
-      reforma,
-      targetId,
-      { valor: 1000, dataPagamento: "2026-10-20" },
-      requester,
-    );
-    const check = async (
-      client: Pick<PrismaService, "cashFlowEntry">,
-    ): Promise<void> => {
-      const where = { expenseId: targetId };
-      const live = await client.cashFlowEntry.findFirstOrThrow({ where });
-      expect(live).toEqual(await client.cashFlowEntry.findFirst({ where }));
-      expect(live).toMatchObject({
-        valor: 100000,
-        data: new Date("2026-10-20"),
-        deletedAt: null,
-      });
-      expect(
-        await client.cashFlowEntry.findFirstOrThrow({
-          where: { id: pendingId, deletedAt: { not: null } },
-        }),
-      ).toMatchObject({ id: pendingId, deletedAt: expect.any(Date) });
-      await expect(
-        client.cashFlowEntry.findFirstOrThrow({ where: { id: pendingId } }),
-      ).rejects.toMatchObject({ code: "P2025" });
-      expect(
-        await client.cashFlowEntry.findUniqueOrThrow({
-          where: { id: pendingId },
-        }),
-      ).toMatchObject({ id: pendingId, deletedAt: expect.any(Date) });
-    };
-    if (inTransaction) await prisma.$transaction(check);
-    else await check(prisma);
-  },
-);
-
 it.each([
   ["source", { dataCompra: "2026-09-12" }],
   ["target", { dataCompra: "2026-09-12" }],
