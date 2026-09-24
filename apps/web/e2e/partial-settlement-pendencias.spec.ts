@@ -40,17 +40,19 @@ for (const width of [375, 390, 1280]) {
     const item = {
       id: "partial",
       tipo: "PARCELA_FOREIGN_PENDENTE",
-      label: "Parcela parcialmente paga",
+      label: "Quitar parcela",
       descricao: "Parcela sintética",
       valor: 40_000,
       data: "2026-07-10T00:00:00.000Z",
       foreignExpenseId: "target",
       parcelaIndex: 0,
-      contractedCents: 80_000,
-      paidCents: 40_000,
-      remainingCents: 40_000,
-      settlementStatus: "PARTIAL",
-      actions: [],
+      installmentSettlement: {
+        contractedCents: 80_000,
+        paidCents: 40_000,
+        remainingCents: 40_000,
+        settlementStatus: "PARTIAL",
+      },
+      canExecuteAction: false,
     };
     const json = (body: unknown) => ({
       status: 200,
@@ -118,7 +120,7 @@ for (const width of [375, 390, 1280]) {
       if (path.endsWith("/pendencias/financeiras"))
         return route.fulfill(
           json({
-            total: 3,
+            total: 4,
             grupos: [
               {
                 tipo: item.tipo,
@@ -132,22 +134,39 @@ for (const width of [375, 390, 1280]) {
                     id: "large",
                     descricao: "Parcela extensa",
                     valor: 12_305_678,
-                    remainingCents: 12_305_678,
-                    contractedCents: 12_345_678,
+                    installmentSettlement: {
+                      ...item.installmentSettlement,
+                      remainingCents: 12_305_678,
+                      contractedCents: 12_345_678,
+                    },
                   },
                 ],
               },
               {
                 tipo: "SEM_CONTA",
                 label: "Sem conta",
-                count: 1,
-                valorTotal: 40_000,
+                count: 2,
+                valorTotal: 120_000,
                 itens: [
                   {
                     ...item,
                     id: "unlinked",
                     tipo: "SEM_CONTA",
                     descricao: "Parcela sem conta",
+                  },
+                  {
+                    ...item,
+                    id: "unapproved",
+                    tipo: "SEM_CONTA",
+                    descricao: "Parcela sem autorização",
+                    valor: 80_000,
+                    installmentSettlement: {
+                      ...item.installmentSettlement,
+                      paidCents: 0,
+                      remainingCents: 80_000,
+                      settlementStatus: "UNPAID",
+                    },
+                    canExecuteAction: undefined,
                   },
                 ],
               },
@@ -162,7 +181,9 @@ for (const width of [375, 390, 1280]) {
       exact: true,
     });
     await expect(resolver).toBeVisible();
-    expect((await resolver.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    const resolverBox = await resolver.boundingBox();
+    expect(resolverBox?.height).toBeGreaterThanOrEqual(44);
+    expect(resolverBox?.width).toBeGreaterThanOrEqual(44);
     await resolver.click();
     for (const name of ["Parcela sintética", "Parcela sem conta"]) {
       const row = page.getByRole("group", { name, exact: true });
@@ -178,6 +199,15 @@ for (const width of [375, 390, 1280]) {
       ).toBeVisible();
       await expect(row.getByRole("button")).toHaveCount(0);
     }
+    const unapproved = page.getByRole("group", {
+      name: "Parcela sem autorização",
+      exact: true,
+    });
+    await expect(
+      unapproved.getByText("Pendente", { exact: true }),
+    ).toBeVisible();
+    await expect(unapproved.getByText("Restante: R$ 800,00")).toBeVisible();
+    await expect(unapproved.getByRole("button")).toHaveCount(0);
     const large = page.getByRole("group", {
       name: "Parcela extensa",
       exact: true,
@@ -188,8 +218,10 @@ for (const width of [375, 390, 1280]) {
     expect(await large.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
       true,
     );
+    const money = large.getByText(/^(Restante|Contratado|Pago): R\$/);
+    await expect(money).toHaveCount(3);
     expect(
-      await large.locator(".whitespace-nowrap").evaluateAll((nodes) =>
+      await money.evaluateAll((nodes) =>
         nodes.every((node) => {
           const range = document.createRange();
           range.selectNodeContents(node);

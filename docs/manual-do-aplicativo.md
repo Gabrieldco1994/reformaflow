@@ -508,8 +508,9 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
     **Restante**, o valor **Contratado** e o **Pago**, conforme o servidor.
     Por exemplo: contratado R$ 800,00, pago R$ 400,00, restante R$ 400,00.
     Com contribuições ativas, a linha é informativa: não oferece a quitação
-    integral legada nem cria outro débito. Uma lista de ações vazia também
-    impede a execução; não é substituída por outro pagamento.
+    integral legada nem cria outro débito. Quando o servidor nega a execução
+    ou envia um resumo sem autorização explícita, a linha continua informativa.
+    Itens legados sem os novos campos mantêm suas ações e proteções anteriores.
   - **Pagamento de fatura sem cartão**: um pagamento de fatura que ficou sem cartão
     vinculado sai do seu caixa mas deixa a fatura em aberto — o mesmo dinheiro conta
     duas vezes. A fila é a única superfície que mostra esse item (ele é neutro, então

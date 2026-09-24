@@ -275,19 +275,19 @@ for (const width of [375, 390, 1280]) {
         (element) => element.scrollWidth <= element.clientWidth,
       ),
     ).toBe(true);
-    const moneyWraps = await section
-      .locator(".whitespace-nowrap")
-      .evaluateAll((nodes) =>
-        nodes.some((node) => {
-          const range = document.createRange();
-          range.selectNodeContents(node);
-          return (
-            new Set(
-              Array.from(range.getClientRects()).map((r) => Math.round(r.top)),
-            ).size > 1
-          );
-        }),
-      );
+    const money = section.locator("dl dd").filter({ hasText: /^R\$/ });
+    await expect(money).toHaveCount(3);
+    const moneyWraps = await money.evaluateAll((nodes) =>
+      nodes.some((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return (
+          new Set(
+            Array.from(range.getClientRects()).map((r) => Math.round(r.top)),
+          ).size > 1
+        );
+      }),
+    );
     expect(moneyWraps).toBe(false);
     await undo.click();
     await expect(section.getByRole("status")).toHaveText(

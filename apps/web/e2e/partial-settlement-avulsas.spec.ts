@@ -20,6 +20,7 @@ for (const projectType of ["CASA", "CARRO"]) {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       const writes: Array<{ method: string; path: string; body: unknown }> = [];
+      let rejectMetadata = true;
       const expense = {
         id: "contract",
         titulo: "Contrato sintético",
@@ -93,6 +94,15 @@ for (const projectType of ["CASA", "CARRO"]) {
             request.method() === "PATCH" &&
             path === "/projects/asset/expenses/contract"
           ) {
+            if (rejectMetadata) {
+              rejectMetadata = false;
+              return route.fulfill({
+                ...json({
+                  message: "Metadados não aceitos; revise e tente novamente.",
+                }),
+                status: 422,
+              });
+            }
             return route.fulfill(json(expense));
           }
           throw new Error(`Unexpected write: ${request.method()} ${path}`);
@@ -151,8 +161,10 @@ for (const projectType of ["CASA", "CARRO"]) {
       await expect(
         largeRow.getByText("Restante: R$ 123.056,78", { exact: true }),
       ).toBeVisible();
+      const money = largeRow.getByText(/^(Restante|Contratado|Pago): R\$/);
+      await expect(money).toHaveCount(3);
       expect(
-        await largeRow.locator(".whitespace-nowrap").evaluateAll((nodes) =>
+        await money.evaluateAll((nodes) =>
           nodes.every((node) => {
             const range = document.createRange();
             range.selectNodeContents(node);
@@ -191,21 +203,31 @@ for (const projectType of ["CASA", "CARRO"]) {
         await expect(page.locator(`[name="${name}"]`)).toBeDisabled();
       }
       await page.locator('input[name="titulo"]').fill("Título corrigido");
-      await page.getByRole("button", { name: "Salvar", exact: true }).click();
+      const save = page.getByRole("button", { name: "Salvar", exact: true });
+      const saveBox = await save.boundingBox();
+      expect(saveBox?.height).toBeGreaterThanOrEqual(44);
+      expect(saveBox?.width).toBeGreaterThanOrEqual(44);
+      await save.click();
+      await expect(
+        page.getByText("Metadados não aceitos; revise e tente novamente."),
+      ).toBeVisible();
+      await expect(page.locator('input[name="titulo"]')).toHaveValue(
+        "Título corrigido",
+      );
+      await save.click();
       await expect(
         page.getByRole("heading", { name: "Editar despesa avulsa" }),
       ).toHaveCount(0);
-      expect(writes).toEqual([
-        {
-          method: "PATCH",
-          path: "/projects/asset/expenses/contract",
-          body: {
-            titulo: "Título corrigido",
-            fornecedor: "Fornecedor sintético",
-            tipoDespesa: "OUTROS",
-          },
+      const metadataWrite = {
+        method: "PATCH",
+        path: "/projects/asset/expenses/contract",
+        body: {
+          titulo: "Título corrigido",
+          fornecedor: "Fornecedor sintético",
+          tipoDespesa: "OUTROS",
         },
-      ]);
+      };
+      expect(writes).toEqual([metadataWrite, metadataWrite]);
       expect(errors).toEqual([]);
     });
   }

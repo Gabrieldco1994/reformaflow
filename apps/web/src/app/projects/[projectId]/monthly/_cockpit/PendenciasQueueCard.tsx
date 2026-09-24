@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
-import type { FinancialItemCardV1 } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
@@ -36,9 +35,7 @@ type CardCandidate = {
   deltaCents: number;
 };
 
-type QueueItem = Partial<Pick<InstallmentSettlement,
-  'contractedCents' | 'paidCents' | 'remainingCents' | 'settlementStatus'
->> & {
+type QueueItem = {
   id: string;
   tipo: QueueType;
   label: string;
@@ -53,7 +50,11 @@ type QueueItem = Partial<Pick<InstallmentSettlement,
   parcelaIndex?: number;
   suggestionTipoDespesa?: string;
   cardCandidates?: CardCandidate[];
-  actions?: FinancialItemCardV1['actions'];
+  installmentSettlement?: Pick<
+    InstallmentSettlement,
+    "contractedCents" | "paidCents" | "remainingCents" | "settlementStatus"
+  >;
+  canExecuteAction?: boolean;
 };
 
 const SETTLEMENT_STATUS_LABELS: Record<InstallmentSettlement['settlementStatus'], string> = {
@@ -94,14 +95,18 @@ export function PendenciasQueueCard({
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [vincularExpenseId, setVincularExpenseId] = useState<string | null>(null);
+  const [vincularExpenseId, setVincularExpenseId] = useState<string | null>(
+    null,
+  );
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
-  const [associarReceita, setAssociarReceita] = useState<QueueItem | null>(null);
+  const [associarReceita, setAssociarReceita] = useState<QueueItem | null>(
+    null,
+  );
   const [categoriaItem, setCategoriaItem] = useState<QueueItem | null>(null);
-  const [categoriaEscolhida, setCategoriaEscolhida] = useState('');
+  const [categoriaEscolhida, setCategoriaEscolhida] = useState("");
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [cartaoItem, setCartaoItem] = useState<QueueItem | null>(null);
-  const [cartaoEscolhido, setCartaoEscolhido] = useState('');
+  const [cartaoEscolhido, setCartaoEscolhido] = useState("");
   const [quitar, setQuitar] = useState<{
     foreignExpenseId: string;
     parcelaIndex: number;
@@ -110,15 +115,21 @@ export function PendenciasQueueCard({
     data: string;
   } | null>(null);
 
-  const queueQueryKey = ['pendencias-financeiras', projectId, monthKey] as const;
+  const queueQueryKey = [
+    "pendencias-financeiras",
+    projectId,
+    monthKey,
+  ] as const;
   const { data, isLoading } = useQuery<QueueResponse>({
     queryKey: queueQueryKey,
     queryFn: async () => {
-      const raw = await api.get(`/projects/${projectId}/pendencias/financeiras?month=${monthKey}`);
+      const raw = await api.get(
+        `/projects/${projectId}/pendencias/financeiras?month=${monthKey}`,
+      );
       if (
         raw &&
-        typeof raw === 'object' &&
-        typeof (raw as { total?: unknown }).total === 'number' &&
+        typeof raw === "object" &&
+        typeof (raw as { total?: unknown }).total === "number" &&
         Array.isArray((raw as { grupos?: unknown }).grupos)
       ) {
         return raw as QueueResponse;
@@ -129,10 +140,16 @@ export function PendenciasQueueCard({
   });
 
   const { data: accountView } = useQuery<AccountViewResponse | null>({
-    queryKey: ['account-view', projectId, monthKey],
+    queryKey: ["account-view", projectId, monthKey],
     queryFn: async () => {
-      const raw = await api.get(`/projects/${projectId}/monthly-overview/account-view?month=${monthKey}`);
-      if (raw && typeof raw === 'object' && Array.isArray((raw as { cartoes?: unknown }).cartoes)) {
+      const raw = await api.get(
+        `/projects/${projectId}/monthly-overview/account-view?month=${monthKey}`,
+      );
+      if (
+        raw &&
+        typeof raw === "object" &&
+        Array.isArray((raw as { cartoes?: unknown }).cartoes)
+      ) {
         return raw as AccountViewResponse;
       }
       return null;
@@ -141,14 +158,22 @@ export function PendenciasQueueCard({
   });
 
   const { data: vincularExpense } = useQuery<Expense | null>({
-    queryKey: ['expense', projectId, vincularExpenseId],
-    queryFn: () => api.get(`/projects/${projectId}/expenses/${vincularExpenseId}`),
+    queryKey: ["expense", projectId, vincularExpenseId],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/expenses/${vincularExpenseId}`),
     enabled: vincularExpenseId != null,
   });
 
-  const { data: tenantCards } = useQuery<Array<{ id: string; last4: string; nickname?: string | null; brand?: string | null }>>({
-    queryKey: ['tenant', 'credit-cards'],
-    queryFn: () => api.get('/tenant/credit-cards'),
+  const { data: tenantCards } = useQuery<
+    Array<{
+      id: string;
+      last4: string;
+      nickname?: string | null;
+      brand?: string | null;
+    }>
+  >({
+    queryKey: ["tenant", "credit-cards"],
+    queryFn: () => api.get("/tenant/credit-cards"),
     enabled: cartaoItem != null,
   });
 
@@ -169,13 +194,19 @@ export function PendenciasQueueCard({
         id,
         label:
           `${candidate.nickname} · fatura ${candidate.dueMonth} ${formatCurrency(candidate.invoiceTotalCents / 100)}` +
-          (diff === 0 ? ' (valor exato)' : ` (dif. ${formatCurrency(diff / 100)})`),
+          (diff === 0
+            ? " (valor exato)"
+            : ` (dif. ${formatCurrency(diff / 100)})`),
       });
     }
     for (const card of cards) {
       if (seen.has(card.id)) continue;
       seen.add(card.id);
-      options.push({ id: card.id, label: card.nickname?.trim() || `${card.brand ?? 'Cartão'} ••${card.last4}` });
+      options.push({
+        id: card.id,
+        label:
+          card.nickname?.trim() || `${card.brand ?? "Cartão"} ••${card.last4}`,
+      });
     }
     return options;
   }, [tenantCards, cartaoItem]);
@@ -187,7 +218,7 @@ export function PendenciasQueueCard({
 
   /**
    * Motivo pelo qual a fila NÃO oferece a ação, ou `null` (oferece).
-   * Ações vazias e aportes ativos nunca caem na quitação legada.
+   * Resumo sem capacidade explícita e aportes ativos nunca caem na quitação legada.
    *
    * A fila é montada por `/pendencias`, que não conhece as capabilities da
    * fatura; quem conhece é a Visão Conta. Quando ela DIZ que aquele cartão não
@@ -198,21 +229,35 @@ export function PendenciasQueueCard({
    * do diálogo continua sendo a rede de segurança.
    */
   const queueItemBlockedReason = (item: QueueItem): string | null => {
-    if (item.settlementStatus === 'PARTIAL' || (item.foreignExpenseId && (item.paidCents ?? 0) > 0)) {
-      return 'Contribuições ativas — quitação integral indisponível.';
+    const summary = item.installmentSettlement;
+    if (
+      summary?.settlementStatus === "PARTIAL" ||
+      (item.foreignExpenseId && (summary?.paidCents ?? 0) > 0)
+    ) {
+      return "Contribuições ativas — quitação integral indisponível.";
     }
-    if (item.actions?.length === 0) return 'Nenhuma ação disponível para esta pendência.';
-    if (item.tipo !== 'FATURA_NAO_PAGA' || !item.cardLast4) return null;
-    const card = (accountView?.cartoes ?? []).find((c) => c.last4 === item.cardLast4);
+    if (
+      item.canExecuteAction === false ||
+      (summary && item.canExecuteAction !== true)
+    ) {
+      return "Nenhuma ação disponível para esta pendência.";
+    }
+    if (item.tipo !== "FATURA_NAO_PAGA" || !item.cardLast4) return null;
+    const card = (accountView?.cartoes ?? []).find(
+      (c) => c.last4 === item.cardLast4,
+    );
     if (!card) return null;
     return invoicePayBlockedReason(card);
   };
-  const categoriaOptions = useMemo(() => getExpenseOptions(projectType), [projectType]);
+  const categoriaOptions = useMemo(
+    () => getExpenseOptions(projectType),
+    [projectType],
+  );
 
   const refreshQueue = () => {
     queryClient.invalidateQueries({ queryKey: queueQueryKey });
-    queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
+    queryClient.invalidateQueries({ queryKey: ["expenses", projectId] });
+    queryClient.invalidateQueries({ queryKey: ["account-view", projectId] });
   };
 
   const reopenQueue = () => {
@@ -225,10 +270,12 @@ export function PendenciasQueueCard({
       await api.patch(`/projects/${projectId}/expenses/${payload.expenseId}`, {
         tipoDespesa: payload.previousTipoDespesa,
       });
-      await api.post('/merchant-categories/remove-rule', { merchant: payload.merchant });
+      await api.post("/merchant-categories/remove-rule", {
+        merchant: payload.merchant,
+      });
     },
     onSuccess: () => {
-      toast.success('Regra removida e categoria revertida');
+      toast.success("Regra removida e categoria revertida");
       refreshQueue();
     },
     onError: (error: Error) => {
@@ -245,16 +292,23 @@ export function PendenciasQueueCard({
       tipoDespesa: string;
     }): Promise<ConfirmUndoPayload> => {
       if (!item.expenseId || !tipoDespesa) {
-        throw new Error('Item sem dados para confirmação de categoria');
+        throw new Error("Item sem dados para confirmação de categoria");
       }
-      const expense = (await api.get(`/projects/${projectId}/expenses/${item.expenseId}`)) as {
+      const expense = (await api.get(
+        `/projects/${projectId}/expenses/${item.expenseId}`,
+      )) as {
         id: string;
         tipoDespesa?: string | null;
         fornecedor?: string | null;
         titulo?: string | null;
       };
-      const merchant = (expense.fornecedor ?? expense.titulo ?? item.descricao ?? '').trim();
-      const previousTipoDespesa = expense.tipoDespesa ?? 'OUTROS';
+      const merchant = (
+        expense.fornecedor ??
+        expense.titulo ??
+        item.descricao ??
+        ""
+      ).trim();
+      const previousTipoDespesa = expense.tipoDespesa ?? "OUTROS";
       // A categoria é o compromisso; a regra é conveniência. Mudar a categoria
       // vem primeiro e, se a regra não puder ser criada (tipo sem categoria de
       // merchant equivalente, fornecedor ausente, rede), NÃO se desfaz nem se
@@ -266,7 +320,7 @@ export function PendenciasQueueCard({
       let ruleCreated = false;
       if (merchant) {
         try {
-          const res = (await api.post('/merchant-categories/confirm-rule', {
+          const res = (await api.post("/merchant-categories/confirm-rule", {
             merchant,
             tipoDespesa,
           })) as { ruleCreated?: boolean } | null;
@@ -275,12 +329,17 @@ export function PendenciasQueueCard({
           ruleCreated = false;
         }
       }
-      return { expenseId: item.expenseId, previousTipoDespesa, merchant, ruleCreated };
+      return {
+        expenseId: item.expenseId,
+        previousTipoDespesa,
+        merchant,
+        ruleCreated,
+      };
     },
     onSuccess: (undoPayload, vars) => {
       refreshQueue();
       setCategoriaItem(null);
-      setCategoriaEscolhida('');
+      setCategoriaEscolhida("");
       const label = tipoLabel(vars.tipoDespesa);
       toast.success(
         undoPayload.ruleCreated
@@ -288,7 +347,7 @@ export function PendenciasQueueCard({
           : `Categoria alterada para ${label} — sem regra automática para esse tipo`,
         {
           action: {
-            label: 'Desfazer',
+            label: "Desfazer",
             onClick: () => undoCategoriaMutation.mutate(undoPayload),
           },
         },
@@ -300,13 +359,23 @@ export function PendenciasQueueCard({
   });
 
   const vincularCartaoMutation = useMutation({
-    mutationFn: async ({ expenseId, creditCardId }: { expenseId: string; creditCardId: string }) => {
-      await api.patch(`/projects/${projectId}/expenses/${expenseId}`, { creditCardId });
+    mutationFn: async ({
+      expenseId,
+      creditCardId,
+    }: {
+      expenseId: string;
+      creditCardId: string;
+    }) => {
+      await api.patch(`/projects/${projectId}/expenses/${expenseId}`, {
+        creditCardId,
+      });
     },
     onSuccess: () => {
-      toast.success('Pagamento vinculado ao cartão — a fatura já reflete a quitação');
+      toast.success(
+        "Pagamento vinculado ao cartão — a fatura já reflete a quitação",
+      );
       setCartaoItem(null);
-      setCartaoEscolhido('');
+      setCartaoEscolhido("");
       refreshQueue();
     },
     onError: (error: Error) => {
@@ -320,45 +389,8 @@ export function PendenciasQueueCard({
       toast.error(blockedReason);
       return;
     }
-    if (item.tipo === 'SEM_CONTA' && item.foreignExpenseId && item.parcelaIndex != null) {
-      setOpen(false);
-      setQuitar({
-        foreignExpenseId: item.foreignExpenseId,
-        parcelaIndex: item.parcelaIndex,
-        valor: item.valor,
-        descricao: item.descricao,
-        data: item.data.slice(0, 10),
-      });
-      return;
-    }
-    if (item.tipo === 'SEM_CONTA' && item.expenseId) {
-      setOpen(false);
-      setVincularExpenseId(item.expenseId);
-      return;
-    }
-    if (item.tipo === 'SEM_CATEGORIA' && item.expenseId) {
-      setOpen(false);
-      const defaultCategoria =
-        item.suggestionTipoDespesa && categoriaOptions.some((o) => o.value === item.suggestionTipoDespesa)
-          ? item.suggestionTipoDespesa
-          : (categoriaOptions[0]?.value ?? 'OUTROS');
-      setCategoriaEscolhida(defaultCategoria);
-      setCategoriaItem(item);
-      return;
-    }
-    if (item.tipo === 'PAGAMENTO_FATURA_SEM_CARTAO' && item.expenseId) {
-      setOpen(false);
-      setCartaoEscolhido('');
-      setCartaoItem(item);
-      return;
-    }
-    if (item.tipo === 'FATURA_NAO_PAGA' && item.cardLast4) {
-      setOpen(false);
-      setPayCardLast4(item.cardLast4);
-      return;
-    }
     if (
-      item.tipo === 'PARCELA_FOREIGN_PENDENTE' &&
+      item.tipo === "SEM_CONTA" &&
       item.foreignExpenseId &&
       item.parcelaIndex != null
     ) {
@@ -372,19 +404,61 @@ export function PendenciasQueueCard({
       });
       return;
     }
-    if (item.tipo === 'RECEBIMENTO_SEM_CONTA' && item.receiptId) {
+    if (item.tipo === "SEM_CONTA" && item.expenseId) {
+      setOpen(false);
+      setVincularExpenseId(item.expenseId);
+      return;
+    }
+    if (item.tipo === "SEM_CATEGORIA" && item.expenseId) {
+      setOpen(false);
+      const defaultCategoria =
+        item.suggestionTipoDespesa &&
+        categoriaOptions.some((o) => o.value === item.suggestionTipoDespesa)
+          ? item.suggestionTipoDespesa
+          : (categoriaOptions[0]?.value ?? "OUTROS");
+      setCategoriaEscolhida(defaultCategoria);
+      setCategoriaItem(item);
+      return;
+    }
+    if (item.tipo === "PAGAMENTO_FATURA_SEM_CARTAO" && item.expenseId) {
+      setOpen(false);
+      setCartaoEscolhido("");
+      setCartaoItem(item);
+      return;
+    }
+    if (item.tipo === "FATURA_NAO_PAGA" && item.cardLast4) {
+      setOpen(false);
+      setPayCardLast4(item.cardLast4);
+      return;
+    }
+    if (
+      item.tipo === "PARCELA_FOREIGN_PENDENTE" &&
+      item.foreignExpenseId &&
+      item.parcelaIndex != null
+    ) {
+      setOpen(false);
+      setQuitar({
+        foreignExpenseId: item.foreignExpenseId,
+        parcelaIndex: item.parcelaIndex,
+        valor: item.valor,
+        descricao: item.descricao,
+        data: item.data.slice(0, 10),
+      });
+      return;
+    }
+    if (item.tipo === "RECEBIMENTO_SEM_CONTA" && item.receiptId) {
       setOpen(false);
       setAssociarReceita(item);
       return;
     }
-    if (item.tipo === 'RECEBIMENTO_PREVISTO_ATRASADO' && item.receiptId) {
+    if (item.tipo === "RECEBIMENTO_PREVISTO_ATRASADO" && item.receiptId) {
       setOpen(false);
       setEditReceita({
         id: item.receiptId,
         valor: item.valor,
         data: item.data,
-        tipo: 'OUTROS',
-        status: 'PREVISTO',
+        tipo: "OUTROS",
+        status: "PREVISTO",
         descricao: item.descricao,
       });
     }
@@ -397,9 +471,12 @@ export function PendenciasQueueCard({
       <div className="mb-4 rounded-2xl border border-[#FEC84B]/50 bg-[#FFFAEB] p-3 text-[#B54708] md:mb-5 md:p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.15em]">Precisa de você</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em]">
+              Precisa de você
+            </p>
             <p className="text-sm font-semibold">
-              {data.total} pendência{data.total === 1 ? '' : 's'} financeira{data.total === 1 ? '' : 's'}
+              {data.total} pendência{data.total === 1 ? "" : "s"} financeira
+              {data.total === 1 ? "" : "s"}
             </p>
           </div>
           <button
@@ -413,58 +490,91 @@ export function PendenciasQueueCard({
         </div>
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Precisa de você" variant="sheet" size="sm">
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Precisa de você"
+        variant="sheet"
+        size="sm"
+      >
         <div className="space-y-4 pb-2">
           {data.grupos.map((group) => (
-            <section key={group.tipo} className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-3">
+            <section
+              key={group.tipo}
+              className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-3"
+            >
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-lifeone-ink">{group.label}</p>
+                <p className="text-sm font-semibold text-lifeone-ink">
+                  {group.label}
+                </p>
                 <p className="whitespace-nowrap text-[11px] font-medium text-lifeone-ink-3">
                   {group.count} · {formatCurrency(group.valorTotal / 100)}
                 </p>
               </div>
               <div className="space-y-2">
-                {group.itens.map((item) => (
-                  <div key={item.id} role="group" aria-label={item.descricao} className="rounded-lg border border-lifeone-hairline px-2.5 py-2">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-[13px] font-medium text-lifeone-ink">{item.descricao}</p>
-                        <p className="flex flex-wrap gap-x-2 text-[11px] text-lifeone-ink-3">
-                          <span className="whitespace-nowrap">
-                            {item.remainingCents !== undefined
-                              ? `Restante: ${formatCurrency(item.remainingCents / 100)}`
-                              : formatCurrency(item.valor / 100)}
+                {group.itens.map((item) => {
+                  const summary = item.installmentSettlement;
+                  const blockedReason = queueItemBlockedReason(item);
+                  return (
+                    <div
+                      key={item.id}
+                      role="group"
+                      aria-label={item.descricao}
+                      className="rounded-lg border border-lifeone-hairline px-2.5 py-2"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-medium text-lifeone-ink">
+                            {item.descricao}
+                          </p>
+                          <p className="flex flex-wrap gap-x-2 text-[11px] text-lifeone-ink-3">
+                            <span className="whitespace-nowrap">
+                              {summary
+                                ? `Restante: ${formatCurrency(summary.remainingCents / 100)}`
+                                : formatCurrency(item.valor / 100)}
+                            </span>
+                            <span>{formatDateBR(item.data)}</span>
+                          </p>
+                          {summary && (
+                            <p className="text-xs font-semibold text-lifeone-ink">
+                              {
+                                SETTLEMENT_STATUS_LABELS[
+                                  summary.settlementStatus
+                                ]
+                              }
+                            </p>
+                          )}
+                          <p className="flex flex-wrap gap-x-2 text-[11px] text-lifeone-ink-3">
+                            {summary && (
+                              <span className="whitespace-nowrap">
+                                Contratado:{" "}
+                                {formatCurrency(summary.contractedCents / 100)}
+                              </span>
+                            )}
+                            {summary && (
+                              <span className="whitespace-nowrap">
+                                Pago: {formatCurrency(summary.paidCents / 100)}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        {blockedReason ? (
+                          <span className="basis-full text-[11px] font-medium text-[#B54708]">
+                            {blockedReason}
                           </span>
-                          <span>{formatDateBR(item.data)}</span>
-                        </p>
-                        {item.settlementStatus && <p className="text-xs font-semibold text-lifeone-ink">
-                          {SETTLEMENT_STATUS_LABELS[item.settlementStatus]}
-                        </p>}
-                        <p className="flex flex-wrap gap-x-2 text-[11px] text-lifeone-ink-3">
-                          {item.contractedCents !== undefined && <span className="whitespace-nowrap">
-                            Contratado: {formatCurrency(item.contractedCents / 100)}
-                          </span>}
-                          {item.paidCents !== undefined && <span className="whitespace-nowrap">
-                            Pago: {formatCurrency(item.paidCents / 100)}
-                          </span>}
-                        </p>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleItemAction(item)}
+                            className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg border border-lifeone-hairline px-2 py-1 text-[11px] font-semibold text-lifeone-blue hover:border-lifeone-blue"
+                          >
+                            {item.label}
+                          </button>
+                        )}
                       </div>
-                      {queueItemBlockedReason(item) ? (
-                        <span className="basis-full text-[11px] font-medium text-[#B54708]">
-                          {queueItemBlockedReason(item)}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleItemAction(item)}
-                          className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg border border-lifeone-hairline px-2 py-1 text-[11px] font-semibold text-lifeone-blue hover:border-lifeone-blue"
-                        >
-                          {item.label}
-                        </button>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           ))}
@@ -475,7 +585,7 @@ export function PendenciasQueueCard({
         open={categoriaItem != null}
         onClose={() => {
           setCategoriaItem(null);
-          setCategoriaEscolhida('');
+          setCategoriaEscolhida("");
           reopenQueue();
         }}
         title="Escolher categoria"
@@ -485,18 +595,26 @@ export function PendenciasQueueCard({
         {categoriaItem && (
           <div className="space-y-3 pb-2">
             <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-3">
-              <p className="truncate text-[13px] font-medium text-lifeone-ink">{categoriaItem.descricao}</p>
+              <p className="truncate text-[13px] font-medium text-lifeone-ink">
+                {categoriaItem.descricao}
+              </p>
               <p className="text-[11px] text-lifeone-ink-3">
-                {formatCurrency(categoriaItem.valor / 100)} · {new Date(categoriaItem.data).toLocaleDateString('pt-BR')}
+                {formatCurrency(categoriaItem.valor / 100)} ·{" "}
+                {new Date(categoriaItem.data).toLocaleDateString("pt-BR")}
               </p>
             </div>
             {categoriaItem.suggestionTipoDespesa && (
               <p className="text-[11px] text-lifeone-ink-3">
-                Sugestão: <span className="font-semibold text-lifeone-ink">{tipoLabel(categoriaItem.suggestionTipoDespesa)}</span>
+                Sugestão:{" "}
+                <span className="font-semibold text-lifeone-ink">
+                  {tipoLabel(categoriaItem.suggestionTipoDespesa)}
+                </span>
               </p>
             )}
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-lifeone-ink-3">Categoria</span>
+              <span className="text-[11px] font-semibold text-lifeone-ink-3">
+                Categoria
+              </span>
               <select
                 value={categoriaEscolhida}
                 onChange={(e) => setCategoriaEscolhida(e.target.value)}
@@ -511,8 +629,15 @@ export function PendenciasQueueCard({
             </label>
             <button
               type="button"
-              disabled={!categoriaEscolhida || confirmCategoriaMutation.isPending}
-              onClick={() => confirmCategoriaMutation.mutate({ item: categoriaItem, tipoDespesa: categoriaEscolhida })}
+              disabled={
+                !categoriaEscolhida || confirmCategoriaMutation.isPending
+              }
+              onClick={() =>
+                confirmCategoriaMutation.mutate({
+                  item: categoriaItem,
+                  tipoDespesa: categoriaEscolhida,
+                })
+              }
               className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-lifeone-blue px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               Confirmar categoria
@@ -525,7 +650,7 @@ export function PendenciasQueueCard({
         open={cartaoItem != null}
         onClose={() => {
           setCartaoItem(null);
-          setCartaoEscolhido('');
+          setCartaoEscolhido("");
           reopenQueue();
         }}
         title="Qual cartão este pagamento quita?"
@@ -535,16 +660,22 @@ export function PendenciasQueueCard({
         {cartaoItem && (
           <div className="space-y-3 pb-2">
             <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-3">
-              <p className="truncate text-[13px] font-medium text-lifeone-ink">{cartaoItem.descricao}</p>
+              <p className="truncate text-[13px] font-medium text-lifeone-ink">
+                {cartaoItem.descricao}
+              </p>
               <p className="text-[11px] text-lifeone-ink-3">
-                {formatCurrency(cartaoItem.valor / 100)} · {new Date(cartaoItem.data).toLocaleDateString('pt-BR')}
+                {formatCurrency(cartaoItem.valor / 100)} ·{" "}
+                {new Date(cartaoItem.data).toLocaleDateString("pt-BR")}
               </p>
             </div>
             <p className="text-[11px] text-lifeone-ink-3">
-              Sem o cartão, esse valor sai do seu caixa mas a fatura continua em aberto — o mesmo dinheiro conta duas vezes.
+              Sem o cartão, esse valor sai do seu caixa mas a fatura continua em
+              aberto — o mesmo dinheiro conta duas vezes.
             </p>
             <label className="block space-y-1">
-              <span className="text-[11px] font-semibold text-lifeone-ink-3">Cartão</span>
+              <span className="text-[11px] font-semibold text-lifeone-ink-3">
+                Cartão
+              </span>
               <select
                 value={cartaoEscolhido}
                 onChange={(e) => setCartaoEscolhido(e.target.value)}
@@ -575,7 +706,8 @@ export function PendenciasQueueCard({
         )}
       </Modal>
 
-      <BulkLinkModal        open={vincularExpense != null}
+      <BulkLinkModal
+        open={vincularExpense != null}
         onClose={() => {
           setVincularExpenseId(null);
           reopenQueue();
