@@ -930,7 +930,7 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
       settlementStatus: "UNPAID",
     });
     const restored = await prisma.cashFlowEntry.findFirstOrThrow({
-      where: { id: original.id },
+      where: { id: original.id, deletedAt: null },
     });
     expect(restored).toEqual({ ...original, updatedAt: restored.updatedAt });
     const beforeRetry = await snapshot();
@@ -1150,7 +1150,7 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
     async (kind) => {
       const a = await apply();
       const projection = await prisma.cashFlowEntry.findFirstOrThrow({
-        where: { expenseId: TARGET, status: "PAGO" },
+        where: { expenseId: TARGET, status: "PAGO", deletedAt: null },
       });
       await setup.cashFlowEntry.update({
         where: {
@@ -1382,7 +1382,7 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
       );
       expect(edited.status()).toBe(200);
       const current = await prisma.cashFlowEntry.findFirstOrThrow({
-        where: { expenseId: TARGET },
+        where: { expenseId: TARGET, deletedAt: null },
       });
       const before = await snapshot();
       const replay = kind === "original reversed key";
@@ -1905,7 +1905,7 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
       REQUESTER,
     );
     const paid = await prisma.cashFlowEntry.findFirstOrThrow({
-      where: { expenseId: TARGET, status: "PAGO" },
+      where: { expenseId: TARGET, status: "PAGO", deletedAt: null },
     });
     expect(
       overview.entries.find((entry) => entry.id === paid.id),
