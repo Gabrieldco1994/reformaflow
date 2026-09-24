@@ -14,6 +14,7 @@ import CategoriasBarras from './CategoriasBarras';
 import CategoriaDespesasModal from './CategoriaDespesasModal';
 import ArvoreGastos from './ArvoreGastos';
 import type { Eixo } from './EixoToggle';
+import YearCarryIncomeRow from './YearCarryIncomeRow';
 
 const FluxoCaixaAnualChart = dynamic(() => import('./FluxoCaixaAnualChart'), {
   ssr: false,
@@ -84,7 +85,7 @@ export default function YearView({
           value={fmtMoney(y.receitaAno)}
           tone="pos"
           icon={<ArrowUpCircle className="w-4 h-4" />}
-          info={`Tudo que entra no ano de ${year} — inclui projeção (recebimentos previstos + realizados), consistente com o gráfico anual. Atenção: receitas futuras de ago–dez que você ainda não lançou não aparecem aqui, então o resultado projetado tende a parecer pior que a realidade.`}
+          info={`Recebimentos previstos + realizados de ${year} e o saldo projetado positivo do ano anterior, incluído automaticamente em janeiro. Essa entrada automática não é dinheiro recebido nem saldo bancário. Receitas futuras ainda não lançadas não aparecem aqui.`}
           context="realizado + previsto"
         />
         <KpiCard
@@ -100,7 +101,7 @@ export default function YearView({
           value={fmtMoney(y.resultadoAno)}
           tone={y.resultadoAno >= 0 ? 'pos' : 'neg'}
           icon={<Scale className="w-4 h-4" />}
-          info={`Receita − despesa do ano, incluindo projeção. É um CENÁRIO, não a foto de hoje: assume que todos os planejados até dezembro acontecem E que nenhuma receita nova de ago–dez foi lançada ainda — por isso costuma parecer mais negativo que a realidade. Para o resultado realizado (o que de fato aconteceu), veja o DRE. Sem neutros nem espelhos.`}
+          info={`Receita − despesa do ano, incluindo a entrada automática do saldo projetado positivo do ano anterior. O resultado positivo passa para janeiro do próximo ano; zero ou negativo não gera entrada. É um cenário, não saldo bancário. Para o resultado realizado, veja o DRE. Sem neutros nem espelhos.`}
           context="cenário projetado"
         />
         <KpiCard
@@ -112,6 +113,8 @@ export default function YearView({
           context="total do ano ÷ 12"
         />
       </div>
+
+      {y.carryEntry && <YearCarryIncomeRow entry={y.carryEntry} />}
 
       <Card
         title={(
@@ -144,7 +147,7 @@ export default function YearView({
         <FluxoCaixaAnualChart meses={y.meses} mode={fluxoMode} />
       </Card>
 
-      <Card title="Evolução do patrimônio" hint={`base: ${fmtMoney(y.patrimonioInicioAno)}`}>
+      <Card title="Evolução do resultado projetado" hint={`saldo projetado inicial: ${fmtMoney(y.patrimonioInicioAno)}`}>
         <EvolucaoPatrimonioChart meses={y.meses} />
       </Card>
 

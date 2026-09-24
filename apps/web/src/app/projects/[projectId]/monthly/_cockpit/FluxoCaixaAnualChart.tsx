@@ -20,7 +20,7 @@ export default function FluxoCaixaAnualChart({
   let acumuladaRealPlus = 0;
   const data = meses.map((m) => {
     acumuladaRealPlus += m.sobra / 100;
-    if (m.real) acumuladaReal += m.sobra / 100;
+    acumuladaReal += m.sobraRealizada / 100;
     return {
     label: m.label,
     receita: m.rec / 100,

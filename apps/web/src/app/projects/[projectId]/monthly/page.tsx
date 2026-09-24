@@ -12,12 +12,13 @@ import type { DreOverviewResponse } from "../dre/_types";
 import type { MetaProgress } from "../metas/_components/MetaCategoriaCard";
 import { mesLongo } from "./_cockpit/format";
 import { COCKPIT_THEME } from "./_cockpit/ui";
-import { anosDisponiveis, buildCaixaData, buildComprometimentoFuturo } from "./_cockpit/derive";
+import { anosDisponiveis, buildCaixaData, buildComprometimentoFuturo, deriveYear } from "./_cockpit/derive";
 import CockpitTop from "./_cockpit/CockpitTop";
 import MonthView from "./_cockpit/MonthView";
 import ComprometimentoFuturo from "./_cockpit/ComprometimentoFuturo";
 import ExtratoGeral from "./_cockpit/ExtratoGeral";
 import YearView from "./_cockpit/YearView";
+import YearCarryIncomeRow from "./_cockpit/YearCarryIncomeRow";
 import EixoToggle, { type Eixo } from "./_cockpit/EixoToggle";
 import SaldosWidget from "./_cockpit/SaldosWidget";
 import MobileCockpitHeader from "./_cockpit/MobileCockpitHeader";
@@ -56,6 +57,7 @@ export default function CockpitPage() {
 
   const selectMonth = useCallback((month: string | null) => {
     setSelectedMonth(month);
+    setSelectedYear(null);
     const next = new URLSearchParams(searchParams.toString());
     if (month) next.set("mes", month);
     else next.delete("mes");
@@ -86,6 +88,9 @@ export default function CockpitPage() {
     queryKey: ["monthly-overview", projectId, selectedMonth],
     queryFn: () => api.get(monthlyOverviewPath(projectId, selectedMonth)),
     enabled: !!projectId,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 
   // DRE mensal para série de runway mobile e progresso de metas.
@@ -126,22 +131,27 @@ export default function CockpitPage() {
   // Na visão ANO forçamos o eixo de caixa ("Vai sair") e escondemos o toggle —
   // é a leitura correta do ano (quando o dinheiro sai), sem confundir com competência.
   const effectiveEixo: Eixo = view === "ano" ? "caixa" : eixo;
-  const viewData = data
+  const cashData = data && !error ? buildCaixaData(data) : undefined;
+  const viewData = data && !error
     ? effectiveEixo === "caixa"
-      ? buildCaixaData(data)
+      ? cashData
       : data
     : undefined;
 
-  // Meses disponíveis (ordenados) para navegação na visão "Mês".
-  const mesesDisponiveis = viewData
-    ? viewData.meses.map((r) => r.mes).sort()
-    : [];
   const monthKey = selectedMonth ?? viewData?.mesAtual ?? "";
   const [yearStr, monthStr] = monthKey.split("-");
   const monthYear = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
   const month0 = monthStr ? parseInt(monthStr, 10) - 1 : new Date().getMonth();
-  const minMes = mesesDisponiveis[0] ?? monthKey;
-  const maxMes = mesesDisponiveis[mesesDisponiveis.length - 1] ?? monthKey;
+  const year = selectedYear ?? monthYear;
+  const anos = cashData ? anosDisponiveis(cashData, Math.max(year, monthYear)) : [year];
+  const minMes = `${anos[0]}-01`;
+  const maxMes = `${anos[anos.length - 1]}-12`;
+  const carryEntry = cashData && view === "mes" && month0 === 0
+    ? deriveYear(cashData, monthYear).carryEntry
+    : null;
+  const carryIncomeRow = carryEntry && !isLoading
+    ? <div className="mb-4"><YearCarryIncomeRow entry={carryEntry} /></div>
+    : null;
 
   const monthEntries = viewData?.entries
     ? viewData.entries.filter((e) => (e.data ?? "").slice(0, 7) === monthKey)
@@ -150,8 +160,12 @@ export default function CockpitPage() {
     ? buildComprometimentoFuturo(viewData, monthKey ?? viewData.mesAtual, 12, projectId)
     : [];
 
-  const anos = viewData ? anosDisponiveis(viewData) : [monthYear];
-  const year = selectedYear ?? monthYear;
+  const changeView = (next: View) => {
+    if (next === "mes" && view === "ano" && year !== monthYear) {
+      selectMonth(`${year}-01`);
+    }
+    setView(next);
+  };
 
   return (
     <div
@@ -169,7 +183,7 @@ export default function CockpitPage() {
           minMonth={minMes}
           maxMonth={maxMes}
           eixo={eixo}
-          onViewChange={setView}
+          onViewChange={changeView}
           onPreviousMonth={() => selectMonth(addMonthKey(monthKey, -1))}
           onNextMonth={() => selectMonth(addMonthKey(monthKey, 1))}
           onCurrentMonth={() => selectMonth(null)}
@@ -186,9 +200,11 @@ export default function CockpitPage() {
 
         {error && !isLoading && (
           <div className="rounded-xl border border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10 p-4 text-sm text-[var(--ck-neg)]">
-            Não foi possível carregar o cockpit. Tente novamente.
+            Não foi possível atualizar o cockpit e o saldo projetado do ano anterior. Tente novamente.
           </div>
         )}
+
+        {carryIncomeRow}
 
         {viewData &&
           !isLoading &&
@@ -313,6 +329,7 @@ export default function CockpitPage() {
             {view === "ano" && anos.length > 1 && (
               <select
                 value={year}
+                aria-label="Ano"
                 onChange={(e) => setSelectedYear(Number(e.target.value))}
                 className="bg-[var(--ck-surface-2)] border border-[var(--ck-border)] text-[var(--ck-text)] text-xs rounded-lg px-2 py-1.5 outline-none shrink-0"
               >
@@ -328,7 +345,7 @@ export default function CockpitPage() {
                 <button
                   key={v}
                   type="button"
-                  onClick={() => setView(v)}
+                  onClick={() => changeView(v)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                     view === v
                       ? "bg-[var(--ck-accent)] text-[#FFFFFF]"
@@ -404,9 +421,11 @@ export default function CockpitPage() {
 
         {error && !isLoading && (
           <div className="rounded-xl border border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10 p-4 text-sm text-[var(--ck-neg)]">
-            Não foi possível carregar o cockpit. Tente novamente.
+            Não foi possível atualizar o cockpit e o saldo projetado do ano anterior. Tente novamente.
           </div>
         )}
+
+        {carryIncomeRow}
 
         {viewData &&
           !isLoading &&

@@ -29,7 +29,7 @@ export default function EvolucaoPatrimonioChart({ meses }: { meses: MesAno[] }) 
             )}
           />
           <ReferenceLine y={0} stroke="#D92D20" strokeDasharray="3 3" />
-          <Area type="monotone" dataKey="patrimonio" name="Patrimônio" stroke="#1E924A" strokeWidth={2.5} fill="url(#ckPatrimonioFill)" dot={false} />
+          <Area type="monotone" dataKey="patrimonio" name="Resultado projetado" stroke="#1E924A" strokeWidth={2.5} fill="url(#ckPatrimonioFill)" dot={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>

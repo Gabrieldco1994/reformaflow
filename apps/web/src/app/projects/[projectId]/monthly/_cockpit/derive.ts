@@ -1,4 +1,5 @@
 import type { MonthlyOverviewResponse, MonthlyOverviewRow, MonthlyEntry } from '../_types';
+import type { AccountViewEntrada } from '../../conta/_types';
 import {
   caixaDateForCardPurchase,
   buildMonthlyOverview,
@@ -508,8 +509,17 @@ export interface MesAno {
   rec: number;
   desp: number;
   sobra: number;
+  sobraRealizada: number;
   real: boolean;
-  patrimonio: number; // acumulado ao fim do mês
+  patrimonio: number; // resultado projetado acumulado ao fim do mês
+}
+
+export interface YearCarryEntry extends AccountViewEntrada {
+  source: 'YEAR_SURPLUS';
+  sourceYear: number;
+  id: null;
+  bankLast4: null;
+  status: 'PREVISTO';
 }
 
 export interface YearDerived {
@@ -518,6 +528,7 @@ export interface YearDerived {
   receitaAno: number;
   despesaAno: number;
   resultadoAno: number;
+  carryEntry: YearCarryEntry | null;
   patrimonioInicioAno: number;
   patrimonioFimAno: number;
   crescimentoPatrimonioPct: number | null;
@@ -529,33 +540,36 @@ export interface YearDerived {
 const MESES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDerived {
-  // Agregação POR MÊS a partir das ENTRIES, excluindo espelho (dedup cross-project:
-  // o registro do projeto-alvo é o canônico) e neutros (pagamento de fatura /
-  // movimentação interna — senão a fatura DOBRA a despesa já contada nas compras).
-  // Semântica projetiva: rec/desp somam TODOS os status (previsto + realizado),
-  // coerente com o gráfico anual; o patrimônio parte do líquido REALIZADO antes do
-  // ano e acumula a sobra projetada (previsto + realizado) durante o ano.
-  const recAll = new Map<string, number>();
-  const despAll = new Map<string, number>();
-  const netRealizado = new Map<string, number>();
-  for (const e of data.entries ?? []) {
-    if (e.isEspelho || e.isSettlementProjection) continue;
-    if (entryIsConsumptionNeutral(e)) continue;
-    const mes = (e.data ?? '').slice(0, 7);
-    if (!mes) continue;
-    const real = isRealized(e.status);
-    if (e.tipo === 'RECEBIMENTO') {
-      recAll.set(mes, (recAll.get(mes) ?? 0) + e.valor);
-      if (real) netRealizado.set(mes, (netRealizado.get(mes) ?? 0) + e.valor);
-    } else {
-      despAll.set(mes, (despAll.get(mes) ?? 0) + e.valor);
-      if (real) netRealizado.set(mes, (netRealizado.get(mes) ?? 0) - e.valor);
-    }
+  // O chamador fornece o eixo de caixa. A mesma agregação de consumo mantém
+  // espelhos, neutros e projeções de quitação fora; entradas derivadas não são fonte.
+  const monthly = monthlyAggFromEntries(
+    (data.entries ?? []).filter((e) => !('source' in e && e.source === 'YEAR_SURPLUS')),
+  );
+  const rawNetByYear = new Map<number, number>();
+  for (const [mes, a] of monthly) {
+    const sourceYear = parseMesKey(mes).year;
+    if (sourceYear >= year) continue;
+    rawNetByYear.set(sourceYear, (rawNetByYear.get(sourceYear) ?? 0) + a.totalRec - a.totalDesp);
   }
 
-  const patrimonioInicioAno = Array.from(netRealizado.entries())
-    .filter(([mes]) => mes < `${year}-01`)
-    .reduce((s, [, v]) => s + v, 0);
+  let patrimonioInicioAno = 0;
+  // ponytail: anos vazios preservam o carry positivo; percorre só anos com fonte.
+  for (const sourceYear of Array.from(rawNetByYear.keys()).sort((a, b) => a - b)) {
+    patrimonioInicioAno = Math.max(0, patrimonioInicioAno + rawNetByYear.get(sourceYear)!);
+  }
+  const carryEntry: YearCarryEntry | null = patrimonioInicioAno > 0 ? {
+    source: 'YEAR_SURPLUS',
+    sourceYear: year - 1,
+    kind: 'entrada',
+    id: null,
+    bankLast4: null,
+    status: 'PREVISTO',
+    data: `${year}-01-01T00:00:00.000Z`,
+    tipo: 'OUTROS',
+    descricao: 'Saldo projetado do ano anterior',
+    purposeLabel: `Entrada automática · resultado de ${year - 1}`,
+    valor: patrimonioInicioAno,
+  } : null;
 
   const meses: MesAno[] = [];
   let patrimonio = patrimonioInicioAno;
@@ -563,10 +577,12 @@ export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDer
   let despesaAno = 0;
   for (let i = 0; i < 12; i++) {
     const key = `${year}-${String(i + 1).padStart(2, '0')}`;
-    const rec = recAll.get(key) ?? 0;
-    const desp = despAll.get(key) ?? 0;
+    const a = monthly.get(key);
+    const rawRec = a?.totalRec ?? 0;
+    const rec = rawRec + (i === 0 ? patrimonioInicioAno : 0);
+    const desp = a?.totalDesp ?? 0;
     const sobra = rec - desp;
-    patrimonio += sobra;
+    patrimonio += rawRec - desp; // carry já está na base, não somar duas vezes
     receitaAno += rec;
     despesaAno += desp;
     meses.push({
@@ -575,6 +591,7 @@ export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDer
       rec,
       desp,
       sobra,
+      sobraRealizada: (a?.recReal ?? 0) - (a?.despReal ?? 0),
       real: key < data.mesAtual,
       patrimonio,
     });
@@ -595,17 +612,28 @@ export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDer
     : null;
 
   return {
-    year, meses, receitaAno, despesaAno, resultadoAno,
+    year, meses, receitaAno, despesaAno, resultadoAno, carryEntry,
     patrimonioInicioAno, patrimonioFimAno, crescimentoPatrimonioPct,
     melhorMes, piorMes, sobraMedia,
   };
 }
 
-/** Anos disponíveis nos dados (para navegação futura). */
-export function anosDisponiveis(data: MonthlyOverviewResponse): number[] {
-  const set = new Set<number>();
-  for (const r of data.meses) set.add(parseMesKey(r.mes).year);
-  return Array.from(set).sort();
+/** Histórico completo, lacunas e uma próxima seleção — sem o limite da série mensal. */
+export function anosDisponiveis(data: MonthlyOverviewResponse, selectedYear?: number): number[] {
+  let first = parseMesKey(data.mesAtual).year;
+  let last = first;
+  for (const mes of [
+    ...data.meses.map((r) => r.mes),
+    ...(data.entries ?? []).map((e) => e.data),
+  ]) {
+    const year = parseMesKey(mes).year;
+    if (!Number.isFinite(year)) continue;
+    first = Math.min(first, year);
+    last = Math.max(last, year);
+  }
+  first = Math.min(first, selectedYear ?? first);
+  last = Math.max(last, selectedYear ?? last);
+  return Array.from({ length: last - first + 2 }, (_, i) => first + i);
 }
 
 // ───────────── Totais globais: caixa atual e saldo projetado ─────────────
