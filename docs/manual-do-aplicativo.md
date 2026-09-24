@@ -979,6 +979,28 @@ Gestão dos cartões de crédito.
   aporte ativo, desfaça-o antes de editar valores/datas, excluir participantes
   ou desfazer sua importação. Esta entrega de API não implica um novo botão
   na interface nem corrige dados antigos automaticamente.
+- **Recuperação assistida de débito bancário excluído:** a API
+  `POST /projects/:ownerProjectId/bank-accounts/:accountId/restore-imported-expenses`
+  recebe `{"mode":"preview","externalIds":["<identificador original>"]}` sem gravar.
+  Para confirmar, envie a mesma seleção com `"mode":"apply"` e
+  `"expectedFingerprint":"<fingerprint da prévia>"`. A seleção aceita de 1 a 50
+  identificadores únicos. A prévia informa os IDs originais, valor, data, status
+  e impacto no caixa da conta; nunca recebe substituições financeiras.
+  Restaura somente a despesa bancária paga e seu único lançamento da última
+  geração comprovada, preservando IDs, classificação, valor, data, origem e
+  identidade da importação. Gerações anteriores continuam excluídas. A conta
+  vem da importação original, inclusive quando o vínculo antigo da despesa é
+  nulo; finais de conta duplicados não substituem essa identidade.
+  Exige conta, projeto e importação ativos, acesso atual e ausência de outro
+  débito equivalente, vínculos, rateio, conciliação ou proveniência de quitação.
+  Um lote legado bloqueado para desfazer pode conter um débito elegível para
+  esta recuperação seletiva; os demais lançamentos do lote não são alterados.
+  A confirmação é atômica e auditada; dados ou permissões alterados exigem nova
+  prévia. Repetir a confirmação não cria outro débito nem reabre um lançamento
+  posteriormente substituído. Classificação e atribuição ao cartão, quando
+  comprovadas, são uma edição separada pela API de despesas existente: esta
+  recuperação não classifica, não reimporta, não quita faturas e não recupera
+  séries de cartão ou parcelas isoladas de uma série maior.
 - **Categoria sugerida na prévia:** cada linha já vem com uma categoria
   pré-selecionada e um chip discreto indicando a origem da sugestão — **"Regra"**
   (regra de categoria já cadastrada), **"IA"** (classificação automática) ou
