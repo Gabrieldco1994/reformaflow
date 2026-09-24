@@ -13,6 +13,7 @@ import { getExpenseOptions } from '../../expenses/_types';
 import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
 import { PagarFaturaDialog } from '../../conta/_components/PagarFaturaDialog';
 import { QuitarParcelaModal } from '../../conta/_components/QuitarParcelaModal';
+import { foreignParcelaActionAllowed } from '../../expenses/_lib/quitarParcelaCross';
 import { ReceitaModal, type ReceitaEditing } from '../../conta/_components/ReceitaModal';
 import { AssociarContaModal } from './AssociarContaModal';
 import { invoicePayBlockedReason } from '../../conta/_lib';
@@ -107,7 +108,7 @@ export function PendenciasQueueCard({
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [cartaoItem, setCartaoItem] = useState<QueueItem | null>(null);
   const [cartaoEscolhido, setCartaoEscolhido] = useState("");
-  const [quitar, setQuitar] = useState<{
+  const [quitar, setQuitar] = useState<Pick<QueueItem, 'canExecuteAction' | 'installmentSettlement'> & {
     foreignExpenseId: string;
     parcelaIndex: number;
     valor: number;
@@ -236,10 +237,7 @@ export function PendenciasQueueCard({
     ) {
       return "Contribuições ativas — quitação integral indisponível.";
     }
-    if (
-      item.canExecuteAction === false ||
-      (summary && item.canExecuteAction !== true)
-    ) {
+    if (!foreignParcelaActionAllowed(item)) {
       return "Nenhuma ação disponível para esta pendência.";
     }
     if (item.tipo !== "FATURA_NAO_PAGA" || !item.cardLast4) return null;
@@ -396,6 +394,8 @@ export function PendenciasQueueCard({
     ) {
       setOpen(false);
       setQuitar({
+        canExecuteAction: item.canExecuteAction,
+        installmentSettlement: item.installmentSettlement,
         foreignExpenseId: item.foreignExpenseId,
         parcelaIndex: item.parcelaIndex,
         valor: item.valor,
@@ -438,6 +438,8 @@ export function PendenciasQueueCard({
     ) {
       setOpen(false);
       setQuitar({
+        canExecuteAction: item.canExecuteAction,
+        installmentSettlement: item.installmentSettlement,
         foreignExpenseId: item.foreignExpenseId,
         parcelaIndex: item.parcelaIndex,
         valor: item.valor,
@@ -760,6 +762,8 @@ export function PendenciasQueueCard({
           valorSugerido={quitar.valor}
           descricao={quitar.descricao}
           dataSugerida={quitar.data}
+          canExecuteAction={quitar.canExecuteAction}
+          installmentSettlement={quitar.installmentSettlement}
           onDone={() => {
             setQuitar(null);
             reopenQueue();

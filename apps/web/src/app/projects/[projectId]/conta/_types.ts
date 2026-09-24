@@ -1,4 +1,5 @@
 import type { FinancialItemCardV1 } from '@reformaflow/domain';
+import type { InstallmentSettlement } from '@/types';
 
 export interface AccountViewCardSummary {
   /**
@@ -71,6 +72,11 @@ export interface AccountViewSaida {
   projetoOrigem: { id: string; name: string; type: string } | null;
   parcelaIndex?: number | null;
   foreignExpenseId?: string | null;
+  installmentSettlement?: Pick<InstallmentSettlement,
+    'contractedCents' | 'paidCents' | 'remainingCents' | 'settlementStatus'
+  >;
+  /** Per-occurrence server capability, independent of invoice actions and paid amounts. */
+  canExecuteAction?: boolean;
   suggestionTipoDespesa?: string | null;
   suggestionSource?: 'MANUAL' | 'AI' | 'REGEX' | 'CACHE' | null;
   /**

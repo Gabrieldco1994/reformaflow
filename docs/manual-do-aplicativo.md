@@ -967,6 +967,10 @@ Gestão dos cartões de crédito.
   desfazer todos os aportes, o resumo volta a `UNPAID` e a capacidade a `true`.
   Um resumo sem capacidade explícita não autoriza executar a ação; itens
   legados sem ambos os campos preservam seu comportamento e proteções.
+  Na Visão Conta, a parcela vetada mostra **Indisponível** no lugar de
+  **Quitar**, sem criar outro débito. Parcelas irmãs elegíveis continuam
+  quitáveis; se a capacidade mudar com o diálogo aberto, **Confirmar** fica
+  bloqueado antes de qualquer pagamento.
   O resumo também oferece parcelas elegíveis antes do primeiro aporte e irmãs
   ainda sem aportes, com índice local, vencimento e saldo canônicos. Uma lista
   `UNPAID` não significa pagamento existente; parcelas pagas por outra via,

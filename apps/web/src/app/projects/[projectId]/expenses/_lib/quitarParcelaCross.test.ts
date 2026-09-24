@@ -116,6 +116,21 @@ describe('expandPendingForeignParcelas', () => {
   it('lista vazia → []', () => {
     expect(expandPendingForeignParcelas([])).toEqual([]);
   });
+
+  it('#706 excludes vetoed installments without vetoing an eligible or legacy sister', () => {
+    const base = saida({ foreignExpenseId: 'target', parcelaIndex: 0 });
+    const summary: NonNullable<AccountViewSaida['installmentSettlement']> = {
+      contractedCents: 80_000, paidCents: 0, remainingCents: 80_000,
+      settlementStatus: 'UNPAID',
+    };
+    const result = expandPendingForeignParcelas([
+      { ...base, canExecuteAction: false },
+      { ...base, parcelaIndex: 1, installmentSettlement: summary },
+      { ...base, parcelaIndex: 2, installmentSettlement: summary, canExecuteAction: true },
+      { ...base, parcelaIndex: 3 },
+    ]);
+    expect(result.map((item) => item.parcelaIndex)).toEqual([2, 3]);
+  });
 });
 
 describe('buildEspelhoQuitacaoPayload', () => {
