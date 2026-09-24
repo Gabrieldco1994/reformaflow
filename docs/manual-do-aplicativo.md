@@ -527,6 +527,14 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
 
 Cada KPI tem um **botão de ajuda (ⓘ)** que explica o cálculo ao passar o mouse.
 
+**Previsão de janeiro (#707 — em implementação nesta branch; ainda não implantada):**
+a sobra positiva do ano anterior aparece na visão mensal de janeiro como uma
+linha automática de recebimento **PREVISTO**, somente leitura, inclusive quando
+janeiro não tem outros lançamentos. Não é dinheiro recebido: não aumenta o
+realizado de **Entrou em {mês}**, **Caixa hoje** nem altera **Sobra prevista** ou
+o gráfico operacional **Fluxo de caixa do mês**. O cálculo está descrito na
+**Visão Ano** abaixo.
+
 **Widget "Quanto gastei":**
 - Mostra **quanto foi gasto por cartão e por conta** no mês, respeitando o mês e o
   contexto da visão mensal de caixa (não aparece na aba Extrato).
@@ -556,8 +564,44 @@ Cada KPI tem um **botão de ajuda (ⓘ)** que explica o cálculo ao passar o mou
   lançamentos).
 
 **Visão Ano:**
-- **Resultado do ano**, **Taxa de poupança**, **Evolução do patrimônio**,
-  **Categorias do ano** e comparativos mês a mês.
+- KPIs: **Receita {ano}** (realizada + prevista), **Despesa {ano}** (realizada +
+  planejada), **Resultado do ano** (receita − despesa) e **Gasto médio mensal**
+  (despesas realizadas do ano ÷ 12); **Categorias do ano** e comparativos mensais.
+
+**Sobra anual automática — contrato aprovado #707, em implementação nesta branch;
+ainda não implantado:**
+- O fechamento positivo de um ano vira uma entrada **PREVISTO** em **1º de
+  janeiro** do seguinte. Aparece tanto na visão mensal de janeiro quanto na
+  visão anual e aumenta **Receita {ano}** e **Resultado do ano**; as barras
+  mensais do gráfico anual incluem essa entrada em janeiro.
+- A sobra é calculada desde o primeiro ano com lançamentos de origem, no mesmo
+  eixo **Caixa**, com os critérios de elegibilidade do Cockpit. `rawNet[y]` é a
+  soma dos recebimentos elegíveis menos as despesas elegíveis do próprio ano
+  (realizados e previstos/planejados), **sem usar as linhas automáticas como
+  entrada do cálculo**:
+  ```
+  carry[primeiro ano de origem] = 0
+  carry[y] = max(0, rawNet[y-1] + carry[y-1])
+  ```
+  A cadeia continua sem prazo final, inclusive por anos sem lançamentos
+  (`rawNet = 0`). Resultados negativos consomem a sobra; se o fechamento
+  (`rawNet + carry`) for zero ou negativo, não há entrada automática no ano
+  seguinte.
+- Exemplo hipotético: um ano fecha com **R$ 100** positivos; o seguinte recebe
+  **R$ 100** em janeiro e tem resultado próprio de **−R$ 60**, fechando com
+  **R$ 40**. O próximo recebe **R$ 40**; anos vazios seguintes preservam essa
+  sobra, sem multiplicá-la.
+- É uma linha derivada de exibição, com `id: null`: não cria um `Receipt` no
+  banco de dados, não tem conta vinculada e não permite **editar, excluir ou
+  marcar como recebido**. Não representa saldo bancário, **Carteira**,
+  **Caixa hoje** nem lançamento no **DRE**.
+- **Acumulada real** considera somente status realizados, nunca apenas a data
+  já ter passado; a sobra prevista fica fora dela. A curva passa a se chamar
+  **Evolução do resultado projetado**, em vez de **Evolução do patrimônio**, e
+  conta a sobra uma única vez, sem duplicá-la como saldo de abertura.
+- A navegação permite avançar para os próximos anos e abrir janeiro mesmo sem
+  outros lançamentos. Inclusões, edições e exclusões nas origens recalculam
+  toda a cadeia; ao voltar ao Cockpit, uma nova consulta atualiza os dados.
 
 ### 4.2 Visão Conta (`/conta`) — apenas PESSOAL
 Foca no **caixa real** da conta e nas **faturas de cartão**. Responde "quanto tenho
