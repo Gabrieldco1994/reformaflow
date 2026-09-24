@@ -10,6 +10,20 @@ Nota de planejamento #436 adicionada em: **2026-08-17**.
 
 **Atualizado em 2026-09-11:** #569 (undo exato de liquidação de fatura por importação de extrato) PR 1 e PR 2 **entregues** (branch `feat/569-pr2-import-undo`): `undoImport` reverte de verdade um lote `PROCESSED_SETTLED` via ledger; `getImportDetail` expõe `settlement[]` com estados `SETTLED_BY_IMPORT | NO_SETTLEMENT | OUTSIDE_SETTLEMENT_WINDOW | LEGACY_NO_TRAIL | DRIFT`. Legado sem trilha e lotes com drift continuam fail-closed por design (sem backfill). Detalhe em `docs/569-invoice-undo-design.md` e `docs/visao-conta-faturas.md §16.3`.
 
+**Atualizado em 2026-09-24 — #707:** sobra anual automática **em implementação
+nesta branch; ainda não implantada**. Contrato aprovado: fechamento positivo no
+eixo Caixa gera entrada **PREVISTO em 1º de janeiro**, visível no Mês/janeiro e
+no Ano, somada à Receita/Resultado anuais e às barras de janeiro do gráfico
+anual. A cadeia não expira em anos vazios; déficits consomem a sobra e
+fechamento ≤ 0 impede a entrada no ano seguinte. Linha derivada (`id: null`),
+somente leitura, sem `Receipt` persistido, conta ou ações de editar/excluir/receber;
+não afeta banco, Carteira, Caixa hoje, DRE, cards mensais de caixa nem o gráfico
+operacional do mês. **Acumulada real** usa apenas status realizados; **Evolução
+do resultado projetado** substitui o rótulo de patrimônio sem duplicar a sobra.
+Inclui navegação para anos futuros/janeiro vazio, recálculo após mudanças nas
+origens e nova consulta ao retornar ao Cockpit. Fórmula e exemplo hipotético no
+[manual, §4.1](manual-do-aplicativo.md#41-cockpit-monthly).
+
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
