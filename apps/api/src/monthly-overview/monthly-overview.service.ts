@@ -969,6 +969,7 @@ export class MonthlyOverviewService {
         e.status === 'PAGO' &&
         !isNeutralExpenseType(e.tipoDespesa) &&
         !rateioTargetIds.has(e.id) &&
+        !hasSettlements.has(e.id) &&
         (espelhosByForeignId.get(e.id) ?? []).length === 0;
       return pass;
     });
@@ -1249,7 +1250,8 @@ export class MonthlyOverviewService {
     //  - sem espelho → mantém o lump (valorTotal) na data de compra (comportamento legado).
     const foreignPendingItems: Array<any> = foreignExpenses
       .filter((expense) => {
-        if (expense.status === 'PAGO') return false;
+        if (expense.status === 'PAGO' && !hasSettlements.has(expense.id))
+          return false;
         if (expense.settledByExpenseId) return false;
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
         return true;
@@ -1295,13 +1297,12 @@ export class MonthlyOverviewService {
             dataPagamento: expense.dataPagamento,
             installmentDateOverrides: expense.installmentDateOverrides,
           });
-          let paidByOther: Set<number>;
-          try {
-            const parsed = JSON.parse(expense.paidParcelas ?? '[]');
-            paidByOther = new Set(Array.isArray(parsed) ? (parsed as number[]) : []);
-          } catch {
-            paidByOther = new Set<number>();
-          }
+          // Completed LEGACY roots clear paidParcelas; uncovered occurrences remain paid.
+          const paidByOther = new Set(
+            expense.status === 'PAGO'
+              ? perParcela.map((_, index) => index)
+              : parsePaidParcelas(expense.paidParcelas, perParcela.length),
+          );
           return perParcela.flatMap((parcela, index) => {
             // Parcela quitada cross-project → coberta pela fatura/espelho, não re-emite.
             if (parcelaOrigins.has(index)) return [];
@@ -1315,10 +1316,11 @@ export class MonthlyOverviewService {
             // Espelho PESSOAL manual em carteira representa o caixa com sua data
             // real; não duplicar a parcela planejada do alvo no mesmo mês (#309).
             if (paidHere && manualWalletMirrorTargetsThisMonth.has(expense.id)) return [];
-            // Determine origem based on the foreign expense origin
-            const itemOrigem = origin.origem === 'bank'
-              ? { tipo: 'conta' as const, bankLast4: origin.bankLast4 }
-              : { tipo: 'carteira' as const };
+            // A sibling's bank settlement is not this uncovered payment's origin.
+            const itemOrigem =
+              !paidHere && origin.origem === 'bank'
+                ? { tipo: 'conta' as const, bankLast4: origin.bankLast4 }
+                : { tipo: 'carteira' as const };
             return [
               {
                 id: `${expense.id}#${index}` as string | null,
@@ -1329,11 +1331,13 @@ export class MonthlyOverviewService {
                 valor: partial?.remainingCents ?? parcela.valor,
                 ...(partial
                   ? {
-                      contractedCents: partial.contractedCents,
-                      paidCents: partial.paidCents,
-                      remainingCents: partial.remainingCents,
-                      settlementStatus: partial.settlementStatus,
-                      ...(partial.paidCents > 0 ? { actions: [] } : {}),
+                      installmentSettlement: {
+                        contractedCents: partial.contractedCents,
+                        paidCents: partial.paidCents,
+                        remainingCents: partial.remainingCents,
+                        settlementStatus: partial.settlementStatus,
+                      },
+                      canExecuteAction: partial.paidCents === 0 && !paidHere,
                     }
                   : {}),
                 realizado: paidHere,

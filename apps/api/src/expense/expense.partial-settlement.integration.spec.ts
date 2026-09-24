@@ -230,11 +230,13 @@ describe("Pendencia partial-funding HTTP contract", () => {
           foreignExpenseId: targetId,
           parcelaIndex: 0,
           valor: 40000,
-          contractedCents: 80000,
-          paidCents: 40000,
-          remainingCents: 40000,
-          settlementStatus: "PARTIAL",
-          actions: [],
+          installmentSettlement: {
+            contractedCents: 80000,
+            paidCents: 40000,
+            remainingCents: 40000,
+            settlementStatus: "PARTIAL",
+          },
+          canExecuteAction: false,
           label: "Parcela parcialmente paga",
         },
       ],
@@ -277,7 +279,11 @@ describe("Pendencia partial-funding HTTP contract", () => {
     expect(
       (await queue()).grupos.find((g) => g.tipo === "PARCELA_FOREIGN_PENDENTE")
         ?.itens[0],
-    ).toMatchObject({ valor: 40000, settlementStatus: "PARTIAL", actions: [] });
+    ).toMatchObject({
+      valor: 40000,
+      installmentSettlement: { settlementStatus: "PARTIAL" },
+      canExecuteAction: false,
+    });
     expect(
       (
         await http.delete(`${path}/${first.settlementId}`, { headers })
@@ -288,10 +294,13 @@ describe("Pendencia partial-funding HTTP contract", () => {
     )?.itens[0];
     expect(unpaid).toMatchObject({
       valor: 80000,
-      contractedCents: 80000,
-      paidCents: 0,
-      remainingCents: 80000,
-      settlementStatus: "UNPAID",
+      installmentSettlement: {
+        contractedCents: 80000,
+        paidCents: 0,
+        remainingCents: 80000,
+        settlementStatus: "UNPAID",
+      },
+      canExecuteAction: true,
       label: "Quitar parcela",
     });
     expect(unpaid).not.toHaveProperty("actions");
@@ -329,20 +338,30 @@ describe("Pendencia partial-funding HTTP contract", () => {
     await apply("queue-mixed");
     const groups = (await queue()).grupos;
     for (const tipo of ["SEM_CONTA", "PARCELA_FOREIGN_PENDENTE"]) {
-      expect(
-        groups
-          .find((g) => g.tipo === tipo)
-          ?.itens.find((item) => item.foreignExpenseId === targetId),
-      ).toMatchObject({
+      const item = groups
+        .find((g) => g.tipo === tipo)
+        ?.itens.find((item) => item.foreignExpenseId === targetId);
+      expect(item).toMatchObject({
         parcelaIndex: 0,
         valor: 40000,
+        canExecuteAction: false,
+        label: "Parcela parcialmente paga",
+      });
+      expect(item).toHaveProperty("installmentSettlement", {
         contractedCents: 80000,
         paidCents: 40000,
         remainingCents: 40000,
         settlementStatus: "PARTIAL",
-        actions: [],
-        label: "Parcela parcialmente paga",
       });
+      for (const removed of [
+        "actions",
+        "contractedCents",
+        "paidCents",
+        "remainingCents",
+        "settlementStatus",
+      ]) {
+        expect(item).not.toHaveProperty(removed);
+      }
     }
     const sibling = (await queue("2026-10")).grupos.find(
       (g) => g.tipo === "PARCELA_FOREIGN_PENDENTE",
@@ -353,6 +372,8 @@ describe("Pendencia partial-funding HTTP contract", () => {
       label: "Quitar parcela",
     });
     expect(sibling).not.toHaveProperty("actions");
+    expect(sibling).not.toHaveProperty("installmentSettlement");
+    expect(sibling).not.toHaveProperty("canExecuteAction");
   });
 
   it("exposes only target-owned totals with a hidden contributor and rechecks queue visibility", async () => {
@@ -405,11 +426,13 @@ describe("Pendencia partial-funding HTTP contract", () => {
         ?.itens[0],
     ).toMatchObject({
       valor: 40000,
-      contractedCents: 80000,
-      paidCents: 40000,
-      remainingCents: 40000,
-      settlementStatus: "PARTIAL",
-      actions: [],
+      installmentSettlement: {
+        contractedCents: 80000,
+        paidCents: 40000,
+        remainingCents: 40000,
+        settlementStatus: "PARTIAL",
+      },
+      canExecuteAction: false,
     });
     for (const hidden of [
       hiddenProject,
@@ -1311,6 +1334,46 @@ it("SEC2: a fresh request uses the current plan after all funding is reversed an
   });
   expect(await sourceSnapshot()).toEqual(before);
 });
+
+it.each([false, true])(
+  "throwing reads exclude retired CFEs after replanning (transaction: %s)",
+  async (inTransaction) => {
+    await expenses.update(
+      tenantId,
+      reforma,
+      targetId,
+      { valor: 1000, dataPagamento: "2026-10-20" },
+      requester,
+    );
+    const check = async (
+      client: Pick<PrismaService, "cashFlowEntry">,
+    ): Promise<void> => {
+      const where = { expenseId: targetId };
+      const live = await client.cashFlowEntry.findFirstOrThrow({ where });
+      expect(live).toEqual(await client.cashFlowEntry.findFirst({ where }));
+      expect(live).toMatchObject({
+        valor: 100000,
+        data: new Date("2026-10-20"),
+        deletedAt: null,
+      });
+      expect(
+        await client.cashFlowEntry.findFirstOrThrow({
+          where: { id: pendingId, deletedAt: { not: null } },
+        }),
+      ).toMatchObject({ id: pendingId, deletedAt: expect.any(Date) });
+      await expect(
+        client.cashFlowEntry.findFirstOrThrow({ where: { id: pendingId } }),
+      ).rejects.toMatchObject({ code: "P2025" });
+      expect(
+        await client.cashFlowEntry.findUniqueOrThrow({
+          where: { id: pendingId },
+        }),
+      ).toMatchObject({ id: pendingId, deletedAt: expect.any(Date) });
+    };
+    if (inTransaction) await prisma.$transaction(check);
+    else await check(prisma);
+  },
+);
 
 it.each([
   ["source", { dataCompra: "2026-09-12" }],

@@ -1,7 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import {
   ExpenseType,
-  type FinancialItemCardV1,
   type InstallmentSettlementSummary,
 } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
@@ -46,12 +45,7 @@ type FinancialQueueType =
   | 'RECEBIMENTO_PREVISTO_ATRASADO'
   | 'RECEBIMENTO_SEM_CONTA';
 
-export interface FinancialQueueItem extends Partial<
-  Pick<
-    InstallmentSettlementSummary,
-    'contractedCents' | 'paidCents' | 'remainingCents' | 'settlementStatus'
-  >
-> {
+export interface FinancialQueueItem {
   id: string;
   tipo: FinancialQueueType;
   label: string;
@@ -66,8 +60,12 @@ export interface FinancialQueueItem extends Partial<
   parcelaIndex?: number;
   suggestionTipoDespesa?: string;
   cardCandidates?: CardInvoiceCandidate[];
-  /** Empty means no execution; omitted preserves the legacy queue action. */
-  actions?: FinancialItemCardV1['actions'];
+  installmentSettlement?: Pick<
+    InstallmentSettlementSummary,
+    'contractedCents' | 'paidCents' | 'remainingCents' | 'settlementStatus'
+  >;
+  /** A summary requires explicit true to offer the existing queue action. */
+  canExecuteAction?: boolean;
 }
 
 export interface FinancialQueueGroup {
@@ -202,26 +200,28 @@ export class PendenciaService {
         id: `sem-conta-${s.id}`,
         tipo: 'SEM_CONTA',
         label:
-          s.settlementStatus === 'PARTIAL'
+          s.installmentSettlement?.settlementStatus === 'PARTIAL'
             ? 'Parcela parcialmente paga'
             : s.foreignExpenseId && s.parcelaIndex != null
               ? 'Quitar parcela'
               : 'Vincular origem',
         descricao: s.descricao,
-        valor: s.valor,
+        valor: s.installmentSettlement?.remainingCents ?? s.valor,
         data: s.data,
         expenseId: s.id ?? undefined,
         foreignExpenseId: s.foreignExpenseId ?? undefined,
         parcelaIndex: s.parcelaIndex ?? undefined,
-        ...(s.settlementStatus != null
+        ...(s.installmentSettlement
           ? {
-              contractedCents: s.contractedCents,
-              paidCents: s.paidCents,
-              remainingCents: s.remainingCents,
-              settlementStatus: s.settlementStatus,
+              installmentSettlement: {
+                contractedCents: s.installmentSettlement.contractedCents,
+                paidCents: s.installmentSettlement.paidCents,
+                remainingCents: s.installmentSettlement.remainingCents,
+                settlementStatus: s.installmentSettlement.settlementStatus,
+              },
+              canExecuteAction: s.canExecuteAction === true,
             }
           : {}),
-        ...(s.actions !== undefined ? { actions: s.actions } : {}),
       }));
 
     const semCategoriaBase = accountView.saidas.filter(
@@ -324,24 +324,26 @@ export class PendenciaService {
         id: `foreign-${s.id}`,
         tipo: 'PARCELA_FOREIGN_PENDENTE',
         label:
-          s.settlementStatus === 'PARTIAL'
+          s.installmentSettlement?.settlementStatus === 'PARTIAL'
             ? 'Parcela parcialmente paga'
             : 'Quitar parcela',
         descricao: s.descricao,
-        valor: s.valor,
+        valor: s.installmentSettlement?.remainingCents ?? s.valor,
         data: s.data,
         expenseId: s.id ?? undefined,
         foreignExpenseId: s.foreignExpenseId ?? undefined,
         parcelaIndex: s.parcelaIndex ?? undefined,
-        ...(s.settlementStatus != null
+        ...(s.installmentSettlement
           ? {
-              contractedCents: s.contractedCents,
-              paidCents: s.paidCents,
-              remainingCents: s.remainingCents,
-              settlementStatus: s.settlementStatus,
+              installmentSettlement: {
+                contractedCents: s.installmentSettlement.contractedCents,
+                paidCents: s.installmentSettlement.paidCents,
+                remainingCents: s.installmentSettlement.remainingCents,
+                settlementStatus: s.installmentSettlement.settlementStatus,
+              },
+              canExecuteAction: s.canExecuteAction === true,
             }
           : {}),
-        ...(s.actions !== undefined ? { actions: s.actions } : {}),
       }));
 
     const recebimentosAtrasados: FinancialQueueItem[] = accountView.entradas

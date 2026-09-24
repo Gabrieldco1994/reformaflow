@@ -948,9 +948,10 @@ Gestão dos cartões de crédito.
   `requestId`. Aloca somente o valor informado à parcela de outro projeto,
   sem criar novo débito nem mudar o valor contratado. O saldo continua
   pendente; somente saldo zero marca a parcela como paga.
-  Na lente PESSOAL mensal e anual, a parcela coberta pelo aporte não vira outra
-  saída de Carteira quando o alvo fica pago: o débito bancário já representa
-  esse dinheiro. Parcelas irmãs pagas de fato em Carteira continuam no seu mês.
+  Na lente PESSOAL mensal e anual, a parcela coberta pelo aporte ou pela
+  quitação legada não vira outra saída de Carteira quando o alvo fica pago:
+  o débito bancário já representa esse dinheiro. Parcelas irmãs pagas de fato
+  em Carteira continuam no seu mês, inclusive quando todo o alvo fica pago.
   Repetições devem
   conservar a mesma chave. O DELETE da mesma rota com `/:settlementId`
   desfaz um aporte específico, não o pagamento bancário. Ao reconsultar, cada
@@ -958,11 +959,14 @@ Gestão dos cartões de crédito.
   rota de desfazer, inclusive quando o alvo já está pago e a fonte sem saldo
   disponível. Sem acesso a todos os participantes, a lista inteira é omitida.
   Na API de pendências financeiras, a parcela parcialmente paga mantém o
-  restante em `valor` e informa `contractedCents`, `paidCents`, `remainingCents`
-  e `settlementStatus: "PARTIAL"`, sem identificar contribuições ou fontes.
-  `actions: []` significa que a fila não pode executar a quitação legada,
-  que criaria outro débito. Depois de desfazer todos os aportes, o resumo
-  volta a `UNPAID`; a ausência de `actions` preserva a ação legada da fila.
+  restante em `valor` e informa `installmentSettlement`, contendo somente
+  `contractedCents`, `paidCents`, `remainingCents` e `settlementStatus: "PARTIAL"`,
+  sem identificar contribuições ou fontes. Com resumo, `canExecuteAction` é
+  sempre explícito: `false` impede a quitação legada, que criaria outro débito.
+  Isso vale também quando a parcela aparece no grupo `SEM_CONTA`. Depois de
+  desfazer todos os aportes, o resumo volta a `UNPAID` e a capacidade a `true`.
+  Um resumo sem capacidade explícita não autoriza executar a ação; itens
+  legados sem ambos os campos preservam seu comportamento e proteções.
   O resumo também oferece parcelas elegíveis antes do primeiro aporte e irmãs
   ainda sem aportes, com índice local, vencimento e saldo canônicos. Uma lista
   `UNPAID` não significa pagamento existente; parcelas pagas por outra via,

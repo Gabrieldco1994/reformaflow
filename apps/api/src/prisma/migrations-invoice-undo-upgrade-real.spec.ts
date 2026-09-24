@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import {
   makeBankAccountService,
@@ -69,7 +69,10 @@ const legacy = {
   receiptImported: "receipt-imported",
 };
 
-const REQUESTER = pessoalRequester(legacy.project);
+const REQUESTER = {
+  ...pessoalRequester(legacy.project),
+  allowedProjects: [legacy.project, legacy.projectB],
+};
 
 function assertSafeDatabaseUrl(url: string, expectedPath: string): void {
   expect(dbGuard.REPO_ROOT).toBe(REPO_ROOT);
@@ -580,7 +583,21 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
       expect(inline_expense_creations).toBeNull();
       return legacyImport;
     });
-    expect({ ...afterMigration, imports: legacyImports }).toEqual(beforeMigration);
+    expect({ ...afterMigration, imports: legacyImports }).toEqual({
+      ...beforeMigration,
+      settlements: beforeMigration.settlements.map((row) => ({
+        ...row,
+        mode: "LEGACY_REPLACEMENT",
+        request_id: null,
+        created_by_user_id: null,
+        reversed_at: null,
+        reversed_by_user_id: null,
+        snapshot: null,
+        source_cash_flow_entry_id: null,
+        target_paid_cash_flow_entry_id: null,
+        target_pending_cash_flow_entry_id: null,
+      })),
+    });
     expect(beforeMigration.projects).toHaveLength(2);
     expect(beforeMigration.expenses).toHaveLength(9);
     expect(beforeMigration.receipts).toHaveLength(2);
@@ -695,6 +712,17 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
 
   it("REAL PrismaService lê o lote legado no DB migrado e undoImport responde 409 sem uma única escrita", async () => {
     const before = await migratedFinancialSnapshot(db);
+    // Current participant ACL precedes the legacy-trail conflict.
+    await expect(
+      bank.undoImport(
+        legacy.tenant,
+        legacy.project,
+        legacy.account,
+        legacy.importLegacy,
+        pessoalRequester(legacy.project),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(await migratedFinancialSnapshot(db)).toEqual(before);
     const detail = await bank.getImportDetail(
       legacy.tenant,
       legacy.project,
