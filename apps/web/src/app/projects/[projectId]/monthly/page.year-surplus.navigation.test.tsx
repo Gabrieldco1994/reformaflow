@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import type MobileCockpitHeader from "./_cockpit/MobileCockpitHeader";
 import type YearView from "./_cockpit/YearView";
 import type MonthView from "./_cockpit/MonthView";
+import type YearCarryIncomeRow from "./_cockpit/YearCarryIncomeRow";
 import type { MonthlyOverviewResponse } from "./_types";
 import CockpitPage from "./page";
 
@@ -19,6 +20,7 @@ const probes = vi.hoisted(() => ({
   header: vi.fn(),
   year: vi.fn(),
   month: vi.fn(),
+  carry: vi.fn(),
   replace: vi.fn(),
   search: new URLSearchParams(),
 }));
@@ -67,6 +69,16 @@ vi.mock("./_cockpit/MonthView", () => ({
     return null;
   },
 }));
+vi.mock("./_cockpit/YearCarryIncomeRow", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_cockpit/YearCarryIncomeRow")>();
+  return {
+    default: (props: ComponentProps<typeof YearCarryIncomeRow>) => {
+      probes.carry(props.entry);
+      return <actual.default {...props} />;
+    },
+  };
+});
 vi.mock("./_cockpit/MobileMonthCockpit", () => ({ default: () => null }));
 vi.mock("./_cockpit/ExtratoGeral", () => ({ default: () => null }));
 vi.mock("./_cockpit/CockpitTop", () => ({ default: () => null }));
@@ -148,6 +160,82 @@ function renderPage() {
 }
 
 describe("#707 actual cockpit future navigation", () => {
+  it("refetches on return within the global 60-second cache and replaces January carry after a source edit", async () => {
+    data.mesAtual = "2030-01";
+    const initial = renderPage();
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+    expect(probes.carry.mock.lastCall![0]).toMatchObject({
+      sourceYear: 2029,
+      valor: 10_001,
+      status: "PREVISTO",
+    });
+    initial.unmount();
+
+    data = {
+      ...data,
+      entries: [{ ...data.entries![0]!, valor: 4_001 }],
+    };
+    vi.setSystemTime(new Date("2029-12-24T12:00:01.000Z"));
+    vi.mocked(api.get).mockClear();
+    renderPage();
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        "/projects/pessoal-a/monthly-overview",
+      );
+      expect(probes.carry.mock.lastCall![0]).toMatchObject({
+        sourceYear: 2029,
+        valor: 4_001,
+        status: "PREVISTO",
+        id: null,
+        bankLast4: null,
+      });
+    });
+    expect(
+      client.getQueryData(["monthly-overview", "pessoal-a", null]),
+    ).toEqual(data);
+    for (const write of [api.post, api.patch, api.put, api.delete]) {
+      expect(write).not.toHaveBeenCalled();
+    }
+  });
+
+  it("keeps January carry on the cash axis when the monthly view changes to Extrato", () => {
+    data.mesAtual = "2030-01";
+    data.cards = [
+      { last4: "1234", nickname: "Card", closingDay: 20, dueDay: 25 },
+    ];
+    data.entries!.push({
+      ...data.entries![0]!,
+      id: "card-on-close",
+      data: "2029-12-20T00:00:00.000Z",
+      tipo: "DESPESA",
+      status: "PLANEJADO",
+      valor: 3_000,
+      cardLast4: "1234",
+    });
+    const snapshot = structuredClone(data);
+    renderPage();
+    expect(probes.carry.mock.lastCall![0]).toMatchObject({
+      sourceYear: 2029,
+      valor: 10_001,
+      data: "2030-01-01T00:00:00.000Z",
+    });
+    probes.carry.mockClear();
+    fireEvent.click(screen.getAllByRole("button", { name: "Extrato" })[0]!);
+    expect(probes.carry.mock.lastCall![0]).toMatchObject({
+      sourceYear: 2029,
+      valor: 10_001,
+      data: "2030-01-01T00:00:00.000Z",
+    });
+    expect(data).toEqual(snapshot);
+    expect(
+      client.getQueryData(["monthly-overview", "pessoal-a", null]),
+    ).toEqual(snapshot);
+    for (const write of [api.post, api.patch, api.put, api.delete]) {
+      expect(write).not.toHaveBeenCalled();
+    }
+  });
+
   it.each([
     { branch: "mobile", index: 0 },
     { branch: "desktop", index: 1 },
