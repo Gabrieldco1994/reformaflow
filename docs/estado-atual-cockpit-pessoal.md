@@ -33,8 +33,8 @@ com implementação de produto/runtime não iniciada para a maioria das ondas. *
 ([#447](https://github.com/Gabrieldco1994/reformaflow/issues/447)) foi **entregue via PR #476**
 (produção). A primeira fatia de **B1**
 ([#448](https://github.com/Gabrieldco1994/reformaflow/issues/448), B1a) está implementada nesta
-PR e **pendente de merge**; após o merge a sequência obrigatória é W1, B1b e depois B2. Somente
-a baseline determinística test-only S0.3
+PR e **pendente de merge**; após o merge a sequência obrigatória é W1, B1b e depois B2. No
+snapshot original desta seção, somente a baseline determinística test-only S0.3
 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) está também autorizada e pode
 estar em andamento; ela não altera esta tela nem os contratos abaixo.
 
@@ -52,7 +52,14 @@ estar em andamento; ela não altera esta tela nem os contratos abaixo.
   `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (padrão desabilitado); ativação em produção não
   verificada. #456 permanece OPEN para o restante do escopo; `upcoming`/`top-suppliers` (#635) é
   follow-up separado.
-- Maria agent-first (E5/M0–M3) é FUTURO e exige novo PO gate.
+- Maria agent-first integral permanece FUTURO. **Em 2026-09-28, novo gate PO autorizou
+  somente o recorte de importação M1/M2 — NÃO ENTREGUE**, com consentimento documental
+  separado de **Confirmar lote**, card por revisão e retenção de sete dias sem edição.
+  Security PASS é conceitual; **seis gaps técnicos continuam pendentes com architect**.
+  O contrato prospectivo deve ser commitado antes do código consumidor de novas sessões;
+  não comprova conformidade do runtime, release ou deploy. Ver
+  [limites no SDD](plano-centro-financeiro-sdd.md#24-recorte-de-importação-maria) e
+  [contrato Maria](maria-ia.md#importação-consentimentos-confirmação-e-retenção).
 - Hardening H1–H5 está bloqueado e separado; não foi entregue pelo programa.
 
 Os apontamentos de branch/“este PR” no placar abaixo são snapshots do ciclo anterior e não servem

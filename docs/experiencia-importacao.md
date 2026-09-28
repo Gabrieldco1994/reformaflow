@@ -8,6 +8,10 @@ Entrega [#689](https://github.com/Gabrieldco1994/reformaflow/issues/689):
 Reutiliza as PRs #687/#688, mergeadas na base `9587a19f`; este documento não
 comprova deploy. A verificação de toque também cobre a #662, sem encerrá-la por antecipação.
 
+**Recorte Maria em 2026-09-28: autorizado, não entregue.** O contrato prospectivo de
+[importação conversacional](#importação-conversacional-na-maria) é separado da entrega #689.
+Não libera todo E5, não dispensa H1–H5 e não comprova disponibilidade ou deploy.
+
 ## CONTRATO (normativo — o que nunca pode quebrar)
 
 ### Benefício e limites
@@ -21,14 +25,14 @@ da jornada nem duplicar o caixa.
   existe, com detalhes antes de desfazer.
 - Preservar as capacidades atuais de banco, cartão e Carteira e a associação
   a despesas/recebimentos existentes.
-- Não incluir criação inline via cartão/Carteira/Maria, vários destinos,
+- A entrega #689 não inclui criação inline via cartão/Carteira/Maria, vários destinos,
   novos parsers, dashboard global ou recuperação durável de rascunhos.
 - Os contratos de [caixa](cockpit-caixa-real.md), [faturas](visao-conta-faturas.md)
   e [datas](politica-datas-timezone.md) continuam vigentes.
 
 ### Criação: rascunho até confirmar
 
-O editor guarda apenas uma decisão local. Nenhum POST financeiro cria despesa
+Na entrega #689, o editor guarda apenas uma decisão local. Nenhum POST financeiro cria despesa
 ou rateio ao aplicar ou cancelar esse rascunho. Somente **Confirmar importação**
 grava origem, destino, vínculo e proveniência na mesma transação central.
 
@@ -106,7 +110,43 @@ Confirmar e Cancelar. Valores não quebram linha. Teclado, rodapé e erros não
 encobrem a ação. Validar foco, caixas não nulas e hit-testing real em 375/390/1280,
 não apenas classes CSS.
 
+### Importação conversacional na Maria
+
+Este recorte consome o
+[contrato de consentimentos, confirmação e retenção](maria-ia.md#importação-consentimentos-confirmação-e-retenção).
+Guardar um rascunho é escrita documental confirmada, **não** uma prévia sem persistência nem
+uma autorização para lançar dinheiro. A exclusão de Maria/rascunho durável da entrega #689
+não se aplica como proibição global deste novo recorte; também não altera o rascunho local
+daquela entrega.
+
+1. **Selecionar e consentir:** seleção local até **Analisar e guardar rascunho**, com resumo
+   do processamento e da retenção. Só então guardar o objeto privado/sessão autorizados.
+2. **Analisar e revisar:** usar parsers e serviços financeiros existentes, consultar candidatos
+   autorizados e explicitar incertezas. Origem, finalidade, compra e ocorrência não são
+   intercambiáveis; nome/valor isolados não provam identidade nem pagamento.
+3. **Apresentar a proposta:** mostrar compras, valores, cronograma/ciclo, origem, finalidade,
+   reutilizações e efeitos financeiros. Mudança material exige revisão e nova confirmação.
+4. **Confirmar lote:** card da revisão, com autorização financeira autenticada da UI e nonce
+   fora do LLM. O servidor reautoriza participantes e estado e aplica o lote atômico. Operações
+   sem transação comum têm resumos/confirmações próprios, sem promessa de atomicidade global.
+5. **Consultar resultado e retomar:** distinguir sucesso confirmado, falha e resultado
+   desconhecido. Retomar o rascunho dentro da retenção; após timeout consultar o comprovante
+   persistido e autorizado, sem recriar. Undo usa somente capacidades reais, com prova de
+   propriedade, ACL e drift.
+6. **Encerrar:** expiração após sete dias sem edição do usuário; polling não renova.
+   Conclusão/cancelamento soltam referências, e o original privado é removido quando não houver
+   outra referência/retenção autorizada. Comprovantes e proveniência financeira mínima ficam
+   preservados conforme seu contrato, sem guardar a imagem por omissão.
+
+O canal Maria não cria outro ledger, motor de dedupe ou cronograma. Permanecem os contratos
+de [caixa](cockpit-caixa-real.md), [faturas e undo](visao-conta-faturas.md),
+[quitação cross-project](quitacao-parcela-cross-project.md) e
+[datas](politica-datas-timezone.md). Correção documental não prova funding; associação
+documental não autoriza novo pagamento ou exclusão de um registro preexistente.
+
 ## Referência de implementação
+
+### Integração bancária da entrega #689
 
 O contrato de integração acrescenta `newTarget` à decisão bancária,
 `inlineTargetProjects` e `inlineTargetEligible` à prévia, `inlineExpenses`
@@ -124,9 +164,27 @@ transacional de criação/rateio em `apps/api`. O salvamento atual de
 `CreateLinkedExpenseModal` cria uma despesa imediatamente: apenas seus campos
 podem ser reutilizados em modo rascunho sem esse POST.
 
+### Recorte Maria: contrato prospectivo, não implementação
+
+As responsabilidades conceituais são separadas em sessão (`ImportSession`), objeto privado
+(`ImportArtifact`), referência sessão/objeto (`ImportSessionArtifact`) e observação documental
+(`ImportObservation`). Não são quatro fontes de dinheiro nem um novo ledger. Recibos e
+identidades financeiras existentes continuam nos respectivos serviços.
+
+Security PASS conceitual não fecha schema, interfaces ou os **seis gaps técnicos ainda em
+tratamento pelo architect**. Este documento não os declara resolvidos nem inventa endpoints,
+limites operacionais ou prova de release. O código consumidor de novas sessões deve partir
+do commit normativo aprovado e dos gates técnicos aplicáveis. Ver
+[decisão de escopo no SDD](plano-centro-financeiro-sdd.md#24-recorte-de-importação-maria).
+
 ## Apêndice histórico
 
 - 2026-09-11: PO aprovou os dois pacotes e o undo somente de destino próprio
   intacto. Design desktop/mobile e contrato transacional foram consolidados
   antes da implementação. Verificação futura: testes reais de origem →
   destino → leitura → undo, concorrência/ACL/drift e jornada em banco isolado.
+- 2026-09-28: contrato prospectivo do recorte Maria aprovado antes do código consumidor:
+  consentimento documental separado, card por revisão e retenção de sete dias sem edição.
+  Não modifica as garantias transacionais da entrega #689, não entrega o programa completo
+  e não dispensa os gates técnicos pendentes. Manual de disponibilidade só após composição
+  e verificação do comportamento.

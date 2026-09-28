@@ -8,8 +8,9 @@
 > especificação é a entrega documental S0.1; ela não entrega Centro Financeiro, nova UX, Maria
 > agent-first, U6b nem hardening H1–H5.
 
-**Status do design:** architect concluído; security PASS condicionado aos gates incorporados
-abaixo.
+**Status do design original de #436:** architect concluído; security PASS condicionado aos gates
+incorporados abaixo. O recorte Maria de 2026-09-28 tem gates próprios ainda pendentes
+([§2.4](#24-recorte-de-importação-maria)); não herda aprovação técnica integral.
 
 **Base original da análise:** `ece5032c398cc050fc037959a1f8fc0cc7f05bea`.
 
@@ -111,9 +112,38 @@ E0 [#437](https://github.com/Gabrieldco1994/reformaflow/issues/437) permanece in
 
 ### 2.3 FUTURO — depende de novo PO gate
 
-E5 e M0–M3 são apenas planejamento futuro. Maria agent-first só pode ser reavaliada depois de
-U3, U4 e U6b entregues, seguida de novo PO gate. Não há autorização implícita para implementar,
+E5 como programa completo, M0/M3 e o restante de M1/M2 permanecem planejamento futuro.
+Maria agent-first integral só pode ser reavaliada depois de U3, U4 e U6b entregues, seguida
+de novo PO gate. A autorização explícita abaixo se limita à importação; não autoriza
 medir conteúdo financeiro ou retirar a navegação atual.
+
+### 2.4 Recorte de importação Maria
+
+**Decisão PO de 2026-09-28: RECORTE AUTORIZADO — NÃO ENTREGUE.** Somente a importação
+conversacional de M1/M2 pode avançar sob seus próprios gates. Isso não libera todo E5,
+não conclui M1/M2 em todos os canais e não dispensa U3/U4/U6b para a Maria agent-first integral.
+
+- O contrato normativo vive em
+  [Maria: consentimentos, confirmação e retenção](maria-ia.md#importação-consentimentos-confirmação-e-retenção);
+  a jornada vive na
+  [experiência de importação](experiencia-importacao.md#importação-conversacional-na-maria).
+  Não criar outro planejamento canônico ou reproduzir artefatos privados.
+- Toda persistência continua sendo escrita. **Analisar e guardar rascunho** autoriza
+  objeto privado/sessão/rascunho descritos; **Confirmar lote** autoriza separadamente os
+  efeitos financeiros da revisão, por card e nonce fora do LLM.
+- Rascunho pendente e referência ao original expiram após sete dias sem edição do usuário;
+  polling não renova. Conclusão/cancelamento soltam referências; remover o blob somente
+  sem outra referência/retenção autorizada. Comprovantes e proveniência financeira mínima
+  são preservados, sem reter a imagem por omissão.
+- Security deu **PASS conceitual** à separação em sessão, artefato, referência e observação,
+  aos consentimentos separados e à retenção. **Seis gaps técnicos seguem pendentes de
+  tratamento pelo architect**. Não há aqui PASS técnico integral nem declaração de resolução.
+- O commit documental de clarificação/aprovação normativa precede o código consumidor de
+  novas sessões. Não ajustar o contrato dentro de uma feature para legitimar persistência
+  sem consentimento. Implementação, testes, integração e release conservam seus próprios gates.
+- H1–H5 continuam separados e gated; nenhuma dispensa ou conclusão é concedida por este recorte.
+  Não há autorização de deploy, operação financeira sobre dados reais ou anúncio no manual
+  como recurso disponível. O manual será atualizado após composição e comportamento verificado.
 
 ## 3. Modelo de negócio aprovado
 
@@ -232,7 +262,7 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 | [E2 #439](https://github.com/Gabrieldco1994/reformaflow/issues/439) | **BLOQUEADO** | B0+B1+B2 → U1 → U2; reorganização reversível de desktop/mobile. |
 | [E3 #440](https://github.com/Gabrieldco1994/reformaflow/issues/440) | **BLOQUEADO** | U3/U4/U5; U6a é spec e U6b tem gate humano adicional. |
 | [E4 #441](https://github.com/Gabrieldco1994/reformaflow/issues/441) | **BLOQUEADO/cross-cutting** | V0, D0, R0 e A0 acompanham as ondas, não um mutirão tardio. |
-| [E5 #442](https://github.com/Gabrieldco1994/reformaflow/issues/442) | **FUTURO — NOVO PO GATE** | Maria M0 → M1 → M2 → M3, somente após U3+U4+U6b. |
+| [E5 #442](https://github.com/Gabrieldco1994/reformaflow/issues/442) | **PROGRAMA INTEGRAL FUTURO — NOVO PO GATE** | Maria M0 → M1 → M2 → M3, após U3+U4+U6b; somente o [recorte de importação M1/M2](#24-recorte-de-importação-maria) foi autorizado, não entregue. |
 | [E6 #443](https://github.com/Gabrieldco1994/reformaflow/issues/443) | **BLOQUEADO/separado** | H1–H5 exigem fresh architect+security pass; não são entregues pelo Hub. |
 
 ### 5.3 Tasks e contratos de saída
@@ -362,7 +392,9 @@ liberada para desenho e implementação.
 - [M3 #463](https://github.com/Gabrieldco1994/reformaflow/issues/463): qualidade, custo,
   observabilidade, SLO/budget e privacidade antes de escala.
 
-Todas permanecem **FUTURE**, bloqueadas por U3+U4+U6b e novo PO gate.
+O programa integral permanece **FUTURE**, bloqueado por U3+U4+U6b e novo PO gate.
+Somente o [recorte de importação M1/M2](#24-recorte-de-importação-maria) está autorizado,
+não entregue e ainda sujeito aos seus gates técnicos. Não conclui as issues inteiras.
 
 #### E6 — hardening pós-Hub (não entregue)
 
@@ -472,6 +504,8 @@ Informação útil preservada e roteada:
 
 O contrato normativo continua em [maria-ia.md](maria-ia.md); o roadmap futuro está nesta seção e
 no [epic E5 #442](https://github.com/Gabrieldco1994/reformaflow/issues/442).
+O novo gate de 2026-09-28 está limitado ao [recorte de importação](#24-recorte-de-importação-maria);
+não transforma este planejamento histórico em autorização geral de E5.
 
 ## 10. Planos concorrentes e histórico
 
@@ -499,7 +533,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-007 | Mobile 375/390/desktop e acessibilidade são contrato de merge. | **APROVADO — BLOQUEADO** |
 | D-008 | Analytics usa Clarity existente e allowlist sem conteúdo financeiro. | **APROVADO — BLOQUEADO em A0** |
 | D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **OPEN (#456). Build 1 (lente `by-type`, frontend-only, read-only em `/conta`): design fechado (architect + 8 lentes + security PASS), RED spec definido, mergeado via #643; ativação em produção não verificada. `upcoming`/`top-suppliers` → follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635)), ABSORVER conforme A-1, backend não autorizado nesta rodada** |
-| D-010 | Maria agent-first reutiliza serviços/cards/actions/ACLs e requer novo PO gate. | **FUTURO; NÃO ENTREGUE** |
+| D-010 | Maria agent-first reutiliza serviços/cards/actions/ACLs; o programa integral requer novo PO gate. Em 2026-09-28, PO autorizou somente o recorte de importação M1/M2 (§2.4). | **RECORTE AUTORIZADO, NÃO ENTREGUE; RESTANTE FUTURO; GATES TÉCNICOS PENDENTES** |
 | D-011 | H1–H5 ficam separados e gated; não entram automaticamente no critical path. | **BLOQUEADO; NÃO ENTREGUE** |
 | D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para o gate de produção/inventário de E0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA (gate #445); B0 ENTREGUE (PR #476, CLOSED); B1a MERGEADO (#477, #478, #479); B1b CLOSED (#499); B2 CLOSED (#500); W1 (#214) CLOSED. U6a spec MERGEADA (#506); U6b build 1 (lente `by-type`) com design fechado, mergeado via #643, ativação em produção não verificada; #456 permanece OPEN para o restante do escopo; `upcoming`/`top-suppliers` são follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))** |
 
@@ -507,6 +541,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 
 | Data | Versão | Mudança |
 |---|---|---|
+| 2026-09-28 | Importação Maria — contrato prospectivo M1/M2 | PO aprovou o recorte, não todo E5: consentimento documental explícito, confirmação financeira independente por card/revisão com nonce fora do LLM, sete dias sem edição e limpeza por referência sem apagar comprovantes financeiros. Commit normativo separado antes do código consumidor. Security PASS conceitual; seis gaps técnicos seguem com architect. Não entregue, sem autorização de deploy, sem dispensa de H1–H5. |
 | 2026-09-01 | U6b build 1 — correção do contrato de `isIncludedInSaidaTotal` | **Decisão PO corrigida:** lente `by-type` (U6b build 1) exclui do agrupamento/subtotais de cada `project.type` todo item com `isIncludedInSaidaTotal === false`, incluindo **INVESTIMENTOS**. Invariante: `Σ(by-type groups.total) === account-view.saidaTotal`, o subtotal já existente do card Saiu (realizadas + planejadas elegíveis, sem INVESTIMENTOS), e não `saiuMes`. INVESTIMENTOS continua visível nos modos atuais; `porProjetoFiltered`, `PorProjetoCategoriaView` e `isNeutralMovimentacao` inalterados; exclusão é específica ao novo builder/view. Nenhuma alteração em `saidaTotal`, `saiuMes`, caixa, backend ou views existentes. U6b permanece frontend-only/read-only; `upcoming`/`top-suppliers` permanecem no follow-up #635 e SEC-2 permanece aberto. Detalhes em [`financeiro-projetos-por-tipo.md:7.5`](financeiro-projetos-por-tipo.md). |
 | 2026-08-31 | U6a re-ratificada; U6b build 1 desenhada | Canário §10 recuperado (#634 — 2 motores, sem gate congelado). Matriz U6a **re-ratificada contra `1da83286`** — conteúdo dos mapas de capacidade inalterado onde verificado; **spec U6a MERGEADA (#506)**. **U6b build 1 = lente `by-type`** (agrupamento por `project.type`, derivado de `PROJECT_FEATURES`/`TYPE_MODULES`, **frontend-only, read-only em `/conta`**, sem endpoint/query/mutation novos): **design fechado** (architect + 8 lentes + security PASS), **RED spec definido**, **NÃO IMPLEMENTADA — aguardando autorização de implementação do PO**; nada em produção. **`upcoming`/`top-suppliers` → follow-up aprovado e não entregue ([#635](https://github.com/Gabrieldco1994/reformaflow/issues/635))**, classificação ABSORVER conforme A-1, backend não autorizado nesta rodada (criam superfície HTTP nova, exigem architect + security novos). A metade "retirar HTTP + tela + slug" do `/financeiro` **foi feita em #501** (`ce27736b`): rota web e controller HTTP removidos, slug `financialDashboard` fora do `ModuleSlug`; `TenantFinancialService` sobrevive como provider interno. B1b (#499), B2 (#500) e W1 (#214) **CLOSED**. Convidado de demo deixou de ser `role:'ADMIN'` (#518/#505). **Nota B4:** `$use` roda em `$transaction`; serviços ainda aplicam tenantId/deletedAt/ACL explicitamente com teste próprio, pois o middleware atual só intercepta findMany/findFirst/delete/deleteMany e findUnique nunca é interceptado. U6b/by-type não cria transação/query/mutation → B4 N/A para o PR frontend, guardrail do follow-up backend (#635). |
 | 2026-08-19 | B1a mergeado; U6a especificada | **B1a mergeado em `main`** via #477 (`5bbe5d69`), #478 (`720ff1fc`) e #479 (`890b89b0`); **#448 permanece OPEN pela fatia B1b**, **W1 (#214) aberto** e **B2 (#449) não iniciado**. Também mergeados e fechados: #480, #481, #483, #484, #486 — `main` em `9da93391`. **U6a (#455)** publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md): matriz por tipo (capacidade, origem/finalidade, identidade, ACL, deep-link/fallback) derivada do código vivo, divergências código×doc e três decisões escaladas ao PO. Somente spec: zero código, fórmula, store, migration ou backfill. Achados de autorização extraídos para #494 e #495 (D-9 já registrado em #498). **Decisões do PO na mesma data:** A-1 decidida (aproveitar o reaproveitável do `/financeiro` e aposentar o resto — lista absorver/aposentar na §7.1 da spec), A-2 decidida (CASA/CARRO seguem em Avulsas, escolha deliberada e revisitável) e **gate de extinção do B2 dispensado** — por B2 ser congelamento read-only com histórico preservado, **não por uso zero**. **A-3 decidida: o invariante O8 vale e U6b não o renegocia.** Incorporado #497 (`@Roles('ADMIN')` não é gate administrativo). **Correção de evidência no mesmo dia:** os números que sustentavam "uso zero" vinham de `prisma/dev.db` (banco local), não de produção; medição correta no volume Fly (`fly ssh console`) dá 200 usuários, 196 tenants, **4 alocações vivas somando R$ 235.000,00 concentradas no tenant de desenvolvimento `dev-tenant-1`**, `category_budgets` 0 e **0 de 200** usuários com `financialDashboard`. **U6b (#456) segue BLOQUEADA.** |
