@@ -50,6 +50,12 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = {
 };
 
 import { categorize } from './categorizer';
+import { buildStoredExpenseInstallments, parseDocumentaryCycle, parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
+import { DocumentaryCycle, StoredSourceScheduleV1 } from '../expense/documented-schedule.types';
+import { buildSeriesKey, inspectCardPurchaseCompanions } from './card-purchase-identity';
+
+const INVOICE_PAYMENT_LINE_PATTERN = /PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PGTO\s+FAT|FATURA\s+PAG/i;
+const CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS = 2_147_483_647;
 
 /**
  * (#582 F3) Categoria heurística local para uma transação de fatura SEM hit
@@ -73,6 +79,7 @@ export interface ImportDecision {
     titulo?: string;
     valorCents?: number;
     category?: string;             // ExpenseType pessoal (ex.: 'MORADIA', 'ALIMENTACAO')
+    documentaryCycle?: DocumentaryCycle;
   };
 }
 
@@ -153,11 +160,21 @@ export class CreditCardService {
         dataPagamento: true,
         dataInicioParcela: true,
         createdAt: true,
+        documentedSchedule: true,
+        formaPagamento: true,
+        quantidadeParcela: true,
+        installmentDateOverrides: true,
       },
     });
 
     const used = purchases.reduce((sum, expense) => {
       if (NEUTRAL_EXPENSE_TYPES.has(expense.tipoDespesa)) return sum;
+      const schedule = toPublicExpenseSchedule(parseStoredExpenseSchedule(expense.documentedSchedule));
+      if (schedule) {
+        return sum + buildInstallments({ ...expense, schedule }).reduce((total, occurrence) =>
+          caixaMonthForCardPurchase(occurrence.data, card.closingDay, card.dueDay, occurrence.invoiceDueMonth) === currentOpenInvoiceMonth
+            ? total + occurrence.valor : total, 0);
+      }
       const purchaseDate = expense.dataPagamento ?? expense.dataInicioParcela ?? expense.createdAt;
       const invoiceMonth = caixaMonthForCardPurchase(purchaseDate, card.closingDay, card.dueDay);
       return invoiceMonth === currentOpenInvoiceMonth ? sum + expense.valorTotal : sum;
@@ -377,14 +394,7 @@ export class CreditCardService {
       const tolerance = Math.max(100, Math.round(txCents * 0.05));
       const scored = planned
         .map((p) => {
-          const slices = buildInstallments({
-            valorTotal: p.valorTotal,
-            formaPagamento: p.formaPagamento,
-            dataPagamento: p.dataPagamento,
-            quantidadeParcela: p.quantidadeParcela,
-            dataInicioParcela: p.dataInicioParcela,
-            installmentDateOverrides: p.installmentDateOverrides,
-          });
+          const slices = buildStoredExpenseInstallments(p);
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const isInstallment = !isSinglePaymentForm(p.formaPagamento);
           const candidates = isInstallment
@@ -642,16 +652,35 @@ export class CreditCardService {
         continue;
       }
       try {
-        const result = await this.createExpenseFromTransaction(
-          tenantId,
-          projectId,
-          card,
-          adjustedTx,
-          importRecord.id,
-          d?.overrides?.category,
-          createdByUserId,
-          parsed.invoiceDueMonth,
-        );
+        if (INVOICE_PAYMENT_LINE_PATTERN.test(tx.merchant)) {
+          throw new BadRequestException('pagamento-fatura-ignorado');
+        }
+        const documentaryCycle = d?.overrides?.documentaryCycle === undefined
+          ? undefined : parseDocumentaryCycle(d.overrides.documentaryCycle);
+        if (documentaryCycle && Math.sign(adjustedTx.amountCents) !== Math.sign(tx.amountCents)) {
+          throw new BadRequestException('O ciclo documental não permite alterar o sinal da transação');
+        }
+        const result = await this.prisma.$transaction(async (db) => {
+          // Final identity/series reads and every row write share the SQLite writer reservation.
+          const locked = await db.$executeRaw`
+            UPDATE credit_cards SET id = id WHERE id = ${card.id}
+              AND tenant_id = ${tenantId} AND project_id = ${projectId} AND deleted_at IS NULL
+          `;
+          if (locked !== 1) throw new NotFoundException('Cartão não encontrado');
+          const batch = await db.creditCardStatementImport.findFirst({
+            where: { id: importRecord.id, tenantId, cardId: card.id, deletedAt: null, status: 'COMPLETED' },
+          });
+          if (!batch) throw new ConflictException('Importação indisponível');
+          if (await strongDupExists(db, tenantId, projectId, tx)) {
+            return { inserted: false, settled: false, duplicate: true, expenseId: undefined };
+          }
+          return { ...await this.createExpenseFromTransaction(
+            db, tenantId, projectId, card, adjustedTx, importRecord.id,
+            d?.overrides?.category, createdByUserId ?? requester.id ?? null,
+            parsed.invoiceDueMonth, documentaryCycle,
+          ), duplicate: false };
+        });
+        if (result.duplicate) raceDuplicated++;
         if (result.settled) settled++;
         if (result.inserted) inserted++;
 
@@ -809,7 +838,7 @@ export class CreditCardService {
 
     const created = await this.prisma.expense.findMany({
       where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
-      select: { id: true, titulo: true, valorTotal: true, status: true, linkedExpenseId: true },
+      select: { id: true, titulo: true, valorTotal: true, status: true, linkedExpenseId: true, documentedSchedule: true },
       orderBy: { createdAt: 'asc' },
     });
     const adoptedCount = await this.prisma.expense.count({
@@ -854,6 +883,7 @@ export class CreditCardService {
       expenses: created.map((e) => ({
         id: e.id, titulo: e.titulo, valorTotal: e.valorTotal, status: e.status,
         linked: e.linkedExpenseId != null,
+        documentedSchedule: e.documentedSchedule,
       })),
     };
   }
@@ -887,12 +917,21 @@ export class CreditCardService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$executeRaw`
+        UPDATE credit_cards SET id = id WHERE id = ${card.id}
+          AND tenant_id = ${tenantId} AND project_id = ${projectId} AND deleted_at IS NULL
+      `;
+      if (locked !== 1) throw new NotFoundException('Cartão não encontrado');
+      const currentImport = await tx.creditCardStatementImport.findFirst({
+        where: { id: importId, tenantId, cardId: card.id, deletedAt: null },
+      });
+      if (!currentImport) throw new ConflictException('Importação indisponível');
       const created = await tx.expense.findMany({
-        where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+        where: { tenantId, importId, deletedAt: null, createdAt: { gte: currentImport.createdAt } },
         select: { id: true },
       });
       const adopted = await tx.expense.findMany({
-        where: { tenantId, importId, deletedAt: null, createdAt: { lt: importRecord.createdAt } },
+        where: { tenantId, importId, deletedAt: null, createdAt: { lt: currentImport.createdAt } },
         select: { id: true },
       });
       const createdIds = created.map((e) => e.id);
@@ -1030,14 +1069,7 @@ export class CreditCardService {
 
       const matches = planned
         .map((p) => {
-          const slices = buildInstallments({
-            valorTotal: p.valorTotal,
-            formaPagamento: p.formaPagamento,
-            dataPagamento: p.dataPagamento,
-            quantidadeParcela: p.quantidadeParcela,
-            dataInicioParcela: p.dataInicioParcela,
-            installmentDateOverrides: p.installmentDateOverrides,
-          });
+          const slices = buildStoredExpenseInstallments(p);
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const isInstallment = !isSinglePaymentForm(p.formaPagamento);
           const candidates = isInstallment
@@ -1192,6 +1224,7 @@ export class CreditCardService {
   }
 
   private async createExpenseFromTransaction(
+    db: Prisma.TransactionClient,
     tenantId: string,
     projectId: string,
     card: { id: string; nickname: string; last4: string; institution: string },
@@ -1200,12 +1233,17 @@ export class CreditCardService {
     categoryOverride?: string,
     createdByUserId: string | null = null,
     invoiceDueMonth?: string,
+    documentaryCycle?: DocumentaryCycle,
   ): Promise<{ inserted: boolean; settled: boolean; expenseId?: string }> {
+    if (!Number.isSafeInteger(tx.amountCents) || Math.abs(tx.amountCents) > CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS || tx.amountCents === 0) {
+      throw new BadRequestException('Valor de importação inválido');
+    }
+    if (documentaryCycle && !createdByUserId) throw new BadRequestException('Autoria documental obrigatória');
     if (tx.amountCents < 0) {
       // Pagamento da fatura ANTERIOR aparece nas faturas Itaú como linha negativa
       // ("PAGAMENTO EFETUADO", "Pagamento PIX"). Esses NÃO viram lançamento — a
       // própria liquidação da fatura é o que paga. Filtramos por texto.
-      if (/PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PGTO\s+FAT|FATURA\s+PAG/i.test(tx.merchant)) {
+      if (INVOICE_PAYMENT_LINE_PATTERN.test(tx.merchant)) {
         throw new Error('pagamento-fatura-ignorado');
       }
       // Estorno/crédito real (refund, desconto, ajuste). Cria Expense com valor
@@ -1215,7 +1253,7 @@ export class CreditCardService {
       const expenseType =
         categoryOverride || manualExpenseType || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
       const tituloEst = `Estorno: ${tx.merchant}`.slice(0, 200);
-      const expEst = await this.prisma.expense.create({
+      const expEst = await db.expense.create({
         data: {
           tenantId,
           projectId,
@@ -1235,7 +1273,7 @@ export class CreditCardService {
           createdByUserId,
         },
       });
-      await this.prisma.cashFlowEntry.create({
+      await db.cashFlowEntry.create({
         data: {
           tenantId,
           projectId,
@@ -1247,8 +1285,12 @@ export class CreditCardService {
           formaPagamento: 'CARTAO_CREDITO',
           data: tx.date,
           status: 'PAGO',
+          invoiceDueMonth: documentaryCycle?.invoiceDueMonth,
         },
       });
+      if (documentaryCycle && createdByUserId) {
+        await this.recordDocumentaryCycle(db, expEst, card.id, createdByUserId, documentaryCycle);
+      }
       return { inserted: true, settled: false, expenseId: expEst.id };
     }
     if (tx.amountCents === 0) {
@@ -1283,7 +1325,7 @@ export class CreditCardService {
     // (fatura em aberto, compra já do próximo ciclo), a data original é a
     // melhor informação disponível e é preservada.
     const anchorDate =
-      invoiceDueMonth && monthKeyOfUtc(tx.date) < invoiceDueMonth
+      !documentaryCycle && invoiceDueMonth && monthKeyOfUtc(tx.date) < invoiceDueMonth
         ? anchorToMonth(tx.date, invoiceDueMonth)
         : tx.date;
 
@@ -1299,14 +1341,14 @@ export class CreditCardService {
     //    parcela é o PAGAMENTO da fatura no extrato bancário (settleCardInvoice),
     //    não o reimport. Apenas vinculamos o externalId/importId se faltarem.
     if (seriesKey) {
-      const existing = await this.prisma.expense.findFirst({
+      const existing = await db.expense.findFirst({
         // cardLast4 evita colisão entre cartões diferentes do mesmo tenant
         // (mesma merchant + valor + total em 2 cartões diferentes não casam)
         where: { tenantId, projectId, seriesKey, cardLast4: card.last4, deletedAt: null },
         orderBy: { createdAt: 'asc' },
       });
       if (existing) {
-        const anyEntry = await this.prisma.cashFlowEntry.findFirst({
+        const anyEntry = await db.cashFlowEntry.findFirst({
           where: {
             tenantId,
             projectId,
@@ -1316,9 +1358,10 @@ export class CreditCardService {
           },
         });
         if (anyEntry) {
+          if (documentaryCycle) throw new ConflictException('A ocorrência existente exige correção documental assistida');
           // Parcela desta série já existe — dedup. Preserva rastreabilidade.
           if (!existing.externalId) {
-            await this.prisma.expense.update({
+            await db.expense.update({
               where: { id: existing.id },
               data: { externalId: tx.externalId, importId, ...dedupeColumns(tx) },
             });
@@ -1327,6 +1370,11 @@ export class CreditCardService {
         }
       }
     }
+
+    await inspectCardPurchaseCompanions(db, tenantId, {
+      cardId: card.id, projectId, merchant: tx.merchant, total, seriesKey,
+      externalId: tx.externalId, dedupeKeyStrong: tx.dedupeKeyStrong ?? null,
+    });
 
     // 2) Caminho normal: cria Expense + cashFlowEntries — TODAS as parcelas
     //    PLANEJADO. No modelo de caixa real, uma compra de cartão só vira PAGA
@@ -1340,8 +1388,11 @@ export class CreditCardService {
     // compra: quando a fatura começa no meio da série ("2 de 10"), as parcelas
     // 1..1 já foram cobradas antes e não pertencem a este registro.
     const valorCompra = tx.amountCents * remainingCount;
+    if (!Number.isSafeInteger(valorCompra) || valorCompra > CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS) {
+      throw new BadRequestException('Total de importação inválido');
+    }
 
-    const expense = await this.prisma.expense.create({
+    const expense = await db.expense.create({
       data: {
         tenantId,
         projectId,
@@ -1380,14 +1431,14 @@ export class CreditCardService {
     };
 
     // Parcela atual — PLANEJADO (liquida no pagamento da fatura)
-    await this.prisma.cashFlowEntry.create({
-      data: { ...baseCashFlow, data: anchorDate, status: 'PLANEJADO', parcela: installmentLabel },
+    await db.cashFlowEntry.create({
+      data: { ...baseCashFlow, data: anchorDate, status: 'PLANEJADO', parcela: installmentLabel, invoiceDueMonth: documentaryCycle?.invoiceDueMonth },
     });
 
     // Parcelas futuras — PLANEJADO, uma por mês subsequente
     for (let i = 1; i <= remainingAfterCurrent; i++) {
       const futureDate = addMonths(anchorDate, i);
-      await this.prisma.cashFlowEntry.create({
+      await db.cashFlowEntry.create({
         data: {
           ...baseCashFlow,
           data: futureDate,
@@ -1396,8 +1447,40 @@ export class CreditCardService {
         },
       });
     }
+    if (documentaryCycle && createdByUserId) {
+      await this.recordDocumentaryCycle(db, expense, card.id, createdByUserId, documentaryCycle);
+    }
 
     return { inserted: true, settled: false, expenseId: expense.id };
+  }
+
+  private async recordDocumentaryCycle(
+    db: Prisma.TransactionClient,
+    expense: { id: string; tenantId: string; projectId: string; importId: string | null; externalId: string | null },
+    cardId: string,
+    actorUserId: string,
+    cycle: DocumentaryCycle,
+  ): Promise<void> {
+    if (!expense.importId || !expense.externalId) throw new ConflictException('Origem documental ausente');
+    const entries = await db.cashFlowEntry.findMany({
+      where: { tenantId: expense.tenantId, expenseId: expense.id, deletedAt: null },
+      orderBy: [{ data: 'asc' }, { id: 'asc' }],
+    });
+    const recordedAt = new Date().toISOString();
+    const stored: StoredSourceScheduleV1 = {
+      version: 1, kind: 'source', tenantId: expense.tenantId,
+      sourceExpenseId: expense.id, sourceProjectId: expense.projectId,
+      cardId, importId: expense.importId, externalId: expense.externalId,
+      recordedByUserId: actorUserId, recordedAt, projections: [], lastOperation: null,
+      occurrences: entries.map((entry, index) => ({
+        index, parcela: entry.parcela, valor: entry.valor, data: entry.data.toISOString().slice(0, 10),
+        invoiceDueMonth: entry.invoiceDueMonth, amountEvidence: null,
+        cycleEvidence: index === 0 ? { ...cycle.evidence, actorUserId, recordedAt } : null,
+      })),
+    };
+    const raw = JSON.stringify(stored);
+    parseStoredExpenseSchedule(raw);
+    await db.expense.update({ where: { id: expense.id }, data: { documentedSchedule: raw } });
   }
 }
 
@@ -1436,27 +1519,13 @@ function addMonths(base: Date, months: number): Date {
   return target;
 }
 
-/**
- * Normaliza o merchant + cardId + valor + total em uma chave estável para
- * identificar parcelas da mesma compra entre faturas diferentes.
- */
-function buildSeriesKey(cardId: string, merchant: string, amountCents: number, total: number): string {
-  const norm = (merchant || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9 ]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return `${cardId}|${norm}|${amountCents}|${total}`;
-}
-
 function serializeExpense(e: {
   id: string; titulo: string | null; fornecedor: string | null;
   valorTotal: number; dataPagamento: Date | null; dataInicioParcela: Date | null;
   createdAt: Date; status: string; cardLast4: string | null;
   formaPagamento: string; quantidadeParcela: number | null;
   linkedExpenseId: string | null; tipoDespesa: string; seriesKey: string | null;
+  documentedSchedule?: string | null;
 }) {
   return {
     id: e.id,
@@ -1472,5 +1541,6 @@ function serializeExpense(e: {
     linkedExpenseId: e.linkedExpenseId,
     tipoDespesa: e.tipoDespesa,
     seriesKey: e.seriesKey,
+    documentedSchedule: e.documentedSchedule,
   };
 }

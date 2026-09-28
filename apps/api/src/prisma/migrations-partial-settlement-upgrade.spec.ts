@@ -231,22 +231,24 @@ it("upgrades the same backed-up legacy database without financial backfill, then
       Array<Record<string, unknown>>
     >`SELECT * FROM cross_project_settlements`;
     const before = {
-      expenses: await db.expense.findMany(),
-      cash: await db.cashFlowEntry.findMany(),
+      expenses: await db.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM expenses`,
+      cash: await db.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM cash_flow_entries`,
     };
     await db.$disconnect();
     execFileSync("sqlite3", [file, `.backup '${backup}'`], { stdio: "pipe" });
-    cpSync(
-      join(root, "prisma/migrations", migration),
-      join(migrations, migration),
-      { recursive: true },
-    );
+    for (const name of readdirSync(join(root, "prisma/migrations")).sort()) {
+      if (name >= migration && /^\d/.test(name))
+        cpSync(join(root, "prisma/migrations", name), join(migrations, name), { recursive: true });
+    }
     deploy();
     await db.$connect();
     expect({
-      expenses: await db.expense.findMany(),
-      cash: await db.cashFlowEntry.findMany(),
-    }).toEqual(before);
+      expenses: await db.$queryRaw`SELECT * FROM expenses`,
+      cash: await db.$queryRaw`SELECT * FROM cash_flow_entries`,
+    }).toEqual({
+      expenses: before.expenses.map((row) => ({ ...row, documented_schedule: null })),
+      cash: before.cash.map((row) => ({ ...row, invoice_due_month: null })),
+    });
     expect(await db.$queryRaw`SELECT * FROM cross_project_settlements`).toEqual(
       legacy.map((row) => ({
         ...row,

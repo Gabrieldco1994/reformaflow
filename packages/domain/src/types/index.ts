@@ -8,6 +8,7 @@ import {
   CashFlowType,
   CashFlowStatus,
 } from '../enums';
+import type { ExpenseScheduleV1 } from '../calculations/expense-schedule';
 export * from './partial-settlement';
 import type { InstallmentSettlementSummary } from './partial-settlement';
 
@@ -86,6 +87,7 @@ export interface Expense {
   dataPagamento: Date | null;
   quantidadeParcela: number | null;
   dataInicioParcela: Date | null;
+  schedule: ExpenseScheduleV1 | null;
   status: ExpenseStatus;
   plannedExpenseId: string | null;
   settledByExpenseId: string | null;
@@ -111,6 +113,7 @@ export interface CashFlowEntry {
   formaPagamento: string | null;
   status: CashFlowStatus;
   parcela: string | null;
+  invoiceDueMonth: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;

@@ -2,12 +2,15 @@ import { ConflictException, Injectable, Logger, NotFoundException } from '@nestj
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseManualInvoiceKey } from '../common/manual-invoice-key';
+import { parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
 import {
   caixaMonthForCardPurchase,
   addMonthsToMonthKey,
   invoiceMatchTolerance,
   NEUTRAL_EXPENSE_TYPES,
   isSinglePaymentForm,
+  resolveInstallmentIndex,
+  type InstallmentEntry,
 } from '@reformaflow/domain';
 import {
   ACL_NOT_FOUND_MESSAGE,
@@ -36,6 +39,7 @@ interface ExpenseRow {
   quantidadeParcela: number | null;
   status: string;
   paidParcelas: string | null;
+  documentedSchedule?: string | null;
 }
 
 interface SettlementExpenseRow extends ExpenseRow {
@@ -55,6 +59,7 @@ interface EntryRow {
   parcela: string | null;
   data: Date;
   valor: number;
+  invoiceDueMonth?: string | null;
 }
 
 interface UnsettlePurchase {
@@ -256,6 +261,7 @@ export class CardInvoiceSettlementService {
         status: true,
         paidParcelas: true,
         importId: true,
+        documentedSchedule: true,
         project: {
           select: { id: true, type: true, tenantId: true, deletedAt: true },
         },
@@ -268,7 +274,8 @@ export class CardInvoiceSettlementService {
 
     // ── Estratégia 1: por vencimento, respeitando o VALOR pago ────
     const hasDays = card.closingDay != null && card.dueDay != null;
-    if (hasDays) {
+    const hasDocumentedSchedule = purchases.some((purchase) => purchase.documentedSchedule != null);
+    if (hasDays || hasDocumentedSchedule) {
       const target = await this.resolveTargetDueMonth(
         tx,
         purchases,
@@ -287,6 +294,8 @@ export class CardInvoiceSettlementService {
         if (prepared.length > 0) return { purchases: prepared, card };
       }
     }
+    // A batch's gross total cannot override the authoritative signed cycle.
+    if (hasDocumentedSchedule) return { purchases: [], card };
 
     // ── Estratégia 2 (fallback): por fatura importada ───────────
     const matchedImport = await this.findImportByTotal(
@@ -341,7 +350,7 @@ export class CardInvoiceSettlementService {
       const candidates = entries
         .map((entry) => ({
           entry,
-          dueMonth: caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay),
+          dueMonth: caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay, entry.invoiceDueMonth),
         }))
         .filter(({ dueMonth }) => windowMonths.has(dueMonth));
       if (candidates.length === 0) continue;
@@ -447,7 +456,8 @@ export class CardInvoiceSettlementService {
       const entries = all.filter(
         (entry) =>
           entry.status === 'PAGO' &&
-          caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === dueMonth,
+          entry.valor > 0 &&
+          caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay, entry.invoiceDueMonth) === dueMonth,
       );
       if (entries.length === 0) continue;
       if (
@@ -574,8 +584,9 @@ export class CardInvoiceSettlementService {
         ? new Set<number>(Array.from({ length: n }, (_, i) => i))
         : new Set<number>(this.parsePaid(e.paidParcelas, n));
 
+    const installments = await this.localInstallments(client, e);
     for (const en of revertedEntries) {
-      const idx = this.parcelaIndex(en.parcela);
+      const idx = resolveInstallmentIndex(installments, en.parcela);
       if (idx != null) set.delete(idx);
     }
 
@@ -586,7 +597,7 @@ export class CardInvoiceSettlementService {
     })) as EntryRow[];
     const remainingSet = new Set<number>();
     for (const en of remainingPaid) {
-      const idx = this.parcelaIndex(en.parcela);
+      const idx = resolveInstallmentIndex(installments, en.parcela);
       if (idx != null && idx >= 0 && idx < n) remainingSet.add(idx);
     }
 
@@ -688,7 +699,8 @@ export class CardInvoiceSettlementService {
       })) as EntryRow[];
       const entries = planned.filter(
         (entry) =>
-          caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === target,
+          entry.valor > 0 &&
+          caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay, entry.invoiceDueMonth) === target,
       );
       if (entries.length === 0) continue;
       prepared.push({ expense, entries });
@@ -742,6 +754,7 @@ export class CardInvoiceSettlementService {
             entry.data,
             card?.closingDay ?? null,
             card?.dueDay ?? null,
+            entry.invoiceDueMonth,
           ),
         });
       }
@@ -1060,8 +1073,9 @@ export class CardInvoiceSettlementService {
         ? new Set<number>(Array.from({ length: n }, (_, i) => i))
         : new Set<number>(this.parsePaid(e.paidParcelas, n));
 
+    const installments = await this.localInstallments(client, e);
     for (const en of paidEntries) {
-      const idx = this.parcelaIndex(en.parcela);
+      const idx = resolveInstallmentIndex(installments, en.parcela);
       if (idx != null && idx >= 0 && idx < n) set.add(idx);
     }
 
@@ -1145,7 +1159,7 @@ export class CardInvoiceSettlementService {
       for (const item of prepared) {
         for (const entry of item.entries) {
           months.add(
-            caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay),
+            caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay, entry.invoiceDueMonth),
           );
         }
       }
@@ -1153,7 +1167,8 @@ export class CardInvoiceSettlementService {
 
     // ── Estratégia 1: por vencimento ────────────────────────────────
     let targetMonth: string | null = null;
-    if (card.closingDay != null && card.dueDay != null) {
+    const hasDocumentedSchedule = purchases.some((purchase) => purchase.documentedSchedule != null);
+    if ((card.closingDay != null && card.dueDay != null) || hasDocumentedSchedule) {
       targetMonth = await this.resolveTargetDueMonth(
         tx,
         settlementRows,
@@ -1173,6 +1188,7 @@ export class CardInvoiceSettlementService {
           collectMonths(prepared);
           return [...months];
         }
+        if (hasDocumentedSchedule) return targetMonth ? [targetMonth] : [];
       }
     }
 
@@ -1201,11 +1217,11 @@ export class CardInvoiceSettlementService {
       const earliest = (await tx.cashFlowEntry.findFirst({
         where: { expenseId: purchase.id, deletedAt: null },
         orderBy: { data: 'asc' },
-        select: { data: true },
-      })) as { data: Date } | null;
+        select: { data: true, invoiceDueMonth: true },
+      }));
       if (earliest) {
         months.add(
-          caixaMonthForCardPurchase(earliest.data, card.closingDay, card.dueDay),
+          caixaMonthForCardPurchase(earliest.data, card.closingDay, card.dueDay, earliest.invoiceDueMonth),
         );
       }
     }
@@ -1240,12 +1256,26 @@ export class CardInvoiceSettlementService {
     return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
   }
 
-  /** "k/n" → índice 0-based (k-1). null para à vista. */
-  private parcelaIndex(label: string | null): number | null {
-    if (!label) return null;
-    const m = /^(\d+)\/(\d+)$/.exec(label.trim());
-    if (!m) return null;
-    return parseInt(m[1], 10) - 1;
+  private async localInstallments(
+    client: PrismaService | Prisma.TransactionClient,
+    expense: ExpenseRow,
+  ): Promise<InstallmentEntry[]> {
+    const schedule = toPublicExpenseSchedule(parseStoredExpenseSchedule(expense.documentedSchedule));
+    if (schedule) {
+      return schedule.occurrences.map((item) => ({ ...item, data: new Date(item.data) }));
+    }
+    const entries = await client.cashFlowEntry.findMany({
+      where: { expenseId: expense.id, deletedAt: null },
+      orderBy: { data: 'asc' },
+    });
+    if (entries.length !== expense.quantidadeParcela ||
+      new Set(entries.map((entry) => entry.parcela)).size !== entries.length) {
+      throw new ConflictException('Cronograma legado sem correspondência local completa');
+    }
+    // Printed labels retain series order even when an occurrence date was edited.
+    return entries
+      .sort((a, b) => (a.parcela ?? '').localeCompare(b.parcela ?? '', 'en', { numeric: true }))
+      .map((entry, index) => ({ ...entry, index, invoiceDueMonth: entry.invoiceDueMonth ?? null }));
   }
 
   private parsePaid(raw: string | null, n: number): number[] {

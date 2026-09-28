@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.service";
+import { financialExpenseFilter } from "../expense/documented-schedule";
 import {
   CashFlowType,
   ExpenseTypeLabels,
@@ -211,6 +212,7 @@ export class TenantFinancialService {
     scope: FinancialScope,
   ): Promise<TenantFinancialOverview> {
     const lenses = this.lenses(scope);
+    const expenseFilter = await financialExpenseFilter(this.prisma, tenantId, lenses.expenses);
     const resourceFilter = this.resourceScopeFilter(
       lenses.expenses,
       lenses.receipts,
@@ -230,7 +232,7 @@ export class TenantFinancialService {
           ...resourceFilter.where,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, linkedExpenseId: null } },
+            { expense: { deletedAt: null, ...expenseFilter } },
           ],
           AND: [
             {
@@ -322,6 +324,7 @@ export class TenantFinancialService {
     scope: FinancialScope,
   ): Promise<ProjectBreakdownRow[]> {
     const lenses = this.lenses(scope);
+    const expenseFilter = await financialExpenseFilter(this.prisma, tenantId, lenses.expenses);
     const projects = await this.listProjects(tenantId, lenses.projects);
     if (projects.length === 0) return [];
 
@@ -337,7 +340,7 @@ export class TenantFinancialService {
           ...resourceFilter.where,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, linkedExpenseId: null } },
+            { expense: { deletedAt: null, ...expenseFilter } },
           ],
           AND: [
             {
@@ -405,6 +408,7 @@ export class TenantFinancialService {
     scope: FinancialScope,
   ): Promise<ConsolidatedCashFlowPoint[]> {
     const lenses = this.lenses(scope);
+    const expenseFilter = await financialExpenseFilter(this.prisma, tenantId, lenses.expenses);
     const resourceFilter = this.resourceScopeFilter(
       lenses.expenses,
       lenses.receipts,
@@ -421,7 +425,7 @@ export class TenantFinancialService {
           ...resourceFilter.where,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, linkedExpenseId: null } },
+            { expense: { deletedAt: null, ...expenseFilter } },
           ],
           AND: [
             {
@@ -511,12 +515,13 @@ export class TenantFinancialService {
     scope: FinancialScope,
   ): Promise<CategoryRow[]> {
     const lenses = this.lenses(scope);
+    const expenseFilter = await financialExpenseFilter(this.prisma, tenantId, lenses.expenses);
     const expenses = await this.prisma.expense.findMany({
       where: {
         tenantId,
         deletedAt: null,
         settledByExpenseId: null,
-        linkedExpenseId: null,
+        ...expenseFilter,
         ...this.scopeWhere(lenses.expenses),
       },
       select: { tipoDespesa: true, valorTotal: true },
@@ -540,6 +545,7 @@ export class TenantFinancialService {
     scope: FinancialScope,
   ): Promise<UpcomingDueRow[]> {
     const lenses = this.lenses(scope);
+    const expenseFilter = await financialExpenseFilter(this.prisma, tenantId, lenses.expenses);
     const resourceFilter = this.resourceScopeFilter(
       lenses.expenses,
       lenses.receipts,
@@ -558,7 +564,7 @@ export class TenantFinancialService {
         ...resourceFilter.where,
         OR: [
           { expenseId: null },
-          { expense: { deletedAt: null, linkedExpenseId: null } },
+          { expense: { deletedAt: null, ...expenseFilter } },
         ],
         AND: [
           {
@@ -608,13 +614,14 @@ export class TenantFinancialService {
     scope: FinancialScope,
   ): Promise<SupplierRow[]> {
     const lenses = this.lenses(scope);
+    const expenseFilter = await financialExpenseFilter(this.prisma, tenantId, lenses.expenses);
     const expenses = await this.prisma.expense.findMany({
       where: {
         tenantId,
         deletedAt: null,
         fornecedor: { not: null },
         settledByExpenseId: null,
-        linkedExpenseId: null,
+        ...expenseFilter,
         ...this.scopeWhere(lenses.expenses),
       },
       select: {
