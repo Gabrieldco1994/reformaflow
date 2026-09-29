@@ -142,8 +142,8 @@ async function competitor(
     },
   });
 }
-async function importCompanion(amount = "100.01") {
-  const csv = `date,title,amount\n2027-08-10,Synthetic Store (4/5),${amount}\n`;
+async function importCompanion(amount = "100.01", installment = "4/5") {
+  const csv = `date,title,amount\n2027-08-10,Synthetic Store (${installment}),${amount}\n`;
   const parsed = parseStatement(csv, cardId, "CSV_GENERIC", "synthetic.csv");
   return cards.commitImport(
     tenantId,
@@ -151,6 +151,28 @@ async function importCompanion(amount = "100.01") {
     cardId,
     csv,
     "synthetic.csv",
+    "CSV_GENERIC",
+    undefined,
+    undefined,
+    parsed.transactions.map((tx) => ({
+      externalId: tx.externalId,
+      action: "import" as const,
+    })),
+    requester.id,
+    requester,
+  );
+}
+async function importStandalone(merchant = "Synthetic Store") {
+  const csv = `date,title,amount\n2026-09-24,${merchant},77.77\n`;
+  const parsed = parseStatement(csv, cardId, "CSV_GENERIC", "standalone.csv");
+  expect(parsed.transactions).toHaveLength(1);
+  expect(parsed.transactions[0].installmentTotal).toBeUndefined();
+  return cards.commitImport(
+    tenantId,
+    projectId,
+    cardId,
+    csv,
+    "standalone.csv",
     "CSV_GENERIC",
     undefined,
     undefined,
@@ -291,6 +313,196 @@ afterAll(async () => {
 });
 
 describe("CARD historical restore #700 (real Prisma middleware)", () => {
+  describe("P01 import admission regression", () => {
+    it.each(["PAGO", "PLANEJADO"])(
+      "imports a new standalone purchase without adopting an older %s installment acquisition from the same merchant",
+      async (status) => {
+        const historical = await competitor({
+          externalId: "synthetic-independent-history",
+          dedupeKeyStrong: "synthetic-independent-history-strong",
+          titulo: "Synthetic Store (1/3)",
+          valor: 30000,
+          valorTotal: 30000,
+          quantidadeParcela: 3,
+          dataPagamento: new Date("2026-01-10T00:00:00.000Z"),
+          dataInicioParcela: new Date("2026-01-10T00:00:00.000Z"),
+          seriesKey: `${cardId}|synthetic store|10000|3`,
+          status,
+        });
+        // A receipt sharing the OLD occurrence's identity must not enter the
+        // new import's strong-key set through merchant-only family expansion.
+        await db.receipt.create({
+          data: {
+            tenantId,
+            projectId,
+            tipo: "OUTROS",
+            valor: 30000,
+            data: new Date("2026-01-10T00:00:00.000Z"),
+            dedupeKeyStrong: historical.dedupeKeyStrong,
+          },
+        });
+        for (let index = 0; index < 3; index++) {
+          await db.cashFlowEntry.create({
+            data: {
+              tenantId,
+              projectId,
+              expenseId: historical.id,
+              tipo: "DESPESA",
+              categoria: "Outros",
+              valor: 10000,
+              data: new Date(Date.UTC(2026, index, 10)),
+              status,
+              formaPagamento: "CARTAO_CREDITO",
+              parcela: `${index + 1}/3`,
+            },
+          });
+        }
+        const before = await snapshot();
+        const result = await importStandalone();
+        expect(result).toMatchObject({
+          inserted: 1,
+          skipped: 0,
+          duplicated: 0,
+          settled: 0,
+        });
+        const purchase = await db.expense.findFirstOrThrow({
+          where: { tenantId, importId: result.importId },
+        });
+        expect(purchase).toMatchObject({
+          valorTotal: 7777,
+          formaPagamento: "A_VISTA",
+          quantidadeParcela: null,
+          seriesKey: null,
+          status: "PLANEJADO",
+          deletedAt: null,
+        });
+        expect(purchase.externalId).not.toBe(historical.externalId);
+        expect(purchase.dedupeKeyStrong).toEqual(expect.any(String));
+        expect(purchase.dedupeKeyStrong).not.toBe(historical.dedupeKeyStrong);
+        const after = await snapshot();
+        expect(after.expenses.filter((row) => row.id !== purchase.id)).toEqual(
+          before.expenses,
+        );
+        expect(
+          after.entries.filter((row) => row.expenseId !== purchase.id),
+        ).toEqual(before.entries);
+        expect(after.receipts).toEqual(before.receipts);
+        expect(
+          after.entries.filter((row) => row.expenseId === purchase.id),
+        ).toEqual([
+          expect.objectContaining({ valor: 7777, status: "PLANEJADO" }),
+        ]);
+      },
+    );
+
+    it("imports a new installment purchase without adopting an older standalone acquisition from the same merchant", async () => {
+      expect((await importStandalone()).inserted).toBe(1);
+      const before = await snapshot();
+      const result = await importCompanion("100.01", "1/3");
+      expect(result).toMatchObject({
+        inserted: 1,
+        skipped: 0,
+        duplicated: 0,
+        settled: 0,
+      });
+      const purchase = await db.expense.findFirstOrThrow({
+        where: { tenantId, importId: result.importId },
+      });
+      expect(purchase).toMatchObject({
+        valorTotal: 30003,
+        quantidadeParcela: 3,
+        formaPagamento: "PARCELADO",
+        status: "PLANEJADO",
+      });
+      const after = await snapshot();
+      expect(after.expenses.filter((row) => row.id !== purchase.id)).toEqual(
+        before.expenses,
+      );
+      expect(
+        after.entries.filter((row) => row.expenseId !== purchase.id),
+      ).toEqual(before.entries);
+      expect(
+        after.entries
+          .filter((row) => row.expenseId === purchase.id)
+          .map((row) => [row.parcela, row.valor, row.status])
+          .sort(),
+      ).toEqual([
+        ["1/3", 10001, "PLANEJADO"],
+        ["2/3", 10001, "PLANEJADO"],
+        ["3/3", 10001, "PLANEJADO"],
+      ]);
+    });
+
+    it("keeps two compatible installment candidates ambiguous despite different occurrence IDs and cents", async () => {
+      expect((await importCompanion("100.00", "1/5")).inserted).toBe(1);
+      const before = await snapshot();
+      const result = await importCompanion("100.01", "4/5");
+      expect(result).toMatchObject({
+        inserted: 0,
+        skipped: 1,
+        duplicated: 0,
+        settled: 0,
+      });
+      const after = await snapshot();
+      expect(after.expenses).toEqual(before.expenses);
+      expect(after.entries).toEqual(before.entries);
+    });
+
+    it("keeps restore fail-closed for an unowned CFE without freezing unrelated standalone imports in the project", async () => {
+      const orphan = await db.cashFlowEntry.create({
+        data: {
+          tenantId,
+          projectId,
+          tipo: "DESPESA",
+          categoria: "Synthetic legacy",
+          valor: 45678,
+          data: date(12),
+          status: "PLANEJADO",
+          formaPagamento: "CARTAO_CREDITO",
+          parcela: "4/5",
+        },
+      });
+      const before = await snapshot();
+      await expect(preview()).rejects.toBeInstanceOf(ConflictException);
+      expect(await snapshot()).toEqual(before);
+      const result = await importStandalone("Independent Shop");
+      expect(result).toMatchObject({ inserted: 1, skipped: 0, settled: 0 });
+      expect(
+        await db.cashFlowEntry.findUniqueOrThrow({ where: { id: orphan.id } }),
+      ).toEqual(orphan);
+    });
+
+    it("still deduplicates a standalone strong tombstone after undo without restoring it", async () => {
+      const first = await importStandalone();
+      expect(first.inserted).toBe(1);
+      const purchase = await db.expense.findFirstOrThrow({
+        where: { tenantId, importId: first.importId },
+      });
+      expect(purchase.dedupeKeyStrong).toEqual(expect.any(String));
+      await cards.undoImport(
+        tenantId,
+        projectId,
+        cardId,
+        first.importId,
+        requester,
+      );
+      const before = await snapshot();
+      expect(
+        before.expenses.find((row) => row.id === purchase.id)?.deletedAt,
+      ).not.toBeNull();
+      const retry = await importStandalone();
+      expect(retry).toMatchObject({
+        inserted: 0,
+        duplicated: 1,
+        skipped: 0,
+        settled: 0,
+      });
+      const after = await snapshot();
+      expect(after.expenses).toEqual(before.expenses);
+      expect(after.entries).toEqual(before.entries);
+    });
+  });
+
   it("restores only the exact root and terminal five, preserving historical facts and zero BANK cash", async () => {
     const before = await snapshot();
     const cash = await overview.getCaixaConta(tenantId, projectId, now);

@@ -52,7 +52,7 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = {
 import { categorize } from './categorizer';
 import { buildStoredExpenseInstallments, parseDocumentaryCycle, parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
 import { DocumentaryCycle, StoredSourceScheduleV1 } from '../expense/documented-schedule.types';
-import { buildSeriesKey, inspectCardPurchaseCompanions } from './card-purchase-identity';
+import { buildSeriesKey, CARD_PURCHASE_INSPECTION, inspectCardPurchaseCompanions } from './card-purchase-identity';
 
 const INVOICE_PAYMENT_LINE_PATTERN = /PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PGTO\s+FAT|FATURA\s+PAG/i;
 const CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS = 2_147_483_647;
@@ -1374,7 +1374,7 @@ export class CreditCardService {
     await inspectCardPurchaseCompanions(db, tenantId, {
       cardId: card.id, projectId, merchant: tx.merchant, total, seriesKey,
       externalId: tx.externalId, dedupeKeyStrong: tx.dedupeKeyStrong ?? null,
-    });
+    }, CARD_PURCHASE_INSPECTION.IMPORT);
 
     // 2) Caminho normal: cria Expense + cashFlowEntries — TODAS as parcelas
     //    PLANEJADO. No modelo de caixa real, uma compra de cartão só vira PAGA

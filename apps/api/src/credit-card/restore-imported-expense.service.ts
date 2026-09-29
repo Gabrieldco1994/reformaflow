@@ -24,6 +24,7 @@ import {
 } from "../common/access-rules";
 import { detectInstallment } from "./parsers/types";
 import {
+  CARD_PURCHASE_INSPECTION,
   inspectCardPurchaseCompanions,
   parseCardSeries,
 } from "./card-purchase-identity";
@@ -315,16 +316,21 @@ export class RestoreImportedExpenseService {
     });
     if (reverse || rateio || settlement || claims || financing)
       throw conflict();
-    const exclusions = await inspectCardPurchaseCompanions(tx, tenantId, {
-      id: expenseId,
-      projectId,
-      cardId,
-      merchant: series.merchant,
-      total: q,
-      seriesKey: root.seriesKey,
-      externalId: root.externalId,
-      dedupeKeyStrong: root.dedupeKeyStrong,
-    });
+    const exclusions = await inspectCardPurchaseCompanions(
+      tx,
+      tenantId,
+      {
+        id: expenseId,
+        projectId,
+        cardId,
+        merchant: series.merchant,
+        total: q,
+        seriesKey: root.seriesKey,
+        externalId: root.externalId,
+        dedupeKeyStrong: root.dedupeKeyStrong,
+      },
+      CARD_PURCHASE_INSPECTION.RESTORE,
+    );
     const fingerprint = createHash("sha256")
       .update(
         JSON.stringify({

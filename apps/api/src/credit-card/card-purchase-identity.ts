@@ -3,6 +3,14 @@ import { Prisma } from "@prisma/client";
 import { INCLUDE_SOFT_DELETED } from "../prisma/prisma.service";
 import { detectInstallment } from "./parsers/types";
 
+export const CARD_PURCHASE_INSPECTION = {
+  IMPORT: "import",
+  RESTORE: "restore",
+} as const;
+type CardPurchaseInspectionIntent =
+  (typeof CARD_PURCHASE_INSPECTION)[keyof typeof CARD_PURCHASE_INSPECTION];
+const CARD_PURCHASE_CONFLICT = "Compra de cartao concorrente ou ambigua";
+
 export function normalizeSeriesMerchant(merchant: string): string {
   return (merchant || "")
     .toLowerCase()
@@ -52,15 +60,23 @@ interface PurchaseIdentity {
 }
 
 /**
- * Shared restore/import barrier. No date, amount or status window: a future,
- * root-only or changed-cent installment can still represent the same purchase.
- * Passive tombstones are evidence, not an instruction to resurrect or merge.
+ * Strong identity is checked for both operations. Restore additionally requires
+ * a conservative exclusion proof for the historical cohort. Import does not
+ * adopt that cohort: merchant similarity alone cannot connect an ordinary line
+ * to an installment purchase. Compatible installments remain ambiguous without
+ * a date, amount or status window; passive tombstones never instruct revival.
  */
 export async function inspectCardPurchaseCompanions(
   tx: Prisma.TransactionClient,
   tenantId: string,
   purchase: PurchaseIdentity,
+  intent: CardPurchaseInspectionIntent,
 ) {
+  if (
+    intent !== CARD_PURCHASE_INSPECTION.IMPORT &&
+    intent !== CARD_PURCHASE_INSPECTION.RESTORE
+  )
+    throw new ConflictException(CARD_PURCHASE_CONFLICT);
   const roots = await tx.expense.findMany({
     where: {
       tenantId,
@@ -98,6 +114,16 @@ export async function inspectCardPurchaseCompanions(
     if (row.valorTotal <= 0 && !row.cashFlow.some((entry) => entry.valor > 0))
       return false;
     const series = parseCardSeries(row.seriesKey);
+    const title = detectInstallment(row.titulo ?? "");
+    const total = series?.total ?? title.total ?? row.quantidadeParcela;
+    // An import's default total=1 is not proof of independence. It follows
+    // ordinary admission, still checking strong identities below, rather than
+    // expanding a restore cohort from merchant similarity in either direction.
+    if (
+      intent === CARD_PURCHASE_INSPECTION.IMPORT &&
+      (purchase.total <= 1 || (total ?? 0) <= 1)
+    )
+      return false;
     const batch = imports.find((item) => item.id === row.importId);
     const ids = new Set(
       [batch?.cardId, series?.cardId].filter((id): id is string => !!id),
@@ -110,14 +136,13 @@ export async function inspectCardPurchaseCompanions(
       return false;
     }
     if (purchase.seriesKey && row.seriesKey === purchase.seriesKey) return true;
-    const title = detectInstallment(row.titulo ?? "");
     const names = [series?.merchant, row.fornecedor, title.cleanMerchant]
       .filter((name): name is string => !!name)
       .map((name) =>
         normalizeSeriesMerchant(detectInstallment(name).cleanMerchant),
       );
-    const total = series?.total ?? title.total ?? row.quantidadeParcela;
-    // Missing/partial family evidence cannot rule out membership in an installment purchase.
+    // Restore retains incomplete family evidence; import reaches this point
+    // only when both sides carry installment evidence.
     return (
       (names.length === 0 || names.includes(merchant)) &&
       (purchase.total > 1 || (total ?? 0) > 1)
@@ -159,12 +184,12 @@ export async function inspectCardPurchaseCompanions(
   });
   if (
     receipts.length ||
-    unowned.length ||
+    (intent === CARD_PURCHASE_INSPECTION.RESTORE && unowned.length) ||
     companions.some(
       (row) => !row.deletedAt || row.cashFlow.length || row._count.cashFlow,
     )
   ) {
-    throw new ConflictException("Compra de cartao concorrente ou ambigua");
+    throw new ConflictException(CARD_PURCHASE_CONFLICT);
   }
   return { companions, receipts, unowned, imports, cards };
 }
