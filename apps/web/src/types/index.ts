@@ -1,3 +1,5 @@
+import type { ExpenseScheduleV1 } from '@reformaflow/domain';
+
 // Dashboard
 export interface DashboardResponse {
   kpis: {
@@ -113,6 +115,7 @@ export interface Expense {
   installmentSettlements?: InstallmentSettlement[];
   /** Available real bank debit, scoped by the server. Absent means unknown. */
   sourceAvailableCents?: number;
+  schedule?: ExpenseScheduleV1 | null;
   // Vínculos
   cardLast4?: string | null;
   bankLast4?: string | null;
@@ -197,7 +200,8 @@ export interface CashFlowEntry {
   subcategoria?: string;
   ambiente?: string;
   formaPagamento?: string;
-  parcela?: string;
+  parcela?: string | null;
+  invoiceDueMonth?: string | null;
   status: string;
   rollingBalance: number;
   rollingBalanceRealizado: number;

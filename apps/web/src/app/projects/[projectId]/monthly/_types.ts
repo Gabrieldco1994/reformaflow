@@ -45,6 +45,7 @@ export interface MonthlyEntry {
   /** Fornecedor/loja (Expense.fornecedor), fallback de exibição. */
   fornecedor?: string | null;
   parcela?: string | null;
+  invoiceDueMonth?: string | null;
   formaPagamento: string | null;
   projectId: string;
   projectName: string;

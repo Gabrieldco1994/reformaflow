@@ -4,7 +4,7 @@ import { Trash2 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { caixaMonthForCardPurchase } from '@reformaflow/domain';
 import type { Expense, ExpenseStatus } from '@/types';
-import { effectiveDate } from '../_lib/grouping-by-month';
+import { effectiveDate, expandExpenseOccurrences } from '../_lib/grouping-by-month';
 import { BulkCheckbox } from './BulkDateSelection';
 
 export interface PersonalCardInfo {
@@ -48,20 +48,24 @@ export default function PersonalExpenseCard({
   onToggleStatus: (id: string, next: ExpenseStatus) => void;
 }) {
   const isPago = expense.status === 'PAGO';
-  const parcelasTotais =
-    (expense.formaPagamento === 'PARCELADO' || expense.formaPagamento === 'QUINZENAL')
+  const occurrences = expense.schedule ? expandExpenseOccurrences(expense) : [];
+  const singleOccurrence = occurrences.length === 1 ? occurrences[0] : null;
+  const parcelasTotais = expense.schedule?.occurrences.length ??
+    ((expense.formaPagamento === 'PARCELADO' || expense.formaPagamento === 'QUINZENAL')
       ? (expense.quantidadeParcela ?? 1)
-      : 1;
+      : 1);
   const parcelasPagas = parsePaidCount(expense.paidParcelas, parcelasTotais, expense.status);
 
   const cardInfo = expense.cardLast4 ? cardInfoByLast4?.get(expense.cardLast4) : undefined;
-  const dt = effectiveDate(expense);
+  const dt = singleOccurrence?.occDate || effectiveDate(expense);
   const venceMes = (() => {
-    if (!expense.cardLast4 || !dt || !cardInfo) return null;
+    if (!expense.cardLast4 || !dt || (!cardInfo && !singleOccurrence?.invoiceDueMonth)) return null;
+    if (expense.schedule && !singleOccurrence) return null;
     const ym = caixaMonthForCardPurchase(
       dt,
-      cardInfo.closingDay ?? null,
-      cardInfo.dueDay ?? null,
+      cardInfo?.closingDay ?? null,
+      cardInfo?.dueDay ?? null,
+      singleOccurrence?.invoiceDueMonth,
     );
     const [y, m] = ym.split('-');
     return `${m}/${String(y).slice(-2)}`;
@@ -95,6 +99,7 @@ export default function PersonalExpenseCard({
     tipoLabel(expense.tipoDespesa),
     dt ? formatDateBR(dt).slice(0, 5) : null,
     parcelasTotais > 1 ? `${parcelasPagas}/${parcelasTotais}x` : null,
+    expense.schedule ? singleOccurrence?.occParcela : null,
     origem,
   ].filter(Boolean).join(' · ');
 
@@ -107,7 +112,7 @@ export default function PersonalExpenseCard({
       <button
         type="button"
         onClick={() => onEdit(expense)}
-        className="flex-1 min-w-0 text-left"
+        className="flex-1 min-w-0 min-h-11 text-left"
         title="Editar"
       >
         <div className="flex items-center gap-1.5">
@@ -122,8 +127,8 @@ export default function PersonalExpenseCard({
       </button>
 
       <div className="flex flex-col items-end gap-1 shrink-0">
-        <span className="font-semibold tabular-nums text-sm text-darc-velvet">
-          {formatCurrency(expense.valorTotal / 100)}
+        <span className="font-semibold tabular-nums whitespace-nowrap text-sm text-darc-velvet">
+          {formatCurrency((singleOccurrence?.occValue ?? expense.valorTotal) / 100)}
         </span>
         <button
           type="button"
@@ -141,7 +146,7 @@ export default function PersonalExpenseCard({
       <button
         type="button"
         onClick={() => { if (confirm('Excluir despesa?')) onDelete(expense.id); }}
-        className="shrink-0 rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-red-50 hover:text-red-500"
+        className="shrink-0 min-h-11 min-w-11 flex items-center justify-center rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-red-50 hover:text-red-500"
         title="Excluir"
       >
         <Trash2 className="w-4 h-4" />

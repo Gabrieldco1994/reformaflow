@@ -62,6 +62,28 @@ describe('AvulsasTab — preservação de quantidade na edição (issue #369)', 
     vi.useRealTimers();
   });
 
+  it('#701 edits only metadata of documented expenses, including credits', async () => {
+    apiMock.get.mockResolvedValue({
+      items: [makeExpense({
+        valor: -248,
+        valorTotal: -248,
+        schedule: {
+          version: 1,
+          occurrences: [{ index: 0, parcela: null, valor: -248, data: '2026-07-10', invoiceDueMonth: null }],
+        },
+      })],
+      total: 1,
+    });
+    renderTab();
+    await screen.findAllByText('Conserto telhado');
+    fireEvent.click(screen.getAllByRole('button', { name: /editar/i })[0]);
+    fireEvent.click(await screen.findByRole('button', { name: /salvar/i }));
+    await waitFor(() => expect(apiMock.patch).toHaveBeenCalledWith(
+      '/projects/p1/expenses/exp-1',
+      { tipoDespesa: 'MANUTENCAO', titulo: 'Conserto telhado', fornecedor: 'Zé Pedreiro' },
+    ));
+  });
+
   it('PATCH preserva quantidade=3 ao editar despesa avulsa, em vez de forçar 1', async () => {
     renderTab();
     await screen.findAllByText('Conserto telhado');
@@ -77,6 +99,38 @@ describe('AvulsasTab — preservação de quantidade na edição (issue #369)', 
         expect.objectContaining({ quantidade: 3 }),
       ),
     );
+  });
+
+  it('#701 + #702 keeps the native-paid sister, documented future and metadata-only edit together', async () => {
+    apiMock.get.mockResolvedValue({ items: [makeExpense({
+      valor: 20004, valorTotal: 20004, quantidade: 1, paidParcelas: '[0]',
+      status: 'PLANEJADO', formaPagamento: 'PARCELADO', quantidadeParcela: 2,
+      dataPagamento: null, dataInicioParcela: '2026-07-10',
+      schedule: {
+        version: 1, occurrences: [
+          { index: 0, parcela: '2/3', valor: 10001, data: '2026-07-10', invoiceDueMonth: null },
+          { index: 1, parcela: '3/3', valor: 10003, data: '2027-01-28', invoiceDueMonth: null },
+        ],
+      },
+      installmentSettlements: [{
+        parcelaIndex: 1, dueDate: '2027-01-28', contractedCents: 10003,
+        paidCents: 4000, remainingCents: 6003, settlementStatus: 'PARTIAL',
+      }],
+    })], total: 1 });
+    renderTab();
+    const card = await screen.findByRole('article', { name: 'Conserto telhado' });
+    expect(within(card).getByText(/Contratado:/)).toHaveTextContent('R$ 200,04');
+    expect(within(card).getByText(/Pago:/)).toHaveTextContent('R$ 140,01');
+    expect(within(card).getByText(/Restante:/)).toHaveTextContent('R$ 60,03');
+    fireEvent.click(within(card).getByRole('button', { name: 'Editar' }));
+    expect(screen.getByText(/Parcela 3\/3.*28\/01\/2027/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Valor (R$)')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Saldo da despesa' })).toHaveTextContent('R$ 140,01');
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(apiMock.patch).toHaveBeenCalledWith(
+      '/projects/p1/expenses/exp-1',
+      { tipoDespesa: 'MANUTENCAO', titulo: 'Conserto telhado', fornecedor: 'Zé Pedreiro' },
+    ));
   });
 
   it('criação de nova despesa avulsa continua enviando quantidade=1 (form não expõe o campo)', async () => {
