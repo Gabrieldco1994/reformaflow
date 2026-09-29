@@ -36,6 +36,8 @@ export type Occurrence<T = Expense> = T & {
   occTotalParcelas: number;
   settlementId?: string;
   settlementManaged?: boolean;
+  occParcela?: string | null;
+  invoiceDueMonth?: string | null;
 };
 
 export interface GrupoDespesaPorMes {
@@ -47,6 +49,10 @@ export interface GrupoDespesaPorMes {
   totalPlanejado: number;
   isCurrentMonth: boolean;
   isFuture: boolean;
+}
+
+export function installmentLabel(expense: Pick<Expense, 'schedule'>, index: number): string | null {
+  return expense.schedule ? expense.schedule.occurrences[index].parcela : String(index + 1);
 }
 
 export function occurrenceSlice(occurrence: Occurrence): Occurrence {
@@ -177,7 +183,7 @@ export function expandExpenseOccurrences<T extends OccurrenceInput>(
   // Despesa fixa (recorrente mensal): expande em ocorrências virtuais —
   // uma por mês, do início até `recorrenciaFim` ou o horizonte de projeção.
   // Só vale para pagamento único; recorrência + parcelamento não se combinam.
-  if (e.recorrente && isSinglePaymentForm(e.formaPagamento)) {
+  if (!e.schedule && e.recorrente && isSinglePaymentForm(e.formaPagamento)) {
     const startRaw = effectiveDate(e);
     if (startRaw) {
       const dataInicio = new Date(startRaw);
@@ -202,7 +208,7 @@ export function expandExpenseOccurrences<T extends OccurrenceInput>(
     }
   }
 
-  if (!isInstallment) {
+  if (!e.schedule && !isInstallment) {
     const d = effectiveDate(e) || '';
     return applyFunding(e, [
       {
@@ -219,6 +225,7 @@ export function expandExpenseOccurrences<T extends OccurrenceInput>(
   // Usa o MESMO cálculo de parcelas do backend (@reformaflow/domain) para
   // garantir que valores e datas das parcelas batam com o fluxo de caixa.
   const installments = buildInstallments({
+    schedule: e.schedule,
     valorTotal: e.valorTotal,
     formaPagamento: e.formaPagamento,
     dataPagamento: e.dataPagamento ? new Date(e.dataPagamento) : null,
@@ -234,14 +241,17 @@ export function expandExpenseOccurrences<T extends OccurrenceInput>(
   const paidSet = parsePaidSet(e.paidParcelas, installments.length);
   const fullyPaid = e.status === 'PAGO';
 
-  return applyFunding(e, installments.map((inst, i) => ({
+  return applyFunding(e, installments.map((inst) => ({
     ...e,
-    occKey: `${e.id}#${i}`,
+    occKey: `${e.id}#${inst.index}`,
     occDate: inst.data.toISOString().slice(0, 10),
     occValue: inst.valor,
-    occIndex: i + 1,
+    // Local identity stays independent of the printed installment label.
+    occIndex: inst.index + 1,
     occTotalParcelas: installments.length,
-    status: (fullyPaid || paidSet.has(i) ? 'PAGO' : 'PLANEJADO') as Expense['status'],
+    occParcela: inst.parcela,
+    invoiceDueMonth: inst.invoiceDueMonth,
+    status: (fullyPaid || paidSet.has(inst.index) ? 'PAGO' : 'PLANEJADO') as Expense['status'],
   })));
 }
 

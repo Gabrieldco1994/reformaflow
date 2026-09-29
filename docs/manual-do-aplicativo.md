@@ -607,6 +607,22 @@ ainda não implantado:**
 Foca no **caixa real** da conta e nas **faturas de cartão**. Responde "quanto tenho
 e o que ainda vai sair?".
 
+**Cronograma documentado — candidato P01, ainda não entregue:**
+quando uma despesa tem um cronograma documental, as listas e expansões usam
+o valor e o rótulo de cada ocorrência, sem dividir novamente o total pelo
+número de parcelas. Por exemplo, duas ocorrências de **R$ 100,00 e R$ 60,00**
+continuam distintas; não viram duas de R$ 80,00.
+Quando há um mês de fatura documentado, ele determina em qual fatura a
+ocorrência aparece, sem alterar a data original da compra.
+
+Na edição de uma despesa com esse cronograma, os dados descritivos podem ser
+atualizados sem recriar as parcelas. Os valores, datas, forma de pagamento e
+vínculos financeiros protegidos não são alterados pelo formulário comum.
+O editor completo exibe **Cronograma documentado**, com valores, datas,
+rótulos e o mês de fatura quando informado, e avisa que alterações financeiras
+precisam de correção assistida. Este candidato não oferece um novo botão de
+correção assistida nem a jornada de importar conversando com a Maria.
+
 **Cabeçalho:** título "Visão Conta" + mês; toggle **Mês / Ano todo**; seletor de
 mês (‹ › + calendário).
 
@@ -851,6 +867,8 @@ planejado.
   e status são preservados. Pares REFORMA↔PESSOAL permanecem sincronizados. Em
   rateio, edite a compra-fonte; a fonte real de uma conciliação fica bloqueada e
   a data deve ser alterada na parcela planejada alvo.
+  **No candidato P01**, a edição rápida de data também fica indisponível
+  quando a despesa tem cronograma documentado; a data exige correção assistida.
 - Seleção múltipla → **alterar data em lote** / marcar como pago em lote.
 
 - **Pagamento parcial com um débito já existente:** na Conta, abra **Editar**

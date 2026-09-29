@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
+import type { Expense } from '@/types';
 import { CreateLinkedExpenseModal, type LinkedExpenseDraft } from './CreateLinkedExpenseModal';
 
 interface TenantCard {
@@ -42,6 +43,7 @@ interface CrossExpense {
   dataPagamento?: string | null;
   paidParcelas?: string | null;
   installmentDateOverrides?: string | null;
+  schedule?: Expense['schedule'];
   project?: { id: string; name: string; type: string } | null;
 }
 
@@ -59,7 +61,7 @@ interface ParcelaOption {
 function expandParcelaOptions(exp: CrossExpense): ParcelaOption[] {
   const forma = exp.formaPagamento ?? 'A_VISTA';
   const n = exp.quantidadeParcela ?? 1;
-  if (isSinglePaymentForm(forma) || n <= 1) {
+  if (!exp.schedule && (isSinglePaymentForm(forma) || n <= 1)) {
     return [
       {
         exp,
@@ -72,6 +74,7 @@ function expandParcelaOptions(exp: CrossExpense): ParcelaOption[] {
     ];
   }
   const slices = buildInstallments({
+    schedule: exp.schedule,
     valorTotal: exp.valorTotal,
     formaPagamento: forma,
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
@@ -84,13 +87,13 @@ function expandParcelaOptions(exp: CrossExpense): ParcelaOption[] {
       ? Array.from({ length: slices.length }, (_, i) => i)
       : parsePaidParcelas(exp.paidParcelas, slices.length),
   );
-  return slices.map((s, i) => ({
+  return slices.map((s) => ({
     exp,
-    parcelaIndex: i,
+    parcelaIndex: s.index,
     parcelaLabel: s.parcela,
     valor: s.valor,
     data: s.data instanceof Date ? s.data.toISOString() : String(s.data),
-    status: paid.has(i) ? 'PAGO' : 'PLANEJADO',
+    status: paid.has(s.index) ? 'PAGO' : 'PLANEJADO',
   }));
 }
 
@@ -296,15 +299,17 @@ export function VinculosFields({
     () => crossExpenses.flatMap((e) => expandParcelaOptions(e)),
     [crossExpenses],
   );
-  const selectedParcelaLabel = useMemo(() => {
-    if (!selectedCross) return null;
-    const opts = expandParcelaOptions(selectedCross);
-    const idx = value.linkedParcelaIndex ?? 0;
-    const opt = opts.find((o) => o.parcelaIndex === idx) ?? opts[0];
-    return opt?.parcelaLabel ? ` · parcela ${opt.parcelaLabel}` : '';
-  }, [selectedCross, value.linkedParcelaIndex]);
+  const selectedParcela = selectedCross?.schedule && value.linkedParcelaIndex == null
+    ? undefined
+    : parcelaOptions.find((option) =>
+        option.exp.id === value.linkedExpenseId &&
+        option.parcelaIndex === (value.linkedParcelaIndex ?? 0),
+      );
+  const selectedParcelaLabel = selectedParcela?.parcelaLabel
+    ? ` · parcela ${selectedParcela.parcelaLabel}`
+    : '';
   const displayLabel = selectedCross
-    ? `${selectedCross.titulo || selectedCross.fornecedor || '—'}${selectedParcelaLabel} · ${formatCurrency(selectedCross.valorTotal / 100)} · ${selectedCross.project?.name ?? ''}`
+    ? `${selectedCross.titulo || selectedCross.fornecedor || '—'}${selectedParcelaLabel} · ${formatCurrency((selectedCross.schedule && selectedParcela ? selectedParcela.valor : selectedCross.valorTotal) / 100)} · ${selectedCross.project?.name ?? ''}`
     : createdLabel ?? initialLinkedExpenseLabel ?? null;
 
   return (

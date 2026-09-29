@@ -69,6 +69,35 @@ const cartaoPagaCartao = [
 // Total fatura Latam 2026-06 = 343.530 + 1.224.225 = 1.567.755 = R$ 15.677,55
 
 describe('buildCaixaData — convergência com a fatura da Visão Conta', () => {
+  it.each(['2026-08-10', '2026-08-28'])('#701 respeita ciclo explícito de %s e não muda a data real', (data) => {
+    const original = entry({ data, valor: -248, cardLast4: LATAM, invoiceDueMonth: '2026-11' });
+    const result = buildCaixaData(makeData([original]));
+    expect(result.entries?.[0]).toMatchObject({ data: '2026-11-01T00:00:00.000Z', valor: -248 });
+    expect(original.data).toBe(data);
+  });
+
+  it('#701 projects a documented cycle without configured days and preserves bank cash', () => {
+    const entries = [
+      entry({ id: 'purchase', data: '2026-09-10', valor: 12345, cardLast4: LATAM, invoiceDueMonth: '2026-11' }),
+      entry({ id: 'credit-7', data: '2026-08-10', valor: -7, cardLast4: LATAM, invoiceDueMonth: '2026-11' }),
+      entry({ id: 'credit-321', data: '2026-08-31', valor: -321, cardLast4: LATAM, invoiceDueMonth: '2026-11' }),
+    ];
+    const data = {
+      ...makeData(entries),
+      cards: [],
+      caixa: { hoje: 50000, saldoInicial: 50000, temSaldoInicial: true, porMes: [] },
+    };
+    const result = buildCaixaData(data);
+    expect(result.entries?.map(({ data, valor }) => ({ data, valor }))).toEqual([
+      { data: '2026-11-10T00:00:00.000Z', valor: 12345 },
+      { data: '2026-11-10T00:00:00.000Z', valor: -7 },
+      { data: '2026-11-30T00:00:00.000Z', valor: -321 },
+    ]);
+    expect(result.meses.find((month) => month.mes === '2026-11')?.totalDespesas).toBe(12017);
+    expect(result.caixa).toEqual(data.caixa);
+    expect(entries.map(({ data }) => data)).toEqual(['2026-09-10', '2026-08-10', '2026-08-31']);
+  });
+
   it('Vai sair por cartão == fatura (inclui cartão paga cartão remapeado)', () => {
     const caixa = buildCaixaData(makeData([...consumoLatam, ...cartaoPagaCartao]));
     const junho = (caixa.entries ?? []).filter((e) => (e.data ?? '').slice(0, 7) === '2026-06');

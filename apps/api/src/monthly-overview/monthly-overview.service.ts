@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ForbiddenException,
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import { ADDITIVE, fundingSummaries } from '../conciliacao/additive-settlement';
+import { financialMirrorIds, parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
 import { resolveAccessibleProjectScope } from '../common/access-rules';
 import {
   ambiguousLast4Set,
@@ -91,6 +92,7 @@ interface CarteiraExpenseRow {
   createdAt: Date;
   paidParcelas: string | null;
   installmentDateOverrides: string | null;
+  documentedSchedule?: string | null;
   settledByExpenseId: string | null;
 }
 
@@ -129,6 +131,7 @@ interface ActionEntry {
     cardLast4: string | null;
     bankLast4: string | null;
     tipoDespesa: string;
+    documentedSchedule?: string | null;
   } | null;
 }
 
@@ -137,6 +140,7 @@ function deriveEntryActions(
   espelho: boolean,
 ): Array<{ actionId: string }> {
   if (espelho) return [];
+  if (e.expense?.documentedSchedule != null) return [{ actionId: 'edit' }];
 
   const isDespesa = e.tipo === 'DESPESA';
   const isRecebimento = e.tipo === 'RECEBIMENTO';
@@ -282,6 +286,7 @@ export class MonthlyOverviewService {
     }
 
     const installments = buildInstallments({
+      schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(expense.documentedSchedule)),
       formaPagamento: expense.formaPagamento,
       quantidadeParcela: expense.quantidadeParcela,
       valorTotal: expense.valorTotal,
@@ -399,6 +404,7 @@ export class MonthlyOverviewService {
         expense: {
           select: {
             linkedExpenseId: true,
+            documentedSchedule: true,
             cardLast4: true,
             bankLast4: true,
             tipoDespesa: true,
@@ -422,7 +428,10 @@ export class MonthlyOverviewService {
       select: { targetPaidCashFlowEntryId: true },
     });
     const projectionIds = new Set(projections.map(row => row.targetPaidCashFlowEntryId));
-    const isEspelho = (e: (typeof entries)[number]) => !!e.expense?.linkedExpenseId;
+    const mirrorIds = financialMirrorIds([...new Map(entries.flatMap((entry) =>
+      entry.expenseId && entry.expense ? [[entry.expenseId, { ...entry.expense, id: entry.expenseId }] as const] : [],
+    )).values()]);
+    const isEspelho = (e: (typeof entries)[number]) => !!e.expenseId && mirrorIds.has(e.expenseId);
 
     // Adapta para o helper do domain (acrescenta projectOrigin e label de categoria).
     // Linhas mês-a-mês são consolidadas → excluem espelhos (o alvo do projeto é o canônico),
@@ -453,6 +462,7 @@ export class MonthlyOverviewService {
     const enrich = (e: (typeof entries)[number]) => ({
       id: e.id,
       data: e.data,
+      invoiceDueMonth: e.invoiceDueMonth,
       tipo: e.tipo,
       status: e.status,
       valor: e.valor,
@@ -667,6 +677,7 @@ export class MonthlyOverviewService {
           settlesInvoiceKey: true,
           paidParcelas: true,
           installmentDateOverrides: true,
+          documentedSchedule: true,
           invoiceUndoState: true,
           project: { select: { id: true, name: true, type: true } },
         },
@@ -800,10 +811,16 @@ export class MonthlyOverviewService {
     // já feitos, mas parcelas futuras ainda saem da conta), ou sem espelho (lump).
     const espelhosByForeignId = new Map<string, typeof expenses>();
     for (const espelho of expenses) {
-      if (!espelho.linkedExpenseId) continue;
-      const bucket = espelhosByForeignId.get(espelho.linkedExpenseId);
-      if (bucket) bucket.push(espelho);
-      else espelhosByForeignId.set(espelho.linkedExpenseId, [espelho]);
+      const schedule = parseStoredExpenseSchedule(espelho.documentedSchedule);
+      const targetIds = new Set([
+        ...(espelho.linkedExpenseId ? [espelho.linkedExpenseId] : []),
+        ...(schedule?.kind === 'source' ? schedule.projections.map((ref) => ref.targetExpenseId) : []),
+      ]);
+      for (const targetId of targetIds) {
+        const bucket = espelhosByForeignId.get(targetId);
+        if (bucket) bucket.push(espelho);
+        else espelhosByForeignId.set(targetId, [espelho]);
+      }
     }
     type ForeignOrigin =
       | { origem: 'none' }
@@ -896,6 +913,10 @@ export class MonthlyOverviewService {
       linkedExpenseId: string | null | undefined,
     ) => {
       if ((rateioAllocationCountBySource.get(sourceExpenseId) ?? 0) >= 2) return null;
+      if (!linkedExpenseId) {
+        const schedule = parseStoredExpenseSchedule(allExpensesById.get(sourceExpenseId)?.documentedSchedule);
+        if (schedule?.kind === 'source' && schedule.projections.length === 1) linkedExpenseId = schedule.projections[0].targetExpenseId;
+      }
       if (!linkedExpenseId) return null;
       const target = foreignById.get(linkedExpenseId);
       if (!target?.project) return null;
@@ -1211,6 +1232,7 @@ export class MonthlyOverviewService {
           entry.data,
           card?.closingDay ?? null,
           card?.dueDay ?? null,
+          entry.invoiceDueMonth,
         );
         const invoicePaid = paidInvoiceKeys.has(`${dueMonth}__${cardLast4}`);
         return {
@@ -1290,6 +1312,7 @@ export class MonthlyOverviewService {
           const parcelaOrigins =
             parcelaOriginByForeign.get(expense.id) ?? new Map<number, ParcelaOrigin>();
           const perParcela = buildInstallments({
+            schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(expense.documentedSchedule)),
             valorTotal: expense.valorTotal,
             formaPagamento: expense.formaPagamento,
             quantidadeParcela: expense.quantidadeParcela,
@@ -1402,6 +1425,7 @@ export class MonthlyOverviewService {
           }
 
           const parcelasNone = buildInstallments({
+            schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(expense.documentedSchedule)),
             valorTotal: expense.valorTotal,
             formaPagamento: expense.formaPagamento,
             quantidadeParcela: expense.quantidadeParcela,
@@ -1457,6 +1481,7 @@ export class MonthlyOverviewService {
         // vencimento — pendente se ainda não paga, realizado se já paga via
         // paidParcelas (mantém a linha em vez de descartar; bug #306).
         const parcelas = buildInstallments({
+          schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(expense.documentedSchedule)),
           valorTotal: expense.valorTotal,
           formaPagamento: expense.formaPagamento,
           quantidadeParcela: expense.quantidadeParcela,
@@ -1511,6 +1536,7 @@ export class MonthlyOverviewService {
       ) +
       sumBy(foreignPendingItems, (item) => item.valor);
 
+    const documentedExpenseIds = new Set(allExpenses.filter((expense) => expense.documentedSchedule != null).map((expense) => expense.id));
     const saidas: Array<any> = [
       ...selectedInvoices.map((invoice) => {
         // B1a (#448): mesma fatura, mesmos campos aditivos do `cartoes[]`
@@ -1647,7 +1673,11 @@ export class MonthlyOverviewService {
         }),
       ),
       ...foreignPendingItems,
-    ].sort((a, b) => b.data.localeCompare(a.data));
+    ].map((item) => {
+      const expenseId = (item.foreignExpenseId ?? item.id)?.split('#')[0];
+      return documentedExpenseIds.has(expenseId)
+        ? { ...item, financialEditable: false } : item;
+    }).sort((a, b) => b.data.localeCompare(a.data));
 
     // Recalculate saiuMes and faltaPagarMes to include all saidas (including carteira)
     // This ensures carteira items are properly counted in the totals
@@ -2015,6 +2045,7 @@ export class MonthlyOverviewService {
               cardLast4: true,
               bankLast4: true,
               linkedExpenseId: true,
+              documentedSchedule: true,
             },
           },
           receipt: {
@@ -2053,6 +2084,8 @@ export class MonthlyOverviewService {
     const normalized: DreLine[] = [];
     for (const entry of entries) {
       if (entry.expense?.linkedExpenseId) continue;
+      const documented = parseStoredExpenseSchedule(entry.expense?.documentedSchedule);
+      if (documented?.kind === 'source' && documented.projections.length) continue;
 
       const realized = entry.status === 'PAGO' || entry.status === 'EM_CAIXA';
       const monthCompetencia = monthKeyOf(entry.data);
@@ -2091,6 +2124,7 @@ export class MonthlyOverviewService {
             entry.data,
             card?.closingDay ?? null,
             card?.dueDay ?? null,
+            entry.invoiceDueMonth,
           )
         : monthCompetencia;
 
@@ -2545,6 +2579,7 @@ export class MonthlyOverviewService {
         select: {
           valor: true,
           data: true,
+          invoiceDueMonth: true,
           expense: {
             select: { cardLast4: true, bankLast4: true, tipoDespesa: true, settlesInvoiceKey: true },
           },
@@ -2615,7 +2650,7 @@ export class MonthlyOverviewService {
         // cartão entra. Agrupa por mês de vencimento.
         if (isNeutralExpenseType(tipo) && bankLast4) continue;
         const card = cardByLast4.get(cardLast4) ?? null;
-        mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
+        mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null, entry.invoiceDueMonth);
         key = originKey('card', cardLast4);
         cardsWithData.add(cardLast4);
         // "Cartão paga cartão": cobrança no cartão que quita a fatura de outro.
@@ -2751,6 +2786,7 @@ export class MonthlyOverviewService {
           quantidadeParcela: true,
           paidParcelas: true,
           installmentDateOverrides: true,
+          documentedSchedule: true,
           dataPagamento: true,
           dataInicioParcela: true,
           dataCompra: true,
@@ -2800,6 +2836,7 @@ export class MonthlyOverviewService {
         }
 
         const installments = buildInstallments({
+          schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(expense.documentedSchedule)),
           formaPagamento: expense.formaPagamento,
           quantidadeParcela: expense.quantidadeParcela,
           valorTotal: expense.valorTotal,
@@ -2960,6 +2997,7 @@ export class MonthlyOverviewService {
         valor: true,
         data: true,
         status: true,
+        invoiceDueMonth: true,
         expense: {
           select: {
             tipoDespesa: true,
@@ -2990,7 +3028,7 @@ export class MonthlyOverviewService {
       let mes: string;
       if (kind === 'card') {
         if (isNeutralExpenseType(tipo) && entry.expense?.bankLast4) continue;
-        mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
+        mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null, entry.invoiceDueMonth);
       } else {
         if (this.isHiddenFromAccountItems(tipo)) continue;
         mes = monthKeyOf(entry.data);
@@ -3065,6 +3103,7 @@ export class MonthlyOverviewService {
           valor: true,
           data: true,
           status: true,
+          invoiceDueMonth: true,
           expense: {
             select: {
               tipoDespesa: true,
@@ -3112,7 +3151,7 @@ export class MonthlyOverviewService {
       if (cardLast4) {
         if (isNeutralExpenseType(tipo) && bankLast4) continue;
         const card = cardByLast4.get(cardLast4) ?? null;
-        mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
+        mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null, entry.invoiceDueMonth);
         origem = { kind: 'card', last4: cardLast4, nickname: card?.nickname?.trim() || `Cartão ${cardLast4}` };
       } else if (bankLast4) {
         if (this.isHiddenFromAccountItems(tipo)) continue;
@@ -3209,6 +3248,7 @@ export class MonthlyOverviewService {
           dataCompra: true,
           paidParcelas: true,
           installmentDateOverrides: true,
+          documentedSchedule: true,
           createdAt: true,
           cardLast4: true,
           bankLast4: true,
@@ -3701,6 +3741,7 @@ export class MonthlyOverviewService {
           tipo: true,
           data: true,
           valor: true,
+          invoiceDueMonth: true,
           expense: { select: { cardLast4: true, bankLast4: true, tipoDespesa: true } },
         },
       }),
@@ -3864,12 +3905,12 @@ export class MonthlyOverviewService {
           tipo: 'DESPESA',
           expense: { deletedAt: null, cardLast4: card.last4 },
         },
-        select: { id: true, data: true },
-      })) as Array<{ id: string; data: Date }>;
+        select: { id: true, data: true, invoiceDueMonth: true },
+      }));
       const dueMonthEntryIds = invoiceEntries
         .filter(
           (entry) =>
-            caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === dueMonth,
+            caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay, entry.invoiceDueMonth) === dueMonth,
         )
         .map((entry) => entry.id);
       if (dueMonthEntryIds.length > 0) {
@@ -4084,6 +4125,7 @@ export function buildCardInvoiceAggregates(
     tipo: string;
     data: Date;
     valor: number;
+    invoiceDueMonth?: string | null;
     expense: { cardLast4: string | null; bankLast4: string | null; tipoDespesa: string } | null;
   }>,
   cards: Array<{ last4: string; nickname: string | null; closingDay: number | null; dueDay: number | null }>,
@@ -4102,7 +4144,7 @@ export function buildCardInvoiceAggregates(
     if (isNeutralExpenseType(entry.expense.tipoDespesa) && entry.expense.bankLast4) continue;
 
     const card = cardByLast4.get(entry.expense.cardLast4) ?? null;
-    const dueMonth = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
+    const dueMonth = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null, entry.invoiceDueMonth);
     const invoiceKey = `${dueMonth}__${entry.expense.cardLast4}`;
     let invoice = invoiceByMonthCard.get(invoiceKey);
     if (!invoice) {
@@ -4274,6 +4316,7 @@ export interface CaixaContaExpense {
   quantidadeParcela?: number | null;
   paidParcelas?: string | null;
   installmentDateOverrides?: string | null;
+  documentedSchedule?: string | null;
   createdAt: Date;
 }
 export interface CaixaContaReceipt {
@@ -4352,6 +4395,7 @@ export function computeCaixaConta(
       e.formaPagamento === PaymentForm.QUINZENAL
     ) {
       const installments = buildInstallments({
+        schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(e.documentedSchedule)),
         valorTotal: e.valorTotal,
         formaPagamento: e.formaPagamento,
         quantidadeParcela: e.quantidadeParcela,
@@ -4867,6 +4911,7 @@ export function buildRunwayCandidatos(
     for (const item of (view.saidas ?? []) as Array<any>) {
       if (item.isInvoice) continue;
       if (item.realizado) continue;
+      if (item.financialEditable === false) continue;
       if (isConsumptionNeutralExpenseType(item.tipoDespesa)) continue;
       // Exclui espelhos PESSOAL (linkedExpenseId != null → projetoOrigem set, foreignExpenseId null)
       if (item.projetoOrigem !== null && item.projetoOrigem !== undefined && !item.foreignExpenseId) continue;

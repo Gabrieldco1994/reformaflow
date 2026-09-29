@@ -124,6 +124,7 @@ export function buildContaReal(
           occ.occDate,
           card?.closingDay ?? null,
           card?.dueDay ?? null,
+          occ.invoiceDueMonth,
         );
         const month = ensureMonth(mes);
         const fkey = `${mes}__${e.cardLast4}`;
@@ -149,7 +150,7 @@ export function buildContaReal(
           occKey: occ.occKey,
           expenseId: e.id,
           descricao: e.titulo || e.fornecedor || '',
-          parcela: occ.occTotalParcelas > 1 ? `${occ.occIndex}/${occ.occTotalParcelas}` : null,
+          parcela: e.schedule || occ.occTotalParcelas > 1 ? occ.occParcela ?? null : null,
           valor: occ.occValue,
           status,
           data: occ.occDate,

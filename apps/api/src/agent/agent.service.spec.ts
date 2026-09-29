@@ -2,6 +2,7 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { AgentService } from './agent.service';
 import { AgentToolsService } from './tools/agent-tools.service';
 import { LlmProvider, ToolDef } from './llm/llm.types';
+import { sourceSchedule } from '../expense/testing/documented-schedule.fixture';
 
 const toolDefs: ToolDef[] = [
   { name: 'get_financial_overview', description: 'kpis', parameters: { type: 'object', properties: {} } },
@@ -22,6 +23,44 @@ describe('AgentService (loop de tool-calling)', () => {
     projectId: null,
     messages: [{ role: 'user' as const, content: 'Quanto tenho em caixa?' }],
   };
+
+  it('strips private financial schedules before tool output reaches the model', async () => {
+    const raw = JSON.stringify(sourceSchedule());
+    const llm: LlmProvider = {
+      id: 'mock', isConfigured: () => true,
+      chat: jest.fn()
+        .mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'c1', name: 'list_expenses', arguments: {} }] })
+        .mockImplementationOnce(async (messages) => {
+          const output = messages.find((message: { role: string }) => message.role === 'tool');
+          expect(JSON.parse(output.content)).toEqual({
+            items: [{ schedule: { version: 1, occurrences: [{
+              index: 0, parcela: '2/3', valor: 12345, data: '2026-08-31', invoiceDueMonth: '2026-11',
+            }] } }],
+          });
+          expect(output.content).not.toContain('synthetic-701-actor');
+          return { content: 'Resumo.', toolCalls: [] };
+        }),
+    };
+    await new AgentService(llm, makeTools({
+      execute: jest.fn().mockResolvedValue({ items: [{
+        documentedSchedule: raw, plannedDocumentedSchedule: raw,
+      }] }),
+    })).chat(baseInput);
+    expect(llm.chat).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not send malformed stored provenance to the model', async () => {
+    const llm: LlmProvider = {
+      id: 'mock', isConfigured: () => true,
+      chat: jest.fn().mockResolvedValue({
+        content: '', toolCalls: [{ id: 'c1', name: 'list_expenses', arguments: {} }],
+      }),
+    };
+    await expect(new AgentService(llm, makeTools({
+      execute: jest.fn().mockResolvedValue({ documentedSchedule: 'private-invalid-json' }),
+    })).chat(baseInput)).rejects.toThrow('Invalid documented expense schedule');
+    expect(llm.chat).toHaveBeenCalledTimes(1);
+  });
 
   it('executa a ferramenta pedida e reinjeta o resultado até a resposta final', async () => {
     const llm: LlmProvider = {

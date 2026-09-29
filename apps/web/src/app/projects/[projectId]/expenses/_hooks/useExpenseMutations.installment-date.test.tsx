@@ -3,7 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Expense } from '@/types';
-import type { ExpenseType } from '@reformaflow/domain';
+import { ExpenseType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { useExpenseMutations } from './useExpenseMutations';
 
@@ -26,6 +26,48 @@ vi.mock('sonner', () => ({
 describe('useExpenseMutations — data de parcela', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('#701 refuses financial quick/bulk updates before any request for a documented expense', async () => {
+    const expense: Expense = {
+      id: 'documented',
+      tipoDespesa: 'OUTROS',
+      valor: 123,
+      quantidade: 1,
+      valorTotal: 123,
+      formaPagamento: 'A_VISTA',
+      status: 'PLANEJADO',
+      schedule: {
+        version: 1,
+        occurrences: [{ index: 0, parcela: null, valor: 123, data: '2026-08-10', invoiceDueMonth: null }],
+      },
+    };
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useExpenseMutations({
+      projectId: 'p1',
+      allExpensesPersonal: [expense],
+      defaultExpenseType: ExpenseType.OUTROS,
+      closeFormModal: vi.fn(),
+      setShowNewRow: vi.fn(),
+      setNewRow: vi.fn(),
+      setPayModalOpen: vi.fn(),
+    }), { wrapper });
+
+    await act(async () => {
+      await expect(result.current.installmentDateMutation.mutateAsync({
+        id: expense.id, parcela: 0, data: '2026-09-10',
+      })).rejects.toThrow('correção assistida');
+      await expect(result.current.quickUpdateMutation.mutateAsync({
+        id: expense.id, valorTotal: 999, quantidade: 1, dataPagamento: '2026-09-10',
+      })).rejects.toThrow('correção assistida');
+      await expect(result.current.bulkDateMutation.mutateAsync({
+        ids: ['legacy', expense.id], dataPagamento: '2026-09-10',
+      })).rejects.toThrow('correção assistida');
+    });
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it('usa o projeto dono e invalida projeto visualizado, dono e afetados', async () => {

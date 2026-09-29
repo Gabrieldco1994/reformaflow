@@ -21,7 +21,7 @@ describe('buildInstallments', () => {
       dataPagamento: data,
     });
     expect(out).toHaveLength(1);
-    expect(out[0]).toEqual({ parcela: '1/1', valor: 12345, data });
+    expect(out[0]).toEqual({ index: 0, parcela: '1/1', valor: 12345, data, invoiceDueMonth: null });
   });
 
   it('A_VISTA sem data usa o dia-calendário BRT (meia-noite UTC)', () => {
@@ -207,9 +207,11 @@ describe('buildInstallments', () => {
     });
     expect(out).toHaveLength(1);
     expect(out[0]).toEqual({
+      index: 0,
       parcela: '1/1',
       valor: 500,
       data: utc(2026, 4, 5),
+      invoiceDueMonth: null,
     });
   });
 
@@ -221,7 +223,7 @@ describe('buildInstallments', () => {
       dataPagamento: data,
     });
     expect(out).toHaveLength(1);
-    expect(out[0]).toEqual({ parcela: '1/1', valor: 9999, data });
+    expect(out[0]).toEqual({ index: 0, parcela: '1/1', valor: 9999, data, invoiceDueMonth: null });
   });
 
   it('PAGAMENTO_CONTA é tratado como pagamento único', () => {
@@ -232,7 +234,7 @@ describe('buildInstallments', () => {
       dataPagamento: data,
     });
     expect(out).toHaveLength(1);
-    expect(out[0]).toEqual({ parcela: '1/1', valor: 25000, data });
+    expect(out[0]).toEqual({ index: 0, parcela: '1/1', valor: 25000, data, invoiceDueMonth: null });
   });
 });
 

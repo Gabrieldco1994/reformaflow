@@ -123,6 +123,7 @@ export function DadosDespesaFields({
           type="text"
           inputMode="numeric"
           required
+          disabled={!!editing?.schedule}
           value={valor}
           onChange={(e) => setValor(maskReaisInput(e.target.value))}
         />
@@ -132,13 +133,14 @@ export function DadosDespesaFields({
           type="number"
           min="1"
           required
+          disabled={!!editing?.schedule}
           value={quantidade}
           onChange={(e) => setQuantidade(e.target.value)}
         />
       </div>
 
       <div className="text-sm text-gray-600">
-        Valor Total: <span className="font-semibold">{formatCurrency(valorTotal)}</span>
+        Valor Total: <span className="font-semibold whitespace-nowrap">{formatCurrency(editing?.schedule ? editing.valorTotal / 100 : valorTotal)}</span>
       </div>
 
       <Input label="Título da Despesa" name="titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} />

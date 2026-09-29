@@ -1,4 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
+import type { Expense, ParcelaFundingResult } from "../src/types";
 
 async function touchTarget(control: Locator) {
   await control.scrollIntoViewIfNeeded();
@@ -41,6 +42,8 @@ for (const width of [375, 390, 1280]) {
     let paid = 0;
     const otherPaid = 40_000;
     const contracted = width === 375 ? 12_345_678 : 80_000;
+    const dueDate = width === 390 ? "2027-01-28" : "2026-10-10";
+    const parcela = width === 390 ? "3/3" : "1";
     const json = (body: unknown) => ({
       status: 200,
       contentType: "application/json",
@@ -80,7 +83,7 @@ for (const width of [375, 390, 1280]) {
               sourceAvailableCents: 40_000 - paid,
               settlementStatus:
                 paid + otherPaid === contracted ? "PAID" : "PARTIAL",
-            }),
+            } satisfies ParcelaFundingResult),
           );
         }
         throw new Error(`Unexpected write: ${req.method()} ${path}`);
@@ -127,7 +130,22 @@ for (const width of [375, 390, 1280]) {
             dataPagamento: "2026-09-10T00:00:00.000Z",
             bankLast4: "1234",
             sourceAvailableCents: 40_000 - paid,
-          }),
+            schedule:
+              width === 390
+                ? {
+                    version: 1,
+                    occurrences: [
+                      {
+                        index: 0,
+                        parcela: null,
+                        valor: 40_000,
+                        data: "2026-09-10",
+                        invoiceDueMonth: null,
+                      },
+                    ],
+                  }
+                : null,
+          } satisfies Expense),
         );
       if (path.endsWith("/expenses/cross-project"))
         return route.fulfill(
@@ -143,12 +161,27 @@ for (const width of [375, 390, 1280]) {
               valorTotal: contracted,
               formaPagamento: "PARCELADO",
               quantidadeParcela: 1,
-              dataInicioParcela: "2026-10-10",
+              dataInicioParcela: dueDate,
+              schedule:
+                width === 390
+                  ? {
+                      version: 1,
+                      occurrences: [
+                        {
+                          index: 0,
+                          parcela: "3/3",
+                          valor: contracted,
+                          data: dueDate,
+                          invoiceDueMonth: null,
+                        },
+                      ],
+                    }
+                  : null,
               status: paid + otherPaid === contracted ? "PAGO" : "PLANEJADO",
               installmentSettlements: [
                 {
                   parcelaIndex: 0,
-                  dueDate: "2026-10-10T00:00:00.000Z",
+                  dueDate: `${dueDate}T00:00:00.000Z`,
                   contractedCents: contracted,
                   paidCents: paid + otherPaid,
                   remainingCents: contracted - paid - otherPaid,
@@ -175,7 +208,7 @@ for (const width of [375, 390, 1280]) {
                 },
               ],
             },
-          ]),
+          ] satisfies Expense[]),
         );
       if (path.endsWith("/rateio"))
         return route.fulfill(json({ rateado: false }));
@@ -239,6 +272,9 @@ for (const width of [375, 390, 1280]) {
     });
     await expect(section).toBeVisible();
     const select = section.getByLabel("Parcela a pagar");
+    await expect(
+      select.getByRole("option", { name: new RegExp(`parcela ${parcela}`) }),
+    ).toHaveCount(1);
     await select.selectOption("target#0");
     const input = section.getByLabel("Valor a aplicar (R$)");
     const confirm = section.getByRole("button", {
@@ -267,7 +303,9 @@ for (const width of [375, 390, 1280]) {
     });
     await expect(undo).toHaveCount(1);
     await expect(
-      section.getByRole("group", { name: "Obra · Contrato · parcela 1" }),
+      section.getByRole("group", {
+        name: `Obra · Contrato · parcela ${parcela}`,
+      }),
     ).toBeVisible();
     await touchTarget(undo);
     expect(

@@ -130,6 +130,12 @@ export function useExpenseMutations({
     return exp?.project?.id ?? exp?.projectId ?? projectId;
   };
 
+  const requireLegacyFinancialEdit = (ids: string[]) => {
+    if (allExpensesPersonal.some((expense) => ids.includes(expense.id) && expense.schedule)) {
+      throw new Error('Cronograma documentado: alterações financeiras precisam de correção assistida.');
+    }
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: ExpenseFormData) => api.post(`/projects/${projectId}/expenses`, data),
     onSuccess: () => {
@@ -146,7 +152,7 @@ export function useExpenseMutations({
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: ExpenseFormData }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<ExpenseFormData> }) =>
       api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, data),
     onSuccess: () => {
       toast.success('Despesa atualizada com sucesso');
@@ -215,11 +221,13 @@ export function useExpenseMutations({
       id: string;
       parcela: number;
       data: string;
-    }) =>
-      api.patch<InstallmentDateResponse>(
+    }) => {
+      requireLegacyFinancialEdit([id]);
+      return api.patch<InstallmentDateResponse>(
         `/projects/${resolveOwnerProjectId(id)}/expenses/${id}/parcela-data`,
         { parcela, data },
-      ),
+      );
+    },
     onSuccess: (response, variables) => {
       invalidateExpenseProjects(queryClient, [
         projectId,
@@ -237,6 +245,7 @@ export function useExpenseMutations({
   // Edição rápida (valor + data)
   const quickUpdateMutation = useMutation({
     mutationFn: ({ id, valorTotal, dataPagamento, quantidade }: { id: string; valorTotal: number; dataPagamento: string; quantidade: number }) => {
+      requireLegacyFinancialEdit([id]);
       const valorUnit = quantidade > 0 ? valorTotal / quantidade : valorTotal;
       // Parcelada planejada (sem parcela paga): mover também dataInicioParcela,
       // senão a 1ª parcela continua presa ao mês antigo na visão Mês. Com parcela
@@ -279,6 +288,7 @@ export function useExpenseMutations({
   //   índice de parcelas pagas.
   const bulkDateMutation = useMutation({
     mutationFn: async ({ ids, dataPagamento }: { ids: string[]; dataPagamento: string }) => {
+      requireLegacyFinancialEdit(ids);
       // Sequencial de propósito: SQLite serializa escritas e PATCHs concorrentes
       // (Promise.all) podem disparar "database is locked" → 500.
       for (const id of ids) {

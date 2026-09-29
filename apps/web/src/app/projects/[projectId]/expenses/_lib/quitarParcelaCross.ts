@@ -1,5 +1,5 @@
 import { buildInstallments, isSinglePaymentForm } from '@reformaflow/domain';
-import type { ExpenseFormData } from '@/types';
+import type { Expense, ExpenseFormData } from '@/types';
 import type { AccountViewSaida } from '../../conta/_types';
 
 /**
@@ -118,6 +118,7 @@ export interface QuitacaoTargetExpense {
   quantidadeParcela?: number | null;
   paidParcelas?: string | number[] | null;
   installmentDateOverrides?: string | null;
+  schedule?: Expense['schedule'];
 }
 
 export interface ParcelaQuitacaoSuggestion {
@@ -143,7 +144,7 @@ export function suggestParcelaQuitacao(
   today: Date = new Date(),
 ): ParcelaQuitacaoSuggestion {
   const isoToday = today.toISOString().slice(0, 10);
-  if (isSinglePaymentForm(exp.formaPagamento ?? '')) {
+  if (!exp.schedule && isSinglePaymentForm(exp.formaPagamento ?? '')) {
     return {
       parcelaIndex: 0,
       valorSugerido: exp.valorTotal,
@@ -151,8 +152,9 @@ export function suggestParcelaQuitacao(
     };
   }
   const slices = buildInstallments({
+    schedule: exp.schedule,
     valorTotal: exp.valorTotal,
-    formaPagamento: exp.formaPagamento as never,
+    formaPagamento: exp.formaPagamento ?? '',
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
     quantidadeParcela: exp.quantidadeParcela ?? null,
     dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
@@ -188,7 +190,7 @@ export function suggestParcelaQuitacaoAt(
   today: Date = new Date(),
 ): ParcelaQuitacaoSuggestion {
   const isoToday = today.toISOString().slice(0, 10);
-  if (isSinglePaymentForm(exp.formaPagamento ?? '')) {
+  if (!exp.schedule && isSinglePaymentForm(exp.formaPagamento ?? '')) {
     return {
       parcelaIndex: 0,
       valorSugerido: exp.valorTotal,
@@ -196,8 +198,9 @@ export function suggestParcelaQuitacaoAt(
     };
   }
   const slices = buildInstallments({
+    schedule: exp.schedule,
     valorTotal: exp.valorTotal,
-    formaPagamento: exp.formaPagamento as never,
+    formaPagamento: exp.formaPagamento ?? '',
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
     quantidadeParcela: exp.quantidadeParcela ?? null,
     dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,

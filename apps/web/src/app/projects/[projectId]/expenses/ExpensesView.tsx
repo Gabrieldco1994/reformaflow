@@ -25,6 +25,7 @@ import { ExpenseKpiCards } from './_components/ExpenseKpiCards';
 import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
+import { expenseMetadataFromForm } from './_lib/expense-metadata';
 import { SemCartaoEmptyState } from '../_components/SemCartaoEmptyState';
 import { SemContaEmptyState } from '../_components/SemContaEmptyState';
 import { RatearCompraModal } from './_components/RatearCompraModal';
@@ -696,6 +697,10 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   }
 
   function openInlineEdit(expense: Expense) {
+    if (expense.schedule) {
+      openEdit(expense);
+      return;
+    }
     setShowNewRow(false);
     setEditingInlineId(expense.id);
     setEditingInlineRow({
@@ -747,6 +752,10 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    if (editing?.schedule) {
+      updateMutation.mutate({ id: editing.id, data: expenseMetadataFromForm(form, formShowRooms) });
+      return;
+    }
     // Campos opcionais: string vazia → null (sinaliza ao backend "limpar campo").
     // Mantém `null` no payload (em vez de undefined) para que Prisma seta NULL no banco.
     const nullable = (key: string) => {
@@ -1598,6 +1607,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         tipoDespesaOptions={formTipoOptions}
         roomOptions={formRoomOptions}
         isPending={createMutation.isPending || updateMutation.isPending}
+        error={createMutation.error || updateMutation.error}
         linkedExpenseDraft={{
           titulo: formTitulo,
           fornecedor: formFornecedor,
