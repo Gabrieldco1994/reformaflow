@@ -18,6 +18,13 @@ inventário de módulos**. Os mapas vivos e autoritativos são
 
 Inclui a assistente de voz **Maria** (lançamento de despesas por voz, TTS via VibeVoice) e um motor de cronograma com gráfico de Gantt.
 
+**Maria CSV — recorte em implementação (2026-10-09), não entregue nem implantado:**
+importação conversacional de compras de cartão por CSV em PR independente baseada em `main`,
+não na PR #714. Upload privado exige consentimento documental; seleção e revisão humanas
+não substituem a confirmação financeira explícita. Não entrega todo E5.
+Escopo, retenção e gates no [contrato do servidor CSV](./docs/maria-csv-intake-server-contract.md);
+aceite no [ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711).
+
 ## Stack
 
 Monorepo **Turbo** com **npm workspaces** (`packageManager: npm`):

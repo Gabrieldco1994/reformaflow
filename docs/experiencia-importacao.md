@@ -12,6 +12,12 @@ comprova deploy. A verificação de toque também cobre a #662, sem encerrá-la 
 [importação conversacional](#importação-conversacional-na-maria) é separado da entrega #689.
 Não libera todo E5, não dispensa H1–H5 e não comprova disponibilidade ou deploy.
 
+**Entrega delimitada em 2026-10-09 — #711:** compras de cartão por **CSV somente**,
+em implementação numa PR independente baseada em `main`, não na PR #714; **não entregue
+nem implantada**. O [contrato do servidor CSV](maria-csv-intake-server-contract.md) governa
+esta fatia, não a jornada ampliada M1/M2 inteira. Replay de faturas #703, refund purposes
+#704 e CARD restore estão deferidos, sem declaração de código completo.
+
 ## CONTRATO (normativo — o que nunca pode quebrar)
 
 ### Benefício e limites
@@ -136,7 +142,36 @@ daquela entrega.
 6. **Encerrar:** expiração após sete dias sem edição do usuário; polling não renova.
    Conclusão/cancelamento soltam referências, e o original privado é removido quando não houver
    outra referência/retenção autorizada. Comprovantes e proveniência financeira mínima ficam
-   preservados conforme seu contrato, sem guardar a imagem por omissão.
+   preservados conforme seu contrato, sem guardar originais por omissão após aplicar.
+   Cumprir também a remoção exigida pela política de retenção autorizada.
+
+#### Jornada delimitada CSV de cartão (#711)
+
+- Seleção do arquivo é local; **Analisar e guardar rascunho** autoriza upload privado e
+  preparação documental, nunca seleção automática nem lançamento financeiro.
+- Cartão, compras elegíveis e campos são confirmados pelo usuário. Mesmo com um único cartão,
+  a escolha é explícita; sem cartão ou configuração obrigatória, orientar cadastro e retomada.
+  Declarações alteram somente o campo alvo; pendências bloqueiam o item, sem preenchimento
+  financeiro silencioso. Selecionar/desselecionar define o subconjunto revisado e confirmável.
+- Pagamento de fatura aparece ignorado com motivo e permanece evidence-only, sem compra,
+  despesa, fluxo, funding, liquidação ou erro financeiro retryable. Evidência de modo de
+  pagamento não é compra de cartão. Zero compras elegíveis ou somente ignoradas não oferece
+  confirmação financeira.
+- Somente o botão dedicado confirma a versão visível dos itens selecionados e prontos.
+  Seleção, upload consentido, análise, edição, revisão, reload, retry e cancelamento anteriores
+  não produzem efeitos financeiros. Confirmar uma compra cria uma única compra e seu fluxo
+  planejado, preservando centavos, datas e ciclos documentados; sem divisão arbitrária total/N.
+- Resultado incerto exige consulta ao estado/recibo canônico, não nova criação. `APPLIED` com
+  anexo ausente continua terminal, sem retry de upload/análise/aplicação; `DRAFT` na etapa
+  `UPLOAD` com anexo ausente pode reenviar com consentimento válido. Retomada não reaplica.
+- A jornada deve ser acessível pela navegação Maria a partir de signup novo e descartável,
+  com APIs reais e banco isolado: 1280×800, 375×844 e 390×844. CTAs documentais e financeiros
+  permanecem visíveis e tocáveis, sem cobertura da navegação, com foco e labels específicos.
+  Fixtures ou contrato inativo não comprovam entrega.
+
+Esses itens são requisitos do [ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711),
+não evidência de comportamento já disponível. Analytics/eventos permanecem opcionais/deferidos;
+não há promessa de instrumentação nem de logging de conteúdo financeiro.
 
 O canal Maria não cria outro ledger, motor de dedupe ou cronograma. Permanecem os contratos
 de [caixa](cockpit-caixa-real.md), [faturas e undo](visao-conta-faturas.md),

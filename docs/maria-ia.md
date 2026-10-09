@@ -64,10 +64,12 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
 6. **Retenção do rascunho:** rascunho pendente e sua referência ao original privado expiram
    após **sete dias sem edição do usuário**. Consulta/polling não renova esse prazo.
    Conclusão/cancelamento soltam as referências; o blob só é removido quando nenhuma outra
-   sessão ou retenção autorizada depender dele. Uma sessão não ganha acesso a outra pelo reuso.
+   referência ativa ou retenção autorizada exigir sua preservação, respeitando também a
+   remoção exigida pela política autorizada. **O padrão após aplicar é não reter o original.**
+   Uma sessão não ganha acesso a outra pelo reuso.
 7. **Preservação financeira:** limpar o original não apaga comprovantes financeiros, decisões
    normalizadas e proveniência mínima necessária à auditoria e à prevenção de reimportação.
-   Esses registros seguem a retenção financeira/auditoria, sem conservar a imagem por omissão.
+   Esses registros seguem a retenção financeira/auditoria, sem conservar originais por omissão.
    Recibos privados não são automaticamente conteúdo público ou contexto para o modelo.
    Na importação CSV, após `APPLIED`/`CANCELLED`/`EXPIRED` e sem referência ativa ao artefato
    (inclusive de continuação), observações sem claim são apagadas; observações com claim
@@ -107,6 +109,27 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
 O recorte e a sequência da jornada estão na
 [experiência de importação](experiencia-importacao.md#importação-conversacional-na-maria).
 Este contrato não habilita uma tool nem atesta conformidade do runtime.
+
+### Recorte CSV de cartão — entrega independente #711
+
+**Em implementação em 2026-10-09; não entregue nem implantado.** A PR parte de `main`,
+independente da PR #714. Somente CSV de compras de cartão, com fundação de sessão/upload
+privado e execução nativa limitada; não é entrega integral de E5 ou das actions ampliadas.
+Ver o [contrato do servidor](maria-csv-intake-server-contract.md) e a
+[jornada CSV](experiencia-importacao.md#jornada-delimitada-csv-de-cartão-711).
+
+- Consentimento documental não escolhe cartão/compra nem resolve campos. O usuário confirma
+  seleção, declarações e revisão; apenas confirmação financeira dedicada da versão visível
+  autoriza aplicação. Modelo, tool ou texto afirmativo não substituem essa ação.
+- Linhas de pagamento de fatura ignoradas são evidence-only com motivo, sem efeitos
+  financeiros ou retry financeiro. Modo de pagamento é evidência, não uma compra de cartão.
+- Reutilizar serviços canônicos e cronograma documental mínimo; #703 replay de faturas,
+  #704 refund purposes e CARD restore ficam deferidos, sem ateste de conclusão.
+- Escritas financeiras amplas em produção somente com habilitação explícita no servidor e
+  padrão fail-closed documentado. Ausência, configuração inválida ou desabilitada não autoriza
+  escrita; documentação/fixtures/código local não provam implementação, ativação ou deploy.
+- Analytics/eventos são opcionais/deferidos, não requisito de aceite. Não registrar conteúdo
+  financeiro ou anexos privados em logs; evidências de teste são sanitizadas e sintéticas.
 
 ### Fallback
 

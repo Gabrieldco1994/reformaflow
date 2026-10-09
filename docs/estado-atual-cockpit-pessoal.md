@@ -26,6 +26,20 @@ origens e nova consulta ao retornar ao Cockpit. Fórmula e exemplo hipotético n
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
+**Atualizado em 2026-10-09 — Maria CSV / #711:** recorte de compras de cartão por CSV
+**em implementação, em PR separada baseada em `main`; não entregue nem implantado**.
+Não faz parte da PR #714, não usa sua branch como base e não entrega todo E5.
+O [ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711) mantém os critérios
+de aceite abertos; o [contrato CSV do servidor](maria-csv-intake-server-contract.md) delimita
+fundação, workflow e cronograma documental mínimos. Upload privado/rascunho requer
+consentimento documental, separado da seleção e dos campos confirmados pelo usuário e da
+confirmação financeira explícita da revisão visível. Pagamentos de fatura ignorados são
+somente evidência; modo de pagamento não prova compra de cartão. #703 replay de faturas,
+#704 refund purposes e CARD restore ficam deferidos, não declarados concluídos.
+Escritas financeiras amplas em produção dependem de habilitação explícita no servidor,
+com padrão fail-closed documentado e prova de release; este registro não atesta ativação.
+Não altera as invariantes de caixa, faturas, quitação ou rateio abaixo.
+
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
 
 O [SDD do Centro Financeiro](plano-centro-financeiro-sdd.md) está **aprovado como planejamento**,

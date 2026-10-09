@@ -6,6 +6,9 @@
 - For PESSOAL/financial work, read `docs/estado-atual-cockpit-pessoal.md`, `docs/cockpit-caixa-real.md`, `docs/visao-conta-faturas.md`, and `docs/politica-datas-timezone.md`.
 - For program #436 work, also read `docs/plano-centro-financeiro-sdd.md`; it is approved planning, not evidence that Centro Financeiro, U6b, Maria agent-first, or H1–H5 shipped.
 - Do not infer implementation status from old plans or a dirty shared checkout. Check the current branch, `origin/main`, and the actual code.
+- For the separate Maria CSV delivery (#711), read `docs/maria-csv-intake-server-contract.md`,
+  `docs/experiencia-importacao.md`, and `docs/maria-ia.md`. This is an in-flight, CSV-only
+  card-purchase implementation, not shipped E5 or a production deployment.
 
 ## Package manager and commands
 
@@ -75,6 +78,30 @@ Use Node 20+ and npm workspaces (`npm@11.6.2`); do not use pnpm.
 - UI changes require runtime QA at 375/390px and desktop. Use `MovimentacaoRow` as the financial-list layout; keep touch targets at least 44px and monetary values `nowrap`.
 - Mobile means the responsive/PWA experience in `apps/web`, never a native iOS/Android app.
 - Maria tool money values stay strings until `parseSpokenMoney`; schedule ordering goes through `sortScheduleByDate`.
+
+## Maria CSV delivery boundaries (#711)
+
+- The CSV PR is independently based on `main`, never stacked on or evidence of PR #714.
+  Coordinate only the necessary documentary schedule contract (#701); if #714 merges first,
+  integrate from `main`, remove overlap, and repeat the applicable gates on the integrated SHA.
+- Explicit documentary consent is required before private upload/draft storage. It does not
+  select a card or purchase, resolve fields, or authorize finance. Human-confirmed selection,
+  field declarations and revision precede a dedicated financial confirmation of the visible
+  version; model/tool/affirmative text cannot authorize commit.
+- Invoice-payment rows stay ignored with a reason, evidence-only: no purchase, Expense,
+  CashFlowEntry, funding or settlement. Payment-mode evidence is not a card purchase.
+- Pending drafts expire after seven days without user edit; polling does not renew them.
+  Completion/cancellation releases references. Remove private originals when neither an active
+  reference nor authorized retention requires keeping them, and honor required deletion.
+  Default after apply is no original retention. Keep only minimally necessary applied receipt/provenance under
+  financial retention, not raw originals by default.
+- Broad production financial writes require explicit server-side enablement with a documented
+  fail-closed default: absent, invalid or disabled configuration must not authorize writes.
+  A contract, fixture or local candidate is not implementation/release proof. Do not invent an
+  environment variable or claim activation without verified code and release evidence.
+- Defer #703 invoice replay, #704 refund purposes and CARD restore; do not mark those packages
+  complete or import them merely because they are adjacent. Analytics is optional/deferred,
+  not acceptance evidence; never log financial content or private artifacts.
 
 ## Collaboration
 
