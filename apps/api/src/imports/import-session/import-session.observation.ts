@@ -20,6 +20,17 @@ import {
 } from "./import-session.errors";
 import { invoicePaymentIgnoredReason } from "../../credit-card/invoice-payment-classification";
 
+/** A purchase binding is editable only while every canonical claim field is empty. */
+export const EMPTY_IMPORT_OBSERVATION_CLAIM = Object.freeze({
+  canonicalProjectId: null,
+  canonicalExpenseId: null,
+  canonicalReceiptId: null,
+  canonicalIndex: null,
+  claimSessionId: null,
+  claimReceiptJson: null,
+  claimedAt: null,
+});
+
 export interface StoredImportObservationEvidenceV1 {
   /** Immutable parser source; optional solely for additive historical read compatibility. */
   sourceDescription?: string | null;

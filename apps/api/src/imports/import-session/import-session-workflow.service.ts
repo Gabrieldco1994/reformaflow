@@ -66,7 +66,10 @@ import {
   ImportSessionCorruptStateError,
   ImportSessionError,
 } from "./import-session.errors";
-import { projectImportObservation } from "./import-session.observation";
+import {
+  EMPTY_IMPORT_OBSERVATION_CLAIM as EMPTY_CLAIM,
+  projectImportObservation,
+} from "./import-session.observation";
 import {
   buildImportPreparationPlan,
   type ImportPreparationPlanV1,
@@ -117,15 +120,6 @@ const INSTANT = new RegExp(PRIMITIVES.instantPattern);
 const READ_CHUNK = 300;
 const AUDIT_ACTION = "importSessions.execute";
 const CONTINUATION_PAYLOAD_KIND = "CONTINUATION_V1";
-const EMPTY_CLAIM = Object.freeze({
-  canonicalProjectId: null,
-  canonicalExpenseId: null,
-  canonicalReceiptId: null,
-  canonicalIndex: null,
-  claimSessionId: null,
-  claimReceiptJson: null,
-  claimedAt: null,
-});
 const editableStates: ReadonlySet<string> = new Set([
   State.DRAFT,
   State.ANALYZING,
@@ -432,38 +426,26 @@ export class ImportSessionWorkflowService {
                 draft.scope.pendingAttachmentIds.includes(ref.ref.id)
               )
                 throw problem(Code.STALE_PREVIEW, row);
-              const observations = await tx.importObservation.findMany({
-                where: {
-                  tenantId: row.tenantId,
-                  ownerProjectId: row.ownerProjectId,
-                  artifactId: ref.artifact.id,
-                },
-                select: { id: true },
-                take: LIMITS.parsedRowsPerSession + 1,
-              });
-              if (
-                !observations.length ||
-                observations.length > LIMITS.parsedRowsPerSession ||
-                observations.some(
-                  (obs) => !draft.scope.observationIds.includes(obs.id),
-                )
-              )
-                throw problem(Code.STALE_PREVIEW, row);
+              const artifactId = ref.artifact.id;
+              // material() resolves the server-owned scope and attachment
+              // membership inside this locked revision. Retained claims (and
+              // documentary rows without editable lines) grant no edit scope.
+              const editableObservationIds = new Set(
+                draft.lines.flatMap((line) => line.observationIds),
+              );
+              const observations = material.observations.filter(
+                (obs) =>
+                  obs.artifactId === artifactId &&
+                  unclaimed(obs) &&
+                  editableObservationIds.has(obs.id),
+              );
+              if (!observations.length) throw problem(Code.STALE_PREVIEW, row);
               const observationIds = new Set(observations.map((obs) => obs.id));
               allowedLineIds = draft.lines
                 .filter((line) =>
                   line.observationIds.some((id) => observationIds.has(id)),
                 )
                 .map((line) => line.id);
-              if (
-                observations.some(
-                  (obs) =>
-                    !draft.lines.some((line) =>
-                      line.observationIds.includes(obs.id),
-                    ),
-                )
-              )
-                throw problem(Code.STALE_PREVIEW, row);
               if (turn.intent === "APPROVE_ATTACHMENT_SCOPE") {
                 if (
                   !same(

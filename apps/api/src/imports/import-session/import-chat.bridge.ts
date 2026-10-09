@@ -4,6 +4,8 @@ import {
   ExpenseType,
   LaborCategory,
   ProjectType,
+  ImportSessionAttachmentState,
+  ImportSessionArtifactState,
   IMPORT_SESSION_LIMITS as LIMITS,
   ImportSessionErrorCode as Code,
   type ImportChatOutcomeV1,
@@ -54,6 +56,7 @@ import { ImportSessionService } from "./import-session.service";
 import { ImportSessionWorkflowService } from "./import-session-workflow.service";
 import { ImportSessionError } from "./import-session.errors";
 import { ImportDeclarationLiteralError } from "./import-session.declarations";
+import { EMPTY_IMPORT_OBSERVATION_CLAIM } from "./import-session.observation";
 
 type Pages = Map<string, Map<number, string | null>>;
 const pages = new WeakMap<ImportChatAdmission, Pages>();
@@ -146,11 +149,11 @@ export class ImportChatBridge {
         sessionId: view.id,
         tenantId: auth.tenantId,
         ownerProjectId: view.ownerProjectId,
-        state: "ATTACHED",
+        state: ImportSessionAttachmentState.ATTACHED,
         artifact: {
           tenantId: auth.tenantId,
           ownerProjectId: view.ownerProjectId,
-          state: "EXTRACTED",
+          state: ImportSessionArtifactState.EXTRACTED,
         },
       },
       select: { artifactId: true },
@@ -158,23 +161,20 @@ export class ImportChatBridge {
     if (!ref?.artifactId) return [];
     const observations = await this.prisma.importObservation.findMany({
       where: {
+        // A shared artifact can retain applied, redacted observations that are
+        // deliberately absent from this session's editable draft.
+        id: { in: view.lines.flatMap((line) => line.observationIds) },
         artifactId: ref.artifactId,
         tenantId: auth.tenantId,
         ownerProjectId: view.ownerProjectId,
+        ...EMPTY_IMPORT_OBSERVATION_CLAIM,
       },
       select: { id: true },
       take: LIMITS.parsedRowsPerSession + 1,
     });
     if (observations.length > LIMITS.parsedRowsPerSession)
       throw fail(Code.LIMIT_EXCEEDED, view);
-    if (
-      !observations.length ||
-      observations.some(
-        (obs) =>
-          !view.lines.some((line) => line.observationIds.includes(obs.id)),
-      )
-    )
-      return [];
+    if (!observations.length) return [];
     const obsIds = new Set(observations.map((obs) => obs.id));
     const ids = view.lines
       .filter((line) => line.observationIds.some((id) => obsIds.has(id)))
