@@ -78,7 +78,54 @@ nullable/PURGING ainda não está implementada neste checkpoint.
 O deploy da fixture descartável encontrou 72 migrations; isso não é evidência
 de aplicação em produção.
 
-- API afetada: **179 suites / 2.019 testes aprovados**, incluindo importação,
+### Revisão de identidade nullable/PURGING (#711)
+
+- RED inicial: a última claim apagada com anexo ativo mantinha hash/cache;
+  a cópia de tabela apagava hash/cache de `PURGING` com claim viva; finalize
+  não chamava a purga e terminava em conflito de escrita. Esses casos foram
+  materializados e falharam antes das mudanças de produção.
+- `canonical-retention.integration.spec.ts`: aposentadoria com anexo ativo,
+  duas claims (somente a última encerra o hash), bloqueios de ressurreição,
+  storage replacement, parser/cache/lease e novas observações/associações;
+  intake nunca reclamado conserva identidade quando ainda está ativo.
+- `vault/session-retention.integration.spec.ts`: Vault/Prisma/parser reais;
+  original privado de tombstone acessível somente pela ref ATTACHED autorizada,
+  sessão em revisão sem análise e novo upload com IDs novos; cancelamento e
+  expiração compartilhados terminam em remoção física cercada. Claim viva
+  sobrevive a PURGING→PURGED→RAW_READY, reextração não duplica finanças.
+  Barreiras cobrem dois uploaders, perdedor da mesma ref, cancelamento/deleção
+  durante espera e indisponibilidade/timeout com limpeza temporária pendente.
+- `claimed-purging-upgrade.integration.spec.ts`: fixture QA `f2d4c90`, agora
+  explicitamente 71→72 em banco guardado dentro deste worktree: Expense e Receipt
+  vivos conservam SHA/cache/observações/comprovante APPLIED; PURGING sem claim
+  perde identidade; intake ativo nunca reclamado fica intacto.
+- `canonical-retention-orphan-upgrade.integration.spec.ts`: órfãos legados,
+  claims mortas, referências compartilhadas e os dois controles PURGING;
+  `migration-upgrade.integration.spec.ts` mantém a prova estrutural 68→72.
+- Port QA: timeout real do drain retorna `RETRYABLE_WRITE_CONFLICT` fora da
+  transação, mantendo finance/claims/flows. Replay APPLIED após deleção canônica
+  mantém receipt, atividade e fluxo; READY perde proposta/nonce sem renovar prazo.
+  As expectativas de revisão usam a seam de capability somente no teste;
+  o gate CSV default continua negando prepare após aposentadoria.
+- O primeiro run da suíte QA sem adaptação revelou seis fixtures passando
+  RAW_READY/parser null ao materializer (substituídas por análise real),
+  três expectativas legadas de linhas já descartadas pela migration 72
+  (cobertas pelas fixtures terminais atuais) e a precedência do gate default
+  antes de revisão. Não houve alteração no worktree QA.
+- Prova final focada: **5 suítes / 43 testes**; domínio/API/web `tsc --noEmit`
+  verdes. Template fresco e worker: 72 migrations em ordem, todos os checksums
+  conferem, `foreign_keys=1`, `foreign_key_check=[]`. Migrations 1–71 byte-idênticas
+  a `44b7549`; SHA-256 da 72:
+  `0c437c8bb831d18416295c8a91f58b42e67c8c0c63d2c3c4fca41b353e0e3971`.
+- Run final ampliado: **194 suítes / 2.179 testes aprovados**, com importação,
+  Maria/agent, auth, cartões, despesas, monthly overview, bancos, budgets,
+  conciliação, dashboard, tenant-financial, recebimentos, Prisma e common.
+  Prettier e `git diff --check` verdes. Sem configuração ESLint neste worktree;
+  SQL foi validado pelo deploy SQLite fresco/upgrade e checks de constraints/FKs.
+- Templates descartáveis anteriores foram arquivados, não apagados. `dev.db`
+  e os dois diretórios temporários pré-existentes permaneceram intocados.
+
+- API antes desta revisão: **179 suites / 2.019 testes aprovados**, incluindo importação,
   Maria, auth, cartões, despesas, dedupe, monthly overview, bancos, budgets,
   conciliação, dashboard, tenant-financial e todas as fixtures Prisma.
 - Domínio: build aprovado; **30 arquivos / 396 testes aprovados**.

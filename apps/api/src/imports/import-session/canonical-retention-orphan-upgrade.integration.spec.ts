@@ -278,6 +278,70 @@ describe("unlinked import artifact migration repair", () => {
     const activeSharedRef = await attach(sharedArtifact.id, "ATTACHED");
     const releasedSharedRef = await attach(sharedArtifact.id, "RELEASED");
 
+    const liveReceipt = await client.receipt.create({
+      data: {
+        tenantId: tenant.id,
+        projectId: project.id,
+        valor: 500,
+        data: new Date(),
+        tipo: "PAGAMENTO",
+        status: "PREVISTO",
+      },
+    });
+    const claimedPurging = await createArtifact(
+      "f",
+      "objects/claimed-purging",
+      '{"claim":"keep"}',
+    );
+    const liveObservation = await client.importObservation.create({
+      data: {
+        tenantId: tenant.id,
+        ownerProjectId: project.id,
+        artifactId: claimedPurging.id,
+        reference: "claimed-purging",
+        evidenceJson: "{}",
+        canonicalProjectId: project.id,
+        canonicalReceiptId: liveReceipt.id,
+        claimReceiptJson: '{"receipt":"keep"}',
+        claimedAt: new Date(),
+      },
+    });
+    const applied = await createSession();
+    await client.importSession.update({
+      where: { id: applied.id },
+      data: {
+        state: "APPLIED",
+        financialRequestId: randomUUID(),
+        confirmedRevision: 1,
+        confirmedSessionVersion: 0,
+        confirmedAt: new Date(),
+        proposalHash: "b".repeat(64),
+        closedAt: new Date(),
+        receiptJson: '{"receipt":"durable"}',
+      },
+    });
+    const appliedBefore = await client.importSession.findUniqueOrThrow({
+      where: { id: applied.id },
+    });
+    await client.importArtifact.update({
+      where: { id: claimedPurging.id },
+      data: { state: "PURGING" },
+    });
+    const claimedPurgingBefore = await client.importArtifact.findUniqueOrThrow({
+      where: { id: claimedPurging.id },
+    });
+    const unclaimedPurging = await createArtifact(
+      "a",
+      "objects/unclaimed-purging",
+      '{"private":"erase"}',
+    );
+    await addUnclaimedObservation(unclaimedPurging.id, "unclaimed-purging");
+    await attach(unclaimedPurging.id, "ATTACHED");
+    await client.importArtifact.update({
+      where: { id: unclaimedPurging.id },
+      data: { state: "PURGING" },
+    });
+
     const expectedDeadExpense = await client.expense.findUniqueOrThrow({
       where: { id: deadExpense.id },
     });
@@ -410,6 +474,41 @@ describe("unlinked import artifact migration repair", () => {
       foreignKeys: [],
     });
     expect(actual.deadExpense.deletedAt).toEqual(expectedDeadExpense.deletedAt);
+    expect(
+      await client.importArtifact.findUniqueOrThrow({
+        where: { id: claimedPurging.id },
+      }),
+    ).toEqual(claimedPurgingBefore);
+    expect(
+      await client.importObservation.findUniqueOrThrow({
+        where: { id: liveObservation.id },
+      }),
+    ).toEqual(liveObservation);
+    expect(
+      await client.importSession.findUniqueOrThrow({
+        where: { id: applied.id },
+      }),
+    ).toEqual(appliedBefore);
+    expect(
+      await client.importArtifact.findUniqueOrThrow({
+        where: { id: unclaimedPurging.id },
+      }),
+    ).toMatchObject({
+      documentSha256: null,
+      extractionJson: null,
+      parserVersion: null,
+      state: "PURGING",
+      storageKey: "objects/unclaimed-purging",
+    });
+    expect(
+      await client.importObservation.count({
+        where: { artifactId: unclaimedPurging.id },
+      }),
+    ).toBe(0);
+    expect(await client.$queryRaw`PRAGMA foreign_keys`).toEqual([
+      { foreign_keys: 1n },
+    ]);
+    expect(await client.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
     repairCompleted = true;
   }, 120_000);
 

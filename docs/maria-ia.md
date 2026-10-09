@@ -81,6 +81,15 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
    O reaper também saneia em lotes limitados observações de sessões já encerradas,
    mesmo quando o original e a extração já foram removidos, revalidando ausência de
    referências ativas na transação.
+   O vínculo/hash de dedupe dura enquanto existir claim para uma despesa ou
+   recebimento canônico vivo. Ao apagar o último desses lançamentos, o artefato
+   perde imediatamente hash, extração, parser e leases, mesmo que outra sessão
+   ainda tenha um anexo ativo. Esse anexo permite somente baixar o original
+   privado sob a autorização/consentimento existentes; a sessão passa a revisão,
+   sem análise do cache antigo. Recuperação exige novo envio explícito, que cria
+   identidade documental nova. Cancelamento/expiração da última referência
+   permite a purga física cercada existente. Com claim vivo, uma purga pendente
+   deve terminar antes do reuso do mesmo hash/ID, sem novo lançamento financeiro.
 8. **Execução e resultado determinísticos:** serviços existentes continuam donos de valores,
    identidade, matching, autorização e execução. O commit revalida acesso e estado; retry ou
    timeout consultam o resultado persistido, sob autorização atual, em vez de repetir criação.

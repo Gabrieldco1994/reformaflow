@@ -38,13 +38,45 @@ CREATE TABLE "new_import_artifacts" (
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL,
     CONSTRAINT "import_artifacts_document_sha256_retirement_check" CHECK (
-      "document_sha256" IS NOT NULL OR "state" IN ('PURGING','PURGED')
+      "document_sha256" IS NOT NULL OR (
+        "state" IN ('PURGING','PURGED')
+        AND "parser_version" IS NULL AND "extraction_json" IS NULL
+        AND "lease_session_id" IS NULL AND "lease_session_version" IS NULL
+        AND "lease_token_expires_at" IS NULL AND "lease_expires_at" IS NULL
+      )
     ),
     CONSTRAINT "import_artifacts_purged_check" CHECK ("state" <> 'PURGED' OR "storage_key" IS NULL),
     CONSTRAINT "import_artifacts_tenant_id_owner_project_id_fkey" FOREIGN KEY ("tenant_id", "owner_project_id") REFERENCES "projects" ("tenant_id", "id") ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT "import_artifacts_tenant_id_owner_project_id_lease_session_id_fkey" FOREIGN KEY ("tenant_id", "owner_project_id", "lease_session_id") REFERENCES "import_sessions" ("tenant_id", "owner_project_id", "id") ON DELETE RESTRICT ON UPDATE RESTRICT
 );
 
+-- PURGING describes physical erasure, not whether financial identity is live.
+-- A canonical claim survives erasure/rematerialization; an old unclaimed
+-- PURGING row is already retired, even when it still has documentary refs.
+WITH identity_copy AS (
+  SELECT a.*, (
+    a."state" = 'PURGING' AND NOT EXISTS (
+      SELECT 1 FROM "import_observations" AS o
+      WHERE o."tenant_id" = a."tenant_id"
+        AND o."owner_project_id" = a."owner_project_id"
+        AND o."artifact_id" = a."id"
+        AND (
+          EXISTS (
+            SELECT 1 FROM "expenses" AS e
+            WHERE e."tenant_id" = o."tenant_id"
+              AND e."project_id" = o."canonical_project_id"
+              AND e."id" = o."canonical_expense_id" AND e."deleted_at" IS NULL
+          ) OR EXISTS (
+            SELECT 1 FROM "receipts" AS r
+            WHERE r."tenant_id" = o."tenant_id"
+              AND r."project_id" = o."canonical_project_id"
+              AND r."id" = o."canonical_receipt_id" AND r."deleted_at" IS NULL
+          )
+        )
+    )
+  ) AS retire
+  FROM "import_artifacts" AS a
+)
 INSERT INTO "new_import_artifacts" (
   "id", "tenant_id", "owner_project_id", "document_sha256", "verified_bytes",
   "detected_format", "state", "storage_key", "parser_version", "extraction_json",
@@ -53,17 +85,17 @@ INSERT INTO "new_import_artifacts" (
 )
 SELECT
   "id", "tenant_id", "owner_project_id",
-  CASE WHEN "state" = 'PURGING' THEN NULL ELSE "document_sha256" END,
+  CASE WHEN retire THEN NULL ELSE "document_sha256" END,
   "verified_bytes", "detected_format", "state", "storage_key",
-  CASE WHEN "state" = 'PURGING' THEN NULL ELSE "parser_version" END,
-  CASE WHEN "state" = 'PURGING' THEN NULL ELSE "extraction_json" END,
+  CASE WHEN retire THEN NULL ELSE "parser_version" END,
+  CASE WHEN retire THEN NULL ELSE "extraction_json" END,
   "parse_generation",
-  CASE WHEN "state" = 'PURGING' THEN NULL ELSE "lease_session_id" END,
-  CASE WHEN "state" = 'PURGING' THEN NULL ELSE "lease_session_version" END,
-  CASE WHEN "state" = 'PURGING' THEN NULL ELSE "lease_token_expires_at" END,
-  CASE WHEN "state" = 'PURGING' THEN NULL ELSE "lease_expires_at" END,
+  CASE WHEN retire THEN NULL ELSE "lease_session_id" END,
+  CASE WHEN retire THEN NULL ELSE "lease_session_version" END,
+  CASE WHEN retire THEN NULL ELSE "lease_token_expires_at" END,
+  CASE WHEN retire THEN NULL ELSE "lease_expires_at" END,
   "created_at", "updated_at"
-FROM "import_artifacts";
+FROM identity_copy;
 
 CREATE UNIQUE INDEX "new_import_artifacts_tenant_owner_id_key"
   ON "new_import_artifacts"("tenant_id", "owner_project_id", "id");
@@ -250,6 +282,14 @@ END;
 
 CREATE TRIGGER "import_observations_invalidate_parse_lease"
 BEFORE DELETE ON "import_observations"
+WHEN NOT (
+  (OLD."canonical_expense_id" IS NOT NULL OR OLD."canonical_receipt_id" IS NOT NULL)
+  AND NOT EXISTS (
+    SELECT 1 FROM "import_observations" AS o
+    WHERE o."artifact_id" = OLD."artifact_id" AND o."id" <> OLD."id"
+      AND (o."canonical_expense_id" IS NOT NULL OR o."canonical_receipt_id" IS NOT NULL)
+  )
+)
 BEGIN
   UPDATE "import_artifacts"
   SET "parse_generation" = "parse_generation" + 1,
@@ -384,6 +424,21 @@ BEGIN
     AND "owner_project_id" = OLD."owner_project_id"
     AND "state" IN ('DRAFT', 'ANALYZING', 'NEEDS_INPUT', 'READY', 'CONFIRMED', 'REVIEW_REQUIRED')
     AND json_valid("draft_json")
+    -- Last-claim retirement rebuilds attached sessions once, below. Drafts
+    -- lacking a documentary ref still need per-observation invalidation here.
+    AND NOT (
+      (OLD."canonical_expense_id" IS NOT NULL OR OLD."canonical_receipt_id" IS NOT NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM "import_observations" AS o
+        WHERE o."artifact_id" = OLD."artifact_id" AND o."id" <> OLD."id"
+          AND (o."canonical_expense_id" IS NOT NULL OR o."canonical_receipt_id" IS NOT NULL)
+      )
+      AND EXISTS (
+        SELECT 1 FROM "import_session_artifacts" AS r
+        WHERE r."session_id" = "import_sessions"."id"
+          AND r."artifact_id" = OLD."artifact_id" AND r."state" = 'ATTACHED'
+      )
+    )
     AND (
       EXISTS (SELECT 1 FROM json_each("import_sessions"."draft_json", '$.scope.observationIds') AS scope_id WHERE scope_id.value = OLD."id")
       OR EXISTS (SELECT 1 FROM json_each("import_sessions"."draft_json", '$.lines') AS line JOIN json_each(line.value, '$.observationIds') AS line_id WHERE line_id.value = OLD."id")
@@ -400,21 +455,17 @@ WHEN NOT EXISTS (
     AND o."artifact_id" = OLD."artifact_id"
     AND (o."canonical_expense_id" IS NOT NULL OR o."canonical_receipt_id" IS NOT NULL)
 )
- AND NOT EXISTS (
-   SELECT 1 FROM "import_session_artifacts" AS r
-   WHERE r."tenant_id" = OLD."tenant_id"
-     AND r."owner_project_id" = OLD."owner_project_id"
-     AND r."artifact_id" = OLD."artifact_id"
-     AND r."state" <> 'RELEASED'
+ AND (
+   OLD."canonical_expense_id" IS NOT NULL OR OLD."canonical_receipt_id" IS NOT NULL
+   OR NOT EXISTS (
+     SELECT 1 FROM "import_session_artifacts" AS r
+     WHERE r."tenant_id" = OLD."tenant_id"
+       AND r."owner_project_id" = OLD."owner_project_id"
+       AND r."artifact_id" = OLD."artifact_id"
+       AND r."state" <> 'RELEASED'
+   )
  )
 BEGIN
-  DELETE FROM "import_observations"
-  WHERE "tenant_id" = OLD."tenant_id"
-    AND "owner_project_id" = OLD."owner_project_id"
-    AND "artifact_id" = OLD."artifact_id"
-    AND "canonical_expense_id" IS NULL
-    AND "canonical_receipt_id" IS NULL;
-
   UPDATE "import_artifacts"
   SET "document_sha256" = NULL,
       "state" = CASE WHEN "storage_key" IS NULL THEN 'PURGED' ELSE 'PURGING' END,
@@ -436,6 +487,13 @@ BEGIN
       OR "extraction_json" IS NOT NULL
       OR "lease_session_id" IS NOT NULL
     );
+
+  DELETE FROM "import_observations"
+  WHERE "tenant_id" = OLD."tenant_id"
+    AND "owner_project_id" = OLD."owner_project_id"
+    AND "artifact_id" = OLD."artifact_id"
+    AND "canonical_expense_id" IS NULL
+    AND "canonical_receipt_id" IS NULL;
 
   DELETE FROM "import_session_artifacts"
   WHERE "tenant_id" = OLD."tenant_id"
@@ -650,6 +708,47 @@ BEGIN
     );
 END;
 
+-- An active attachment retains only the authorized original after retirement.
+-- Rebuild draft scope for every attached session, including sessions that had
+-- not materialized the deleted observation yet.
+CREATE TRIGGER "import_artifacts_retirement_invalidates_attached_sessions"
+AFTER UPDATE OF "document_sha256" ON "import_artifacts"
+WHEN NEW."document_sha256" IS NULL
+BEGIN
+  UPDATE "import_sessions"
+  SET "state" = 'REVIEW_REQUIRED',
+      "revision" = CASE WHEN "revision" < 2147483647 THEN "revision" + 1 ELSE "revision" END,
+      "draft_json" = json_object(
+        'version', 1, 'lines', json('[]'), 'selectedLineIds', json('[]'),
+        'questions', json('[]'),
+        'scope', json_object(
+          'observationIds', json('[]'),
+          'pendingAttachmentIds', json(COALESCE((
+            SELECT json_group_array(x."id") FROM (
+              SELECT r."id" FROM "import_session_artifacts" AS r
+              WHERE r."tenant_id" = "import_sessions"."tenant_id"
+                AND r."owner_project_id" = "import_sessions"."owner_project_id"
+                AND r."session_id" = "import_sessions"."id" AND r."state" = 'ATTACHED'
+              ORDER BY r."position"
+            ) AS x
+          ), '[]'))
+        )
+      ),
+      "search_json" = NULL, "proposal_json" = NULL,
+      "proposal_hash" = CASE WHEN "financial_request_id" IS NOT NULL THEN "proposal_hash" ELSE NULL END,
+      "preflight_hash" = NULL, "challenge_json" = NULL,
+      "prepare_generation" = "prepare_generation" + 1, "prepare_lease_json" = NULL,
+      "updated_at" = CURRENT_TIMESTAMP
+  WHERE "tenant_id" = NEW."tenant_id" AND "owner_project_id" = NEW."owner_project_id"
+    AND "state" IN ('DRAFT','ANALYZING','NEEDS_INPUT','READY','CONFIRMED','REVIEW_REQUIRED')
+    AND EXISTS (
+      SELECT 1 FROM "import_session_artifacts" AS r
+      WHERE r."session_id" = "import_sessions"."id"
+        AND r."tenant_id" = NEW."tenant_id" AND r."owner_project_id" = NEW."owner_project_id"
+        AND r."artifact_id" = NEW."id" AND r."state" = 'ATTACHED'
+    );
+END;
+
 -- Finalize all old artifacts without a live canonical claim or any active
 -- document reference. Storage-bearing rows remain only as PURGING fences.
 DELETE FROM "import_observations"
@@ -674,7 +773,7 @@ WHERE "canonical_expense_id" IS NULL
   AND "artifact_id" IN (
     SELECT a."id"
     FROM "import_artifacts" AS a
-    WHERE NOT EXISTS (
+    WHERE a."document_sha256" IS NULL OR (NOT EXISTS (
       SELECT 1 FROM "import_observations" AS o
       WHERE o."artifact_id" = a."id"
         AND (o."canonical_expense_id" IS NOT NULL OR o."canonical_receipt_id" IS NOT NULL)
@@ -685,7 +784,7 @@ WHERE "canonical_expense_id" IS NULL
           AND r."owner_project_id" = a."owner_project_id"
           AND r."artifact_id" = a."id"
           AND r."state" <> 'RELEASED'
-      )
+      ))
   );
 
 UPDATE "import_artifacts"
@@ -706,13 +805,13 @@ WHERE NOT EXISTS (
     AND o."artifact_id" = "import_artifacts"."id"
     AND (o."canonical_expense_id" IS NOT NULL OR o."canonical_receipt_id" IS NOT NULL)
 )
-  AND NOT EXISTS (
+  AND ("document_sha256" IS NULL OR NOT EXISTS (
     SELECT 1 FROM "import_session_artifacts" AS r
     WHERE r."tenant_id" = "import_artifacts"."tenant_id"
       AND r."owner_project_id" = "import_artifacts"."owner_project_id"
       AND r."artifact_id" = "import_artifacts"."id"
       AND r."state" <> 'RELEASED'
-  );
+  ));
 
 DELETE FROM "import_session_artifacts"
 WHERE "state" = 'RELEASED'
@@ -739,3 +838,77 @@ WHERE "storage_key" IS NULL
     SELECT 1 FROM "import_session_artifacts" AS r
     WHERE r."artifact_id" = "import_artifacts"."id"
   );
+
+-- NULL is a permanent identity tombstone, not a reusable empty hash.
+CREATE TRIGGER "import_artifacts_no_retired_resurrection"
+BEFORE UPDATE ON "import_artifacts"
+WHEN OLD."document_sha256" IS NULL AND (
+  NEW."document_sha256" IS NOT NULL
+  OR (NEW."storage_key" IS NOT OLD."storage_key" AND NEW."storage_key" IS NOT NULL)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'retired import artifact cannot regain identity or storage');
+END;
+
+CREATE TRIGGER "import_artifacts_purging_requires_completion"
+BEFORE UPDATE ON "import_artifacts"
+WHEN OLD."state" = 'PURGING' AND (
+  NEW."state" NOT IN ('PURGING','PURGED')
+  OR (NEW."storage_key" IS NOT OLD."storage_key" AND NEW."storage_key" IS NOT NULL)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'purging import artifact requires fenced completion');
+END;
+
+CREATE TRIGGER "import_observations_no_retired_insert"
+BEFORE INSERT ON "import_observations"
+WHEN EXISTS (
+  SELECT 1 FROM "import_artifacts" AS a
+  WHERE a."tenant_id" = NEW."tenant_id" AND a."owner_project_id" = NEW."owner_project_id"
+    AND a."id" = NEW."artifact_id" AND a."document_sha256" IS NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'retired import artifact cannot receive observations');
+END;
+
+CREATE TRIGGER "import_observations_no_retired_update"
+BEFORE UPDATE ON "import_observations"
+WHEN EXISTS (
+  SELECT 1 FROM "import_artifacts" AS a
+  WHERE a."tenant_id" = NEW."tenant_id" AND a."owner_project_id" = NEW."owner_project_id"
+    AND a."id" = NEW."artifact_id" AND a."document_sha256" IS NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'retired import artifact cannot receive claims or evidence');
+END;
+
+CREATE TRIGGER "import_session_artifacts_no_retired_attach_insert"
+BEFORE INSERT ON "import_session_artifacts"
+WHEN NEW."artifact_id" IS NOT NULL AND EXISTS (
+  SELECT 1 FROM "import_artifacts" AS a
+  WHERE a."tenant_id" = NEW."tenant_id" AND a."owner_project_id" = NEW."owner_project_id"
+    AND a."id" = NEW."artifact_id"
+    AND (a."document_sha256" IS NULL
+      OR (NEW."state" = 'ATTACHED' AND a."state" IN ('PURGING','PURGED')))
+)
+BEGIN
+  SELECT RAISE(ABORT, 'import artifact cannot accept attachment before rematerialization');
+END;
+
+CREATE TRIGGER "import_session_artifacts_no_retired_attach_update"
+BEFORE UPDATE ON "import_session_artifacts"
+WHEN NEW."artifact_id" IS NOT NULL
+ AND ((NEW."state" = 'ATTACHED' AND OLD."state" <> 'ATTACHED')
+   OR OLD."artifact_id" IS NOT NEW."artifact_id"
+   OR OLD."session_id" <> NEW."session_id" OR OLD."tenant_id" <> NEW."tenant_id"
+   OR OLD."owner_project_id" <> NEW."owner_project_id")
+ AND EXISTS (
+  SELECT 1 FROM "import_artifacts" AS a
+  WHERE a."tenant_id" = NEW."tenant_id" AND a."owner_project_id" = NEW."owner_project_id"
+    AND a."id" = NEW."artifact_id"
+    AND (a."document_sha256" IS NULL
+      OR (NEW."state" = 'ATTACHED' AND a."state" IN ('PURGING','PURGED')))
+)
+BEGIN
+  SELECT RAISE(ABORT, 'import artifact cannot accept attachment before rematerialization');
+END;

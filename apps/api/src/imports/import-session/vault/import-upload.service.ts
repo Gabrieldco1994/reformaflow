@@ -780,134 +780,163 @@ export class ImportUploadService {
     }
   }
 
-  private finalize(
+  private async finalize(
     runtime: Runtime,
     auth: AuthenticatedImportContext,
     claim: VaultUploadClaim,
     stored: StoredVaultUpload,
     check: () => undefined,
   ): Promise<ImportSessionViewV1> {
-    return this.write(runtime, auth, async (tx, now) => {
-      check();
-      const row = await this.authorized(tx, auth, claim.sessionId, now);
-      this.editable(row, now);
-      const ref = await this.ref(
-        tx,
-        row,
-        claim.refId,
-        ImportSessionErrorCode.LEASE_CONFLICT,
-      );
-      this.validClaim(ref, claim, now);
-      check();
-      const changed = await tx.importSessionArtifact.updateMany({
-        where: {
-          id: claim.refId,
-          tenantId: claim.tenantId,
-          ownerProjectId: claim.ownerProjectId,
-          sessionId: claim.sessionId,
-          state: ImportSessionAttachmentState.RESERVED,
-          uploadGeneration: 2,
-          temporaryPurgePending: false,
-          uploadLeaseExpiresAt: { gt: now },
-        },
-        data: {
-          verifiedAt: now,
-          uploadLeaseExpiresAt: null,
-          uploadTokenExpiresAt: null,
-          uploadSessionVersion: null,
-        },
-      });
-      if (changed.count !== 1)
-        throw error(ImportSessionErrorCode.LEASE_CONFLICT);
-      let artifact = await tx.importArtifact.findFirst({
-        where: {
-          tenantId: claim.tenantId,
-          ownerProjectId: claim.ownerProjectId,
-          documentSha256: stored.documentSha256,
-          state: { not: ImportSessionArtifactState.PURGING },
-        },
-      });
-      const adoption =
-        artifact === null ||
-        artifact.state === ImportSessionArtifactState.PURGED;
-      check();
-      if (artifact === null) {
-        artifact = await tx.importArtifact.create({
-          data: {
+    for (
+      let attempt = 0;
+      attempt < IMPORT_SESSION_LIMITS.writeAttempts;
+      attempt++
+    ) {
+      const result = await this.write<
+        { needsPurge: string } | { view: ImportSessionViewV1 }
+      >(runtime, auth, async (tx, now) => {
+        check();
+        const row = await this.authorized(tx, auth, claim.sessionId, now);
+        this.editable(row, now);
+        const ref = await this.ref(
+          tx,
+          row,
+          claim.refId,
+          ImportSessionErrorCode.LEASE_CONFLICT,
+        );
+        this.validClaim(ref, claim, now);
+        check();
+        let artifact = await tx.importArtifact.findFirst({
+          where: {
             tenantId: claim.tenantId,
             ownerProjectId: claim.ownerProjectId,
             documentSha256: stored.documentSha256,
-            verifiedBytes: stored.verifiedBytes,
-            detectedFormat: stored.detectedFormat,
-            storageKey: stored.storageKey,
-            state: ImportSessionArtifactState.RAW_READY,
           },
         });
-      } else if (artifact.state === ImportSessionArtifactState.PURGED) {
-        const adopted = await tx.importArtifact.updateMany({
+        // No ref/lease/storage mutation may commit before this occupant finishes
+        // erasure. The purger owns its own writer transactions and FD fencing.
+        if (artifact?.state === ImportSessionArtifactState.PURGING)
+          return { needsPurge: artifact.id } as const;
+        const changed = await tx.importSessionArtifact.updateMany({
           where: {
-            id: artifact.id,
+            id: claim.refId,
             tenantId: claim.tenantId,
             ownerProjectId: claim.ownerProjectId,
-            state: ImportSessionArtifactState.PURGED,
+            sessionId: claim.sessionId,
+            state: ImportSessionAttachmentState.RESERVED,
+            uploadGeneration: 2,
+            temporaryPurgePending: false,
+            uploadLeaseExpiresAt: { gt: now },
           },
           data: {
-            state: ImportSessionArtifactState.RAW_READY,
-            storageKey: stored.storageKey,
-            verifiedBytes: stored.verifiedBytes,
-            detectedFormat: stored.detectedFormat,
-            parserVersion: null,
-            extractionJson: null,
+            verifiedAt: now,
+            uploadLeaseExpiresAt: null,
+            uploadTokenExpiresAt: null,
+            uploadSessionVersion: null,
           },
         });
-        if (adopted.count !== 1)
-          throw error(ImportSessionErrorCode.RETRYABLE_WRITE_CONFLICT);
-      }
-      const duplicate = await tx.importSessionArtifact.findFirst({
-        where: {
-          tenantId: claim.tenantId,
-          ownerProjectId: claim.ownerProjectId,
-          sessionId: claim.sessionId,
-          artifactId: artifact.id,
-          id: { not: claim.refId },
-        },
+        if (changed.count !== 1)
+          throw error(ImportSessionErrorCode.LEASE_CONFLICT);
+        const adoption =
+          artifact === null ||
+          artifact.state === ImportSessionArtifactState.PURGED;
+        check();
+        if (artifact === null) {
+          artifact = await tx.importArtifact.create({
+            data: {
+              tenantId: claim.tenantId,
+              ownerProjectId: claim.ownerProjectId,
+              documentSha256: stored.documentSha256,
+              verifiedBytes: stored.verifiedBytes,
+              detectedFormat: stored.detectedFormat,
+              storageKey: stored.storageKey,
+              state: ImportSessionArtifactState.RAW_READY,
+            },
+          });
+        } else if (artifact.state === ImportSessionArtifactState.PURGED) {
+          const adopted = await tx.importArtifact.updateMany({
+            where: {
+              id: artifact.id,
+              tenantId: claim.tenantId,
+              ownerProjectId: claim.ownerProjectId,
+              documentSha256: stored.documentSha256,
+              state: ImportSessionArtifactState.PURGED,
+              storageKey: null,
+            },
+            data: {
+              state: ImportSessionArtifactState.RAW_READY,
+              storageKey: stored.storageKey,
+              verifiedBytes: stored.verifiedBytes,
+              detectedFormat: stored.detectedFormat,
+              parserVersion: null,
+              extractionJson: null,
+            },
+          });
+          if (adopted.count !== 1)
+            throw error(ImportSessionErrorCode.RETRYABLE_WRITE_CONFLICT);
+        }
+        const duplicate = await tx.importSessionArtifact.findFirst({
+          where: {
+            tenantId: claim.tenantId,
+            ownerProjectId: claim.ownerProjectId,
+            sessionId: claim.sessionId,
+            artifactId: artifact.id,
+            id: { not: claim.refId },
+          },
+        });
+        check();
+        await tx.importSessionArtifact.updateMany({
+          where: {
+            id: claim.refId,
+            tenantId: claim.tenantId,
+            ownerProjectId: claim.ownerProjectId,
+            sessionId: claim.sessionId,
+            uploadGeneration: 2,
+          },
+          data: {
+            state: duplicate
+              ? ImportSessionAttachmentState.RELEASED
+              : ImportSessionAttachmentState.ATTACHED,
+            artifactId: duplicate ? null : artifact.id,
+            releasedAt: duplicate ? now : null,
+            temporaryStorageKey: adoption ? null : claim.temporaryStorageKey,
+            reservedBytes: adoption ? 0 : ref.reservedBytes,
+            temporaryPurgePending: !adoption,
+          },
+        });
+        check();
+        await tx.importSession.updateMany({
+          where: {
+            id: claim.sessionId,
+            tenantId: claim.tenantId,
+            ownerProjectId: claim.ownerProjectId,
+            ownerUserId: auth.userId,
+          },
+          data: { revision: { increment: 1 } },
+        });
+        return {
+          view: await this.view(
+            tx,
+            await this.authorized(tx, auth, claim.sessionId, now),
+            auth,
+            now,
+          ),
+        } as const;
+      });
+      if ("view" in result) return result.view;
+      check();
+      const purged = await this.gate.requirePurger().purge({
+        kind: "artifact",
+        tenantId: claim.tenantId,
+        ownerProjectId: claim.ownerProjectId,
+        id: result.needsPurge,
       });
       check();
-      await tx.importSessionArtifact.updateMany({
-        where: {
-          id: claim.refId,
-          tenantId: claim.tenantId,
-          ownerProjectId: claim.ownerProjectId,
-          sessionId: claim.sessionId,
-          uploadGeneration: 2,
-        },
-        data: {
-          state: duplicate
-            ? ImportSessionAttachmentState.RELEASED
-            : ImportSessionAttachmentState.ATTACHED,
-          artifactId: duplicate ? null : artifact.id,
-          releasedAt: duplicate ? now : null,
-          temporaryStorageKey: adoption ? null : claim.temporaryStorageKey,
-          reservedBytes: adoption ? 0 : ref.reservedBytes,
-          temporaryPurgePending: !adoption,
-        },
-      });
-      check();
-      await tx.importSession.updateMany({
-        where: {
-          id: claim.sessionId,
-          tenantId: claim.tenantId,
-          ownerProjectId: claim.ownerProjectId,
-          ownerUserId: auth.userId,
-        },
-        data: { revision: { increment: 1 } },
-      });
-      return this.view(
-        tx,
-        await this.authorized(tx, auth, claim.sessionId, now),
-        auth,
-        now,
-      );
-    });
+      if (purged === "DRAIN_TIMEOUT")
+        throw error(ImportSessionErrorCode.RETRYABLE_WRITE_CONFLICT);
+      // Reauthorize and validate the upload lease/ref in a fresh writer even on
+      // STALE_CAPTURE/NOT_ELIGIBLE: a deletion or another uploader may have won.
+    }
+    throw error(ImportSessionErrorCode.RETRYABLE_WRITE_CONFLICT);
   }
 }

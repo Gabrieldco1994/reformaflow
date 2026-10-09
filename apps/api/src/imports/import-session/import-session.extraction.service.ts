@@ -142,6 +142,8 @@ export class ImportSessionExtractionService {
       },
     });
     if (!artifact) throw problem(Code.NOT_FOUND);
+    if (artifact.documentSha256 === null)
+      throw problem(Code.STALE_PREVIEW, row);
     return { ref, artifact };
   }
   private observations(tx: Tx, row: ImportSession, artifactId: string) {

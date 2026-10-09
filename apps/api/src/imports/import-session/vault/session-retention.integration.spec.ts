@@ -27,6 +27,9 @@ import { mintImportAuthContext } from "../import-session.auth";
 import { EMPTY_DRAFT_JSON } from "../import-session.projection";
 import { VaultReaper } from "./vault-reaper";
 import { ImportUploadService } from "./import-upload.service";
+import { ImportContentService } from "./import-content.service";
+import { ImportSessionExtractionService } from "../import-session.extraction.service";
+import { ImportRawExecutions } from "../import-session.raw-executions";
 import { CardPurchaseBatchAdapter } from "../card-purchase-batch.adapter";
 import { ConciliacaoService } from "../../../conciliacao/conciliacao.service";
 import { ExpenseService } from "../../../expense/expense.service";
@@ -34,7 +37,7 @@ import { ReceiptService } from "../../../receipt/receipt.service";
 import { buildImportMaterialization } from "../import-session.extraction";
 import { extractCardStatementDocument } from "../../../credit-card/parsers/statement-document";
 import { RuntimeUiGrantVerifier } from "../import-session-ui-grant";
-import { VaultStorage } from "./vault-storage";
+import { VaultStorage, VaultIoError } from "./vault-storage";
 import { VaultFdRegistry } from "./vault-fd-registry";
 import { PurgeCoordinator } from "./vault-purger";
 import type { VaultBootHandle, VaultRuntime } from "./vault-boot";
@@ -131,6 +134,807 @@ describe("guarded persisted session retention", () => {
       },
       {},
     );
+
+  async function withVault(
+    work: (vault: {
+      root: string;
+      registry: VaultFdRegistry;
+      purger: PurgeCoordinator;
+      upload: ImportUploadService;
+      content: ImportContentService;
+      extraction: ImportSessionExtractionService;
+      reaper: VaultReaper;
+    }) => Promise<void>,
+  ): Promise<void> {
+    const root = mkdtempSync(join(tmpdir(), "maria-identity-"));
+    const registry = new VaultFdRegistry();
+    const runtime: VaultRuntime = {
+      config: {
+        configured: true,
+        rootDir: root,
+        lockFd: 3,
+        idleTimeoutMs: 1000,
+        headroomBytes: 1,
+        drainTimeoutMs: 1000,
+      },
+      lockIdentity: { dev: 1n, ino: 1n },
+    };
+    const boot = {
+      runtime: () => runtime,
+      stopped: new AbortController().signal,
+      recheckLock: async () => ({ ok: true, runtime }),
+    } as VaultBootHandle;
+    const storage = new VaultStorage(boot, registry, clock);
+    const purger = new PurgeCoordinator(
+      prisma,
+      clock,
+      boot,
+      registry,
+      storage,
+      1000,
+    );
+    const gate = { boot, storage, registry, requirePurger: () => purger };
+    mkdirSync(join(root, "t"), { mode: 0o700 });
+    mkdirSync(join(root, "trash"), { mode: 0o700 });
+    try {
+      await work({
+        root,
+        registry,
+        purger,
+        upload: new ImportUploadService(
+          prisma,
+          clock,
+          capability,
+          verifier as never,
+          gate as never,
+        ),
+        content: new ImportContentService(prisma, clock, gate as never),
+        extraction: new ImportSessionExtractionService(
+          prisma,
+          clock,
+          capability,
+          verifier as never,
+          gate as never,
+          new ImportRawExecutions(gate as never, clock, capability),
+        ),
+        reaper: new VaultReaper(prisma, clock, gate as never, raw as never),
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  async function reserveBytes(
+    upload: ImportUploadService,
+    bytes: Buffer,
+    actor = auth,
+  ) {
+    const created = await service.create(
+      actor,
+      {
+        version: 1,
+        createRequestId: randomUUID(),
+        cardId,
+        consentPolicyVersion: IMPORT_SESSION_CONSENT_POLICY_VERSION,
+        consentAnalyze: true,
+      },
+      {},
+    );
+    const attachmentId = randomUUID();
+    const reserved = await upload.reserve(
+      actor,
+      created.view.id,
+      {
+        expectedRevision: created.view.revision,
+        files: [
+          {
+            id: attachmentId,
+            fileName: "identity.csv",
+            declaredBytes: bytes.length,
+            mime: "text/csv",
+          },
+        ],
+      },
+      {},
+    );
+    return { reserved, attachmentId };
+  }
+
+  async function uploadBytes(upload: ImportUploadService, bytes: Buffer) {
+    const { reserved, attachmentId } = await reserveBytes(upload, bytes);
+    const view = await upload.upload(
+      auth,
+      reserved.id,
+      attachmentId,
+      bytes.length,
+      Readable.from([bytes]),
+      {},
+    );
+    return { view, attachmentId, reserved };
+  }
+
+  async function pendingClaimedPurge(root: string) {
+    const created = await create();
+    const bytes = Buffer.from(
+      "date,title,amount\n2026-10-01,Barrier identity fixture,206.96\n",
+    );
+    const { artifact, ref, material } = await attachCsv(created.view.id, bytes);
+    const expense = await new ExpenseService(
+      prisma,
+      new ConciliacaoService(prisma),
+    ).create(tenantId, projectId, {
+      tipoDespesa: ExpenseType.OUTROS,
+      valor: 206.96,
+      quantidade: 1,
+      formaPagamento: PaymentForm.A_VISTA,
+      status: "PLANEJADO",
+    });
+    await prisma.importObservation.update({
+      where: { id: material.observations[0].id },
+      data: {
+        canonicalProjectId: projectId,
+        canonicalExpenseId: expense.id,
+        canonicalIndex: 0,
+        claimReceiptJson: "{}",
+        claimedAt: current,
+      },
+    });
+    const storageKey = `t/${ref.id}/g2/blob`;
+    mkdirSync(join(root, "t", ref.id, "g2"), { recursive: true, mode: 0o700 });
+    writeFileSync(join(root, storageKey), bytes, { mode: 0o600 });
+    await prisma.importArtifact.update({
+      where: { id: artifact.id },
+      data: { storageKey },
+    });
+    await service.cancel(
+      auth,
+      created.view.id,
+      { expectedRevision: created.view.revision },
+      {},
+    );
+    await prisma.importArtifact.update({
+      where: { id: artifact.id },
+      data: { state: "PURGING" },
+    });
+    return { bytes, artifact, expense };
+  }
+
+  it("never-claimed real upload/analyze still hash-shares active intake", async () =>
+    withVault(async ({ upload, extraction }) => {
+      const bytes = Buffer.from(
+        "date,title,amount\n2026-10-01,Intake fixture,206.96\n",
+      );
+      const first = await uploadBytes(upload, bytes);
+      await extraction.analyzeAttached(
+        auth,
+        first.view.id,
+        first.attachmentId,
+        { expectedRevision: first.view.revision },
+        {},
+      );
+      const second = await uploadBytes(upload, bytes);
+      const firstRef = await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: first.attachmentId },
+      });
+      const secondRef = await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: second.attachmentId },
+      });
+      expect(secondRef.artifactId).toBe(firstRef.artifactId);
+      await extraction.analyzeAttached(
+        auth,
+        second.view.id,
+        second.attachmentId,
+        { expectedRevision: second.view.revision },
+        {},
+      );
+      expect(
+        await prisma.importObservation.count({
+          where: { artifactId: firstRef.artifactId! },
+        }),
+      ).toBe(1);
+      expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
+    }));
+
+  // Port of QA f2d4c90's claimed-PURGING test, using the shared physical fixture.
+  // The failed attempt exercises the real coordinator's FD drain outcome.
+  it("claimed PURGING finalize retries after fenced drain without duplicating finance or replacing claim identity", async () =>
+    withVault(async ({ root, upload, purger, registry }) => {
+      const { bytes, artifact } = await pendingClaimedPurge(root);
+      const before = await prisma.importArtifact.findUniqueOrThrow({
+        where: { id: artifact.id },
+      });
+      const claims = await prisma.importObservation.findMany({
+        where: { artifactId: artifact.id },
+      });
+      const finances = await prisma.expense.findMany({ where: { tenantId } });
+      const flows = await prisma.cashFlowEntry.findMany({
+        where: { tenantId },
+      });
+      let transactionDepth = 0;
+      const transaction = prisma.$transaction.bind(prisma);
+      const txSpy = jest
+        .spyOn(prisma, "$transaction")
+        .mockImplementation(
+          async (...args: Parameters<typeof prisma.$transaction>) => {
+            transactionDepth++;
+            try {
+              return await transaction(...args);
+            } finally {
+              transactionDepth--;
+            }
+          },
+        );
+      const actual = purger.purge.bind(purger);
+      const purge = jest.spyOn(purger, "purge").mockImplementation((target) => {
+        expect(transactionDepth).toBe(0);
+        return actual(target);
+      });
+      const drain = jest
+        .spyOn(registry, "abortAndDrain")
+        .mockResolvedValue("TIMEOUT");
+      try {
+        const pending = await reserveBytes(upload, bytes);
+        await expect(
+          upload.upload(
+            auth,
+            pending.reserved.id,
+            pending.attachmentId,
+            bytes.length,
+            Readable.from([bytes]),
+            {},
+          ),
+        ).rejects.toMatchObject({
+          code: "RETRYABLE_WRITE_CONFLICT",
+        });
+        const failed = await prisma.importSessionArtifact.findUniqueOrThrow({
+          where: { id: pending.attachmentId },
+        });
+        expect(failed).toMatchObject({
+          state: "FAILED",
+          artifactId: null,
+          temporaryPurgePending: true,
+        });
+        expect(purge).toHaveBeenCalledWith({
+          kind: "artifact",
+          tenantId,
+          ownerProjectId: projectId,
+          id: artifact.id,
+        });
+        expect(drain).toHaveBeenCalledWith(`A:${artifact.id}`, 1000);
+        expect(existsSync(join(root, before.storageKey!))).toBe(true);
+        expect(
+          await prisma.importObservation.findMany({
+            where: { artifactId: artifact.id },
+          }),
+        ).toEqual(claims);
+        drain.mockRestore();
+        const attached = await uploadBytes(upload, bytes);
+        expect(
+          await prisma.importSessionArtifact.findUniqueOrThrow({
+            where: { id: attached.attachmentId },
+          }),
+        ).toMatchObject({ state: "ATTACHED", artifactId: artifact.id });
+        const rematerialized = await prisma.importArtifact.findUniqueOrThrow({
+          where: { id: artifact.id },
+        });
+        expect(rematerialized).toMatchObject({
+          documentSha256: artifact.documentSha256,
+          state: "RAW_READY",
+          verifiedBytes: bytes.length,
+        });
+        expect(rematerialized.storageKey).not.toBe(before.storageKey);
+        expect(existsSync(join(root, before.storageKey!))).toBe(false);
+        expect(
+          await prisma.importArtifact.findMany({
+            where: { tenantId, documentSha256: artifact.documentSha256 },
+          }),
+        ).toEqual([rematerialized]);
+        expect(
+          await prisma.importObservation.findMany({
+            where: { artifactId: artifact.id },
+          }),
+        ).toEqual(claims);
+        expect(await prisma.expense.findMany({ where: { tenantId } })).toEqual(
+          finances,
+        );
+        expect(
+          await prisma.cashFlowEntry.findMany({ where: { tenantId } }),
+        ).toEqual(flows);
+        expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+      } finally {
+        drain.mockRestore();
+        purge.mockRestore();
+        txSpy.mockRestore();
+      }
+    }));
+
+  it.each(["cancel", "delete", "timeout", "unavailable"] as const)(
+    "revalidates %s at the purge wait barrier and keeps failed-upload cleanup",
+    async (action) =>
+      withVault(async ({ root, upload, purger }) => {
+        const { bytes, artifact, expense } = await pendingClaimedPurge(root);
+        const { reserved, attachmentId } = await reserveBytes(upload, bytes);
+        let entered!: () => void;
+        let release!: () => void;
+        const arrived = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const actual = purger.purge.bind(purger);
+        const spy = jest
+          .spyOn(purger, "purge")
+          .mockImplementation(async (target) => {
+            entered();
+            await barrier;
+            if (action === "timeout") return "DRAIN_TIMEOUT";
+            if (action === "unavailable")
+              throw new VaultIoError({ kind: "UNAVAILABLE", step: "runtime" });
+            return actual(target);
+          });
+        const pending = upload
+          .upload(
+            auth,
+            reserved.id,
+            attachmentId,
+            bytes.length,
+            Readable.from([bytes]),
+            {},
+          )
+          .then(
+            (view) => ({ view, failure: undefined }),
+            (failure: unknown) => ({ view: undefined, failure }),
+          );
+        await arrived;
+        // A separate writer succeeding here proves the uploader has exited its tx.
+        const waiting = await prisma.importSessionArtifact.findUniqueOrThrow({
+          where: { id: attachmentId },
+        });
+        expect(waiting).toMatchObject({
+          state: "RESERVED",
+          verifiedAt: null,
+          uploadGeneration: 2,
+        });
+        if (action === "cancel")
+          await service.cancel(
+            auth,
+            reserved.id,
+            { expectedRevision: reserved.revision },
+            {},
+          );
+        if (action === "delete")
+          await prisma.expense.delete({ where: { id: expense.id } });
+        release();
+        const result = await pending;
+        const final = await prisma.importSessionArtifact.findUniqueOrThrow({
+          where: { id: attachmentId },
+        });
+        if (action === "delete") {
+          expect(result.failure).toBeUndefined();
+          expect(final.state).toBe("ATTACHED");
+          expect(final.artifactId).not.toBe(artifact.id);
+          expect(
+            await prisma.importArtifact.findUnique({
+              where: { id: artifact.id },
+            }),
+          ).toBeNull();
+        } else {
+          expect(result.failure).toMatchObject({
+            code:
+              action === "unavailable"
+                ? "CAPABILITY_DISABLED"
+                : action === "timeout"
+                  ? "RETRYABLE_WRITE_CONFLICT"
+                  : "LEASE_CONFLICT",
+          });
+          expect(final.temporaryPurgePending).toBe(true);
+          expect(final.artifactId).toBeNull();
+          spy.mockRestore();
+          expect(
+            await purger.purge({
+              kind: "ref",
+              tenantId,
+              ownerProjectId: projectId,
+              id: attachmentId,
+            }),
+          ).toBe("PURGED");
+          expect(existsSync(join(root, waiting.temporaryStorageKey!))).toBe(
+            false,
+          );
+        }
+        spy.mockRestore();
+        expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+      }),
+  );
+
+  it("two same-byte callers share the completed claimed purge, never its pending storage", async () =>
+    withVault(async ({ root, upload, purger }) => {
+      const { bytes, artifact } = await pendingClaimedPurge(root);
+      const user = await prisma.user.create({
+        data: {
+          tenantId,
+          username: randomUUID(),
+          name: "second uploader",
+          role: "ADMIN",
+        },
+      });
+      const secondAuth = mintImportAuthContext({
+        tenantId,
+        userId: user.id,
+        presentedSessionVersion: 0,
+        tokenExpiresAt: auth.tokenExpiresAt,
+      });
+      const first = await reserveBytes(upload, bytes);
+      const second = await reserveBytes(upload, bytes, secondAuth);
+      let entered!: () => void;
+      let release!: () => void;
+      const arrived = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const actual = purger.purge.bind(purger);
+      let arrivals = 0;
+      jest.spyOn(purger, "purge").mockImplementation(async (target) => {
+        if (++arrivals === 2) entered();
+        await barrier;
+        return actual(target);
+      });
+      const pending = [
+        upload.upload(
+          auth,
+          first.reserved.id,
+          first.attachmentId,
+          bytes.length,
+          Readable.from([bytes]),
+          {},
+        ),
+        upload.upload(
+          secondAuth,
+          second.reserved.id,
+          second.attachmentId,
+          bytes.length,
+          Readable.from([bytes]),
+          {},
+        ),
+      ];
+      await arrived;
+      await expect(
+        upload.upload(
+          auth,
+          first.reserved.id,
+          first.attachmentId,
+          bytes.length,
+          Readable.from([bytes]),
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "LEASE_CONFLICT" });
+      release();
+      await Promise.all(pending);
+      const refs = await prisma.importSessionArtifact.findMany({
+        where: { id: { in: [first.attachmentId, second.attachmentId] } },
+      });
+      expect(refs).toHaveLength(2);
+      expect(
+        refs.every(
+          (ref) => ref.state === "ATTACHED" && ref.artifactId === artifact.id,
+        ),
+      ).toBe(true);
+      expect(refs.filter((ref) => ref.temporaryPurgePending)).toHaveLength(1);
+      expect(
+        await prisma.importArtifact.count({
+          where: { tenantId, documentSha256: artifact.documentSha256 },
+        }),
+      ).toBe(1);
+      expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+    }));
+
+  it.each([
+    { kind: "Expense", release: "cancel" },
+    { kind: "Receipt", release: "cancel" },
+    { kind: "Expense", release: "expiry" },
+    { kind: "Receipt", release: "expiry" },
+  ] as const)(
+    "last $kind claim retirement preserves only authorized shared originals until $release; re-upload extracts fresh identity",
+    async ({ kind, release }) =>
+      withVault(
+        async ({ root, upload, content, extraction, purger, reaper }) => {
+          const created = await create();
+          const bytes = Buffer.from(
+            "date,title,amount\n2026-10-01,Identity fixture,206.96\n",
+          );
+          const { artifact, ref, material } = await attachCsv(
+            created.view.id,
+            bytes,
+          );
+          const second = await create();
+          const shared = await prisma.importSessionArtifact.create({
+            data: {
+              tenantId,
+              ownerProjectId: projectId,
+              sessionId: second.view.id,
+              artifactId: artifact.id,
+              position: 0,
+              fileName: "shared.csv",
+              declaredMime: "text/csv",
+              declaredBytes: bytes.length,
+              reservedBytes: 0,
+              state: "ATTACHED",
+              verifiedAt: current,
+            },
+          });
+          const storageKey = `t/${ref.id}/g2/blob`;
+          mkdirSync(join(root, "t", ref.id, "g2"), {
+            recursive: true,
+            mode: 0o700,
+          });
+          writeFileSync(join(root, storageKey), bytes, { mode: 0o600 });
+          await prisma.importArtifact.update({
+            where: { id: artifact.id },
+            data: { storageKey },
+          });
+          const finance =
+            kind === "Expense"
+              ? await new ExpenseService(
+                  prisma,
+                  new ConciliacaoService(prisma),
+                ).create(tenantId, projectId, {
+                  tipoDespesa: ExpenseType.OUTROS,
+                  valor: 206.96,
+                  quantidade: 1,
+                  formaPagamento: PaymentForm.A_VISTA,
+                  status: "PLANEJADO",
+                })
+              : await new ReceiptService(prisma, {} as never).create(
+                  tenantId,
+                  projectId,
+                  {
+                    valor: 206.96,
+                    data: "2026-10-10T12:00:00.000Z",
+                    tipo: "PAGAMENTO",
+                    status: "PREVISTO",
+                  },
+                );
+          await prisma.importObservation.update({
+            where: { id: material.observations[0].id },
+            data: {
+              canonicalProjectId: projectId,
+              canonicalExpenseId: kind === "Expense" ? finance.id : null,
+              canonicalReceiptId: kind === "Receipt" ? finance.id : null,
+              claimReceiptJson: "{}",
+              claimedAt: current,
+            },
+          });
+          if (kind === "Expense")
+            await prisma.expense.delete({ where: { id: finance.id } });
+          else await prisma.receipt.delete({ where: { id: finance.id } });
+          const retired = await prisma.importArtifact.findUniqueOrThrow({
+            where: { id: artifact.id },
+          });
+          expect(retired).toMatchObject({
+            documentSha256: null,
+            state: "PURGING",
+            parserVersion: null,
+            extractionJson: null,
+            leaseSessionId: null,
+            storageKey,
+          });
+          const stale = await service.getSession(auth, created.view.id);
+          expect(stale.state).toBe("REVIEW_REQUIRED");
+          expect(stale.attachments[0].canAnalyze).toBe(false);
+          const stored = await prisma.importSession.findUniqueOrThrow({
+            where: { id: created.view.id },
+          });
+          expect(JSON.parse(stored.draftJson).scope).toEqual({
+            observationIds: [],
+            pendingAttachmentIds: [ref.id],
+          });
+          expect((await service.getSession(auth, second.view.id)).state).toBe(
+            "REVIEW_REQUIRED",
+          );
+          await expect(
+            extraction.analyzeAttached(
+              auth,
+              created.view.id,
+              ref.id,
+              {
+                expectedRevision: stale.revision,
+              },
+              {},
+            ),
+          ).rejects.toMatchObject({ code: "STALE_PREVIEW" });
+          const read = (sessionId: string, refId: string) =>
+            content.download(auth, sessionId, refId, async (source) => {
+              const chunks: Buffer[] = [];
+              for await (const chunk of source) chunks.push(Buffer.from(chunk));
+              return Buffer.concat(chunks);
+            });
+          expect(await read(created.view.id, ref.id)).toEqual(bytes);
+          expect(await read(second.view.id, shared.id)).toEqual(bytes);
+          await expect(read(created.view.id, shared.id)).rejects.toMatchObject({
+            code: "NOT_FOUND",
+          });
+          expect(
+            await purger.purge({
+              kind: "artifact",
+              tenantId,
+              ownerProjectId: projectId,
+              id: artifact.id,
+            }),
+          ).toBe("NOT_ELIGIBLE");
+          const fresh = await uploadBytes(upload, bytes);
+          const freshRef = await prisma.importSessionArtifact.findUniqueOrThrow(
+            {
+              where: { id: fresh.attachmentId },
+            },
+          );
+          expect(freshRef.artifactId).not.toBe(artifact.id);
+          await extraction.analyzeAttached(
+            auth,
+            fresh.view.id,
+            fresh.attachmentId,
+            { expectedRevision: fresh.view.revision },
+            {},
+          );
+          const observations = await prisma.importObservation.findMany({
+            where: { artifactId: freshRef.artifactId! },
+          });
+          expect(observations).toHaveLength(1);
+          expect(observations[0].id).not.toBe(material.observations[0].id);
+          expect(observations[0].canonicalExpenseId).toBeNull();
+          expect(observations[0].canonicalReceiptId).toBeNull();
+          if (release === "cancel") {
+            for (const sessionId of [created.view.id, second.view.id]) {
+              const view = await service.getSession(auth, sessionId);
+              await service.cancel(
+                auth,
+                sessionId,
+                { expectedRevision: view.revision },
+                {},
+              );
+            }
+            expect(
+              await purger.purge({
+                kind: "artifact",
+                tenantId,
+                ownerProjectId: projectId,
+                id: artifact.id,
+              }),
+            ).toBe("PURGED");
+          } else {
+            current = new Date(stored.expiresAt.getTime() + 1);
+            await expect(read(created.view.id, ref.id)).rejects.toMatchObject({
+              code: "NOT_FOUND",
+            });
+            const result = await reaper.runCycle({
+              tenantId,
+              ownerProjectId: projectId,
+              limit: 16,
+            });
+            expect(result.purges).toContainEqual({
+              target: {
+                kind: "artifact",
+                tenantId,
+                ownerProjectId: projectId,
+                id: artifact.id,
+              },
+              outcome: "PURGED",
+            });
+          }
+          expect(existsSync(join(root, storageKey))).toBe(false);
+          expect(
+            await prisma.importArtifact.findUnique({
+              where: { id: artifact.id },
+            }),
+          ).toBeNull();
+          expect(await prisma.$queryRaw`PRAGMA foreign_keys`).toEqual([
+            { foreign_keys: 1n },
+          ]);
+          expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+        },
+      ),
+  );
+
+  it("real finalize drains claimed PURGING outside the writer and reuses observation/receipt identity", async () =>
+    withVault(async ({ root, upload, extraction, purger }) => {
+      const created = await create();
+      const bytes = Buffer.from(
+        "date,title,amount\n2026-10-01,Claimed purge fixture,206.96\n",
+      );
+      const { artifact, ref, material } = await attachCsv(
+        created.view.id,
+        bytes,
+      );
+      const expense = await new ExpenseService(
+        prisma,
+        new ConciliacaoService(prisma),
+      ).create(tenantId, projectId, {
+        tipoDespesa: ExpenseType.OUTROS,
+        valor: 206.96,
+        quantidade: 1,
+        formaPagamento: PaymentForm.A_VISTA,
+        status: "PLANEJADO",
+      });
+      await prisma.importObservation.update({
+        where: { id: material.observations[0].id },
+        data: {
+          canonicalProjectId: projectId,
+          canonicalExpenseId: expense.id,
+          canonicalIndex: 0,
+          claimReceiptJson: '{"kind":"SESSION"}',
+          claimedAt: current,
+        },
+      });
+      const observation = await prisma.importObservation.findUniqueOrThrow({
+        where: { id: material.observations[0].id },
+      });
+      const storageKey = `t/${ref.id}/g2/blob`;
+      mkdirSync(join(root, "t", ref.id, "g2"), {
+        recursive: true,
+        mode: 0o700,
+      });
+      writeFileSync(join(root, storageKey), bytes, { mode: 0o600 });
+      await prisma.importArtifact.update({
+        where: { id: artifact.id },
+        data: { storageKey },
+      });
+      await service.cancel(
+        auth,
+        created.view.id,
+        { expectedRevision: created.view.revision },
+        {},
+      );
+      await prisma.importArtifact.update({
+        where: { id: artifact.id },
+        data: { state: "PURGING" },
+      });
+      const purge = jest.spyOn(purger, "purge");
+      const fresh = await uploadBytes(upload, bytes);
+      expect(purge).toHaveBeenCalledWith({
+        kind: "artifact",
+        tenantId,
+        ownerProjectId: projectId,
+        id: artifact.id,
+      });
+      const freshRef = await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: fresh.attachmentId },
+      });
+      expect(freshRef.artifactId).toBe(artifact.id);
+      expect(existsSync(join(root, storageKey))).toBe(false);
+      expect(
+        await prisma.importArtifact.findUniqueOrThrow({
+          where: { id: artifact.id },
+        }),
+      ).toMatchObject({
+        documentSha256: artifact.documentSha256,
+        state: "RAW_READY",
+        extractionJson: null,
+        storageKey: expect.not.stringMatching(new RegExp(ref.id)),
+      });
+      await extraction.analyzeAttached(
+        auth,
+        fresh.view.id,
+        fresh.attachmentId,
+        { expectedRevision: fresh.view.revision },
+        {},
+      );
+      const after = await prisma.importObservation.findUniqueOrThrow({
+        where: { id: observation.id },
+      });
+      expect(after).toMatchObject({
+        canonicalExpenseId: expense.id,
+        claimReceiptJson: observation.claimReceiptJson,
+      });
+      expect(
+        await prisma.importObservation.count({
+          where: { artifactId: artifact.id },
+        }),
+      ).toBe(1);
+      expect(await prisma.expense.count({ where: { tenantId } })).toBe(1);
+      expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+    }));
 
   // Immutable extraction fixture, not a financial write: normalize through the
   // production parser/materializer, then exercise real lifecycle services.
@@ -869,6 +1673,9 @@ describe("guarded persisted session retention", () => {
   it.each([false, true])(
     "real prepare/consent/execute strips persisted drafts, releases refs and replays only the receipt (continuation=%s)",
     async (deferred) => {
+      const initialActivities = await prisma.userActivityLog.count({
+        where: { tenantId },
+      });
       const initialExpenses = await prisma.expense.count({
         where: { tenantId },
       });
@@ -1298,6 +2105,226 @@ describe("guarded persisted session retention", () => {
         await workflow.execute(auth, session.id, { financialRequestId }, {}),
       ).toEqual(receipt);
       expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+
+      // QA f2d4c90: an APPLIED result is immutable even after its real canonical
+      // row is soft-deleted. Replay must not create finance, activity or flows.
+      const sourceId = receipt.items[0].sourceExpenseId;
+      const sourceBefore = await prisma.expense.findUniqueOrThrow({
+        where: { id: sourceId },
+      });
+      const appliedBefore = await prisma.importSession.findUniqueOrThrow({
+        where: { id: session.id },
+      });
+      const activitiesBefore = await prisma.userActivityLog.findMany({
+        where: { tenantId },
+        orderBy: { id: "asc" },
+      });
+      expect(activitiesBefore).toHaveLength(initialActivities + 1);
+      expect(activitiesBefore).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            tenantId,
+            userId,
+            action: "importSessions.execute",
+            createdAt: claimed[0].claimedAt,
+          }),
+        ]),
+      );
+      const flowsBefore = await prisma.cashFlowEntry.findMany({
+        where: { expenseId: sourceId },
+        orderBy: { id: "asc" },
+      });
+      await prisma.$transaction(async (tx) => {
+        await tx.expense.delete({ where: { id: sourceId } });
+      });
+      const sourceAfter = await prisma.expense.findUniqueOrThrow({
+        where: { id: sourceId },
+      });
+      expect(sourceAfter.deletedAt).toBeInstanceOf(Date);
+      expect(sourceAfter).toEqual({
+        ...sourceBefore,
+        deletedAt: sourceAfter.deletedAt,
+        updatedAt: sourceAfter.updatedAt,
+      });
+      expect(
+        await prisma.importObservation.findUnique({
+          where: { id: claimed[0].id },
+        }),
+      ).toBeNull();
+      expect(
+        await prisma.importSession.findUniqueOrThrow({
+          where: { id: session.id },
+        }),
+      ).toEqual(appliedBefore);
+      expect((await service.getResult(auth, session.id)).receipt).toEqual(
+        receipt,
+      );
+      expect(
+        await workflow.execute(auth, session.id, { financialRequestId }, {}),
+      ).toEqual(receipt);
+      expect(
+        await prisma.expense.count({
+          where: { tenantId, deletedAt: { not: undefined } },
+        }),
+      ).toBe(count);
+      expect(
+        await prisma.userActivityLog.findMany({
+          where: { tenantId },
+          orderBy: { id: "asc" },
+        }),
+      ).toEqual(activitiesBefore);
+      expect(
+        await prisma.cashFlowEntry.findMany({
+          where: { expenseId: sourceId },
+          orderBy: { id: "asc" },
+        }),
+      ).toEqual(flowsBefore);
+      expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
     },
   );
+
+  it("canonical deletion invalidates a referencing READY draft and nonce, without extending expiry or editing a separate draft", async () => {
+    const created = await create();
+    const separate = await create();
+    const { session, material } = await attachCsv(
+      created.view.id,
+      Buffer.from(
+        "date,title,amount\n2026-10-01,Pending linkage PARC 1/2,1.00\n",
+      ),
+    );
+    const draft = {
+      ...material.draft,
+      questions: [],
+      selectedLineIds: material.draft.lines.map((line) => line.id),
+      lines: material.draft.lines.map((line) => ({
+        ...line,
+        amountMeaning: "TOTAL_PURCHASE" as const,
+        amountCents: 200,
+        installmentCount: 2,
+        firstDueDate: "2026-10-10",
+        targets: [],
+        tipoDespesa: ExpenseType.OUTROS,
+        decision: { kind: "CREATE" as const, acceptNaturalDuplicate: false },
+      })),
+    };
+    await prisma.importSession.update({
+      where: { id: session.id },
+      data: { draftJson: JSON.stringify(draft) },
+    });
+    const conciliacao = new ConciliacaoService(prisma);
+    const expenses = new ExpenseService(prisma, conciliacao);
+    // Test stale revision/nonce independently of the scoped CSV capability gate.
+    // The default gate correctly closes once the artifact has retired.
+    const qualified = {
+      writesEnabled: () => true,
+      newImportFormats: capability.newImportFormats.bind(capability),
+    };
+    const workflow = new ImportSessionWorkflowService(
+      prisma,
+      clock,
+      qualified,
+      verifier,
+      new CardPurchaseBatchAdapter(expenses, conciliacao, clock),
+      gate as never,
+      raw as never,
+    );
+    const ready = await workflow.prepare(auth, session.id, {
+      expectedRevision: session.revision,
+    });
+    expect(ready.state).toBe("READY");
+    const challenge = await workflow.challenge(
+      auth,
+      session.id,
+      {
+        expectedRevision: ready.revision,
+        proposalHash: ready.proposal!.proposalHash,
+      },
+      {},
+    );
+    const row = await expenses.create(tenantId, projectId, {
+      tipoDespesa: ExpenseType.OUTROS,
+      valor: 1,
+      quantidade: 1,
+      formaPagamento: PaymentForm.A_VISTA,
+      dataPagamento: "2026-10-10T12:00:00.000Z",
+      status: "PLANEJADO",
+    });
+    await prisma.importObservation.update({
+      where: { id: material.observations[0].id },
+      data: {
+        claimVersion: 1,
+        canonicalProjectId: projectId,
+        canonicalExpenseId: row.id,
+        canonicalIndex: 0,
+        claimReceiptJson: '{"kind":"SESSION","fixture":"concurrent-claim"}',
+        claimedAt: current,
+      },
+    });
+    const before = await prisma.importSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    const separateBefore = await prisma.importSession.findUniqueOrThrow({
+      where: { id: separate.view.id },
+    });
+    await prisma.expense.delete({ where: { id: row.id } });
+    const after = await prisma.importSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(after.state).toBe("REVIEW_REQUIRED");
+    expect(after.revision).toBe(before.revision + 1);
+    expect(after.expiresAt).toEqual(before.expiresAt);
+    expect(after.lastUserEditAt).toEqual(before.lastUserEditAt);
+    expect(after.proposalJson).toBeNull();
+    expect(after.challengeJson).toBeNull();
+    const stale = await service.getSession(auth, session.id);
+    expect(stale.actions).not.toContain("ANALYZE");
+    expect(stale.attachments).toEqual([
+      expect.objectContaining({
+        state: "ATTACHED",
+        materializedInSession: false,
+        canAnalyze: false,
+      }),
+    ]);
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: separate.view.id },
+      }),
+    ).toEqual(separateBefore);
+    await expect(
+      workflow.prepare(auth, session.id, { expectedRevision: ready.revision }),
+    ).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    await expect(
+      workflow.confirm(
+        auth,
+        session.id,
+        {
+          expectedRevision: ready.revision,
+          proposalHash: ready.proposal!.proposalHash,
+          financialRequestId: randomUUID(),
+          nonce: challenge.nonce,
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    const defaultWorkflow = new ImportSessionWorkflowService(
+      prisma,
+      clock,
+      capability,
+      verifier,
+      new CardPurchaseBatchAdapter(expenses, conciliacao, clock),
+      gate as never,
+      raw as never,
+    );
+    await expect(
+      defaultWorkflow.prepare(auth, session.id, {
+        expectedRevision: after.revision,
+      }),
+    ).rejects.toMatchObject({ code: "CAPABILITY_DISABLED" });
+    expect(
+      await prisma.importObservation.findUnique({
+        where: { id: material.observations[0].id },
+      }),
+    ).toBeNull();
+    expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+  });
 });

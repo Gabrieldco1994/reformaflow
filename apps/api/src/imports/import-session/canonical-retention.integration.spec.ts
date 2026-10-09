@@ -315,7 +315,106 @@ describe("canonical import linkage retention", () => {
     expect(invalidated.leaseSessionVersion).toBeNull();
     expect(invalidated.leaseTokenExpiresAt).toBeNull();
     expect(invalidated.leaseExpiresAt).toBeNull();
-    expect(invalidated.state).toBe("RAW_READY");
+    expect(invalidated.state).toBe("PURGED");
+    expect(invalidated.documentSha256).toBeNull();
+    expect(invalidated.extractionJson).toBeNull();
+    await expect(
+      prisma.importArtifact.update({
+        where: { id: artifact.id },
+        data: { state: "RAW_READY", documentSha256: artifact.documentSha256 },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("retires the last claim with active refs, blocks resurrection and preserves never-claimed intake", async () => {
+    const { expense, artifact } = await createClaim();
+    const { attachment } = await attachArtifact(artifact.id);
+    await prisma.importArtifact.update({
+      where: { id: artifact.id },
+      data: { storageKey: `objects/${artifact.id}`, parserVersion: "fixture" },
+    });
+    await prisma.expense.delete({ where: { id: expense.id } });
+    const retired = await prisma.importArtifact.findUniqueOrThrow({
+      where: { id: artifact.id },
+    });
+    expect(retired).toMatchObject({
+      documentSha256: null,
+      state: "PURGING",
+      extractionJson: null,
+      parserVersion: null,
+      storageKey: `objects/${artifact.id}`,
+    });
+    expect(
+      (
+        await prisma.importSessionArtifact.findUniqueOrThrow({
+          where: { id: attachment.id },
+        })
+      ).state,
+    ).toBe("ATTACHED");
+    for (const data of [
+      { documentSha256: artifact.documentSha256 },
+      { parserVersion: "resurrection", extractionJson: "{}" },
+      { leaseSessionId: attachment.sessionId, leaseSessionVersion: 0 },
+      { storageKey: "objects/resurrection" },
+      { state: "RAW_READY" },
+    ]) {
+      await expect(
+        prisma.importArtifact.update({
+          where: { id: artifact.id },
+          data,
+        }),
+      ).rejects.toThrow();
+    }
+    await expect(
+      prisma.importObservation.create({
+        data: {
+          tenantId,
+          ownerProjectId: projectId,
+          artifactId: artifact.id,
+          reference: "resurrection",
+          evidenceJson: "{}",
+        },
+      }),
+    ).rejects.toThrow();
+    const another = await attachArtifact(artifact.id).catch(() => null);
+    expect(another).toBeNull();
+    const intake = await prisma.importArtifact.create({
+      data: {
+        tenantId,
+        ownerProjectId: projectId,
+        documentSha256: randomUUID().replaceAll("-", "").padEnd(64, "f"),
+        verifiedBytes: 1,
+        detectedFormat: "CSV",
+        state: "EXTRACTED",
+        extractionJson: "{}",
+      },
+    });
+    await attachArtifact(intake.id);
+    const observation = await prisma.importObservation.create({
+      data: {
+        tenantId,
+        ownerProjectId: projectId,
+        artifactId: intake.id,
+        reference: "intake",
+        evidenceJson: "{}",
+      },
+    });
+    await expect(
+      prisma.importObservation.update({
+        where: { id: observation.id },
+        data: { artifactId: artifact.id },
+      }),
+    ).rejects.toThrow();
+    await prisma.importObservation.delete({ where: { id: observation.id } });
+    expect(
+      await prisma.importArtifact.findUniqueOrThrow({
+        where: { id: intake.id },
+      }),
+    ).toEqual(intake);
+    expect(await prisma.$queryRaw`PRAGMA foreign_keys`).toEqual([
+      { foreign_keys: 1n },
+    ]);
+    expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
   });
 
   it("makes a purging artifact hash-unusable before a matching re-upload", async () => {
@@ -324,7 +423,6 @@ describe("canonical import linkage retention", () => {
       where: { id: artifact.id },
       data: { storageKey: `objects/${artifact.id}`, extractionJson: "{}" },
     });
-
     await prisma.expense.update({
       where: { id: expense.id },
       data: { deletedAt: new Date() },
@@ -410,10 +508,29 @@ describe("canonical import linkage retention", () => {
         where: { id: other.id },
       }),
     ).not.toBeNull();
+    expect(
+      (
+        await prisma.importArtifact.findUniqueOrThrow({
+          where: { id: first.artifact.id },
+        })
+      ).documentSha256,
+    ).toBe(first.artifact.documentSha256);
+    await attachArtifact(first.artifact.id);
+    await prisma.expense.delete({ where: { id: otherExpense.id } });
+    expect(
+      (
+        await prisma.importArtifact.findUniqueOrThrow({
+          where: { id: first.artifact.id },
+        })
+      ).documentSha256,
+    ).toBeNull();
   });
 
   it("invalidates only drafts that reference a disposed claim and preserves confirmation evidence", async () => {
     const { expense, artifact, observation } = await createClaim();
+    // Partial disposal requires another live claim, not merely another row of
+    // unclaimed evidence (last-claim deletion retires all of that evidence).
+    const { expense: retainedExpense } = await createClaim();
     const retainedObservation = await prisma.importObservation.create({
       data: {
         tenantId,
@@ -421,6 +538,10 @@ describe("canonical import linkage retention", () => {
         artifactId: artifact.id,
         reference: "retained-row",
         evidenceJson: "{}",
+        canonicalProjectId: projectId,
+        canonicalExpenseId: retainedExpense.id,
+        claimReceiptJson: "{}",
+        claimedAt: new Date(),
       },
     });
     const now = new Date();

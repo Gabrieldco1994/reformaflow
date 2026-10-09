@@ -94,7 +94,13 @@ export class ImportContentService {
         id: ref.artifactId,
         tenantId: auth.tenantId,
         ownerProjectId: row.ownerProjectId,
-        state: { in: [...READABLE_ARTIFACTS] },
+        OR: [
+          { state: { in: [...READABLE_ARTIFACTS] } },
+          // Documentary consent survives identity retirement, never purge or
+          // rematerialization authority. The owned ATTACHED ref above is required
+          // again at reader admission; cancellation/expiry deny this path.
+          { state: ImportSessionArtifactState.PURGING, documentSha256: null },
+        ],
         storageKey: { not: null },
       },
     });
