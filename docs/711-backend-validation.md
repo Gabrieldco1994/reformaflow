@@ -69,6 +69,15 @@ depender de inserts sequenciais caírem em milissegundos diferentes.
 
 ## Validação final local
 
+### Checkpoint antes da revisão de identidade (2026-10-09)
+
+Baseline local `44b754965f6aa2957bc01a523690ed2568738932`: três suítes
+(`canonical-retention`, `canonical-retention-orphan-upgrade`,
+`vault/session-retention`) passaram, 23 testes. A revisão de identidade
+nullable/PURGING ainda não está implementada neste checkpoint.
+O deploy da fixture descartável encontrou 72 migrations; isso não é evidência
+de aplicação em produção.
+
 - API afetada: **179 suites / 2.019 testes aprovados**, incluindo importação,
   Maria, auth, cartões, despesas, dedupe, monthly overview, bancos, budgets,
   conciliação, dashboard, tenant-financial e todas as fixtures Prisma.
