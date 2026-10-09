@@ -360,6 +360,16 @@ não muda a ordem nem esconde nenhum módulo autorizado.
 No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
 financeiro em tela própria (chat em tela cheia no mobile).
 
+- **Importar fatura CSV conversando com a Maria:** peça a importação na conversa
+  e escolha explicitamente o cartão e o projeto — uma sugestão não escolhe por
+  você, mesmo quando só há um cartão. Se não houver cartão, a tela oferece o
+  cadastro existente e retorna à Maria. Selecione um arquivo CSV local; só depois
+  de revisar os arquivos e autorizar o envio os bytes são enviados para análise.
+  A revisão separa compras, declarações e lançamentos ignorados. Pagamento de
+  fatura identificado é apenas informativo e não pode ser escolhido como compra.
+  A criação ou alteração financeira só acontece no resumo, após sua confirmação
+  explícita; importar não quita a fatura. Importações em andamento podem ser
+  retomadas na Maria depois de recarregar a página.
 - Mostra abertura proativa com leitura do mês atual.
 - No cockpit mensal, o CTA **"Ver detalhes"** dos cards de "Maria percebeu" abre
   a mesma tela **Maria** do projeto, para aprofundar o insight.

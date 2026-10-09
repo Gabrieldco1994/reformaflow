@@ -29,6 +29,9 @@ export default function CreditCardsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const projectId = String(params?.projectId ?? '');
+  const requestedReturnTo = searchParams.get('returnTo');
+  const mariaReturnTo = `/projects/${encodeURIComponent(projectId)}/maria?cardSetup=return`;
+  const safeReturnTo = requestedReturnTo === mariaReturnTo ? mariaReturnTo : null;
   const { projectType } = useProject();
   const { hasModule } = useAuth();
   const type = projectType as ProjectType;
@@ -126,6 +129,16 @@ export default function CreditCardsPage() {
     if (!confirm(`Excluir cartão "${card.nickname ?? card.last4}"? As despesas importadas serão mantidas.`)) return;
     await api.delete(`/projects/${cardProjectId}/credit-cards/${card.id}`);
     void load();
+  }
+
+  function finishCardSetup() {
+    setFormOpen(false);
+    setEditing(null);
+    if (safeReturnTo) {
+      router.replace(safeReturnTo);
+    } else {
+      void load();
+    }
   }
 
   const isEmpty = !loading && !loadError && cards.length === 0;
@@ -271,15 +284,15 @@ export default function CreditCardsPage() {
           <CardFormModal
             projectId={editing.projectId ?? projectId}
             card={editing}
-            onClose={() => { setFormOpen(false); setEditing(null); }}
-            onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
+            onClose={finishCardSetup}
+            onSaved={finishCardSetup}
           />
         ) : (
           <AccountFormModal
             projectId={projectId}
             defaultType="CARD"
-            onClose={() => setFormOpen(false)}
-            onSaved={() => { setFormOpen(false); void load(); }}
+            onClose={finishCardSetup}
+            onSaved={finishCardSetup}
           />
         )
       )}

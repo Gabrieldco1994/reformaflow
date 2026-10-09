@@ -1,16 +1,30 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import { useFinancialAgent } from '@/components/agent/useFinancialAgent';
-import { useSpeechRecognition } from '@/components/agent/useSpeechRecognition';
-import { VoiceAssistantOverlay } from '@/components/agent/VoiceAssistantOverlay';
-import { streamSpeak, isStreamingTtsSupported, type StreamTtsHandle } from '@/lib/streaming-tts';
-import { MobileLaunchSheetContainer } from '../../_components/mobile-launch/MobileLaunchSheetContainer';
-import { useMariaOpening } from '../_hooks/useMariaOpening';
-import { CONFIRM_REPLY } from '../_lib/pending-expense';
-import { consumePendingMariaPrompt } from '../_lib/pending-prompt';
-import { MariaMessageBubble } from './MariaMessageBubble';
-import { MariaDock } from './MariaDock';
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useFinancialAgent } from "@/components/agent/useFinancialAgent";
+import { useSpeechRecognition } from "@/components/agent/useSpeechRecognition";
+import { VoiceAssistantOverlay } from "@/components/agent/VoiceAssistantOverlay";
+import {
+  streamSpeak,
+  isStreamingTtsSupported,
+  type StreamTtsHandle,
+} from "@/lib/streaming-tts";
+import { MobileLaunchSheetContainer } from "../../_components/mobile-launch/MobileLaunchSheetContainer";
+import { useMariaOpening } from "../_hooks/useMariaOpening";
+import { CONFIRM_REPLY } from "../_lib/pending-expense";
+import { consumePendingMariaPrompt } from "../_lib/pending-prompt";
+import { MariaMessageBubble } from "./MariaMessageBubble";
+import { MariaDock } from "./MariaDock";
+import { ImportConversationBody } from "./ImportConversationBody";
+import type { ImportDocumentFlow } from "../_hooks/useImportDocumentFlow";
+import type { ImportEntryAction } from "../_lib/import-entry-action";
+
+interface GenericChatProps {
+  projectId: string;
+  intake?: ReactNode;
+  disabled?: boolean;
+  onImportEntryAction?: (action: ImportEntryAction) => void;
+}
 
 /**
  * Corpo da conversa com a Maria (mensagens + dock + voz + sheet de edição) —
@@ -20,15 +34,38 @@ import { MariaDock } from './MariaDock';
  * para fora do wizard. Requer `ProjectProvider` no ancestral (useMariaOpening
  * usa `useProject()`).
  */
-export function MariaChatBody({ projectId }: { projectId: string }) {
+export function MariaChatBody(
+  props: GenericChatProps & {
+    importSessionId?: string | null;
+    documents?: ImportDocumentFlow;
+  },
+) {
+  if (Object.hasOwn(props, "importSessionId"))
+    return (
+      <ImportConversationBody
+        sessionId={props.importSessionId ?? null}
+        documents={props.documents}
+      />
+    );
+  return <GenericMariaChatBody {...props} />;
+}
+
+function GenericMariaChatBody({
+  projectId,
+  intake,
+  disabled = false,
+  onImportEntryAction,
+}: GenericChatProps) {
   const agent = useFinancialAgent();
   const speech = useSpeechRecognition();
   const opening = useMariaOpening();
   const ttsSupported = isStreamingTtsSupported();
 
-  const [input, setInput] = useState('');
-  const [voiceError, setVoiceError] = useState('');
-  const [confirmedIndexes, setConfirmedIndexes] = useState<Set<number>>(new Set());
+  const [input, setInput] = useState("");
+  const [voiceError, setVoiceError] = useState("");
+  const [confirmedIndexes, setConfirmedIndexes] = useState<Set<number>>(
+    new Set(),
+  );
   const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
   const [voiceConversationOpen, setVoiceConversationOpen] = useState(false);
@@ -37,9 +74,32 @@ export function MariaChatBody({ projectId }: { projectId: string }) {
   const ttsHandleRef = useRef<StreamTtsHandle | null>(null);
   const voiceConversationOpenRef = useRef(false);
   const pendingPromptSentRef = useRef(false);
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+
+  // All ordinary text/voice replies pass through the same typed action reader.
+  const send: typeof agent.send = async (...args) => {
+    if (disabled) return null;
+    const reply = await agent.send(...args);
+    if (live.current && reply?.importEntryAction) {
+      voiceConversationOpenRef.current = false;
+      speech.stop();
+      setVoiceConversationOpen(false);
+      onImportEntryAction?.(reply.importEntryAction);
+    }
+    return reply;
+  };
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [agent.messages, agent.loading, opening.message]);
 
   useEffect(() => {
@@ -78,10 +138,10 @@ export function MariaChatBody({ projectId }: { projectId: string }) {
 
   const submit = (text: string) => {
     const content = text.trim();
-    if (!content || agent.loading) return;
-    setInput('');
-    setVoiceError('');
-    void agent.send(content);
+    if (!content || agent.loading || disabled) return;
+    setInput("");
+    setVoiceError("");
+    void send(content);
   };
 
   // Ponte do onboarding: se um passo anterior gravou um prompt pré-formatado,
@@ -98,7 +158,7 @@ export function MariaChatBody({ projectId }: { projectId: string }) {
   }, []);
 
   const captureVoice = () => {
-    setVoiceError('');
+    setVoiceError("");
     speech.start({
       onResult: (text) => {
         if (voiceConversationOpenRef.current) return;
@@ -122,13 +182,17 @@ export function MariaChatBody({ projectId }: { projectId: string }) {
   };
 
   const confirmPending = (index: number) => {
+    if (disabled) return;
     setConfirmedIndexes((prev) => new Set(prev).add(index));
-    void agent.send(CONFIRM_REPLY);
+    void send(CONFIRM_REPLY);
   };
 
   return (
     <>
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-visible px-1 py-4">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-visible px-1 py-4"
+      >
         {opening.message && (
           <div className="minimal-chat-bubble max-w-[86%] rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
             {opening.message}
@@ -137,7 +201,9 @@ export function MariaChatBody({ projectId }: { projectId: string }) {
 
         {agent.messages.map((message, index) => {
           const precedingUserText =
-            message.role === 'assistant' ? (agent.messages[index - 1]?.content ?? '') : '';
+            message.role === "assistant"
+              ? (agent.messages[index - 1]?.content ?? "")
+              : "";
           return (
             <MariaMessageBubble
               key={index}
@@ -156,9 +222,18 @@ export function MariaChatBody({ projectId }: { projectId: string }) {
 
         {agent.loading && (
           <div className="minimal-chat-bubble flex w-fit items-center gap-1 rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3" style={{ animationDelay: '0ms' }} />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3" style={{ animationDelay: '120ms' }} />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3" style={{ animationDelay: '240ms' }} />
+            <span
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3"
+              style={{ animationDelay: "0ms" }}
+            />
+            <span
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3"
+              style={{ animationDelay: "120ms" }}
+            />
+            <span
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3"
+              style={{ animationDelay: "240ms" }}
+            />
           </div>
         )}
 
@@ -167,6 +242,7 @@ export function MariaChatBody({ projectId }: { projectId: string }) {
             {voiceError}
           </div>
         )}
+        {intake}
       </div>
 
       <MariaDock
@@ -176,14 +252,14 @@ export function MariaChatBody({ projectId }: { projectId: string }) {
         onMic={captureVoice}
         listening={speech.listening}
         micSupported={speech.supported}
-        disabled={agent.loading}
+        disabled={agent.loading || disabled}
         onOpenVoiceConversation={openVoiceConversation}
       />
 
       {voiceConversationOpen && (
         <VoiceAssistantOverlay
           autoStart
-          send={agent.send}
+          send={send}
           onClose={closeVoiceConversation}
         />
       )}
