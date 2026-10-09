@@ -1,5 +1,8 @@
 import { PaymentForm } from '../enums';
-import { todayLocalDateUtc } from './local-date-utc';
+import { parseInstallmentDateOnlyUtc, todayLocalDateUtc } from './local-date-utc';
+import { ExpenseScheduleV1, parseExpenseSchedule } from './expense-schedule';
+
+export { parseInstallmentDateOnlyUtc } from './local-date-utc';
 
 export type InstallmentPaymentForm =
   | typeof PaymentForm.A_VISTA
@@ -35,18 +38,19 @@ export interface InstallmentInput {
   dataInicioParcela?: Date | null;
   /** JSON de datas efetivas por índice 0-based: `{"1":"2026-09-20"}`. */
   installmentDateOverrides?: string | null;
+  schedule?: ExpenseScheduleV1 | null;
 }
 
 export interface InstallmentEntry {
-  /** Rótulo "i/n" — "1/1" para `A_VISTA`. */
-  parcela: string;
-  /** Valor da parcela em centavos. O remainder vai para a última. */
+  index: number;
+  /** Rótulo documentado preservado; no legado, "i/n" ou "1/1". */
+  parcela: string | null;
+  /** Centavos documentados; no legado, o remainder vai para a última. */
   valor: number;
-  /** Data calculada da parcela em UTC. */
+  /** Data efetiva da ocorrência em UTC, não a projeção do vencimento. */
   data: Date;
+  invoiceDueMonth: string | null;
 }
-
-const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export function parseInstallmentDateOverrides(
   raw: string | null | undefined,
@@ -71,20 +75,6 @@ export function parseInstallmentDateOverrides(
   return result;
 }
 
-export function parseInstallmentDateOnlyUtc(value: string): Date | null {
-  const match = DATE_ONLY_PATTERN.exec(value);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-    ? date
-    : null;
-}
-
 function serializeInstallmentDateOverrides(overrides: Map<number, Date>): string | null {
   if (overrides.size === 0) return null;
   const normalized: Record<string, string> = {};
@@ -95,7 +85,7 @@ function serializeInstallmentDateOverrides(overrides: Map<number, Date>): string
 }
 
 export function normalizeInstallmentDateOverrides(input: InstallmentInput): string | null {
-  if (isSinglePaymentForm(input.formaPagamento)) return null;
+  if (!input.schedule && isSinglePaymentForm(input.formaPagamento)) return null;
   const base = buildBaseInstallments(input);
   const overrides = parseInstallmentDateOverrides(input.installmentDateOverrides, base.length);
   for (const [index, date] of overrides) {
@@ -111,7 +101,7 @@ export function setInstallmentDateOverride(
 ): string | null {
   const base = buildBaseInstallments(input);
   if (
-    isSinglePaymentForm(input.formaPagamento) ||
+    (!input.schedule && isSinglePaymentForm(input.formaPagamento)) ||
     !Number.isInteger(installmentIndex) ||
     installmentIndex < 0 ||
     installmentIndex >= base.length
@@ -129,6 +119,8 @@ export function setInstallmentDateOverride(
 
 /**
  * Calcula as parcelas de uma despesa.
+ * Um schedule explícito preserva centavos, rótulos e datas e deve fechar
+ * exatamente com a quantidade de ocorrências e o valor total da despesa.
  *
  * Sempre opera em UTC para garantir consistência entre cliente e servidor
  * (timezones diferentes não devem mudar o dia da parcela).
@@ -145,7 +137,7 @@ export function setInstallmentDateOverride(
  */
 export function buildInstallments(input: InstallmentInput): InstallmentEntry[] {
   const installments = buildBaseInstallments(input);
-  if (isSinglePaymentForm(input.formaPagamento)) return installments;
+  if (!input.schedule && isSinglePaymentForm(input.formaPagamento)) return installments;
   const overrides = parseInstallmentDateOverrides(
     input.installmentDateOverrides,
     installments.length,
@@ -157,6 +149,18 @@ export function buildInstallments(input: InstallmentInput): InstallmentEntry[] {
 }
 
 function buildBaseInstallments(input: InstallmentInput): InstallmentEntry[] {
+  if (input.schedule != null) {
+    const { occurrences } = parseExpenseSchedule(input.schedule);
+    const count = isSinglePaymentForm(input.formaPagamento) ? 1 : (input.quantidadeParcela ?? 1);
+    if (
+      occurrences.length !== count ||
+      occurrences.reduce((sum, occurrence) => sum + occurrence.valor, 0) !== input.valorTotal
+    ) throw new RangeError('Expense schedule does not match expense count or total');
+    return occurrences.map((occurrence) => ({
+      ...occurrence,
+      data: new Date(`${occurrence.data}T00:00:00.000Z`),
+    }));
+  }
   const {
     valorTotal,
     formaPagamento,
@@ -168,9 +172,11 @@ function buildBaseInstallments(input: InstallmentInput): InstallmentEntry[] {
   if (isSinglePaymentForm(formaPagamento)) {
     return [
       {
+        index: 0,
         parcela: '1/1',
         valor: valorTotal,
         data: dataPagamento ?? todayLocalDateUtc('America/Sao_Paulo'),
+        invoiceDueMonth: null,
       },
     ];
   }
@@ -197,9 +203,26 @@ function buildBaseInstallments(input: InstallmentInput): InstallmentEntry[] {
       d.setUTCDate(Math.min(targetDay, lastDay));
     }
     return {
+      index: i,
       parcela: `${i + 1}/${n}`,
       valor: i === n - 1 ? baseValue + remainder : baseValue,
       data: d,
+      invoiceDueMonth: null,
     };
   });
+}
+
+export function resolveInstallmentIndex(
+  installments: readonly InstallmentEntry[],
+  parcela: string | null,
+): number {
+  const matches = installments.filter((item) => item.parcela === parcela);
+  if (matches.length === 1) return matches[0]!.index;
+  const single = installments[0];
+  if (
+    installments.length === 1 && single &&
+    (parcela === null || parcela === '1/1') &&
+    (single.parcela === null || single.parcela === '1/1')
+  ) return single.index;
+  throw new RangeError('Missing or ambiguous installment correspondence');
 }

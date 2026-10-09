@@ -50,6 +50,8 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = {
 };
 
 import { categorize } from './categorizer';
+import { cardImportConfiguration } from '@reformaflow/domain';
+import { buildStoredExpenseInstallments, parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
 
 /**
  * (#582 F3) Categoria heurística local para uma transação de fatura SEM hit
@@ -97,11 +99,12 @@ export class CreditCardService {
 
   /** Lista todos os cartões do tenant (independente de projeto). Útil para vínculos cross-project. */
   async listCardsTenant(tenantId: string, scope: string[] | null) {
-    return this.prisma.creditCard.findMany({
+    const cards = await this.prisma.creditCard.findMany({
       where: { tenantId, deletedAt: null, ...(scope ? { projectId: { in: scope } } : {}) },
       orderBy: [{ projectId: 'asc' }, { createdAt: 'asc' }],
       include: { project: { select: { id: true, name: true, type: true } } },
     });
+    return cards.map((card) => ({ ...card, importConfiguration: cardImportConfiguration(card) }));
   }
 
   private async withLimitUsage<T extends {
@@ -110,7 +113,8 @@ export class CreditCardService {
     closingDay: number | null;
     dueDay: number | null;
   }>(tenantId: string, projectId: string, card: T) {
-    if (card.limitTotalCents == null) return card;
+    const importConfiguration = cardImportConfiguration(card);
+    if (card.limitTotalCents == null) return { ...card, importConfiguration };
 
     const { used: limitUsedCents, month: currentOpenInvoiceMonth } =
       await this.computeOpenInvoiceUsed(tenantId, projectId, card);
@@ -120,6 +124,7 @@ export class CreditCardService {
 
     return {
       ...card,
+      importConfiguration,
       limitUsedCents,
       limitAvailableComputedCents: card.limitTotalCents - limitUsedCents,
       limitUsagePercent,
@@ -153,11 +158,21 @@ export class CreditCardService {
         dataPagamento: true,
         dataInicioParcela: true,
         createdAt: true,
+        documentedSchedule: true,
+        formaPagamento: true,
+        quantidadeParcela: true,
+        installmentDateOverrides: true,
       },
     });
 
     const used = purchases.reduce((sum, expense) => {
       if (NEUTRAL_EXPENSE_TYPES.has(expense.tipoDespesa)) return sum;
+      const schedule = toPublicExpenseSchedule(parseStoredExpenseSchedule(expense.documentedSchedule));
+      if (schedule) {
+        return sum + buildInstallments({ ...expense, schedule }).reduce((total, occurrence) =>
+          caixaMonthForCardPurchase(occurrence.data, card.closingDay, card.dueDay, occurrence.invoiceDueMonth) === currentOpenInvoiceMonth
+            ? total + occurrence.valor : total, 0);
+      }
       const purchaseDate = expense.dataPagamento ?? expense.dataInicioParcela ?? expense.createdAt;
       const invoiceMonth = caixaMonthForCardPurchase(purchaseDate, card.closingDay, card.dueDay);
       return invoiceMonth === currentOpenInvoiceMonth ? sum + expense.valorTotal : sum;
@@ -377,14 +392,7 @@ export class CreditCardService {
       const tolerance = Math.max(100, Math.round(txCents * 0.05));
       const scored = planned
         .map((p) => {
-          const slices = buildInstallments({
-            valorTotal: p.valorTotal,
-            formaPagamento: p.formaPagamento,
-            dataPagamento: p.dataPagamento,
-            quantidadeParcela: p.quantidadeParcela,
-            dataInicioParcela: p.dataInicioParcela,
-            installmentDateOverrides: p.installmentDateOverrides,
-          });
+          const slices = buildStoredExpenseInstallments(p);
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const isInstallment = !isSinglePaymentForm(p.formaPagamento);
           const candidates = isInstallment
@@ -1030,14 +1038,7 @@ export class CreditCardService {
 
       const matches = planned
         .map((p) => {
-          const slices = buildInstallments({
-            valorTotal: p.valorTotal,
-            formaPagamento: p.formaPagamento,
-            dataPagamento: p.dataPagamento,
-            quantidadeParcela: p.quantidadeParcela,
-            dataInicioParcela: p.dataInicioParcela,
-            installmentDateOverrides: p.installmentDateOverrides,
-          });
+          const slices = buildStoredExpenseInstallments(p);
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const isInstallment = !isSinglePaymentForm(p.formaPagamento);
           const candidates = isInstallment

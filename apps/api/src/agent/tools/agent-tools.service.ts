@@ -1,4 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { ImportChatBridge } from '../../imports/import-session/import-chat.bridge';
+import { importChatForToolContext, rememberImportChatOutcome } from '../../imports/import-session/import-chat.admission';
+import { getImportToolDefinitions, parseImportToolArguments, ImportChatContractError } from '../import-chat.contract';
 import {
   ExpenseType,
   ProjectType,
@@ -99,6 +102,7 @@ interface ToolHandler {
  */
 @Injectable()
 export class AgentToolsService {
+  @Inject(ImportChatBridge) private readonly importChat!: ImportChatBridge;
   private readonly handlers: Record<string, ToolHandler>;
 
   /**
@@ -239,6 +243,34 @@ export class AgentToolsService {
   }
 
   async execute(name: string, ctx: ToolContext, args: Record<string, unknown>): Promise<unknown> {
+    const admission = importChatForToolContext(ctx);
+    if (admission) {
+      if (!getImportToolDefinitions(admission.turn).some((tool) => tool.name === name)) {
+        throw new ImportChatContractError('TOOL_NOT_ALLOWED');
+      }
+      const tool = parseImportToolArguments(name, args);
+      switch (tool.name) {
+        case 'import_read_session':
+          return this.importChat.read(admission, { kind: 'SESSION' });
+        case 'import_read_observations':
+          return this.importChat.read(admission, { kind: 'OBSERVATIONS', ...tool.arguments });
+        case 'import_read_candidates':
+          return this.importChat.read(admission, { kind: 'CANDIDATES', ...tool.arguments });
+        case 'list_projects':
+          return this.importChat.read(admission, { kind: 'PROJECTS', ...tool.arguments });
+        case 'list_payment_methods':
+          return this.importChat.read(admission, { kind: 'PAYMENT_METHODS' });
+        case 'get_category_taxonomy':
+          return this.importChat.read(admission, { kind: 'TAXONOMY' });
+        case 'import_edit_answer': {
+          const outcome = await this.importChat.editAnswer(admission, args.interpretation);
+          rememberImportChatOutcome(admission, outcome);
+          return { importOutcome: outcome };
+        }
+        default:
+          throw new ImportChatContractError('TOOL_NOT_ALLOWED');
+      }
+    }
     const handler = this.handlers[name];
     if (!handler) {
       return { error: `Ferramenta desconhecida: ${name}` };

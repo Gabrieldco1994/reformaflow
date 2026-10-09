@@ -1,18 +1,21 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AdditiveSettlementCommand, ExpenseType } from '@reformaflow/domain';
+import { AdditiveSettlementCommand, ExpenseType, ExpenseStatus, IMPORT_SESSION_PRIMITIVES, type ImportSessionPlannedCreateV1, parseExpenseSchedule } from '@reformaflow/domain';
 import { ADDITIVE, applyParcelaFunding, undoParcelaFunding, guardActiveFunding, enrichFunding } from '../conciliacao/additive-settlement';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
+import { buildStoredExpenseInstallments, parseStoredExpenseSchedule, toPublicExpenseSchedule, parseScheduleEvidenceInput } from './documented-schedule';
+import { StoredProjectionScheduleV1, type StoredAssistedSourceScheduleV2, type ScheduleEvidenceInput, ASSISTED_CARD, ASSISTANCE_BASIS, REFERENCE_CHECK } from './documented-schedule.types';
+import { resolveInstallmentIndex } from '@reformaflow/domain';
 import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, normalizeInstallmentDateOverrides, parseInstallmentDateOnlyUtc, parseInstallmentDateOverrides, setInstallmentDateOverride, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { createRateioTargets } from './create-rateio-targets';
 import { Expense, Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
-import { currentInlineRequester } from '../bank-account/inline-expenses';
+import { currentInlineRequester, assertInlineProject } from '../bank-account/inline-expenses';
 import {
   assertRateioRequester,
   RateioDetalhe,
@@ -24,6 +27,9 @@ import {
   userCanAccessProjectModule,
   resolveAccessibleProjectScope,
   EXPENSE_MODULE,
+  CREDIT_CARD_MODULE,
+  ACL_NOT_FOUND_MESSAGE,
+  projectTypeHasModule,
 } from '../common/access-rules';
 import { MANUAL_INVOICE_KEY_VERSION } from '../common/manual-invoice-key';
 import {
@@ -34,6 +40,9 @@ import {
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
+type PlannedCardSourceInput = Pick<ImportSessionPlannedCreateV1,
+  'titulo' | 'fornecedor' | 'tipoDespesa' | 'categoriaMaoDeObra' | 'dataCompra' | 'totalCents' | 'schedule'
+> & { cardId: string; evidence: ScheduleEvidenceInput; reason: string };
 type RateioParticipation = 'source' | 'target' | null;
 
 const RATEIO_PARTICIPANT_MUTATION_MESSAGE =
@@ -79,7 +88,7 @@ export class ExpenseService {
     return actor;
   }
 
-  private async resolveLinkedExpenseId(
+  private async resolveLinkedExpense(
     db: Prisma.TransactionClient,
     tenantId: string,
     projectId: string,
@@ -87,10 +96,10 @@ export class ExpenseService {
     requester: RateioRequester | undefined,
     notFoundMessage: string,
     previousTargetId?: string | null,
-  ): Promise<string> {
+  ): Promise<Expense> {
     const target = await db.expense.findFirst({
       where: { id: targetExpenseId, tenantId, deletedAt: null },
-      select: { projectId: true, project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
+      include: { project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
     });
     if (!target?.project || target.project.tenantId !== tenantId ||
         target.project.deletedAt != null ||
@@ -103,7 +112,7 @@ export class ExpenseService {
     if (targetExpenseId !== previousTargetId) {
       await guardActiveFunding(db, tenantId, [targetExpenseId]);
     }
-    return targetExpenseId;
+    return target;
   }
 
   /**
@@ -192,10 +201,11 @@ export class ExpenseService {
       if (!dto.linkedExpenseId) {
         out.linkedExpenseId = null;
       } else {
-        out.linkedExpenseId = await this.resolveLinkedExpenseId(
+        await this.resolveLinkedExpense(
           db, tenantId, currentProjectId, dto.linkedExpenseId, requester,
           'Despesa vinculada não encontrada neste tenant', previousTargetId,
         );
+        out.linkedExpenseId = dto.linkedExpenseId;
       }
     }
 
@@ -261,6 +271,78 @@ export class ExpenseService {
     tx?: Prisma.TransactionClient,
     requester?: RateioRequester,
   ): Promise<ExpenseWithRoom> {
+    return this.createCore(tenantId, projectId, dto, createdByUserId, tx, requester);
+  }
+
+  /** Caller owns the transaction; writer precedes all identity, card and state reads. */
+  async createPlannedCardPurchaseInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    ownerProjectId: string,
+    input: PlannedCardSourceInput,
+    createdByUserId: string,
+    requester: RateioRequester,
+  ): Promise<ExpenseWithRoom> {
+    await tx.$executeRaw`UPDATE tenants SET id = id WHERE id = ${tenantId}`;
+    assertRateioRequester(requester);
+    const actor = await currentInlineRequester(tx, tenantId, requester);
+    if (createdByUserId !== actor.id) throw new UnauthorizedException('Sessão inválida');
+    await assertInlineProject(tx, tenantId, ownerProjectId, actor);
+    const project = await assertInlineProject(tx, tenantId, ownerProjectId, actor, CREDIT_CARD_MODULE);
+    if (!projectTypeHasModule(project.type, CREDIT_CARD_MODULE)) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    const card = await tx.creditCard.findFirst({
+      where: { id: input.cardId, tenantId, projectId: ownerProjectId, deletedAt: null },
+    });
+    if (!card) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    const schedule = parseExpenseSchedule(input.schedule);
+    if (!Number.isSafeInteger(input.totalCents) || input.totalCents <= 0 || input.totalCents > IMPORT_SESSION_PRIMITIVES.maxCents ||
+        schedule.occurrences.reduce((sum, item) => sum + item.valor, 0) !== input.totalCents) {
+      throw new BadRequestException('Valor total incompatível com o cronograma documentado');
+    }
+    if (!parseInstallmentDateOnlyUtc(input.dataCompra)) throw new BadRequestException('Data de compra inválida');
+    const id = randomUUID();
+    const recordedAt = new Date().toISOString();
+    const evidence = { ...parseScheduleEvidenceInput(input.evidence), actorUserId: actor.id, recordedAt };
+    const stored: StoredAssistedSourceScheduleV2 = {
+      version: 2, kind: 'source', tenantId, sourceExpenseId: id,
+      sourceProjectId: ownerProjectId, cardId: card.id,
+      recordedByUserId: actor.id, recordedAt,
+      provenance: {
+        kind: ASSISTED_CARD, basis: ASSISTANCE_BASIS.NONE,
+        originalImportId: null, originalExternalId: null,
+        referenceCheck: REFERENCE_CHECK.NONE, evidence, reason: input.reason,
+      },
+      occurrences: schedule.occurrences.map((occurrence) => ({
+        ...occurrence, amountEvidence: evidence,
+        cycleEvidence: occurrence.invoiceDueMonth === null ? null : evidence,
+      })),
+      projections: [], lastOperation: null,
+    };
+    const documentedSchedule = JSON.stringify(stored);
+    parseStoredExpenseSchedule(documentedSchedule);
+    const first = schedule.occurrences[0]!;
+    const single = schedule.occurrences.length === 1;
+    return this.createCore(tenantId, ownerProjectId, {
+      titulo: input.titulo, fornecedor: input.fornecedor ?? undefined,
+      tipoDespesa: input.tipoDespesa, categoriaMaoDeObra: input.categoriaMaoDeObra ?? undefined,
+      valor: input.totalCents / 100, quantidade: 1,
+      formaPagamento: single ? PaymentForm.A_VISTA : PaymentForm.PARCELADO,
+      quantidadeParcela: single ? undefined : schedule.occurrences.length,
+      dataPagamento: single ? first.data : undefined,
+      dataInicioParcela: single ? undefined : first.data,
+      dataCompra: input.dataCompra, status: ExpenseStatus.PLANEJADO, creditCardId: card.id,
+    }, createdByUserId, tx, actor, { id, documentedSchedule, valorCents: input.totalCents });
+  }
+
+  private async createCore(
+    tenantId: string,
+    projectId: string,
+    dto: CreateExpenseDto,
+    createdByUserId: string | null,
+    tx?: Prisma.TransactionClient,
+    requester?: RateioRequester,
+    plannedSource?: { id: string; documentedSchedule: string; valorCents: number },
+  ): Promise<ExpenseWithRoom> {
     if (
       dto.linkedExpenseId !== undefined ||
       dto.settlesInvoiceCardId !== undefined
@@ -279,7 +361,7 @@ export class ExpenseService {
     }
     await this.validateProject(tenantId, projectId, db);
 
-    const valorCents = Math.round(dto.valor * 100);
+    const valorCents = plannedSource?.valorCents ?? Math.round(dto.valor * 100);
     const valorTotal = valorCents * dto.quantidade;
 
     const links = await this.resolveLinks(tenantId, projectId, dto, db, requester);
@@ -295,6 +377,7 @@ export class ExpenseService {
 
     const expense = await db.expense.create({
       data: {
+        ...(plannedSource ? { id: plannedSource.id, documentedSchedule: plannedSource.documentedSchedule } : {}),
         projectId,
         tenantId,
         createdByUserId,
@@ -329,6 +412,21 @@ export class ExpenseService {
 
     try {
       await this.regenerateCashFlow(expense.id, tx);
+      if (links.linkedExpenseId && tx) {
+        const linked = await tx.expense.findFirst({
+          where: { id: links.linkedExpenseId, tenantId, deletedAt: null },
+        });
+        if (!linked)
+          throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
+        if (
+          await this.preserveDocumentedMirror(tx, expense, linked, requester)
+        ) {
+          return tx.expense.findUniqueOrThrow({
+            where: { id: expense.id },
+            include: { room: true },
+          });
+        }
+      }
     } catch (error) {
       if (tx) throw error;
 
@@ -665,7 +763,7 @@ export class ExpenseService {
         where: { id, projectId, tenantId, deletedAt: null },
       });
       if (!source) throw new NotFoundException('Despesa não encontrada');
-      await this.resolveLinkedExpenseId(
+      const target = await this.resolveLinkedExpense(
         tx, tenantId, projectId, targetExpenseId, requester,
         'Despesa alvo não encontrada', source.linkedExpenseId,
       );
@@ -674,6 +772,7 @@ export class ExpenseService {
         await this.guardRateioParticipation(tenantId, id, false, false, tx);
         await this.guardSettlementParticipation(tenantId, id, false, true, tx);
       }
+      await this.preserveDocumentedMirror(tx, source, target, requester);
       return tx.expense.update({
         where: { id, projectId, tenantId, deletedAt: null },
         data: { linkedExpenseId: targetExpenseId },
@@ -689,7 +788,7 @@ export class ExpenseService {
     requester: RateioRequester,
   ) {
     assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
-    return this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async (tx) => {
       await this.validateProject(tenantId, projectId, tx);
       const source = await tx.expense.findFirst({
         where: { id, projectId, tenantId, deletedAt: null },
@@ -698,12 +797,209 @@ export class ExpenseService {
       await this.assertCanMutateLinkedRows(tx, tenantId, source, requester);
       await this.guardRateioParticipation(tenantId, id, false, false, tx);
       await this.guardSettlementParticipation(tenantId, id, false, true, tx);
+      const peers = await tx.expense.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          OR: [
+            { id: source.linkedExpenseId ?? '' },
+            { linkedExpenseId: source.id },
+          ],
+        },
+      });
+      if (
+        source.documentedSchedule ||
+        peers.some((row) => row.documentedSchedule)
+      ) {
+        if (peers.length > 1)
+          throw new ConflictException('Vínculo documental ambíguo.');
+        for (const row of [source, ...peers]) {
+          const schedule = parseStoredExpenseSchedule(row.documentedSchedule);
+          if (schedule?.kind === 'source') {
+            schedule.projections = schedule.projections.filter(
+              (ref) =>
+                ref.kind !== 'mirror' ||
+                ![source, ...peers].some(
+                  (item) => item.id === ref.targetExpenseId,
+                ),
+            );
+          }
+          await tx.expense.update({
+            where: { id: row.id },
+            data: { linkedExpenseId: null,
+              ...(schedule?.kind === 'source'
+                ? { documentedSchedule: JSON.stringify(schedule) }
+                : {}),
+            },
+          });
+        }
+      }
       return tx.expense.update({
         where: { id, projectId, tenantId, deletedAt: null },
         data: { linkedExpenseId: null },
         include: { room: true },
       });
     });
+  }
+
+  private async preserveDocumentedMirror(
+    tx: Prisma.TransactionClient,
+    first: Expense,
+    second: Expense,
+    requester?: RateioRequester,
+  ): Promise<boolean> {
+    if (!first.documentedSchedule && !second.documentedSchedule) return false;
+    assertRateioRequester(requester);
+    if (!requester?.id)
+      throw new BadRequestException('Autoria documental obrigatória');
+    const firstSchedule = parseStoredExpenseSchedule(first.documentedSchedule);
+    const secondSchedule = parseStoredExpenseSchedule(
+      second.documentedSchedule,
+    );
+    const source = firstSchedule?.kind === 'source' ? first : second;
+    const target = source.id === first.id ? second : first;
+    const schedule = source.id === first.id ? firstSchedule : secondSchedule;
+    const previous = source.id === first.id ? secondSchedule : firstSchedule;
+    if (
+      schedule?.kind !== 'source' ||
+      (previous &&
+        (previous.kind !== 'projection' ||
+          previous.sourceExpenseId !== source.id)) ||
+      schedule.sourceExpenseId !== source.id ||
+      schedule.tenantId !== source.tenantId ||
+      (source.linkedExpenseId && source.linkedExpenseId !== target.id) ||
+      (target.linkedExpenseId && target.linkedExpenseId !== source.id) ||
+      schedule.projections.some(
+        (ref) => ref.kind !== 'mirror' || ref.targetExpenseId !== target.id,
+      )
+    ) {
+      throw new ConflictException(
+        'Vínculo incompatível com o cronograma documentado.',
+      );
+    }
+    await guardActiveFunding(tx, source.tenantId, [source.id, target.id]);
+    if (
+      await tx.expense.count({
+        where: {
+          tenantId: source.tenantId,
+          deletedAt: null,
+          id: { notIn: [source.id, target.id] },
+          linkedExpenseId: { in: [source.id, target.id] },
+        },
+      })
+    )
+      throw new ConflictException('Vínculo documental ambíguo.');
+    if (
+      await tx.rateioAllocation.count({
+        where: {
+          tenantId: source.tenantId,
+          OR: [
+            { sourceExpenseId: { in: [source.id, target.id] } },
+            { targetExpenseId: { in: [source.id, target.id] } },
+          ],
+        },
+      })
+    )
+      throw new ConflictException(RATEIO_PARTICIPANT_MUTATION_MESSAGE);
+    const from = buildStoredExpenseInstallments(source);
+    const to = buildStoredExpenseInstallments(target);
+    if (
+      from.length !== to.length ||
+      from.some((item, index) => item.valor !== to[index].valor)
+    ) {
+      throw new ConflictException(
+        'O vínculo exige valores documentados compatíveis por ocorrência.',
+      );
+    }
+    const cash = await tx.cashFlowEntry.findMany({
+      where: {
+        tenantId: target.tenantId,
+        expenseId: { in: [source.id, target.id] },
+        deletedAt: null,
+      },
+    });
+    const byIndex = new Map<number, (typeof cash)[number]>();
+    for (const [expense, installments] of [
+      [source, from],
+      [target, to],
+    ] as const) {
+      const entries = cash.filter((row) => row.expenseId === expense.id);
+      const indices = new Set<number>();
+      for (const row of entries) {
+        const index = resolveInstallmentIndex(installments, row.parcela);
+        indices.add(index);
+        if (
+          row.valor !== installments[index].valor ||
+          row.data.getTime() !== installments[index].data.getTime() ||
+          (expense.id === source.id &&
+            row.invoiceDueMonth !== installments[index].invoiceDueMonth)
+        ) {
+          throw new ConflictException('Cronograma documental divergente.');
+        }
+        if (expense.id === target.id) byIndex.set(index, row);
+      }
+      if (
+        entries.length !== installments.length ||
+        indices.size !== installments.length
+      )
+        throw new ConflictException('Cronograma documental divergente.');
+    }
+    const claimed = await findExpensesWithActivePurchaseTrail(
+      tx,
+      source.tenantId,
+      [source.id, target.id],
+    );
+    for (const [index, row] of byIndex) {
+      if (row.invoiceDueMonth !== from[index].invoiceDueMonth) {
+        if (row.status !== 'PLANEJADO' || claimed.size)
+          throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
+        await tx.cashFlowEntry.update({
+          where: { id: row.id },
+          data: { invoiceDueMonth: from[index].invoiceDueMonth },
+        });
+      }
+    }
+    const projection: StoredProjectionScheduleV1 = {
+      version: 1,
+      kind: 'projection',
+      tenantId: source.tenantId,
+      sourceExpenseId: source.id,
+      sourceProjectId: source.projectId,
+      cardId: schedule.cardId,
+      recordedByUserId: requester.id,
+      recordedAt: new Date().toISOString(),
+      targetExpenseId: target.id,
+      targetProjectId: target.projectId,
+      via: 'mirror',
+      allocationId: null,
+      occurrences: to.map((item, index) => ({
+        index,
+        sourceIndex: index,
+        parcela: byIndex.get(index)!.parcela,
+        valor: item.valor,
+        data: item.data.toISOString().slice(0, 10),
+        invoiceDueMonth: from[index].invoiceDueMonth,
+      })),
+    };
+    schedule.projections = [
+      {
+        kind: 'mirror',
+        targetExpenseId: target.id,
+        occurrenceMap: from.map((_, index) => ({
+          sourceIndex: index,
+          targetIndex: index,
+        })),
+      },
+    ];
+    await tx.expense.update({
+      where: { id: target.id },
+      data: { documentedSchedule: JSON.stringify(projection) },
+    });
+    await tx.expense.update({
+      where: { id: source.id },
+      data: { documentedSchedule: JSON.stringify(schedule) },
+    });
+    return true;
   }
 
   /**
@@ -731,6 +1027,7 @@ export class ExpenseService {
       // OBRIGATÓRIO no snapshot de TODO caller para que a proteção manual não se
       // perca por um `select` que esqueceu a coluna (participantes indiretos inclusos).
       settlesInvoiceKey: string | null;
+      documentedSchedule?: string | null;
     },
     opts: {
       isRemove?: boolean;
@@ -740,6 +1037,12 @@ export class ExpenseService {
       newCardId?: string | null;
     },
   ): Promise<void> {
+    if (
+      existing.documentedSchedule != null &&
+      (opts.changedFinancials || opts.isRemove)
+    ) {
+      throw new ConflictException('Cronograma documentado exige correção assistida');
+    }
     // Lê o ledger real (`imported_invoice_liquidations`) DENTRO da tx do caller
     // pelo delegate tipado — sem casts. `db` é sempre
     // `PrismaService | Prisma.TransactionClient` (ambos expõem o delegate; o
@@ -1659,6 +1962,9 @@ export class ExpenseService {
       changedRecurrenceKey ||
       changedOwnership ||
       changedToNeutralType;
+    if (existing.documentedSchedule != null && hasProtectedChange) {
+      throw new ConflictException('Cronograma documentado exige correção assistida');
+    }
     const rateioParticipation = await this.guardRateioParticipation(
       tenantId,
       id,
@@ -1884,8 +2190,14 @@ export class ExpenseService {
               tenantId: true,
               deletedAt: true,
               settlesInvoiceKey: true,
+              documentedSchedule: true,
               project: {
-                select: { id: true, type: true, tenantId: true, deletedAt: true },
+                select: {
+                  id: true,
+                  type: true,
+                  tenantId: true,
+                  deletedAt: true,
+                },
               },
             },
           },
@@ -1899,7 +2211,9 @@ export class ExpenseService {
         await this.guardImportedInvoiceTrail(
           tx,
           tenantId,
-          { id: target.id, settlesInvoiceKey: target.settlesInvoiceKey },
+          { id: target.id, settlesInvoiceKey: target.settlesInvoiceKey,
+            documentedSchedule: target.documentedSchedule,
+          },
           { changedFinancials: true },
         );
         if (
@@ -1961,7 +2275,12 @@ export class ExpenseService {
             where: { id: counterpartId, tenantId, deletedAt: null },
             include: {
               project: {
-                select: { id: true, type: true, tenantId: true, deletedAt: true },
+                select: {
+                  id: true,
+                  type: true,
+                  tenantId: true,
+                  deletedAt: true,
+                },
               },
             },
           });
@@ -2066,7 +2385,8 @@ export class ExpenseService {
       for (const counterpart of preparedCounterparts) {
         await tx.expense.update({
           where: { id: counterpart.id },
-          data: { installmentDateOverrides: counterpart.installmentDateOverrides },
+          data: { installmentDateOverrides: counterpart.installmentDateOverrides,
+          },
         });
         affectedProjectIds.add(counterpart.projectId);
         await this.regenerateCashFlow(counterpart.id, tx);
@@ -2576,7 +2896,10 @@ export class ExpenseService {
         if (cascadeId === id) continue; // já checado acima
         const cascadeExpense = await tx.expense.findUnique({
           where: { id: cascadeId },
-          select: { id: true, invoiceUndoState: true, cardLast4: true, settlesInvoiceKey: true },
+          select: {
+            id: true, invoiceUndoState: true, cardLast4: true, settlesInvoiceKey: true,
+            documentedSchedule: true,
+          },
         });
         if (cascadeExpense) {
           await this.guardImportedInvoiceTrail(tx, tenantId, cascadeExpense, {
@@ -2664,6 +2987,7 @@ export class ExpenseService {
     status: string;
     paidParcelas?: string | null;
     installmentDateOverrides?: string | null;
+    documentedSchedule?: string | null;
     cardLast4: string | null;
     bankLast4: string | null;
     room: { name: string } | null;
@@ -2684,6 +3008,9 @@ export class ExpenseService {
     const fullyPaid = expense.status === 'PAGO';
 
     const installments = buildInstallments({
+      schedule: toPublicExpenseSchedule(
+        parseStoredExpenseSchedule(expense.documentedSchedule),
+      ),
       valorTotal: expense.valorTotal,
       formaPagamento: expense.formaPagamento,
       dataPagamento: expense.dataPagamento,
@@ -2699,20 +3026,27 @@ export class ExpenseService {
       ? new Set<number>()
       : new Set(this.parsePaidParcelas(expense.paidParcelas, installments.length));
 
-    return installments.map(({ parcela, valor, data }, idx) => ({
+    return installments.map(
+      ({ parcela, valor, data, invoiceDueMonth }, idx) => ({
       projectId: expense.projectId,
       tenantId: expense.tenantId,
       expenseId: expense.id,
       tipo: 'DESPESA',
-      categoria,
-      subcategoria,
-      ambiente,
+        categoria,
+        subcategoria,
+        ambiente,
       status: fullyPaid || paidSet.has(idx) ? 'PAGO' : 'PLANEJADO',
-      valor,
-      data,
-      formaPagamento: expense.formaPagamento,
-      parcela: singlePayment ? null : parcela,
-    }));
+        valor,
+        data,
+        formaPagamento: expense.formaPagamento,
+        parcela: expense.documentedSchedule
+          ? parcela
+          : singlePayment
+            ? null
+            : parcela,
+        invoiceDueMonth,
+      }),
+    );
   }
 
   /**

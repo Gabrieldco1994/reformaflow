@@ -37,6 +37,7 @@ export interface CashAxisEntry {
   /** Valor em centavos. */
   valor: number;
   data: Date | string;
+  invoiceDueMonth?: string | null;
   /** Últimos 4 dígitos do cartão de origem; null/undefined = débito de conta. */
   cardLast4?: string | null;
   /** Rótulo "k/n" quando parcelado (para o tooltip). */
@@ -106,6 +107,7 @@ export function buildCashAxis(
         e.data,
         card?.closingDay ?? null,
         card?.dueDay ?? null,
+        e.invoiceDueMonth,
       );
       const bucket = ensureMonth(mes);
       bucket.faturaCartao += e.valor;

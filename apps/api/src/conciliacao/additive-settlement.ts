@@ -14,13 +14,13 @@ import {
   AdditiveSettlementCommand,
   AdditiveSettlementResult,
   InstallmentSettlementSummary,
-  buildInstallments,
   isNeutralExpenseType,
   isSinglePaymentForm,
   parsePaidParcelas,
 } from "@reformaflow/domain";
 import { PrismaService, INCLUDE_SOFT_DELETED } from "../prisma/prisma.service";
 import { RateioRequester } from "../expense/rateio.types";
+import { buildStoredExpenseInstallments } from "../expense/documented-schedule";
 import {
   assertInlineAccount,
   assertInlineProject,
@@ -128,6 +128,7 @@ function rootFinancial(e: Expense) {
     invoiceUndoCardId: e.invoiceUndoCardId,
     invoiceUndoTrailVersion: e.invoiceUndoTrailVersion,
     deletedAt: e.deletedAt,
+    ...(e.documentedSchedule != null ? { documentedSchedule: e.documentedSchedule } : {}),
   };
 }
 function cashFinancial(e: CashFlowEntry) {
@@ -146,6 +147,7 @@ function cashFinancial(e: CashFlowEntry) {
     formaPagamento: e.formaPagamento,
     deletedAt: e.deletedAt,
     createdAt: e.createdAt,
+    ...(e.invoiceDueMonth != null ? { invoiceDueMonth: e.invoiceDueMonth } : {}),
   };
 }
 function pendingHash(e: CashFlowEntry) {
@@ -398,7 +400,7 @@ function targetOccurrence(
   rows: CrossProjectSettlement[],
   index: number,
 ) {
-  const slices = buildInstallments(target);
+  const slices = buildStoredExpenseInstallments(target);
   const slice = slices[index];
   if (!slice || slice.valor <= 0)
     throw new BadRequestException("Parcela inválida.");
@@ -874,7 +876,7 @@ export async function fundingSummaries(
   for (const targetId of new Set(rows.map((r) => r.targetExpenseId))) {
     const history = rows.filter((r) => r.targetExpenseId === targetId);
     const target = history[0].target;
-    const slices = buildInstallments(target);
+    const slices = buildStoredExpenseInstallments(target);
     const summaries: InstallmentSettlementSummary[] = [];
     for (const index of new Set(history.map((r) => r.parcelaIndex))) {
       const active = history.filter(
@@ -978,7 +980,7 @@ export async function fundingSummaries(
       else result.delete(target.id);
       const initial: InstallmentSettlementSummary[] = [];
       const targetCash = cash.filter((entry) => entry.expenseId === target.id);
-      for (const [index] of buildInstallments(target).entries()) {
+      for (const [index] of buildStoredExpenseInstallments(target).entries()) {
         if (summaries.some((summary) => summary.parcelaIndex === index))
           continue;
         try {

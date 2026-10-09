@@ -10,6 +10,7 @@ import {
   userCanAccessProjectType,
 } from '../access-rules';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SERVICE_OWNED_PROJECT_ACCESS_KEY } from '../decorators/service-owned-project-access.decorator';
 
 /** Campos que carregam um ID de projeto em params/query/body. */
 const PROJECT_ID_FIELDS = ['projectId', 'sourceProjectId', 'targetProjectId'];
@@ -46,6 +47,11 @@ export class ProjectAccessGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // These routes own reauthorization inside their writer; don't expose a
+    // global-guard existence/ACL distinction before their opaque service gate.
+    if (Reflect.getMetadata(SERVICE_OWNED_PROJECT_ACCESS_KEY, context.getHandler()) === true) {
+      return true;
+    }
     const request = context.switchToHttp().getRequest();
     const user = request.user;
     if (!user) return true;

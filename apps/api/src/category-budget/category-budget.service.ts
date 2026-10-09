@@ -2,13 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import {
   isNeutralExpenseType,
-  buildInstallments,
   buildRecurringOccurrences,
   isSinglePaymentForm,
   localDateUtc,
-  type InstallmentInput,
 } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
+import { buildStoredExpenseInstallments } from '../expense/documented-schedule';
 import { UpsertCategoryBudgetDto } from './dto/category-budget.dto';
 
 export interface CategoryBudgetProgress {
@@ -121,6 +120,7 @@ export class CategoryBudgetService {
         quantidadeParcela: true,
         dataInicioParcela: true,
         installmentDateOverrides: true,
+        documentedSchedule: true,
         paidParcelas: true,
         status: true,
         recorrente: true,
@@ -177,14 +177,7 @@ export class CategoryBudgetService {
       }
 
       // Parcelamento: expande em múltiplas parcelas
-      const installments = buildInstallments({
-        valorTotal: expense.valorTotal,
-        formaPagamento: expense.formaPagamento,
-        dataPagamento: expense.dataPagamento,
-        quantidadeParcela: expense.quantidadeParcela,
-        dataInicioParcela: expense.dataInicioParcela,
-        installmentDateOverrides: expense.installmentDateOverrides,
-      } as InstallmentInput);
+      const installments = buildStoredExpenseInstallments(expense);
 
       const paidSet = this.parsePaidParcelas(expense.paidParcelas, installments.length);
       const fullyPaid = expense.status === 'PAGO';
