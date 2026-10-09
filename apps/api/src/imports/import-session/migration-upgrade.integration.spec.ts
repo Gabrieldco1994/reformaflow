@@ -1,25 +1,47 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { ExpenseType, PaymentForm, ProjectType } from "@reformaflow/domain";
 
 const LEGACY_MIGRATION_COUNT = 68;
+const CURRENT_MIGRATION_COUNT = 71;
+const CURRENT_MIGRATION_TAIL = [
+  "20260923210000_documented_expense_schedule",
+  "20260929010000_import_session_bootstrap",
+  "20261009193000_canonical_import_linkage_retention",
+];
 const BASE_REVISION = "3d83771c9b60333d3534dc62119f34cc98f62148";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const guard = require("../../../../../scripts/test-db-env.cjs");
 
 describe("CSV schema upgrade from the committed legacy structure", () => {
-  it("upgrades 68 to 70 migrations without changing legacy financial rows or foreign keys", async () => {
+  let fixture: string | null = null;
+
+  afterEach(() => {
+    if (fixture) {
+      rmSync(fixture, { recursive: true, force: true });
+      fixture = null;
+    }
+  });
+
+  it("upgrades 68 to 71 migrations without changing legacy financial rows or foreign keys", async () => {
     const root = resolve(__dirname, "../../../../..");
-    const fixture = mkdtempSync(join(tmpdir(), "maria-csv-upgrade-"));
+    fixture = mkdtempSync(join(root, "prisma", ".tmp-maria-csv-upgrade-"));
     const database = join(fixture, "test-upgrade.db");
-    expect(database).not.toContain("dev.db");
+    const databaseUrl = `file:${database}`;
+    expect(guard.forbiddenReason(databaseUrl)).toBeNull();
+    expect(guard.resolveSqlitePath(databaseUrl)).toBe(database);
+    expect(guard.resolveRealSqlitePath(databaseUrl)).toBe(database);
     const schema = join(fixture, "schema.prisma");
     const migrationRoot = join(fixture, "migrations");
     mkdirSync(migrationRoot);
@@ -33,7 +55,10 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
     const migrations = readdirSync(committed)
       .filter((name) => /^\d/.test(name))
       .sort();
-    expect(migrations).toHaveLength(70);
+    expect(migrations).toHaveLength(CURRENT_MIGRATION_COUNT);
+    expect(migrations.slice(-CURRENT_MIGRATION_TAIL.length)).toEqual(
+      CURRENT_MIGRATION_TAIL,
+    );
     cpSync(
       join(committed, "migration_lock.toml"),
       join(migrationRoot, "migration_lock.toml"),
@@ -53,14 +78,14 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
         ],
         {
           cwd: root,
-          env: { ...process.env, DATABASE_URL: `file:${database}` },
+          env: { ...process.env, DATABASE_URL: databaseUrl },
           stdio: "pipe",
         },
       );
     };
     deploy();
     const prisma = new PrismaClient({
-      datasources: { db: { url: `file:${database}` } },
+      datasources: { db: { url: databaseUrl } },
     });
     try {
       const tenant = await prisma.tenant.create({
@@ -108,7 +133,30 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
       ).toEqual([]);
       const applied = await prisma.$queryRaw<unknown[]>`
         SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
-      expect(applied).toHaveLength(70);
+      expect(applied).toHaveLength(CURRENT_MIGRATION_COUNT);
+      const records = await prisma.$queryRaw<
+        Array<{ migration_name: string; checksum: string }>
+      >`SELECT migration_name, checksum FROM _prisma_migrations
+        WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+        ORDER BY migration_name ASC`;
+      expect(records.map(({ migration_name }) => migration_name)).toEqual(
+        migrations,
+      );
+      expect(
+        records.map(({ migration_name, checksum }) => [
+          migration_name,
+          checksum,
+        ]),
+      ).toEqual(
+        migrations.map((migrationName) => [
+          migrationName,
+          createHash("sha256")
+            .update(
+              readFileSync(join(committed, migrationName, "migration.sql")),
+            )
+            .digest("hex"),
+        ]),
+      );
     } finally {
       await prisma.$disconnect();
     }

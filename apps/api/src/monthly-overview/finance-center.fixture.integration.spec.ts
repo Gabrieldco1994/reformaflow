@@ -9,7 +9,11 @@
 require("../../../../scripts/test-db-env.cjs");
 
 import { PrismaClient } from "@prisma/client";
-import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -404,7 +408,11 @@ describe("synthetic deterministic finance-center persisted contract", () => {
 
     // Authorized (same tenant, exists) but wrong type (REFORMA) -> 400, not 404/403.
     await expect(
-      monthly.getAccountView(IDS.tenantA, IDS.projects.allowed, FINANCE_CENTER_MONTH),
+      monthly.getAccountView(
+        IDS.tenantA,
+        IDS.projects.allowed,
+        FINANCE_CENTER_MONTH,
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     // Same-tenant, correct type, but the requester's own allowedProjects
@@ -611,9 +619,9 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       "realValor",
     ];
     for (const key of forbiddenKeys) {
-      expect(Object.prototype.hasOwnProperty.call(rateioSource ?? {}, key)).toBe(
-        false,
-      );
+      expect(
+        Object.prototype.hasOwnProperty.call(rateioSource ?? {}, key),
+      ).toBe(false);
     }
 
     // Belt-and-suspenders: the hidden CASA target's identity (id/name) must
@@ -623,7 +631,6 @@ describe("synthetic deterministic finance-center persisted contract", () => {
     expect(serialized).not.toContain("Projeto oculto sintético");
     expect(serialized).not.toContain(IDS.expenses.rateioHiddenTarget);
   });
-
 
   it("keeps local Planning payload and persisted server Planejador scenario independent", async () => {
     const server = await prisma.purchaseScenario.findFirst({
@@ -719,7 +726,7 @@ describe("synthetic deterministic finance-center persisted contract", () => {
     }
   });
 
-  it("preserves the 68-migration baseline and applies the two CSV import migrations", async () => {
+  it("preserves the 68-migration baseline and applies the three CSV import migrations", async () => {
     const migrations = await prisma.$queryRaw<
       Array<{
         migration_name: string;
@@ -730,7 +737,7 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       FROM _prisma_migrations
       ORDER BY migration_name ASC`;
 
-    expect(migrations).toHaveLength(70);
+    expect(migrations).toHaveLength(71);
     expect(migrations[67]?.migration_name).toBe(
       "20260923190000_additive_partial_settlements",
     );
@@ -739,6 +746,7 @@ describe("synthetic deterministic finance-center persisted contract", () => {
     ).toEqual([
       "20260923210000_documented_expense_schedule",
       "20260929010000_import_session_bootstrap",
+      "20261009193000_canonical_import_linkage_retention",
     ]);
     expect(
       migrations.every(

@@ -19,7 +19,7 @@ fixture estrutural temporária `test-upgrade.db`. Nenhum teste usa `dev.db`.
 | Bank account / card-invoice-match                                 | Matching de planejadas usa o cronograma real; matching da fatura considera o ciclo documentado também quando difere do mês da data.                                                                                                           |
 | Category budget                                                   | Comprometimento expande os centavos/datas efetivos, não divide novamente o total nem cria meses intermediários.                                                                                                                               |
 | Conciliação / additive settlement                                 | Regeneração, snapshots e rollback preservam labels, ciclos e cronograma. Sem cronograma documentado, o reset legado de `paidParcelas` no rateio continua null.                                                                                |
-| Schema/migrations                                                 | Duas adições: cronograma documentado e bootstrap de sessões/vault; upgrade 68→70 preserva registros legados e integridade FK.                                                                                                                 |
+| Schema/migrations                                                 | Três adições: cronograma documentado, bootstrap de sessões/vault e retenção do vínculo financeiro; upgrade 68→71 preserva registros legados e integridade FK.                                                                                 |
 
 Dashboard e tenant-financial não receberam mudanças nesta recuperação: consomem
 CashFlowEntry persistido, não recalculam parcelas. Os testes existentes desses
@@ -60,10 +60,10 @@ depender de inserts sequenciais caírem em milissegundos diferentes.
 - Entrada Maria: verbo exato somente em turno servidor; conteúdo LLM normal e
   pedido negado não produzem `importEntryAction`.
 - Upgrade estrutural temporário: 68 migrations com compra legada e override;
-  deploy das duas novas preserva todos os campos anteriores e passa FK check.
+  deploy das três novas preserva todos os campos anteriores e passa FK check.
 - Fixtures de upgrades anteriores continuam exercitando o mesmo banco legado
   e backup. Snapshots usam colunas realmente existentes, não a projeção completa
-  do client Prisma 70 contra schemas antigos. A prova isolada #702 termina antes
+  do client Prisma 71 contra schemas antigos. A prova isolada #702 termina antes
   de aplicar migrations posteriores para chamar os serviços atuais; a fixture
   #569 exige NULL nas três novas colunas e igualdade em todos os campos legados.
 
