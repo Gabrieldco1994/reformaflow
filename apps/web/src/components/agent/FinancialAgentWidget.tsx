@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { Bot, Send, X, Sparkles, Volume2, Square, Mic, AudioLines } from 'lucide-react';
+import { hasFeature, type ProjectType } from '@reformaflow/domain';
+import { useProject } from '@/contexts/project-context';
 import { streamSpeak, isStreamingTtsSupported, type StreamTtsHandle } from '@/lib/streaming-tts';
 import { useCopilotStore } from '@/stores/copilot-store';
 import { useFinancialAgent } from './useFinancialAgent';
@@ -35,6 +39,8 @@ const SUGGESTIONS = [
 const TTS_ERROR_PREFIX = 'Não consegui gerar áudio agora.';
 
 export function FinancialAgentWidget() {
+  const params = useParams<{ projectId: string }>();
+  const { projectType } = useProject();
   const agent = useFinancialAgent();
   const speech = useSpeechRecognition();
 
@@ -49,6 +55,8 @@ export function FinancialAgentWidget() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const ttsHandleRef = useRef<StreamTtsHandle | null>(null);
   const ttsSupported = isStreamingTtsSupported();
+  const mariaHref = `/projects/${encodeURIComponent(params.projectId)}/maria`;
+  const mariaAvailable = hasFeature(projectType as ProjectType, 'monthlyOverview');
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -140,6 +148,15 @@ export function FinancialAgentWidget() {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {mariaAvailable && (
+                <Link
+                  href={mariaHref}
+                  onClick={() => setOpen(false)}
+                  className="inline-flex min-h-9 items-center rounded-full border border-white/30 px-3 text-[11px] font-semibold text-white hover:bg-white/15"
+                >
+                  Importar fatura CSV com Maria
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={() => setVoiceOpen(true)}
@@ -162,6 +179,15 @@ export function FinancialAgentWidget() {
             {agent.messages.length === 0 && (
               <div className="text-center text-sm text-darc-velvet/60 mt-6 space-y-3">
                 <p>👋 Sou seu copiloto financeiro. Pergunte algo:</p>
+                {mariaAvailable && (
+                  <Link
+                    href={mariaHref}
+                    onClick={() => setOpen(false)}
+                    className="block rounded-lg border border-darc-velvet bg-white px-3 py-2 text-sm font-semibold text-darc-velvet hover:bg-darc-linen/30"
+                  >
+                    Para importar uma fatura CSV, abra a conversa da Maria
+                  </Link>
+                )}
                 <div className="flex flex-col gap-2">
                   {SUGGESTIONS.map((s) => (
                     <button
@@ -187,6 +213,17 @@ export function FinancialAgentWidget() {
                   }`}
                 >
                   {m.content}
+                  {m.role === 'assistant' &&
+                    m.importEntryAction?.kind === 'START_CARD_INVOICE_IMPORT' &&
+                    mariaAvailable && (
+                      <Link
+                        href={mariaHref}
+                        onClick={() => setOpen(false)}
+                        className="mt-2 block rounded-lg bg-darc-velvet px-3 py-2 text-center text-xs font-semibold text-white hover:opacity-90"
+                      >
+                        Continuar importação CSV com a Maria
+                      </Link>
+                    )}
                   {m.role === 'assistant' && ttsSupported && (
                     <div className="mt-2">
                       <button

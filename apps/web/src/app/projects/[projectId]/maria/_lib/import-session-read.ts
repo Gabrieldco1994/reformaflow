@@ -87,6 +87,12 @@ export interface ImportEntryCard {
   id: string;
   nickname: string | null;
   last4: string;
+  /**
+   * Required in the authenticated card-choice response; nullable when the user
+   * has not configured the corresponding statement-cycle day.
+   */
+  closingDay: number | null;
+  dueDay: number | null;
   project: { id: string; name: string };
 }
 export const IMPORT_ENTRY_ERROR =
@@ -124,6 +130,9 @@ export function readImportEntry(
 }
 
 export function isImportEntryCards(value: unknown): value is ImportEntryCard[] {
+  const validDay = (day: unknown): day is number | null =>
+    day === null ||
+    (typeof day === "number" && Number.isInteger(day) && day >= 1 && day <= 31);
   return (
     Array.isArray(value) &&
     Array.from(value).every(
@@ -133,6 +142,8 @@ export function isImportEntryCards(value: unknown): value is ImportEntryCard[] {
         (card.nickname === null || typeof card.nickname === "string") &&
         typeof card.last4 === "string" &&
         /^\d{4}$/.test(card.last4) &&
+        validDay(card.closingDay) &&
+        validDay(card.dueDay) &&
         isRecord(card.project) &&
         isId(card.project.id) &&
         typeof card.project.name === "string" &&

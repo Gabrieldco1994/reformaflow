@@ -108,6 +108,9 @@ function Entry({
   const availableCard = selectedCard && !cards.isError && !cards.isFetching;
   const mariaReturn = `/projects/${encodeURIComponent(projectId)}/maria?cardSetup=return`;
   const cardSetupHref = `/projects/${encodeURIComponent(projectId)}/credit-cards?new=1&returnTo=${encodeURIComponent(mariaReturn)}`;
+  const selectedCardSetupHref = selectedCard
+    ? `/projects/${encodeURIComponent(selectedCard.project.id)}/credit-cards?focus=closingDay&cardId=${encodeURIComponent(selectedCard.id)}&returnTo=${encodeURIComponent(mariaReturn)}`
+    : null;
 
   return (
     <>
@@ -230,12 +233,43 @@ function Entry({
                       {cards.data.map((card) => (
                         <option key={card.id} value={card.id}>
                           {card.nickname || "Cartão"} · {card.last4} ·{" "}
-                          {card.project.name}
+                          {card.project.name} · fecha{" "}
+                          {card.closingDay === null
+                            ? "não informado"
+                            : `dia ${card.closingDay}`}{" "}
+                          · vence{" "}
+                          {card.dueDay === null
+                            ? "não informado"
+                            : `dia ${card.dueDay}`}
                         </option>
                       ))}
                     </select>
                   </label>
                 )}
+                {selectedCard &&
+                  (selectedCard.closingDay === null ||
+                    selectedCard.dueDay === null) && (
+                    <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
+                      <p>
+                        {selectedCard.closingDay === null &&
+                        selectedCard.dueDay === null
+                          ? "Os dias de fechamento e vencimento deste cartão não estão configurados."
+                          : selectedCard.closingDay === null
+                            ? "O dia de fechamento deste cartão não está configurado."
+                            : "O dia de vencimento deste cartão não está configurado."}{" "}
+                        Isso não impede a seleção do cartão; configure os dados
+                        se souber os dias corretos.
+                      </p>
+                      {selectedCardSetupHref && hasModule("creditCards") && (
+                        <Link
+                          href={selectedCardSetupHref}
+                          className="inline-flex min-h-11 items-center rounded-xl border border-amber-700 px-3 font-medium"
+                        >
+                          Configurar dias do cartão
+                        </Link>
+                      )}
+                    </div>
+                  )}
                 {cards.data?.length === 0 && (
                   <div className="space-y-2">
                     <p>Nenhum cartão disponível para esta importação.</p>

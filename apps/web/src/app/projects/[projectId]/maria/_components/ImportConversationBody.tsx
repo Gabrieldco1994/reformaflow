@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import {
   isPendingImportQuestion,
   type ImportObservationQuestionV1,
@@ -17,7 +18,10 @@ import {
   useImportDocumentFlow,
   type ImportDocumentFlow,
 } from "../_hooks/useImportDocumentFlow";
-import { useImportUserId } from "../_hooks/useImportSessions";
+import {
+  useCancelImportSession,
+  useImportUserId,
+} from "../_hooks/useImportSessions";
 import { useImportCatalog } from "../_hooks/useImportCatalog";
 import { buildReceiptView } from "../_lib/import-receipt-view";
 import {
@@ -42,8 +46,15 @@ function Conversation({
   sessionId: string | null;
   documents: ImportDocumentFlow;
 }) {
+  const params = useParams<{ projectId: string }>();
+  const projectId = params.projectId;
   const conversation = useImportConversation(sessionId, true);
+  const router = useRouter();
+  const { cancel } = useCancelImportSession(conversation.userId);
   const { view, question, error } = conversation;
+  const [ignoredCount, setIgnoredCount] = useState(0);
+  const [cancelPending, setCancelPending] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const busy = conversation.busy || documents.busy;
   const privateContextLost =
     error?.privateContextLost || documents.error?.privateContextLost;
@@ -76,6 +87,16 @@ function Conversation({
   const receipt = conversation.result?.receipt
     ? buildReceiptView(conversation.result.receipt, names)
     : null;
+  const onIgnoredCountChange = useCallback(
+    (count: number) => setIgnoredCount(count),
+    [],
+  );
+  const ignoredOnly =
+    Boolean(view) &&
+    view!.lines.length === 0 &&
+    ignoredCount > 0 &&
+    !receipt &&
+    !conversation.review;
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceError, setVoiceError] = useState("");
   const [speaking, setSpeaking] = useState<number | null>(null);
@@ -161,6 +182,41 @@ function Conversation({
     setVoiceError(
       "A confirmação financeira só está disponível no card de revisão.",
     );
+  const cancelIgnoredOnly = async () => {
+    if (
+      !sessionId ||
+      !view ||
+      !view.actions.includes("CANCEL") ||
+      cancelPending ||
+      !window.confirm(
+        "Cancelar esta importação? Nenhum lançamento será criado. Você poderá pedir outra importação à Maria.",
+      )
+    )
+      return;
+    setCancelPending(true);
+    setCancelError(null);
+    try {
+      const outcome = await cancel(sessionId, view.revision);
+      if (outcome.kind === "cancelled") {
+        router.replace(`/projects/${encodeURIComponent(projectId)}/maria`);
+        return;
+      }
+      if (outcome.kind === "conflict" || outcome.kind === "already-applied") {
+        await conversation.recover(true);
+        setCancelError(
+          "O estado mudou antes do cancelamento. A importação foi consultada novamente; confira as ações disponíveis.",
+        );
+        return;
+      }
+      if (outcome.kind === "failed") {
+        setCancelError(outcome.info.message);
+        return;
+      }
+      setCancelError("O cancelamento já está em andamento.");
+    } finally {
+      setCancelPending(false);
+    }
+  };
 
   return (
     <section
@@ -236,6 +292,7 @@ function Conversation({
               sessionId={sessionId}
               userId={conversation.userId}
               revision={view.revision}
+              onIgnoredCountChange={onIgnoredCountChange}
             />
           )}
         {view && (
@@ -247,6 +304,42 @@ function Conversation({
             onAnalyze={(id) => void documents.analyze(id)}
             onRecover={() => void documents.recover()}
           />
+        )}
+        {ignoredOnly && (
+          <section
+            aria-label="Nenhuma compra importável"
+            className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm"
+          >
+            <h3 className="font-semibold">Nenhuma compra para revisar</h3>
+            <p>
+              Este CSV contém apenas lançamentos ignorados, como pagamentos de
+              fatura. Eles são informativos e não podem ser importados como
+              compras.
+            </p>
+            {view?.actions.includes("CANCEL") ? (
+              <button
+                type="button"
+                disabled={cancelPending || busy}
+                onClick={() => void cancelIgnoredOnly()}
+                className="min-h-11 rounded-xl border px-3"
+              >
+                {cancelPending
+                  ? "Cancelando importação…"
+                  : "Cancelar e voltar à Maria para pedir outra importação"}
+              </button>
+            ) : (
+              <p>
+                O servidor não oferece cancelamento neste estado. Consulte
+                “Importações da Maria” acima para ver as ações disponíveis antes
+                de iniciar outra importação.
+              </p>
+            )}
+            {cancelError && (
+              <p role="alert" className="text-darc-red">
+                {cancelError}
+              </p>
+            )}
+          </section>
         )}
         {view &&
           !conversation.review &&

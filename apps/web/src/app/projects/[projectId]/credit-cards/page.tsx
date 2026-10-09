@@ -30,8 +30,11 @@ export default function CreditCardsPage() {
   const router = useRouter();
   const projectId = String(params?.projectId ?? '');
   const requestedReturnTo = searchParams.get('returnTo');
-  const mariaReturnTo = `/projects/${encodeURIComponent(projectId)}/maria?cardSetup=return`;
-  const safeReturnTo = requestedReturnTo === mariaReturnTo ? mariaReturnTo : null;
+  const safeReturnTo =
+    requestedReturnTo &&
+    /^\/projects\/[^/?#]+\/maria\?cardSetup=return$/.test(requestedReturnTo)
+      ? requestedReturnTo
+      : null;
   const { projectType } = useProject();
   const { hasModule } = useAuth();
   const type = projectType as ProjectType;
@@ -84,14 +87,19 @@ export default function CreditCardsPage() {
     if (projectId) void load();
   }, [projectId, load]);
 
-  // Deep-link: ?focus=closingDay&last4=XXXX auto-opens card edit
+  // Deep-link: ?focus=closingDay&cardId=... (or legacy last4) auto-opens card edit
   useEffect(() => {
     if (loading || loadError !== null || searchParams.get('focus') !== 'closingDay') return;
     const deepLinkKey = `${projectId}?${searchParams.toString()}`;
     if (consumedFocusDeepLinkKey.current === deepLinkKey) return;
 
+    const targetCardId = searchParams.get('cardId');
     const targetLast4 = searchParams.get('last4');
-    const matches = targetLast4 ? cards.filter((card) => card.last4 === targetLast4) : [];
+    const matches = targetCardId
+      ? cards.filter((card) => card.id === targetCardId)
+      : targetLast4
+        ? cards.filter((card) => card.last4 === targetLast4)
+        : [];
     consumedFocusDeepLinkKey.current = deepLinkKey;
 
     if (matches.length === 1) {

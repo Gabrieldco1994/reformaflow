@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
@@ -32,6 +32,7 @@ const INSTITUTIONS = [
 const BRANDS = ['Visa', 'Mastercard', 'Elo', 'Amex', 'Hipercard'];
 
 export default function CardFormModal({ projectId, card, onClose, onSaved, bare, hideCancel }: Props) {
+  const formId = useId();
   const [institution, setInstitution] = useState(card?.institution ?? 'ITAU');
   const [brand, setBrand] = useState(card?.brand ?? 'Visa');
   const [nickname, setNickname] = useState(card?.nickname ?? '');
@@ -81,13 +82,14 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
       <div className="bg-white rounded-lg w-full max-w-md p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-bold">{card ? 'Editar cartão' : 'Novo cartão'}</h2>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Fechar cadastro de cartão"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="space-y-3">
           <div>
-            <label className="text-sm text-gray-600">Instituição</label>
+            <label htmlFor={`${formId}-institution`} className="text-sm text-gray-600">Instituição</label>
             <select
+              id={`${formId}-institution`}
               value={institution}
               onChange={(e) => setInstitution(e.target.value)}
               className="w-full border rounded-lg p-2"
@@ -96,8 +98,9 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
             </select>
           </div>
           <div>
-            <label className="text-sm text-gray-600">Bandeira</label>
+            <label htmlFor={`${formId}-brand`} className="text-sm text-gray-600">Bandeira</label>
             <select
+              id={`${formId}-brand`}
               value={brand}
               onChange={(e) => setBrand(e.target.value)}
               className="w-full border rounded-lg p-2"
@@ -106,8 +109,9 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
             </select>
           </div>
           <div>
-            <label className="text-sm text-gray-600">Apelido (opcional)</label>
+            <label htmlFor={`${formId}-nickname`} className="text-sm text-gray-600">Apelido (opcional)</label>
             <input
+              id={`${formId}-nickname`}
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
               placeholder="Ex: Itaú Click Visa"
@@ -115,8 +119,9 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
             />
           </div>
           <div>
-            <label className="text-sm text-gray-600">Últimos 4 dígitos</label>
+            <label htmlFor={`${formId}-last4`} className="text-sm text-gray-600">Últimos 4 dígitos</label>
             <input
+              id={`${formId}-last4`}
               value={last4}
               onChange={(e) => setLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
               placeholder="1234"
@@ -125,8 +130,9 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
             />
           </div>
           <div>
-            <label className="text-sm text-gray-600">Limite total (R$, opcional)</label>
+            <label htmlFor={`${formId}-limit`} className="text-sm text-gray-600">Limite total (R$, opcional)</label>
             <input
+              id={`${formId}-limit`}
               type="text"
               inputMode="numeric"
               value={limitReais}
@@ -137,8 +143,9 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm text-gray-600">Dia fechamento</label>
+              <label htmlFor={`${formId}-closing-day`} className="text-sm text-gray-600">Dia fechamento</label>
               <input
+                id={`${formId}-closing-day`}
                 type="number"
                 value={closingDay}
                 onChange={(e) => setClosingDay(e.target.value)}
@@ -149,8 +156,9 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Dia vencimento</label>
+              <label htmlFor={`${formId}-due-day`} className="text-sm text-gray-600">Dia vencimento</label>
               <input
+                id={`${formId}-due-day`}
                 type="number"
                 value={dueDay}
                 onChange={(e) => setDueDay(e.target.value)}
@@ -162,11 +170,12 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
             </div>
           </div>
 
-          {error && <div className="text-sm text-red-600">{error}</div>}
+          {error && <div role="alert" aria-live="assertive" className="text-sm text-red-600">{error}</div>}
 
           <div className="flex justify-end gap-2 pt-2">
-            {!hideCancel && <button onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>}
+            {!hideCancel && <button type="button" onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>}
             <button
+              type="button"
               onClick={handleSave}
               disabled={saving}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"

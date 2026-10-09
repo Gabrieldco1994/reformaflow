@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useId } from "react";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { IMPORT_SESSION_LIMITS } from "@reformaflow/domain";
 import { getImportObservations } from "../_lib/import-session-api";
@@ -89,10 +90,12 @@ export function ImportIgnoredObservations({
   sessionId,
   userId,
   revision,
+  onIgnoredCountChange,
 }: {
   sessionId: string;
   userId: string;
   revision: number;
+  onIgnoredCountChange?: (count: number) => void;
 }) {
   const query = useQuery({
     queryKey: importKeys.observations(userId, sessionId, revision),
@@ -107,6 +110,14 @@ export function ImportIgnoredObservations({
   const ignored = query.data?.filter(
     (observation) => observation.ignoredReason === "INVOICE_PAYMENT",
   );
+  useEffect(() => {
+    if (query.data)
+      onIgnoredCountChange?.(
+        query.data.filter(
+          (observation) => observation.ignoredReason === "INVOICE_PAYMENT",
+        ).length,
+      );
+  }, [query.data, onIgnoredCountChange]);
 
   if (query.isPending)
     return <p role="status">Consultando itens não importados…</p>;
