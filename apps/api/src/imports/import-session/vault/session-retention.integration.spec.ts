@@ -263,12 +263,15 @@ describe("guarded persisted session retention", () => {
       nextCursor: null,
     });
     expect(
-      (
-        await prisma.importSessionArtifact.findUniqueOrThrow({
-          where: { id: shared.id },
-        })
-      ).state,
-    ).toBe("RELEASED");
+      await prisma.importSessionArtifact.findUnique({
+        where: { id: shared.id },
+      }),
+    ).toBeNull();
+    expect(
+      await prisma.importArtifact.findUnique({
+        where: { id: artifact.id },
+      }),
+    ).toBeNull();
     expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
   });
 
@@ -311,7 +314,7 @@ describe("guarded persisted session retention", () => {
     "reaper cleans historical %s evidence even after original/extraction purge",
     async (terminal) => {
       const created = await create();
-      const { artifact, material } = await attachCsv(created.view.id);
+      const { material } = await attachCsv(created.view.id);
       await service.cancel(
         auth,
         created.view.id,
@@ -325,12 +328,37 @@ describe("guarded persisted session retention", () => {
         where: { id: created.view.id },
         data: { state: terminal },
       });
-      await prisma.importArtifact.update({
-        where: { id: artifact.id },
-        data: { state: "PURGED", extractionJson: null },
+      const legacyArtifact = await prisma.importArtifact.create({
+        data: {
+          tenantId,
+          ownerProjectId: projectId,
+          documentSha256: createHash("sha256")
+            .update(randomUUID())
+            .digest("hex"),
+          verifiedBytes: 1,
+          detectedFormat: "CSV",
+          state: "PURGED",
+        },
+      });
+      await prisma.importSessionArtifact.create({
+        data: {
+          tenantId,
+          ownerProjectId: projectId,
+          sessionId: created.view.id,
+          artifactId: legacyArtifact.id,
+          position: 0,
+          fileName: "document",
+          declaredMime: "text/csv",
+          declaredBytes: 1,
+          reservedBytes: 0,
+          state: "RELEASED",
+          releasedAt: current,
+        },
       });
       for (const observation of material.observations)
-        await prisma.importObservation.create({ data: observation });
+        await prisma.importObservation.create({
+          data: { ...observation, artifactId: legacyArtifact.id },
+        });
       await new VaultReaper(
         prisma,
         clock,
@@ -339,7 +367,7 @@ describe("guarded persisted session retention", () => {
       ).runCycle({ tenantId, ownerProjectId: projectId, limit: 16 });
       expect(
         await prisma.importObservation.count({
-          where: { artifactId: artifact.id },
+          where: { artifactId: legacyArtifact.id },
         }),
       ).toBe(0);
       expect(await service.getObservations(auth, created.view.id)).toEqual({
