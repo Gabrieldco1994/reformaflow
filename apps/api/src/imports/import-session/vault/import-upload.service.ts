@@ -824,13 +824,12 @@ export class ImportUploadService {
           tenantId: claim.tenantId,
           ownerProjectId: claim.ownerProjectId,
           documentSha256: stored.documentSha256,
+          state: { not: ImportSessionArtifactState.PURGING },
         },
       });
       const adoption =
         artifact === null ||
         artifact.state === ImportSessionArtifactState.PURGED;
-      if (artifact?.state === ImportSessionArtifactState.PURGING)
-        throw error(ImportSessionErrorCode.RETRYABLE_WRITE_CONFLICT);
       check();
       if (artifact === null) {
         artifact = await tx.importArtifact.create({

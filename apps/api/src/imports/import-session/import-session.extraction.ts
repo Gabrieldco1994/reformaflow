@@ -35,6 +35,8 @@ import {
 } from "./import-session.observation";
 import { validateStoredDraft } from "./import-session.validation";
 
+const HASH = new RegExp(P.hashPattern);
+
 type Evidence = StoredImportObservationEvidenceV1;
 type OccurrenceFacts = Pick<
   Evidence,
@@ -180,6 +182,8 @@ export function createImportObservationCycleReader(
       artifact.id !== observation.artifactId ||
       artifact.tenantId !== observation.tenantId ||
       artifact.ownerProjectId !== observation.ownerProjectId ||
+      typeof artifact.documentSha256 !== "string" ||
+      !HASH.test(artifact.documentSha256) ||
       artifact.parserVersion !== extraction.parserVersion
     )
       throw new ImportSessionCorruptStateError("extraction_reference");
@@ -261,6 +265,8 @@ export function buildImportMaterialization(
     attachment.artifactId !== artifact.id ||
     artifact.tenantId !== session.tenantId ||
     artifact.ownerProjectId !== session.ownerProjectId ||
+    typeof artifact.documentSha256 !== "string" ||
+    !HASH.test(artifact.documentSha256) ||
     attachment.state !== "ATTACHED" ||
     artifact.state !== "EXTRACTED" ||
     artifact.parserVersion !== extraction.parserVersion

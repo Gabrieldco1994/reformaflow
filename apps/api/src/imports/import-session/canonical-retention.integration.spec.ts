@@ -318,6 +318,55 @@ describe("canonical import linkage retention", () => {
     expect(invalidated.state).toBe("RAW_READY");
   });
 
+  it("makes a purging artifact hash-unusable before a matching re-upload", async () => {
+    const { expense, artifact, observation } = await createClaim();
+    await prisma.importArtifact.update({
+      where: { id: artifact.id },
+      data: { storageKey: `objects/${artifact.id}`, extractionJson: "{}" },
+    });
+
+    await prisma.expense.update({
+      where: { id: expense.id },
+      data: { deletedAt: new Date() },
+    });
+
+    const retiring = await prisma.importArtifact.findUniqueOrThrow({
+      where: { id: artifact.id },
+    });
+    expect(retiring.state).toBe("PURGING");
+    expect(retiring.documentSha256).toBeNull();
+    expect(retiring.extractionJson).toBeNull();
+    expect(retiring.storageKey).toBe(`objects/${artifact.id}`);
+    expect(
+      await prisma.importObservation.findUnique({
+        where: { id: observation.id },
+      }),
+    ).toBeNull();
+    expect(
+      await prisma.importArtifact.findFirst({
+        where: {
+          tenantId,
+          ownerProjectId: projectId,
+          documentSha256: artifact.documentSha256,
+        },
+      }),
+    ).toBeNull();
+
+    const replacement = await prisma.importArtifact.create({
+      data: {
+        tenantId,
+        ownerProjectId: projectId,
+        documentSha256: artifact.documentSha256,
+        verifiedBytes: artifact.verifiedBytes,
+        detectedFormat: artifact.detectedFormat,
+        state: "RAW_READY",
+        storageKey: `objects/reuploaded-${artifact.id}`,
+      },
+    });
+    expect(replacement.id).not.toBe(artifact.id);
+    expect(replacement.documentSha256).toBe(artifact.documentSha256);
+  });
+
   it("does not release a claim for another canonical expense in the same artifact", async () => {
     const first = await createClaim();
     const otherExpense = await prisma.expense.create({

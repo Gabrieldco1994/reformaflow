@@ -17,6 +17,7 @@ import {
   IMPORT_SESSION_KIND,
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PROTOCOL_VERSION,
+  IMPORT_SESSION_PRIMITIVES as P,
   ImportSessionAmountMeaning,
   ImportSessionErrorCode,
   PaymentForm,
@@ -97,6 +98,8 @@ import {
   isWholePurchaseObservation,
   readStoredImportExtraction,
 } from "./import-session.extraction";
+
+const HASH = new RegExp(P.hashPattern);
 
 const CHUNK = 300;
 const STAGES: readonly SearchStage[] = [
@@ -356,6 +359,12 @@ export class CardPurchaseBatchAdapter implements CardPurchaseBatchPort {
         const ref = refs.find((item) => item.artifactId === row.artifactId);
         const artifact = artifacts.find((item) => item.id === row.artifactId);
         if (!ref || !artifact) return notFound();
+        if (
+          typeof artifact.documentSha256 !== "string" ||
+          !HASH.test(artifact.documentSha256)
+        )
+          throw new ImportSessionCorruptStateError("document_sha256");
+        const documentSha256 = artifact.documentSha256;
         const view = projectImportObservation(session, draft.scope, row, ref);
         const evidence = parseStoredImportObservationEvidence(row.evidenceJson);
         if (
@@ -363,7 +372,10 @@ export class CardPurchaseBatchAdapter implements CardPurchaseBatchPort {
           selected.some((line) => line.observationIds.includes(row.id))
         )
           throw new ImportSessionError(ImportSessionErrorCode.REVIEW_REQUIRED);
-        return [row.id, { row, view, evidence, artifact }] as const;
+        return [
+          row.id,
+          { row, view, evidence, artifact, documentSha256 },
+        ] as const;
       }),
     );
     const declarations = resolveImportDeclarations(session, draft, {
@@ -381,7 +393,7 @@ export class CardPurchaseBatchAdapter implements CardPurchaseBatchPort {
         return {
           id,
           artifactId: document.row.artifactId,
-          documentSha256: document.artifact.documentSha256,
+          documentSha256: document.documentSha256,
           reference: document.row.reference,
           claimVersion: document.row.claimVersion,
         };
@@ -1109,6 +1121,13 @@ export class CardPurchaseBatchAdapter implements CardPurchaseBatchPort {
       const ordered = [...docs].sort((a, b) =>
         a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0,
       );
+      const firstDocument = ordered[0];
+      if (
+        !firstDocument ||
+        typeof firstDocument.artifact.documentSha256 !== "string" ||
+        !HASH.test(firstDocument.artifact.documentSha256)
+      )
+        throw new ImportSessionCorruptStateError("document_sha256");
       const support = ordered.flatMap((doc) =>
         doc.validAnswers.filter(
           (answer) =>
@@ -1118,8 +1137,8 @@ export class CardPurchaseBatchAdapter implements CardPurchaseBatchPort {
         ),
       );
       const reference = {
-        documentSha256: ordered[0]!.artifact.documentSha256,
-        reference: ordered[0]!.row.reference,
+        documentSha256: firstDocument.artifact.documentSha256,
+        reference: firstDocument.row.reference,
       };
       execution.evidence.set(
         line.id,

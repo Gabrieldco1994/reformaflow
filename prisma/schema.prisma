@@ -1385,7 +1385,7 @@ model ImportArtifact {
   id                  String    @id @default(uuid())
   tenantId            String    @map("tenant_id")
   ownerProjectId      String    @map("owner_project_id")
-  documentSha256      String    @map("document_sha256")
+  documentSha256      String?   @map("document_sha256")
   verifiedBytes       Int       @map("verified_bytes")
   detectedFormat      String    @map("detected_format")
   state               String

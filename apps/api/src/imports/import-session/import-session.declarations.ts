@@ -6,6 +6,7 @@ import type {
   ImportSessionArtifact,
 } from "@prisma/client";
 import {
+  IMPORT_SESSION_PRIMITIVES as P,
   ImportSessionErrorCode as Code,
   parseImportDeclarationLiteral,
   type ImportDeclarationAnswerV1,
@@ -43,6 +44,8 @@ import {
   type StoredImportObservationEvidenceV1,
 } from "./import-session.observation";
 import { validateStoredDraft } from "./import-session.validation";
+
+const HASH = new RegExp(P.hashPattern);
 
 type Session = Pick<
   ImportSession,
@@ -283,7 +286,8 @@ export function resolveImportDeclarations(
         artifact.tenantId !== session.tenantId ||
         artifact.ownerProjectId !== session.ownerProjectId ||
         artifact.id !== row.artifactId ||
-        !/^[0-9a-f]{64}$/.test(artifact.documentSha256)
+        typeof artifact.documentSha256 !== "string" ||
+        !HASH.test(artifact.documentSha256)
       )
         throw new ImportSessionCorruptStateError("declaration_material");
       projectImportObservation(session, draft.scope, row, ref);

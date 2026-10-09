@@ -63,6 +63,8 @@ const problem = (code: Code, row?: ImportSession) =>
     row ? { sessionId: row.id, currentRevision: row.revision } : {},
   );
 
+const HASH = new RegExp(P.hashPattern);
+
 @Injectable()
 export class ImportSessionExtractionService {
   private readonly logger = new Logger("ImportSessionExtraction");
@@ -256,7 +258,8 @@ export class ImportSessionExtractionService {
           throw problem(Code.LIMIT_EXCEEDED);
         if (
           !artifact.storageKey ||
-          !/^[a-f0-9]{64}$/.test(artifact.documentSha256) ||
+          typeof artifact.documentSha256 !== "string" ||
+          !HASH.test(artifact.documentSha256) ||
           !Number.isSafeInteger(artifact.verifiedBytes) ||
           artifact.verifiedBytes <= 0
         )

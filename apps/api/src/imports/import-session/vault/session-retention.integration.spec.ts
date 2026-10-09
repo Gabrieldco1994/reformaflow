@@ -1,10 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import {
   IMPORT_SESSION_CONSENT_POLICY_VERSION,
   IMPORT_SESSION_LIMITS,
   ProjectType,
   ExpenseType,
+  PaymentForm,
 } from "@reformaflow/domain";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { ImportSessionService } from "../import-session.service";
@@ -20,9 +30,14 @@ import { ImportUploadService } from "./import-upload.service";
 import { CardPurchaseBatchAdapter } from "../card-purchase-batch.adapter";
 import { ConciliacaoService } from "../../../conciliacao/conciliacao.service";
 import { ExpenseService } from "../../../expense/expense.service";
+import { ReceiptService } from "../../../receipt/receipt.service";
 import { buildImportMaterialization } from "../import-session.extraction";
 import { extractCardStatementDocument } from "../../../credit-card/parsers/statement-document";
 import { RuntimeUiGrantVerifier } from "../import-session-ui-grant";
+import { VaultStorage } from "./vault-storage";
+import { VaultFdRegistry } from "./vault-fd-registry";
+import { PurgeCoordinator } from "./vault-purger";
+import type { VaultBootHandle, VaultRuntime } from "./vault-boot";
 
 // Jest's mandatory setupFiles has already refused dev.db and selected the worker DB.
 describe("guarded persisted session retention", () => {
@@ -61,6 +76,9 @@ describe("guarded persisted session retention", () => {
     expect(process.env.DATABASE_URL).toMatch(/test(?:-worker-\d+)?\.db/);
     expect(process.env.DATABASE_URL).not.toContain("dev.db");
     await prisma.$connect();
+  });
+  beforeEach(async () => {
+    current = new Date("2026-10-09T20:00:00.000Z");
     const tenant = await prisma.tenant.create({
       data: { name: "retention fixture" },
     });
@@ -184,6 +202,333 @@ describe("guarded persisted session retention", () => {
     });
     return { session, artifact, ref, material, extraction };
   };
+
+  it.each([
+    { kind: "Expense", deletion: "soft" },
+    { kind: "Expense", deletion: "hard" },
+    { kind: "Receipt", deletion: "soft" },
+    { kind: "Receipt", deletion: "hard" },
+  ] as const)(
+    "$kind $deletion canonical deletion denies cached hash reuse before reaper and removes linkage after real fenced purge",
+    async ({ kind, deletion }) => {
+      const root = mkdtempSync(join(tmpdir(), "maria-fenced-linkage-"));
+      const registry = new VaultFdRegistry();
+      // Physical boot/lock ownership is a separate platform concern. Everything
+      // after the ON boundary uses the real storage, registry, services and DB.
+      const runtime: VaultRuntime = {
+        config: {
+          configured: true,
+          rootDir: root,
+          lockFd: 3,
+          idleTimeoutMs: 1000,
+          headroomBytes: 1,
+          drainTimeoutMs: 1000,
+        },
+        lockIdentity: { dev: 1n, ino: 1n },
+      };
+      const boot = {
+        runtime: () => runtime,
+        stopped: new AbortController().signal,
+        recheckLock: async () => ({ ok: true, runtime }),
+      } as VaultBootHandle;
+      const storage = new VaultStorage(boot, registry, clock);
+      const purger = new PurgeCoordinator(
+        prisma,
+        clock,
+        boot,
+        registry,
+        storage,
+        1000,
+      );
+      const localGate = {
+        boot,
+        registry,
+        storage,
+        requirePurger: () => purger,
+      };
+      const upload = new ImportUploadService(
+        prisma,
+        clock,
+        capability,
+        verifier as never,
+        localGate as never,
+      );
+      try {
+        mkdirSync(join(root, "t"), { mode: 0o700 });
+        mkdirSync(join(root, "trash"), { mode: 0o700 });
+        const first = await create();
+        const bytes = Buffer.from(
+          `date,title,amount\n2026-10-01,Canonical ${kind} ${deletion} fixture,206.96\n`,
+        );
+        const { artifact, ref, material } = await attachCsv(
+          first.view.id,
+          bytes,
+        );
+        const temporarySession = await create();
+        const temporaryRefId = randomUUID();
+        const temporaryStorageKey = `t/${temporaryRefId}`;
+        const temporaryRef = await prisma.importSessionArtifact.create({
+          data: {
+            id: temporaryRefId,
+            tenantId,
+            ownerProjectId: projectId,
+            sessionId: temporarySession.view.id,
+            artifactId: artifact.id,
+            position: 0,
+            fileName: "temporary.csv",
+            declaredMime: "text/csv",
+            declaredBytes: bytes.length,
+            reservedBytes: 0,
+            state: "RELEASED",
+            temporaryStorageKey,
+            temporaryPurgePending: true,
+            releasedAt: current,
+          },
+        });
+        const storageKey = `t/${ref.id}/g2/blob`;
+        mkdirSync(join(root, "t", ref.id), { mode: 0o700 });
+        mkdirSync(join(root, "t", ref.id, "g2"), { mode: 0o700 });
+        mkdirSync(join(root, temporaryStorageKey), { mode: 0o700 });
+        mkdirSync(join(root, temporaryStorageKey, "g2"), { mode: 0o700 });
+        writeFileSync(join(root, storageKey), bytes, { mode: 0o600 });
+        writeFileSync(join(root, temporaryStorageKey, "g2", "blob"), bytes, {
+          mode: 0o600,
+        });
+        await prisma.importArtifact.update({
+          where: { id: artifact.id },
+          data: { storageKey },
+        });
+        const finance =
+          kind === "Expense"
+            ? await new ExpenseService(
+                prisma,
+                new ConciliacaoService(prisma),
+              ).create(tenantId, projectId, {
+                tipoDespesa: ExpenseType.OUTROS,
+                valor: 206.96,
+                quantidade: 1,
+                titulo: "Fenced canonical fixture",
+                formaPagamento: PaymentForm.A_VISTA,
+                status: "PLANEJADO",
+              })
+            : await new ReceiptService(prisma, {} as never).create(
+                tenantId,
+                projectId,
+                {
+                  valor: 206.96,
+                  data: "2026-10-10T12:00:00.000Z",
+                  tipo: "PAGAMENTO",
+                  status: "PREVISTO",
+                  descricao: "Fenced canonical fixture",
+                },
+              );
+        await prisma.importObservation.update({
+          where: { id: material.observations[0].id },
+          data: {
+            evidenceJson: "{}",
+            claimVersion: 1,
+            canonicalProjectId: projectId,
+            canonicalExpenseId: kind === "Expense" ? finance.id : null,
+            canonicalReceiptId: kind === "Receipt" ? finance.id : null,
+            canonicalIndex: kind === "Expense" ? 0 : null,
+            claimSessionId: first.view.id,
+            claimReceiptJson: '{"kind":"SESSION"}',
+            claimedAt: current,
+          },
+        });
+        // Terminal, released association is not consent to retain the original.
+        await service.cancel(
+          auth,
+          first.view.id,
+          { expectedRevision: first.view.revision },
+          {},
+        );
+        expect(
+          (
+            await prisma.importSessionArtifact.findUniqueOrThrow({
+              where: { id: ref.id },
+            })
+          ).state,
+        ).toBe("RELEASED");
+        const readFinance = () =>
+          kind === "Expense"
+            ? prisma.expense.findUniqueOrThrow({ where: { id: finance.id } })
+            : prisma.receipt.findUniqueOrThrow({ where: { id: finance.id } });
+        const financialBefore = await readFinance();
+        const flowWhere =
+          kind === "Expense"
+            ? { expenseId: finance.id }
+            : { receiptId: finance.id };
+        const flows = await prisma.cashFlowEntry.findMany({
+          where: flowWhere,
+        });
+        if (deletion === "soft") {
+          if (kind === "Expense")
+            await prisma.expense.delete({ where: { id: finance.id } });
+          else await prisma.receipt.delete({ where: { id: finance.id } });
+          const tombstone = await readFinance();
+          expect(tombstone).toEqual({
+            ...financialBefore,
+            deletedAt: expect.any(Date),
+            updatedAt: expect.any(Date),
+          });
+          expect(
+            await prisma.cashFlowEntry.findMany({
+              where: flowWhere,
+            }),
+          ).toEqual(flows);
+        } else {
+          await prisma.$transaction(async (tx) => {
+            await tx.$executeRaw`DELETE FROM cash_flow_entries WHERE expense_id = ${finance.id} OR receipt_id = ${finance.id}`;
+            if (kind === "Expense")
+              await tx.$executeRaw`DELETE FROM expenses WHERE id = ${finance.id}`;
+            else
+              await tx.$executeRaw`DELETE FROM receipts WHERE id = ${finance.id}`;
+          });
+        }
+        // Capture at the DELETE commit barrier: upload must not be what finally
+        // revokes the old identity or extraction.
+        const hashMatchesAtDelete = await prisma.importArtifact.findMany({
+          where: { tenantId, documentSha256: artifact.documentSha256 },
+        });
+        const pending = await prisma.importArtifact.findUniqueOrThrow({
+          where: { id: artifact.id },
+        });
+        // Upload is deliberately before ANY reaper invocation.
+        const again = await create();
+        const uploadId = randomUUID();
+        const reserved = await upload.reserve(
+          auth,
+          again.view.id,
+          {
+            expectedRevision: again.view.revision,
+            files: [
+              {
+                id: uploadId,
+                fileName: "same.csv",
+                declaredBytes: bytes.length,
+                mime: "text/csv",
+              },
+            ],
+          },
+          {},
+        );
+        await upload.upload(
+          auth,
+          again.view.id,
+          uploadId,
+          bytes.length,
+          Readable.from([bytes]),
+          {},
+        );
+        const uploadedRef =
+          await prisma.importSessionArtifact.findUniqueOrThrow({
+            where: { id: uploadId },
+          });
+        expect(uploadedRef.state).toBe("ATTACHED");
+        expect(uploadedRef.artifactId).not.toBe(artifact.id);
+        const fresh = await prisma.importArtifact.findUniqueOrThrow({
+          where: { id: uploadedRef.artifactId! },
+        });
+        expect(fresh).toMatchObject({
+          documentSha256: artifact.documentSha256,
+          state: "RAW_READY",
+          extractionJson: null,
+          parserVersion: null,
+        });
+        expect(hashMatchesAtDelete).toEqual([]);
+        expect(
+          await prisma.importArtifact.findMany({
+            where: { tenantId, documentSha256: artifact.documentSha256 },
+          }),
+        ).toEqual([fresh]);
+        expect(
+          await prisma.importObservation.findMany({
+            where: { artifactId: artifact.id },
+          }),
+        ).toEqual([]);
+        expect(pending).toMatchObject({
+          state: "PURGING",
+          storageKey,
+          extractionJson: null,
+          leaseSessionId: null,
+          leaseSessionVersion: null,
+          leaseExpiresAt: null,
+          leaseTokenExpiresAt: null,
+        });
+        expect(pending.documentSha256).not.toBe(artifact.documentSha256);
+        expect(existsSync(join(root, storageKey))).toBe(true);
+        const fence = jest.spyOn(registry, "fence");
+        const drain = jest.spyOn(registry, "abortAndDrain");
+        expect(
+          await purger.purge({
+            kind: "artifact",
+            tenantId,
+            ownerProjectId: projectId,
+            id: artifact.id,
+          }),
+        ).toBe("PURGED");
+        expect(fence).toHaveBeenCalledWith(`A:${artifact.id}`);
+        expect(drain).toHaveBeenCalledWith(`A:${artifact.id}`, 1000);
+        expect(existsSync(join(root, storageKey))).toBe(false);
+        expect(
+          await prisma.importArtifact.findUniqueOrThrow({
+            where: { id: artifact.id },
+          }),
+        ).toMatchObject({
+          documentSha256: null,
+          state: "PURGED",
+          storageKey: null,
+          extractionJson: null,
+        });
+        expect(
+          await prisma.importSessionArtifact.findUnique({
+            where: { id: temporaryRef.id },
+          }),
+        ).toMatchObject({
+          temporaryStorageKey,
+          temporaryPurgePending: true,
+        });
+        expect(existsSync(join(root, temporaryStorageKey))).toBe(true);
+        expect(
+          await purger.purge({
+            kind: "ref",
+            tenantId,
+            ownerProjectId: projectId,
+            id: temporaryRef.id,
+          }),
+        ).toBe("PURGED");
+        expect(existsSync(join(root, temporaryStorageKey))).toBe(false);
+        expect(
+          await prisma.importSessionArtifact.findUnique({
+            where: { id: temporaryRef.id },
+          }),
+        ).toBeNull();
+        expect(
+          await prisma.importArtifact.findUnique({
+            where: { id: artifact.id },
+          }),
+        ).toBeNull();
+        expect(
+          await prisma.importSessionArtifact.count({
+            where: { artifactId: artifact.id },
+          }),
+        ).toBe(0);
+        expect(
+          await prisma.importArtifact.findUnique({
+            where: { id: fresh.id },
+          }),
+        ).toEqual(fresh);
+        expect(await prisma.$queryRaw`PRAGMA foreign_keys`).toEqual([
+          { foreign_keys: 1n },
+        ]);
+        expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+        expect(reserved.id).toBe(again.view.id);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("CANCELLED deletes unclaimed evidence only after the last live shared reference closes", async () => {
     const first = await create();
