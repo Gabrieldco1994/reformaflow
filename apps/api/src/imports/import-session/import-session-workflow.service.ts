@@ -1,4 +1,7 @@
-import { releaseCompletedSessionAttachments } from "./vault/completed-retention";
+import {
+  releaseCompletedSessionAttachments,
+  purgeCompletedSessionObservationEvidence,
+} from "./vault/completed-retention";
 import { EMPTY_DRAFT_JSON } from "./import-session.projection";
 import { cardImportConfiguration } from "@reformaflow/domain";
 import {
@@ -1085,6 +1088,11 @@ export class ImportSessionWorkflowService {
             challengeJson: null,
             prepareLeaseJson: null,
             prepareGeneration: { increment: 1 },
+          });
+          await purgeCompletedSessionObservationEvidence(tx, {
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+            sessionId: row.id,
           });
           return {
             receipt: checked,

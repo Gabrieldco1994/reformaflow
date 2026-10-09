@@ -712,6 +712,11 @@ export class ImportSessionService {
         where: live,
         data: releasedAttachmentData(now),
       });
+      await purgeCompletedSessionObservationEvidence(tx, {
+        tenantId: session.tenantId,
+        ownerProjectId: session.ownerProjectId,
+        sessionId: session.id,
+      });
       return { row: await this.loadOwned(tx, actor, id), invalidatedClaims };
     });
     this.raw.abortOwned(outcome.invalidatedClaims, "CANCEL");
@@ -1568,4 +1573,7 @@ async function renderImportSessionUnchecked(
     },
   });
 }
-import { releasedAttachmentData } from "./vault/completed-retention";
+import {
+  releasedAttachmentData,
+  purgeCompletedSessionObservationEvidence,
+} from "./vault/completed-retention";

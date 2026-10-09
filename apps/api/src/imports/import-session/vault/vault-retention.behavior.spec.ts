@@ -28,6 +28,10 @@ describe("private document retention behavior", () => {
         count: jest.fn().mockResolvedValue(attached),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      importObservation: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       importArtifact: {
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue({

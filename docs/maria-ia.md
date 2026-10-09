@@ -69,6 +69,18 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
    normalizadas e proveniência mínima necessária à auditoria e à prevenção de reimportação.
    Esses registros seguem a retenção financeira/auditoria, sem conservar a imagem por omissão.
    Recibos privados não são automaticamente conteúdo público ou contexto para o modelo.
+   Na importação CSV, após `APPLIED`/`CANCELLED`/`EXPIRED` e sem referência ativa ao artefato
+   (inclusive de continuação), observações sem claim são apagadas; observações com claim
+   conservam somente ID/referência, vínculo ao hash do artefato, versão/índice do claim,
+   timestamps técnicos, FKs canônicas e referência ao comprovante para dedupe/replay.
+   Seu `evidenceJson` vira `{}`:
+   descrição de origem, texto da linha, merchant, valor, data, parcelas e identidades do
+   parser não são retidos ali. O comprovante financeiro autorizado permanece intacto;
+   APIs de observações de sessões terminais retornam página vazia. A limpeza ocorre na
+   transação de encerramento/expiração existente, sem novo prazo de retenção.
+   O reaper também saneia em lotes limitados observações de sessões já encerradas,
+   mesmo quando o original e a extração já foram removidos, revalidando ausência de
+   referências ativas na transação.
 8. **Execução e resultado determinísticos:** serviços existentes continuam donos de valores,
    identidade, matching, autorização e execução. O commit revalida acesso e estado; retry ou
    timeout consultam o resultado persistido, sob autorização atual, em vez de repetir criação.

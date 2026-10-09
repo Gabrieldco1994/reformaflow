@@ -94,6 +94,10 @@ export async function importSessionWritesEnabled(
     );
     if (
       !observations.every((o) => {
+        // Canonically claimed rows are skipped by materialization. Terminal
+        // cleanup keeps their reference/FKs, never their documentary evidence.
+        if (o.canonicalExpenseId !== null || o.canonicalReceiptId !== null)
+          return sources.has(o.reference);
         const evidence = parseStoredImportObservationEvidence(o.evidenceJson);
         return (
           evidence.sourceDescription !== undefined &&

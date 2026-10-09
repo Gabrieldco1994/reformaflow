@@ -19,7 +19,12 @@ import {
 import { runImportSessionWrite } from "../import-session.writer";
 import { IMPORT_VAULT_GATE, type ImportVaultGate } from "./vault-state";
 import { VaultIoError } from "./vault-storage";
-import { releasedAttachmentData } from "./completed-retention";
+import {
+  releasedAttachmentData,
+  purgeCompletedSessionObservationEvidence,
+  pendingTerminalObservationCleanupWhere,
+  purgeUnreferencedObservationEvidence,
+} from "./completed-retention";
 import type { VaultPurgeTarget, VaultPurgeResult } from "./vault-purger";
 import {
   ImportRawExecutions,
@@ -227,6 +232,10 @@ export class VaultReaper {
             where: live,
             data: releasedAttachmentData(now),
           });
+          await purgeCompletedSessionObservationEvidence(tx, {
+            ...scope,
+            sessionId: row.id,
+          });
           this.current(runtime);
           return { value: "CLEANED" as const, invalidatedClaims };
         },
@@ -234,6 +243,36 @@ export class VaultReaper {
       );
       this.raw.abortOwned(outcome.invalidatedClaims, "EXPIRE");
       sessions.push({ id: candidate.id, outcome: outcome.value });
+    }
+    // Bounded repair for previously closed sessions, including artifacts whose
+    // original/extraction is already gone. Recheck eligibility under the writer
+    // lock: a newly attached continuation/reimport must keep its live evidence.
+    const terminalWhere = pendingTerminalObservationCleanupWhere(scope);
+    const terminalArtifacts = await this.read(runtime, (tx) =>
+      tx.importArtifact.findMany({
+        where: terminalWhere,
+        select: { id: true },
+        orderBy: { id: "asc" },
+        take: limit,
+      }),
+    );
+    if (terminalArtifacts.length > 0) {
+      await this.probe(runtime);
+      await runImportSessionWrite(
+        this.prisma,
+        this.clock,
+        scope,
+        async (tx) => {
+          this.current(runtime);
+          await purgeUnreferencedObservationEvidence(tx, scope, {
+            AND: [
+              terminalWhere,
+              { id: { in: terminalArtifacts.map(({ id }) => id) } },
+            ],
+          });
+        },
+        () => this.current(runtime),
+      );
     }
     let remaining = limit - sessions.length;
     if (remaining > 0) {
