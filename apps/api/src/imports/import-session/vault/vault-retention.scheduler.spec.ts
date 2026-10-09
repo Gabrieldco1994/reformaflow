@@ -8,7 +8,7 @@ describe("vault retention runtime", () => {
   };
   const create = () => {
     const prisma = {
-      importSession: { findMany: jest.fn().mockResolvedValue([scope]) },
+      importSession: { groupBy: jest.fn().mockResolvedValue([scope]) },
     };
     const reaper = {
       runCycle: jest.fn().mockResolvedValue({ sessions: [], purges: [] }),
@@ -24,10 +24,11 @@ describe("vault retention runtime", () => {
   it("runs bounded database-derived tenant/project scopes", async () => {
     const { prisma, reaper, service } = create();
     await service.run();
-    expect(prisma.importSession.findMany).toHaveBeenCalledWith(
+    expect(prisma.importSession.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
         take: expect.any(Number),
-        select: { tenantId: true, ownerProjectId: true },
+        by: ["tenantId", "ownerProjectId"],
+        orderBy: [{ tenantId: "asc" }, { ownerProjectId: "asc" }],
       }),
     );
     expect(reaper.runCycle).toHaveBeenCalledWith({
@@ -39,7 +40,7 @@ describe("vault retention runtime", () => {
     const { prisma, gate, service } = create();
     gate.boot.runtime = () => null as never;
     await service.run();
-    expect(prisma.importSession.findMany).not.toHaveBeenCalled();
+    expect(prisma.importSession.groupBy).not.toHaveBeenCalled();
   });
   it("reports opaque failures and propagates them for runtime observability", async () => {
     const { reaper, service } = create();

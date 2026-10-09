@@ -368,6 +368,21 @@ financeiro em tela própria (chat em tela cheia no mobile).
   data, quilometragem (se veículo) e próxima prevista. Só leitura (v1); criar
   manutenção continua sendo feito no módulo Manutenção do projeto.
 
+#### Importação conversacional de fatura — recorte CSV (#711)
+
+**Em implementação; backend validado localmente não significa interface integrada
+ou disponibilidade em produção.** Quando disponível, o início da importação é uma
+ação própria enviada pelo servidor na conversa, não uma instrução livre da IA.
+O recorte aceita somente CSV. Fechamento e vencimento vêm do cadastro do cartão;
+dias ausentes permanecem ausentes, sem datas inventadas.
+
+Autorizar a análise do documento não autoriza lançamentos. A compra permanece em
+rascunho até **Confirmar lote**; somente a execução confirmada cria despesas
+planejadas, sem débito realizado na conta. Depois de aplicado, o resultado pode ser
+consultado novamente, mas não recebe novos arquivos. Rascunhos expiram após sete
+dias sem edição do usuário; consulta e repetição de pedido não renovam o prazo.
+Originais compartilhados só são eliminados quando nenhuma sessão mantém referência.
+
 ### 3.5 Notificações (sino)
 Mostra avisos e pendências do sistema. O contador no sino indica quantos itens não
 lidos existem.

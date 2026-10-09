@@ -296,6 +296,7 @@ export class ExpenseService {
     if (!card) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
     const schedule = parseExpenseSchedule(input.schedule);
     if (!Number.isSafeInteger(input.totalCents) || input.totalCents <= 0 || input.totalCents > IMPORT_SESSION_PRIMITIVES.maxCents ||
+        schedule.occurrences.some((item) => item.valor <= 0) ||
         schedule.occurrences.reduce((sum, item) => sum + item.valor, 0) !== input.totalCents) {
       throw new BadRequestException('Valor total incompatível com o cronograma documentado');
     }
@@ -961,7 +962,7 @@ export class ExpenseService {
     }
     const projection: StoredProjectionScheduleV1 = {
       version: 1,
-      kind: 'projection',
+      kind: "projection",
       tenantId: source.tenantId,
       sourceExpenseId: source.id,
       sourceProjectId: source.projectId,
@@ -970,7 +971,7 @@ export class ExpenseService {
       recordedAt: new Date().toISOString(),
       targetExpenseId: target.id,
       targetProjectId: target.projectId,
-      via: 'mirror',
+      via: "mirror",
       allocationId: null,
       occurrences: to.map((item, index) => ({
         index,
@@ -978,7 +979,7 @@ export class ExpenseService {
         parcela: byIndex.get(index)!.parcela,
         valor: item.valor,
         data: item.data.toISOString().slice(0, 10),
-        invoiceDueMonth: from[index].invoiceDueMonth,
+        invoiceDueMonth: from[index].invoiceDueMonth ?? null,
       })),
     };
     schedule.projections = [

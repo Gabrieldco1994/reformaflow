@@ -128,7 +128,9 @@ function rootFinancial(e: Expense) {
     invoiceUndoCardId: e.invoiceUndoCardId,
     invoiceUndoTrailVersion: e.invoiceUndoTrailVersion,
     deletedAt: e.deletedAt,
-    ...(e.documentedSchedule != null ? { documentedSchedule: e.documentedSchedule } : {}),
+    ...(e.documentedSchedule != null
+      ? { documentedSchedule: e.documentedSchedule }
+      : {}),
   };
 }
 function cashFinancial(e: CashFlowEntry) {
@@ -147,7 +149,9 @@ function cashFinancial(e: CashFlowEntry) {
     formaPagamento: e.formaPagamento,
     deletedAt: e.deletedAt,
     createdAt: e.createdAt,
-    ...(e.invoiceDueMonth != null ? { invoiceDueMonth: e.invoiceDueMonth } : {}),
+    ...(e.invoiceDueMonth != null
+      ? { invoiceDueMonth: e.invoiceDueMonth }
+      : {}),
   };
 }
 function pendingHash(e: CashFlowEntry) {

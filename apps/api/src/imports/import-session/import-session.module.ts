@@ -25,10 +25,7 @@ import type { UiImportFinancialActionVerifier } from "./import-session.contract"
 import { ImportSessionController } from "./import-session.controller";
 import { ImportSessionService } from "./import-session.service";
 import { ImportSessionExtractionService } from "./import-session.extraction.service";
-import {
-  ImportRawExecutions,
-  IMPORT_X2_NATIVE_CONFIG,
-} from "./import-session.raw-executions";
+import { ImportRawExecutions } from "./import-session.raw-executions";
 import {
   ImportUiGrantIssuer,
   RuntimeUiGrantVerifier,
@@ -64,7 +61,6 @@ import { ImportChatBridge } from "./import-chat.bridge";
     ImportSessionService,
     ImportSessionExtractionService,
     ImportRawExecutions,
-    { provide: IMPORT_X2_NATIVE_CONFIG, useValue: null },
     ImportUploadService,
     ImportContentService,
     VaultReaper,

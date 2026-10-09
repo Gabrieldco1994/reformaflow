@@ -30,13 +30,11 @@ describe("private document retention behavior", () => {
       },
       importArtifact: {
         findMany: jest.fn().mockResolvedValue([]),
-        findFirst: jest
-          .fn()
-          .mockResolvedValue({
-            id: "artifact-retention",
-            state: "EXTRACTED",
-            storageKey: "a/part/hash/document",
-          }),
+        findFirst: jest.fn().mockResolvedValue({
+          id: "artifact-retention",
+          state: "EXTRACTED",
+          storageKey: "a/part/hash/document",
+        }),
         count: jest.fn().mockResolvedValue(1),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },

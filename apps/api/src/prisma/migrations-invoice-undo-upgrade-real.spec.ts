@@ -579,11 +579,37 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
 
   it("migrate deploy no MESMO DB preserva toda a massa legada PESSOAL/cross-project/M8/manual/adotada", async () => {
     const afterMigration = await legacyDataSnapshot(db);
-    const legacyImports = afterMigration.imports.map(({ inline_expense_creations, ...legacyImport }) => {
-      expect(inline_expense_creations).toBeNull();
-      return legacyImport;
-    });
-    expect({ ...afterMigration, imports: legacyImports }).toEqual({
+    const legacyImports = afterMigration.imports.map(
+      ({ inline_expense_creations, ...legacyImport }) => {
+        expect(inline_expense_creations).toBeNull();
+        return legacyImport;
+      },
+    );
+    const legacyExpenses = afterMigration.expenses.map(
+      ({ documented_schedule, ...legacyExpense }) => {
+        expect(documented_schedule).toBeNull();
+        return legacyExpense;
+      },
+    );
+    const legacyAllocations = afterMigration.allocations.map(
+      ({ planned_documented_schedule, ...legacyAllocation }) => {
+        expect(planned_documented_schedule).toBeNull();
+        return legacyAllocation;
+      },
+    );
+    const legacyEntries = afterMigration.entries.map(
+      ({ invoice_due_month, ...legacyEntry }) => {
+        expect(invoice_due_month).toBeNull();
+        return legacyEntry;
+      },
+    );
+    expect({
+      ...afterMigration,
+      imports: legacyImports,
+      expenses: legacyExpenses,
+      allocations: legacyAllocations,
+      entries: legacyEntries,
+    }).toEqual({
       ...beforeMigration,
       settlements: beforeMigration.settlements.map((row) => ({
         ...row,

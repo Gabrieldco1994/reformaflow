@@ -164,9 +164,19 @@ function utilityStatement(fitId = "SEC481-ENEL"): Buffer {
   );
 }
 
-async function createCasaProject(id: string, name: string): Promise<void> {
+async function createCasaProject(
+  id: string,
+  name: string,
+  createdAt?: Date,
+): Promise<void> {
   await setup.project.create({
-    data: { id, tenantId: TENANT, type: "CASA", name },
+    data: {
+      id,
+      tenantId: TENANT,
+      type: "CASA",
+      name,
+      ...(createdAt ? { createdAt } : {}),
+    },
   });
 }
 
@@ -396,8 +406,18 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
 
   it("OWNER mantém o comportamento irrestrito no tenant", async () => {
     // O OWNER não tem escopo: cai no primeiro CASA do tenant, como sempre.
-    await createCasaProject(CASA_FIRST, "Casa primeira do tenant");
-    await createCasaProject(CASA_ALLOWED, "Casa seguinte");
+    // Distinct instants encode the creation-order scenario. Sequential inserts
+    // can share a millisecond; their query-plan order is not business evidence.
+    await createCasaProject(
+      CASA_FIRST,
+      "Casa primeira do tenant",
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
+    await createCasaProject(
+      CASA_ALLOWED,
+      "Casa seguinte",
+      new Date("2026-01-02T00:00:00.000Z"),
+    );
 
     const result = await commit(ownerRequester);
 

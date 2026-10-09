@@ -1,8 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { Readable } from "node:stream";
 import {
   IMPORT_SESSION_CONSENT_POLICY_VERSION,
   IMPORT_SESSION_LIMITS,
   ProjectType,
+  ExpenseType,
 } from "@reformaflow/domain";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { ImportSessionService } from "../import-session.service";
@@ -11,6 +13,13 @@ import { DefaultImportSessionCapability } from "../import-session.capability";
 import { mintImportAuthContext } from "../import-session.auth";
 import { EMPTY_DRAFT_JSON } from "../import-session.projection";
 import { VaultReaper } from "./vault-reaper";
+import { ImportUploadService } from "./import-upload.service";
+import { CardPurchaseBatchAdapter } from "../card-purchase-batch.adapter";
+import { ConciliacaoService } from "../../../conciliacao/conciliacao.service";
+import { ExpenseService } from "../../../expense/expense.service";
+import { buildImportMaterialization } from "../import-session.extraction";
+import { extractCardStatementDocument } from "../../../credit-card/parsers/statement-document";
+import { RuntimeUiGrantVerifier } from "../import-session-ui-grant";
 
 // Jest's mandatory setupFiles has already refused dev.db and selected the worker DB.
 describe("guarded persisted session retention", () => {
@@ -243,5 +252,236 @@ describe("guarded persisted session retention", () => {
     expect(batches.applyInTx).not.toHaveBeenCalled();
     expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
     expect(await prisma.cashFlowEntry.count({ where: { tenantId } })).toBe(0);
+  });
+
+  it("real prepare/consent/execute strips persisted drafts, releases refs and replays only the receipt", async () => {
+    const created = await create();
+    const session = await prisma.importSession.findUniqueOrThrow({
+      where: { id: created.view.id },
+    });
+    const bytes = Buffer.from(
+      "date,title,amount\n2026-10-01,Fixture PARC 1/2,1.00\n",
+    );
+    const extraction = extractCardStatementDocument({
+      version: 1,
+      context: "CARD_INVOICE",
+      format: "CSV",
+      profile: "CSV_NUBANK",
+      bytes,
+    });
+    // Immutable extraction fixture, not a financial write: normalize through
+    // the same parser/materializer as RAW analysis, then exercise the real workflow.
+    const artifact = await prisma.importArtifact.create({
+      data: {
+        tenantId,
+        ownerProjectId: projectId,
+        documentSha256: createHash("sha256").update(bytes).digest("hex"),
+        verifiedBytes: bytes.length,
+        detectedFormat: "CSV",
+        state: "EXTRACTED",
+        parserVersion: extraction.parserVersion,
+        extractionJson: JSON.stringify(extraction),
+      },
+    });
+    const ref = await prisma.importSessionArtifact.create({
+      data: {
+        tenantId,
+        ownerProjectId: projectId,
+        sessionId: session.id,
+        artifactId: artifact.id,
+        position: 0,
+        fileName: "fixture.csv",
+        declaredMime: "text/csv",
+        declaredBytes: bytes.length,
+        reservedBytes: 0,
+        state: "ATTACHED",
+        verifiedAt: current,
+      },
+    });
+    const material = buildImportMaterialization({
+      session,
+      attachment: ref,
+      artifact,
+      extraction,
+      observations: [],
+      draft: {
+        ...JSON.parse(EMPTY_DRAFT_JSON),
+        scope: { observationIds: [], pendingAttachmentIds: [ref.id] },
+      },
+      newIds: new Map(
+        extraction.occurrences.map((occurrence) => [
+          occurrence.reference,
+          { observationId: randomUUID(), lineId: randomUUID() },
+        ]),
+      ),
+    });
+    for (const observation of material.observations)
+      await prisma.importObservation.create({ data: observation });
+    const draft = {
+      ...material.draft,
+      questions: [],
+      selectedLineIds: material.draft.lines.map((line) => line.id),
+      lines: material.draft.lines.map((line) => ({
+        ...line,
+        amountMeaning: "TOTAL_PURCHASE" as const,
+        amountCents: 200,
+        installmentCount: 2,
+        firstDueDate: "2026-10-10",
+        targets: [],
+        tipoDespesa: ExpenseType.OUTROS,
+        decision: { kind: "CREATE" as const, acceptNaturalDuplicate: false },
+      })),
+    };
+    await prisma.importSession.update({
+      where: { id: session.id },
+      data: { draftJson: JSON.stringify(draft) },
+    });
+    const conciliacao = new ConciliacaoService(prisma);
+    const expenses = new ExpenseService(prisma, conciliacao);
+    const batches = new CardPurchaseBatchAdapter(expenses, conciliacao, clock);
+    const workflow = new ImportSessionWorkflowService(
+      prisma,
+      clock,
+      capability,
+      verifier,
+      batches,
+      gate as never,
+      raw as never,
+    );
+    const ready = await workflow.prepare(auth, session.id, {
+      expectedRevision: session.revision,
+    });
+    expect(ready.state).toBe("READY");
+    expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
+    expect(await prisma.cashFlowEntry.count({ where: { tenantId } })).toBe(0);
+    const challenge = await workflow.challenge(
+      auth,
+      session.id,
+      {
+        expectedRevision: ready.revision,
+        proposalHash: ready.proposal!.proposalHash,
+      },
+      {},
+    );
+    const financialRequestId = randomUUID();
+    await workflow.confirm(
+      auth,
+      session.id,
+      {
+        expectedRevision: ready.revision,
+        proposalHash: ready.proposal!.proposalHash,
+        financialRequestId,
+        nonce: challenge.nonce,
+      },
+      {},
+    );
+    expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
+    const guardedWorkflow = new ImportSessionWorkflowService(
+      prisma,
+      clock,
+      capability,
+      new RuntimeUiGrantVerifier(),
+      batches,
+      gate as never,
+      raw as never,
+    );
+    await expect(
+      guardedWorkflow.execute(auth, session.id, { financialRequestId }, {}),
+    ).rejects.toMatchObject({ code: "UI_ACTION_REQUIRED" });
+    const [receipt, concurrentReceipt] = await Promise.all([
+      workflow.execute(auth, session.id, { financialRequestId }, {}),
+      workflow.execute(auth, session.id, { financialRequestId }, {}),
+    ]);
+    expect(concurrentReceipt).toEqual(receipt);
+    const applied = await prisma.importSession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(applied).toMatchObject({
+      state: "APPLIED",
+      draftJson: EMPTY_DRAFT_JSON,
+      searchJson: null,
+      proposalJson: null,
+      challengeJson: null,
+    });
+    expect(JSON.parse(applied.receiptJson!)).toEqual(receipt);
+    expect(
+      await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: ref.id },
+      }),
+    ).toMatchObject({
+      state: "RELEASED",
+      fileName: "document",
+      releasedAt: current,
+    });
+    const count = await prisma.expense.count({ where: { tenantId } });
+    expect(count).toBe(1);
+    expect(
+      await workflow.execute(auth, session.id, { financialRequestId }, {}),
+    ).toEqual(receipt);
+    expect(await prisma.expense.count({ where: { tenantId } })).toBe(count);
+    await expect(
+      workflow.execute(
+        auth,
+        session.id,
+        { financialRequestId: randomUUID() },
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect((await service.getResult(auth, session.id)).receipt).toEqual(
+      receipt,
+    );
+    const upload = new ImportUploadService(
+      prisma,
+      clock,
+      capability,
+      verifier as never,
+      gate as never,
+    );
+    await expect(
+      upload.reserve(
+        auth,
+        session.id,
+        {
+          expectedRevision: applied.revision,
+          files: [
+            {
+              id: randomUUID(),
+              fileName: "later.csv",
+              declaredBytes: 1,
+              mime: "text/csv",
+            },
+          ],
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "LEASE_CONFLICT" });
+    const source = Readable.from([Buffer.from("x")]);
+    await expect(
+      upload.upload(auth, session.id, ref.id, 1, source, {}),
+    ).rejects.toMatchObject({ code: "LEASE_CONFLICT" });
+    expect(source.readableDidRead).toBe(false);
+    const otherTenant = await prisma.tenant.create({
+      data: { name: "Other receipt tenant" },
+    });
+    const otherUser = await prisma.user.create({
+      data: {
+        tenantId: otherTenant.id,
+        username: randomUUID(),
+        name: "Other actor",
+        role: "ADMIN",
+      },
+    });
+    const otherAuth = mintImportAuthContext({
+      tenantId: otherTenant.id,
+      userId: otherUser.id,
+      presentedSessionVersion: 0,
+      tokenExpiresAt: new Date(current.getTime() + 3600000).toISOString(),
+    });
+    await expect(
+      service.getResult(otherAuth, session.id),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(
+      await prisma.expense.count({ where: { tenantId: otherTenant.id } }),
+    ).toBe(0);
   });
 });

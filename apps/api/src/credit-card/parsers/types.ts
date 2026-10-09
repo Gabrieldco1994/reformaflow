@@ -6,36 +6,13 @@ import {
 } from "@reformaflow/domain";
 import { computeImportOrdinals } from "./dedupe-key";
 
-export type CardStatementDocumentInputV1 =
-  | Readonly<{
-      version: 1;
-      context: "CARD_INVOICE";
-      format: "CSV";
-      profile: "CSV_NUBANK" | "CSV_ITAU";
-      bytes: Buffer;
-    }>
-  | Readonly<{
-      version: 1;
-      context: "CARD_INVOICE";
-      format: "OFX";
-      profile: "OFX_CARD";
-      bytes: Buffer;
-    }>;
-
-export type CardStatementBinaryDocumentInputV1 = Readonly<{
+export type CardStatementDocumentInputV1 = Readonly<{
   version: 1;
   context: "CARD_INVOICE";
+  format: "CSV";
+  profile: "CSV_NUBANK" | "CSV_ITAU";
   bytes: Buffer;
-}> &
-  (
-    | { readonly format: "PDF"; readonly profile: "PDF_TEXT_CARD" }
-    | { readonly format: "XLS"; readonly profile: "XLS_CARD" }
-    | { readonly format: "XLSX"; readonly profile: "XLSX_CARD" }
-  );
-
-type CardDocumentFormat =
-  | CardStatementDocumentInputV1["format"]
-  | CardStatementBinaryDocumentInputV1["format"];
+}>;
 
 export interface DocumentOccurrenceV1 {
   readonly reference: string;
@@ -108,26 +85,6 @@ export class DocumentExtractionError extends Error {
   }
 }
 
-export class BinaryDocumentExtractionError extends DocumentExtractionError {
-  constructor(
-    readonly reason:
-      | "PASSWORD_PROTECTED"
-      | "NO_TEXT_LAYER"
-      | "UNSUPPORTED_LAYOUT"
-      | "MULTIPLE_SHEETS"
-      | "UNSUPPORTED_CONTAINER"
-      | "CORRUPT_DOCUMENT",
-  ) {
-    super("UNSUPPORTED_DOCUMENT");
-    this.name = "BinaryDocumentExtractionError";
-  }
-}
-
-export const BINARY_DOCUMENT_LIMITS = Object.freeze({
-  decodedTextBytes: IMPORT_SESSION_LIMITS.bytesPerFile,
-  populatedRows: 4096,
-  populatedColumns: 256,
-});
 
 export interface NormalizedTx {
   externalId: string; // hash determinístico para dedup
@@ -479,7 +436,6 @@ export interface CardDocumentCapture {
   readonly amount: string | null;
   readonly fitId: string | null;
   readonly installment?: string | null;
-  readonly serialDate?: { readonly value: number; readonly date1904: boolean };
   readonly section?: DocumentOccurrenceV1["section"];
   readonly cycle?: DocumentOccurrenceV1["cycle"];
   readonly amountMeaning?: DocumentOccurrenceV1["amountMeaning"];
@@ -488,38 +444,13 @@ export interface CardDocumentCapture {
 
 function documentaryDate(
   raw: string | null,
-  format: CardDocumentFormat,
-  serial?: CardDocumentCapture["serialDate"],
 ): {
   dateOnly: string | null;
   code: "UNKNOWN_DATE" | "INVALID_CALENDAR_DATE" | null;
 } {
   const value = raw?.trim() ?? "";
   let candidate: string | null = null;
-  if (serial !== undefined) {
-    const day = Math.floor(serial.value);
-    if (
-      !Number.isSafeInteger(day) ||
-      day < 0 ||
-      (!serial.date1904 && day === 60)
-    )
-      return { dateOnly: null, code: "INVALID_CALENDAR_DATE" };
-    const epoch = serial.date1904
-      ? Date.UTC(1904, 0, 1)
-      : Date.UTC(1899, 11, 31);
-    const date = new Date(
-      epoch + (day - (!serial.date1904 && day > 60 ? 1 : 0)) * 86400000,
-    );
-    if (!Number.isFinite(date.getTime()))
-      return { dateOnly: null, code: "INVALID_CALENDAR_DATE" };
-    candidate = date.toISOString().slice(0, 10);
-  } else if (format === "OFX") {
-    const match =
-      /^(\d{4})(\d{2})(\d{2})(?:\d{6}(?:\.\d+)?)?(?:\[[+-]?\d+(?:\.\d+)?(?::[A-Za-z]+)?\])?$/.exec(
-        value,
-      );
-    if (match) candidate = `${match[1]}-${match[2]}-${match[3]}`;
-  } else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     candidate = value;
   } else {
     const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
@@ -538,13 +469,8 @@ function documentaryDate(
   return { dateOnly: candidate, code: null };
 }
 
-function documentaryMoney(raw: string | null, binary = false): number | null {
-  let token = raw?.trim() ?? null;
-  if (binary && token !== null) {
-    if (/^(?:R\$\s*)?[+-]?\s*\d{1,3}(?:,\d{3})+\.\d{1,2}$/.test(token))
-      token = token.replace(/,/g, "");
-    token = token.replace(/^((?:R\$\s*)?[+-])\s+/, "$1");
-  }
+function documentaryMoney(raw: string | null): number | null {
+  const token = raw?.trim() ?? null;
   if (
     token === null ||
     !/^(?:R\$\s*)?[+-]?(?:\d+(?:[.,]\d{1,2})?|\d{1,3}(?:\.\d{3})+,\d{1,2})$/.test(
@@ -563,12 +489,8 @@ function documentaryMoney(raw: string | null, binary = false): number | null {
 /** Shared documentary normalization; no legacy transaction or externalId is created. */
 export function buildCardDocument(
   captures: readonly CardDocumentCapture[],
-  format: CardDocumentFormat,
+  _format: CardStatementDocumentInputV1["format"],
   documentKind: "INVOICE" | "UNKNOWN",
-  metadata?: Pick<
-    DocumentExtractionV1,
-    "parserVersion" | "invoiceDueMonth" | "metrics"
-  >,
 ): DocumentExtractionV1 {
   if (captures.length > IMPORT_SESSION_LIMITS.parsedRowsPerFile)
     throw new DocumentExtractionError("LIMIT_EXCEEDED");
@@ -578,15 +500,9 @@ export function buildCardDocument(
       const report = (code: DocumentDiagnosticV1["code"]) =>
         diagnostics.push({ reference: capture.reference, code });
       for (const code of capture.diagnostics ?? []) report(code);
-      const date = documentaryDate(capture.date, format, capture.serialDate);
+      const date = documentaryDate(capture.date);
       if (date.code) report(date.code);
-      const money = documentaryMoney(capture.amount, metadata !== undefined);
-      const amountCents =
-        money === null
-          ? null
-          : format === "OFX" && money !== 0
-            ? -money
-            : money;
+      const amountCents = documentaryMoney(capture.amount);
       const described = captureInstallment(capture.description ?? "", true);
       const column = capture.installment?.trim()
         ? captureInstallment(capture.installment, true)
@@ -662,10 +578,10 @@ export function buildCardDocument(
   let identityIndex = 0;
   return {
     version: 1,
-    parserVersion: metadata?.parserVersion ?? "card-local-text-v1",
+    parserVersion: "card-local-text-v1",
     documentKind,
-    invoiceDueMonth: metadata?.invoiceDueMonth ?? null,
-    metrics: metadata?.metrics ?? {
+    invoiceDueMonth: null,
+    metrics: {
       pages: 0,
       rows: captures.length,
       expandedBytes: 0,
@@ -684,157 +600,4 @@ export function buildCardDocument(
     })),
     diagnostics,
   };
-}
-
-const FUTURE_SECTION_RE = new RegExp(
-  "^(?:\\s*)(" +
-    [
-      "pr[oó]xim[oa]s?\\s+(?:faturas?|compras?|lan[cç]amentos?|parcelas?|pagamentos?|m[eê]s|meses|vencimentos?|cobran[cç]as?)",
-      "compras\\s+parceladas\\s+(?:futuras?|em\\s+aberto|a\\s+vencer|projetadas?)",
-      "parcelas?\\s+(?:futuras?|a\\s+vencer|previstas?|em\\s+aberto|projetadas?|seguintes?)",
-      "pagamentos?\\s+(?:futuros?|previstos?)(?:\\s+parcelados?)?",
-      "pr[eé]\\s*-?\\s*fatura",
-      "demonstrativo\\s+das\\s+compras\\s+parceladas",
-      "resumo\\s+das\\s+parcelas?\\s+(?:a\\s+vencer|futuras?)",
-      "fatura\\s+(?:posterior|seguinte|pr[oó]xima)",
-      "lan[cç]amentos?\\s+(?:futuros?|previstos?|a\\s+vencer)",
-      "compromissos?\\s+(?:futuros?|pr[oó]ximos?|a\\s+vencer)",
-      "faturas?\\s+(?:seguintes?|pr[oó]ximas?|projetadas?)",
-      "compras?\\s+a\\s+vencer",
-      "demonstrativo\\s+de\\s+parcelamentos?",
-      "previs[aã]o\\s+de\\s+(?:cobran[cç]as?|lan[cç]amentos?|parcelas?|pagamentos?)",
-      "acompanhamento\\s+de\\s+compras\\s+parceladas",
-      "saldo\\s+a\\s+vencer",
-    ].join("|") +
-    ")\\b",
-  "i",
-);
-
-export function isFutureStatementHeading(text: string): boolean {
-  return FUTURE_SECTION_RE.test(text);
-}
-
-export type CardDocumentEvent =
-  | { readonly kind: "row"; readonly capture: CardDocumentCapture }
-  | {
-      readonly kind: "section";
-      readonly section: DocumentOccurrenceV1["section"];
-    }
-  | { readonly kind: "invoice" }
-  | {
-      readonly kind: "due";
-      readonly raw: string;
-      readonly reference: string;
-      readonly serialDate?: CardDocumentCapture["serialDate"];
-    };
-
-export function captureDocumentHeading(
-  text: string,
-  reference: string,
-): CardDocumentEvent | null {
-  const line = text.trim();
-  if (
-    /^(?:demonstrativo\s+(?:das\s+compras\s+parceladas|de\s+parcelamentos?)|acompanhamento\s+de\s+compras\s+parceladas)\b/i.test(
-      line,
-    )
-  )
-    return { kind: "section", section: "UNKNOWN" };
-  if (isFutureStatementHeading(line))
-    return { kind: "section", section: "FUTURE" };
-  if (
-    /^(?:lan[cç]amentos|compras|transa[cç][oõ]es)\s+(?:desta|da|na|atuais?\s+da)\s+fatura\b/i.test(
-      line,
-    )
-  )
-    return { kind: "section", section: "CURRENT" };
-  const due = /^(?:vencimento(?:\s+em)?|vence\s+em)\s*:?\s*(.+)$/i.exec(line);
-  if (due) return { kind: "due", raw: due[1], reference };
-  if (/^fatura(?:\s+de|\s+do|\s+atual|\s+fechada|\s+cart[aã]o|$)/i.test(line))
-    return { kind: "invoice" };
-  return null;
-}
-
-/** Cycles belong to explicit blocks; a later anchor never fills preceding unknown rows. */
-export function buildBinaryCardDocument(
-  events: readonly CardDocumentEvent[],
-  format: CardStatementBinaryDocumentInputV1["format"],
-  metrics: Omit<DocumentExtractionV1["metrics"], "rows">,
-): DocumentExtractionV1 {
-  type Block = {
-    section: DocumentOccurrenceV1["section"];
-    rows: CardDocumentCapture[];
-    anchors: { date: string | null; reference: string }[];
-  };
-  const blocks: Block[] = [];
-  let block: Block = { section: "UNKNOWN", rows: [], anchors: [] };
-  let invoice = false;
-  const begin = (section: Block["section"]) => {
-    blocks.push(block);
-    block = { section, rows: [], anchors: [] };
-  };
-  for (const event of events) {
-    if (event.kind === "row") block.rows.push(event.capture);
-    else if (event.kind === "invoice") {
-      invoice = true;
-      begin("CURRENT");
-    } else if (event.kind === "section") {
-      if (event.section === "CURRENT") invoice = true;
-      if (block.section !== event.section || event.section !== "CURRENT")
-        begin(event.section);
-    } else {
-      invoice = true;
-      if (
-        blocks.length === 0 &&
-        block.section === "UNKNOWN" &&
-        block.rows.length === 0
-      )
-        block.section = "CURRENT";
-      if (block.rows.length > 0 && block.anchors.length === 0)
-        begin(block.section);
-      block.anchors.push({
-        date: documentaryDate(event.raw, format, event.serialDate).dateOnly,
-        reference: event.reference,
-      });
-    }
-  }
-  blocks.push(block);
-  const currentAnchors = blocks
-    .filter((b) => b.section === "CURRENT")
-    .flatMap((b) => b.anchors);
-  const currentDates = new Set(currentAnchors.map((a) => a.date));
-  const current =
-    currentDates.size === 1 && !currentDates.has(null)
-      ? currentAnchors[0]?.date
-      : null;
-  const captures = blocks.flatMap((b) => {
-    const dates = new Set(b.anchors.map((a) => a.date));
-    const ambiguous = dates.size > 1 || dates.has(null);
-    const anchor = b.anchors[0];
-    const cycle =
-      !ambiguous && b.section !== "UNKNOWN" && anchor?.date
-        ? {
-            invoiceDueMonth: anchor.date.slice(0, 7),
-            reference: anchor.reference,
-          }
-        : null;
-    return b.rows.map((row) => ({
-      ...row,
-      section: b.section,
-      cycle,
-      diagnostics: [
-        ...(row.diagnostics ?? []),
-        ...(ambiguous ? ["AMBIGUOUS_CYCLE" as const] : []),
-      ],
-    }));
-  });
-  return buildCardDocument(captures, format, invoice ? "INVOICE" : "UNKNOWN", {
-    parserVersion:
-      format === "PDF"
-        ? "card-local-pdf-v1"
-        : format === "XLS"
-          ? "card-local-xls-v1"
-          : "card-local-xlsx-v1",
-    invoiceDueMonth: current?.slice(0, 7) ?? null,
-    metrics: { ...metrics, rows: captures.length },
-  });
 }

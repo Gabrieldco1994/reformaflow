@@ -904,16 +904,22 @@ export class ConciliacaoService {
       await tx.expense.update({
         where: { id: target.id },
         data: {
-          status: source.status === 'PAGO' ? 'PAGO' : 'PLANEJADO',
-          paidParcelas: source.paidParcelas,
+          status: source.status === "PAGO" ? "PAGO" : "PLANEJADO",
+          paidParcelas: sourceSchedule ? source.paidParcelas : null,
           valor: allocation,
           quantidade: 1,
           valorTotal: allocation,
           formaPagamento: source.formaPagamento,
-          quantidadeParcela: isSourceParcelado ? source.quantidadeParcela : null,
-          dataInicioParcela: isSourceParcelado ? source.dataInicioParcela : null,
+          quantidadeParcela: isSourceParcelado
+            ? source.quantidadeParcela
+            : null,
+          dataInicioParcela: isSourceParcelado
+            ? source.dataInicioParcela
+            : null,
           dataPagamento: isSourceParcelado ? null : source.dataPagamento,
-          installmentDateOverrides: isSourceParcelado ? source.installmentDateOverrides : null,
+          installmentDateOverrides: isSourceParcelado
+            ? source.installmentDateOverrides
+            : null,
           documentedSchedule: projection ? JSON.stringify(projection) : null,
         },
       });

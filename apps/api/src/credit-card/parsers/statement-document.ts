@@ -10,16 +10,12 @@ import { computeImportOrdinals } from "./dedupe-key";
 import {
   DocumentExtractionError,
   type CardStatementDocumentInputV1,
-  type CardStatementBinaryDocumentInputV1,
   type DocumentDiagnosticV1,
   type DocumentExtractionV1,
   type DocumentOccurrenceV1,
 } from "./types";
 
-export {
-  BinaryDocumentExtractionError,
-  DocumentExtractionError,
-} from "./types";
+export { DocumentExtractionError } from "./types";
 
 const INPUT_KEYS = ["version", "context", "format", "profile", "bytes"];
 const DOCUMENT_KEYS = [
@@ -456,25 +452,4 @@ export function extractCardStatementDocument(
     input.profile as "CSV_NUBANK" | "CSV_ITAU",
   );
   return validateDocumentExtraction(result);
-}
-
-export async function extractCardStatementBinaryDocument(
-  input: CardStatementBinaryDocumentInputV1,
-): Promise<DocumentExtractionV1> {
-  if (
-    !exactRecord(input, INPUT_KEYS) ||
-    input.version !== 1 ||
-    input.context !== "CARD_INVOICE" ||
-    !Buffer.isBuffer(input.bytes) ||
-    !(
-      (input.format === "PDF" && input.profile === "PDF_TEXT_CARD") ||
-      (input.format === "XLS" && input.profile === "XLS_CARD") ||
-      (input.format === "XLSX" && input.profile === "XLSX_CARD")
-    )
-  )
-    throw new DocumentExtractionError("INVALID_INPUT");
-  if (input.bytes.length > LIMITS.bytesPerFile)
-    throw new DocumentExtractionError("LIMIT_EXCEEDED");
-  // Protocol remains available for the inactive runner; this release admits CSV only.
-  throw new DocumentExtractionError("UNSUPPORTED_DOCUMENT");
 }

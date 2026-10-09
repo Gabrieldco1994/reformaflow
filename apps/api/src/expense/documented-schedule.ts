@@ -30,7 +30,11 @@ export function buildStoredExpenseInstallments(
     schedule: toPublicExpenseSchedule(
       parseStoredExpenseSchedule(input.documentedSchedule),
     ),
-  });
+  }).map((item, position) => ({
+    ...item,
+    index: item.index ?? position,
+    invoiceDueMonth: item.invoiceDueMonth ?? null,
+  }));
 }
 
 export function financialMirrorIds(

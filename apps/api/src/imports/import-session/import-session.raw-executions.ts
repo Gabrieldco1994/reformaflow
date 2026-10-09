@@ -1,16 +1,9 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { performance } from "node:perf_hooks";
 import {
   IMPORT_SESSION_LIMITS as LIMITS,
   ImportSessionErrorCode as Code,
 } from "@reformaflow/domain";
-import {
-  runCardStatementBinaryDocument,
-  type X2NativeConfig,
-  type X2RunHandle,
-  type X2RunInput,
-  type X2Settlement,
-} from "../../credit-card/parsers/statement-document.runner";
 import {
   IMPORT_SESSION_CAPABILITY,
   IMPORT_SESSION_CLOCK,
@@ -19,12 +12,24 @@ import {
   importIntakeEnabled,
 } from "./import-session.capability";
 import { extractCardStatementDocument } from "../../credit-card/parsers/statement-document";
-import { DocumentExtractionError } from "../../credit-card/parsers/types";
+import {
+  DocumentExtractionError,
+  type DocumentExtractionV1,
+} from "../../credit-card/parsers/types";
 import { ImportSessionError } from "./import-session.errors";
 import { IMPORT_VAULT_GATE, type ImportVaultGate } from "./vault/vault-state";
 import type { VaultFdLease } from "./vault/vault-fd-registry";
 
-export const IMPORT_X2_NATIVE_CONFIG = Symbol("IMPORT_X2_NATIVE_CONFIG");
+export const CSV_PARSER_DEADLINE_MS = 60_000;
+export interface ImportCsvSettlement {
+  readonly cleanup: "CLEAN";
+}
+export interface ImportCsvRunHandle {
+  readonly result: Promise<
+    Readonly<{ kind: "SUCCESS"; document: DocumentExtractionV1 }>
+  >;
+  readonly settled: Promise<ImportCsvSettlement>;
+}
 export type ImportRawClaim = Readonly<{
   tenantId: string;
   ownerProjectId: string;
@@ -49,7 +54,7 @@ export type ImportRawAdmissionInput = Readonly<{
   deadlineMonotonicMs: number;
   leaseExpiresAtMs: number;
 }>;
-export type ImportRawClose = "RELEASED" | "DRAINING" | "RETAINED";
+export type ImportRawClose = "RELEASED";
 type Entry = {
   admission: ImportRawAdmission;
   input: ImportRawAdmissionInput;
@@ -58,13 +63,11 @@ type Entry = {
   started: boolean;
   closed: boolean;
   released: boolean;
-  settlement?: X2Settlement;
   dispose(): void;
 };
 
 @Injectable()
 export class ImportRawExecutions {
-  private readonly logger = new Logger("ImportRawExecutions");
   private readonly active = new Set<Entry>();
   private readonly admissions = new WeakMap<ImportRawAdmission, Entry>();
 
@@ -73,16 +76,12 @@ export class ImportRawExecutions {
     @Inject(IMPORT_SESSION_CLOCK) private readonly clock: ImportSessionClock,
     @Inject(IMPORT_SESSION_CAPABILITY)
     private readonly capability: ImportSessionCapability,
-    @Inject(IMPORT_X2_NATIVE_CONFIG)
-    private readonly config: Readonly<X2NativeConfig> | null,
   ) {}
 
   assertAvailable(documentFormat?: "CSV"): undefined {
     if (
-      (documentFormat !== "CSV" && !this.config) ||
-      !(documentFormat === "CSV"
-        ? importIntakeEnabled(this.capability)
-        : this.capability.writesEnabled()) ||
+      documentFormat !== "CSV" ||
+      !importIntakeEnabled(this.capability) ||
       this.gate.boot.stopped.aborted ||
       !this.gate.boot.runtime()
     )
@@ -193,66 +192,14 @@ export class ImportRawExecutions {
     return undefined;
   }
 
-  start(
-    admission: ImportRawAdmission,
-    input: Readonly<Pick<X2RunInput, "document" | "originalSha256">>,
-  ): X2RunHandle {
-    this.assertLive(admission);
-    const entry = this.owned(admission);
-    if (entry.started) throw new ImportSessionError(Code.LEASE_CONFLICT);
-    if (entry.input.documentFormat === "CSV")
-      throw new ImportSessionError(Code.UNSUPPORTED_DOCUMENT);
-    const config = this.config;
-    if (!config) throw new ImportSessionError(Code.CAPABILITY_DISABLED);
-    entry.started = true;
-    try {
-      const handle = runCardStatementBinaryDocument({
-        ...input,
-        tenantId: entry.input.claim.tenantId,
-        config,
-        signal: admission.signal,
-      });
-      void handle.settled.then(
-        (settlement) => {
-          entry.settlement = settlement;
-          if (entry.closed) this.finish(entry);
-        },
-        (error: unknown) => {
-          entry.settlement = {
-            cleanup: "UNCONFIRMED",
-            nativeFailure: null,
-            exitCode: null,
-          };
-          this.logger.error({
-            event: "raw_settlement_failed",
-            errorClass: error instanceof Error ? error.name : "Unknown",
-          });
-          if (entry.closed) this.finish(entry);
-        },
-      );
-      return handle;
-    } catch (error) {
-      entry.settlement = {
-        cleanup: "UNCONFIRMED",
-        nativeFailure: null,
-        exitCode: null,
-      };
-      throw error;
-    }
-  }
   /** Bounded UTF-8 text parser uses the same admission, FD lease and cancellation fence. */
-  startCsv(admission: ImportRawAdmission, bytes: Buffer): X2RunHandle {
+  startCsv(admission: ImportRawAdmission, bytes: Buffer): ImportCsvRunHandle {
     this.assertLive(admission);
     const entry = this.owned(admission);
     if (entry.started || entry.input.documentFormat !== "CSV")
       throw new ImportSessionError(Code.LEASE_CONFLICT);
     entry.started = true;
-    entry.settlement = {
-      cleanup: "CLEAN",
-      nativeFailure: null,
-      exitCode: null,
-    };
-    const result: X2RunHandle["result"] = Promise.resolve().then(() => {
+    const result: ImportCsvRunHandle["result"] = Promise.resolve().then(() => {
       this.assertLive(admission);
       try {
         // Profile is inferred from the immutable header, never chat or client metadata.
@@ -278,7 +225,7 @@ export class ImportRawExecutions {
         throw error;
       }
     });
-    return { result, settled: Promise.resolve(entry.settlement) };
+    return { result, settled: Promise.resolve({ cleanup: "CLEAN" }) };
   }
   abortOwned(
     claims: readonly ImportRawClaim[],
@@ -318,24 +265,14 @@ export class ImportRawExecutions {
   }
 
   private finish(entry: Entry): ImportRawClose {
-    if (entry.released) return "RELEASED";
-    if (
-      !entry.started ||
-      entry.settlement?.cleanup === "CLEAN" ||
-      entry.settlement?.cleanup === "NOT_STARTED"
-    ) {
+    // CSV parsing is synchronous inside one microtask: there is no child process
+    // or deferred native cleanup to drain after this admission closes.
+    if (!entry.released) {
       entry.released = true;
       entry.dispose();
       entry.lease.exit();
       this.active.delete(entry);
-      return "RELEASED";
     }
-    entry.controller.abort(new ImportSessionError(Code.LEASE_CONFLICT));
-    if (!entry.settlement) return "DRAINING";
-    this.logger.error({
-      event: "raw_execution_retained",
-      cleanup: entry.settlement.cleanup,
-    });
-    return "RETAINED";
+    return "RELEASED";
   }
 }

@@ -42,14 +42,15 @@ export interface InstallmentInput {
 }
 
 export interface InstallmentEntry {
-  index: number;
+  /** Present only for documented schedules; legacy identity is array position. */
+  index?: number;
   /** Rótulo documentado preservado; no legado, "i/n" ou "1/1". */
   parcela: string | null;
   /** Centavos documentados; no legado, o remainder vai para a última. */
   valor: number;
   /** Data efetiva da ocorrência em UTC, não a projeção do vencimento. */
   data: Date;
-  invoiceDueMonth: string | null;
+  invoiceDueMonth?: string | null;
 }
 
 export function parseInstallmentDateOverrides(
@@ -172,11 +173,9 @@ function buildBaseInstallments(input: InstallmentInput): InstallmentEntry[] {
   if (isSinglePaymentForm(formaPagamento)) {
     return [
       {
-        index: 0,
         parcela: '1/1',
         valor: valorTotal,
         data: dataPagamento ?? todayLocalDateUtc('America/Sao_Paulo'),
-        invoiceDueMonth: null,
       },
     ];
   }
@@ -203,11 +202,9 @@ function buildBaseInstallments(input: InstallmentInput): InstallmentEntry[] {
       d.setUTCDate(Math.min(targetDay, lastDay));
     }
     return {
-      index: i,
       parcela: `${i + 1}/${n}`,
       valor: i === n - 1 ? baseValue + remainder : baseValue,
       data: d,
-      invoiceDueMonth: null,
     };
   });
 }
@@ -216,13 +213,17 @@ export function resolveInstallmentIndex(
   installments: readonly InstallmentEntry[],
   parcela: string | null,
 ): number {
-  const matches = installments.filter((item) => item.parcela === parcela);
-  if (matches.length === 1) return matches[0]!.index;
+  const matches = installments.flatMap((item, position) =>
+    item.parcela === parcela ? [item.index ?? position] : [],
+  );
+  if (matches.length === 1) return matches[0]!;
   const single = installments[0];
   if (
-    installments.length === 1 && single &&
-    (parcela === null || parcela === '1/1') &&
-    (single.parcela === null || single.parcela === '1/1')
-  ) return single.index;
+    installments.length === 1 &&
+    single &&
+    (parcela === null || parcela === "1/1") &&
+    (single.parcela === null || single.parcela === "1/1")
+  )
+    return single.index ?? 0;
   throw new RangeError('Missing or ambiguous installment correspondence');
 }

@@ -2285,6 +2285,8 @@ export class BankAccountService {
     // Acha projetos CASA/CARRO AUTORIZADOS do tenant (1x cada — primeiro encontrado)
     const houseProj = await this.prisma.project.findFirst({
       where: { tenantId, type: 'CASA', deletedAt: null, ...inScope },
+      // The session migration adds a tenant/id index; preserve first-created
+      // destination selection rather than depending on SQLite's changed plan.
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });

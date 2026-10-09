@@ -25,7 +25,6 @@ import {
 
 export const CARD_PURCHASE_INSPECTION = {
   IMPORT: "import",
-  RESTORE: "restore",
 } as const;
 type CardPurchaseInspectionIntent =
   (typeof CARD_PURCHASE_INSPECTION)[keyof typeof CARD_PURCHASE_INSPECTION];
@@ -107,11 +106,6 @@ type CompanionRoot = Prisma.ExpenseGetPayload<{
 export interface ImportInspection {
   companions: CompanionRoot[];
   receipts: Receipt[];
-}
-export interface RestoreInspection extends ImportInspection {
-  unowned: CashFlowEntry[];
-  imports: CreditCardStatementImport[];
-  cards: CreditCard[];
 }
 
 /**
@@ -256,9 +250,7 @@ const isBlocking = (row: CompanionRoot) =>
   !row.deletedAt || row.cashFlow.length > 0 || row._count.cashFlow > 0;
 
 /**
- * Strong identity is checked for both operations. Restore additionally requires
- * a conservative exclusion proof for the historical cohort. Import does not
- * adopt that cohort: merchant similarity alone cannot connect an ordinary line
+ * Import does not adopt a historical cohort: merchant similarity alone cannot connect an ordinary line
  * to an installment purchase. Compatible installments remain ambiguous without
  * a date, amount or status window; passive tombstones never instruct revival.
  * Import releases installment pairs only when a valid seriesKey proves a
@@ -266,113 +258,17 @@ const isBlocking = (row: CompanionRoot) =>
  *
  * Import runs the two-phase scope (no cache, same transaction as the caller):
  * phase 1 reads minimal scalar evidence to pick a superset cohort, phase 2
- * hydrates cash flow only for that cohort and the strong identities. Restore
- * keeps the full historical read because its fingerprint hashes every row.
+ * hydrates cash flow only for that cohort and the strong identities.
  */
 export async function inspectCardPurchaseCompanions(
   tx: Prisma.TransactionClient,
   tenantId: string,
   purchase: PurchaseIdentity,
   intent: typeof CARD_PURCHASE_INSPECTION.IMPORT,
-): Promise<ImportInspection>;
-export async function inspectCardPurchaseCompanions(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  purchase: PurchaseIdentity,
-  intent: typeof CARD_PURCHASE_INSPECTION.RESTORE,
-): Promise<RestoreInspection>;
-export async function inspectCardPurchaseCompanions(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  purchase: PurchaseIdentity,
-  intent: CardPurchaseInspectionIntent,
-): Promise<ImportInspection | RestoreInspection>;
-export async function inspectCardPurchaseCompanions(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  purchase: PurchaseIdentity,
-  intent: CardPurchaseInspectionIntent,
-): Promise<ImportInspection | RestoreInspection> {
+): Promise<ImportInspection> {
   if (intent === CARD_PURCHASE_INSPECTION.IMPORT)
     return inspectForImport(tx, tenantId, purchase);
-  if (intent === CARD_PURCHASE_INSPECTION.RESTORE)
-    return inspectForRestore(tx, tenantId, purchase);
   throw CONFLICT();
-}
-
-async function inspectForRestore(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  purchase: PurchaseIdentity,
-): Promise<RestoreInspection> {
-  const roots = await tx.expense.findMany({
-    where: {
-      tenantId,
-      id: { not: purchase.id },
-      deletedAt: INCLUDE_SOFT_DELETED,
-      project: { tenantId, deletedAt: null },
-    },
-    orderBy: { id: "asc" },
-    include: rootInclude(tenantId),
-  });
-  const imports = await tx.creditCardStatementImport.findMany({
-    where: { tenantId, deletedAt: INCLUDE_SOFT_DELETED },
-    orderBy: { id: "asc" },
-  });
-  const cards = await tx.creditCard.findMany({
-    where: { tenantId, deletedAt: INCLUDE_SOFT_DELETED },
-    orderBy: { id: "asc" },
-  });
-  const importCards = new Map(imports.map((item) => [item.id, item.cardId]));
-  const matches = createFamilyMatcher(
-    purchase,
-    CARD_PURCHASE_INSPECTION.RESTORE,
-    (importId) => (importId ? importCards.get(importId) : undefined),
-    cards.find((card) => card.id === purchase.cardId)?.last4,
-  );
-  const externalIds = new Set(purchase.externalId ? [purchase.externalId] : []);
-  const strongIds = new Set(
-    purchase.dedupeKeyStrong ? [purchase.dedupeKeyStrong] : [],
-  );
-  const family = roots.filter((row) =>
-    matches(row, cashFlowEvidence(row.cashFlow)),
-  );
-  for (const row of family) {
-    if (row.externalId) externalIds.add(row.externalId);
-    if (row.dedupeKeyStrong) strongIds.add(row.dedupeKeyStrong);
-  }
-  const companions = roots.filter(
-    (row) =>
-      family.includes(row) ||
-      (!!row.externalId && externalIds.has(row.externalId)) ||
-      (!!row.dedupeKeyStrong && strongIds.has(row.dedupeKeyStrong)),
-  );
-  const receipts = await tx.receipt.findMany({
-    where: {
-      tenantId,
-      deletedAt: INCLUDE_SOFT_DELETED,
-      OR: [
-        { externalId: { in: [...externalIds] } },
-        { dedupeKeyStrong: { in: [...strongIds] } },
-      ],
-    },
-    orderBy: { id: "asc" },
-  });
-  const unowned = await tx.cashFlowEntry.findMany({
-    where: {
-      tenantId,
-      projectId: purchase.projectId,
-      expenseId: null,
-      deletedAt: null,
-      tipo: "DESPESA",
-      formaPagamento: "CARTAO_CREDITO",
-      valor: { gt: 0 },
-    },
-    orderBy: { id: "asc" },
-  });
-  if (receipts.length || unowned.length || companions.some(isBlocking))
-    throw CONFLICT();
-  return { companions, receipts, unowned, imports, cards };
 }
 
 interface ImportGathering extends ImportInspection {

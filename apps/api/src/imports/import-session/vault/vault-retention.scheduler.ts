@@ -35,7 +35,10 @@ export class VaultRetentionScheduler {
       return;
     this.running = true;
     try {
-      const scopes = await this.prisma.importSession.findMany({
+      // Prisma findMany/distinct may deduplicate in memory. GROUP BY keeps the
+      // scope limit in SQLite even when one owner has many historical sessions.
+      const scopes = await this.prisma.importSession.groupBy({
+        by: ["tenantId", "ownerProjectId"],
         where: this.after
           ? {
               OR: [
@@ -47,10 +50,8 @@ export class VaultRetentionScheduler {
               ],
             }
           : {},
-        distinct: ["tenantId", "ownerProjectId"],
         orderBy: [{ tenantId: "asc" }, { ownerProjectId: "asc" }],
         take: SCOPES_PER_CYCLE,
-        select: { tenantId: true, ownerProjectId: true },
       });
       for (const scope of scopes) {
         const result = await this.reaper.runCycle({

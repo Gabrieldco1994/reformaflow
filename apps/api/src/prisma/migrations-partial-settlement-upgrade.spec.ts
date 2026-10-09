@@ -231,8 +231,8 @@ it("upgrades the same backed-up legacy database without financial backfill, then
       Array<Record<string, unknown>>
     >`SELECT * FROM cross_project_settlements`;
     const before = {
-      expenses: await db.expense.findMany(),
-      cash: await db.cashFlowEntry.findMany(),
+      expenses: await db.$queryRaw`SELECT * FROM expenses ORDER BY id`,
+      cash: await db.$queryRaw`SELECT * FROM cash_flow_entries ORDER BY id`,
     };
     await db.$disconnect();
     execFileSync("sqlite3", [file, `.backup '${backup}'`], { stdio: "pipe" });
@@ -244,8 +244,8 @@ it("upgrades the same backed-up legacy database without financial backfill, then
     deploy();
     await db.$connect();
     expect({
-      expenses: await db.expense.findMany(),
-      cash: await db.cashFlowEntry.findMany(),
+      expenses: await db.$queryRaw`SELECT * FROM expenses ORDER BY id`,
+      cash: await db.$queryRaw`SELECT * FROM cash_flow_entries ORDER BY id`,
     }).toEqual(before);
     expect(await db.$queryRaw`SELECT * FROM cross_project_settlements`).toEqual(
       legacy.map((row) => ({
@@ -288,6 +288,17 @@ it("upgrades the same backed-up legacy database without financial backfill, then
         },
       }),
     ).rejects.toThrow();
+    // Runtime below uses today's generated client/services. Apply subsequent
+    // additive migrations only AFTER the isolated #702 upgrade assertions.
+    await db.$disconnect();
+    for (const name of readdirSync(join(root, "prisma/migrations")).sort()) {
+      if (name > migration && /^\d/.test(name))
+        cpSync(join(root, "prisma/migrations", name), join(migrations, name), {
+          recursive: true,
+        });
+    }
+    deploy();
+    await db.$connect();
     process.env.DATABASE_URL = url;
     service = new PrismaService();
     const expenses = new ExpenseService(

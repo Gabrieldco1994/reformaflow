@@ -49,17 +49,11 @@ import { runImportSessionWrite } from "./import-session.writer";
 import { IMPORT_VAULT_GATE, type ImportVaultGate } from "./vault/vault-state";
 import {
   ImportRawExecutions,
+  CSV_PARSER_DEADLINE_MS,
+  type ImportCsvSettlement,
   type ImportRawAdmission,
 } from "./import-session.raw-executions";
-import {
-  X2_WIRE,
-  type X2Failure,
-  type X2Settlement,
-} from "../../credit-card/parsers/statement-document.runner";
-import type {
-  CardStatementBinaryDocumentInputV1,
-  DocumentExtractionV1,
-} from "../../credit-card/parsers/types";
+import type { DocumentExtractionV1 } from "../../credit-card/parsers/types";
 
 type Tx = Prisma.TransactionClient;
 type Runtime = NonNullable<ReturnType<ImportVaultGate["boot"]["runtime"]>>;
@@ -196,7 +190,7 @@ export class ImportSessionExtractionService {
     grant: unknown,
     signal?: AbortSignal,
   ): Promise<ImportSessionViewV1> {
-    const rawDeadline = performance.now() + X2_WIRE.deadlineMs;
+    const rawDeadline = performance.now() + CSV_PARSER_DEADLINE_MS;
     const runtime = this.assertAvailable();
     assertMintedImportContext(auth);
     assertSessionId(sessionId);
@@ -250,7 +244,7 @@ export class ImportSessionExtractionService {
         throw problem(Code.REVISION_CONFLICT, row);
       // This applies to cached EXTRACTED adoption as well as first RAW extraction.
       // Completed materializations returned above remain read-only replays.
-      if (!this.capability.writesEnabled() && artifact.detectedFormat !== "CSV")
+      if (artifact.detectedFormat !== "CSV")
         throw problem(Code.UNSUPPORTED_DOCUMENT);
       const raw =
         artifact.state === "RAW_READY" || artifact.state === "ANALYZING";
@@ -260,8 +254,6 @@ export class ImportSessionExtractionService {
         );
         if (performance.now() >= rawDeadline)
           throw problem(Code.LIMIT_EXCEEDED);
-        if (artifact.detectedFormat !== "CSV")
-          this.binaryDocument(artifact, Buffer.alloc(0));
         if (
           !artifact.storageKey ||
           !/^[a-f0-9]{64}$/.test(artifact.documentSha256) ||
@@ -354,13 +346,10 @@ export class ImportSessionExtractionService {
     };
     let admission: ImportRawAdmission | undefined;
     let started = false;
-    let settlement: X2Settlement | undefined;
+    let settlement: ImportCsvSettlement | undefined;
     const publicationLive = (): undefined => {
       live();
-      if (
-        !this.capability.writesEnabled() &&
-        capture.artifact.detectedFormat !== "CSV"
-      )
+      if (capture.artifact.detectedFormat !== "CSV")
         throw problem(Code.UNSUPPORTED_DOCUMENT);
       const now = this.clock.now();
       if (now >= capture.row.expiresAt)
@@ -491,13 +480,7 @@ export class ImportSessionExtractionService {
         await authorizedReader();
         publicationLive();
         started = true;
-        const handle =
-          capture.artifact.detectedFormat === "CSV"
-            ? this.raw.startCsv(admission, bytes)
-            : this.raw.start(admission, {
-                document: this.binaryDocument(capture.artifact, bytes),
-                originalSha256: capture.artifact.documentSha256,
-              });
+        const handle = this.raw.startCsv(admission, bytes);
         void handle.settled.then(
           (value) => {
             settlement = value;
@@ -510,7 +493,6 @@ export class ImportSessionExtractionService {
         );
         const result = await handle.result;
         publicationLive();
-        if (result.kind === "FAILURE") this.nativeFailure(result.failure);
         settlement = await handle.settled;
         publicationLive();
         if (settlement.cleanup !== "CLEAN")
@@ -603,9 +585,7 @@ export class ImportSessionExtractionService {
       if (
         !this.gate.boot.stopped.aborted &&
         this.gate.boot.runtime() === runtime &&
-        (!started ||
-          settlement?.cleanup === "CLEAN" ||
-          settlement?.cleanup === "NOT_STARTED")
+        (!started || settlement?.cleanup === "CLEAN")
       ) {
         try {
           await runImportSessionWrite(
@@ -636,53 +616,6 @@ export class ImportSessionExtractionService {
       throw error;
     } finally {
       if (admission) this.raw.close(admission);
-    }
-  }
-
-  private binaryDocument(
-    artifact: ImportArtifact,
-    bytes: Buffer,
-  ): CardStatementBinaryDocumentInputV1 {
-    const common = {
-      version: 1 as const,
-      context: "CARD_INVOICE" as const,
-      bytes,
-    };
-    switch (artifact.detectedFormat) {
-      case "PDF":
-        return { ...common, format: "PDF", profile: "PDF_TEXT_CARD" };
-      case "XLS":
-        return { ...common, format: "XLS", profile: "XLS_CARD" };
-      case "XLSX":
-        return { ...common, format: "XLSX", profile: "XLSX_CARD" };
-      default:
-        throw problem(Code.UNSUPPORTED_DOCUMENT);
-    }
-  }
-
-  private nativeFailure(failure: X2Failure): never {
-    switch (failure.code) {
-      case "INVALID_INPUT":
-        throw problem(Code.INVALID_INPUT);
-      case "UNSUPPORTED_DOCUMENT":
-        throw problem(Code.UNSUPPORTED_DOCUMENT);
-      case "LIMIT_EXCEEDED":
-      case "DEADLINE":
-      case "RESOURCE_LIMIT":
-        throw problem(Code.LIMIT_EXCEEDED);
-      case "BUSY":
-      case "CANCELLED":
-      case "CALLER_GONE":
-        throw problem(Code.LEASE_CONFLICT);
-      case "UNAVAILABLE":
-      case "QUARANTINED":
-        throw problem(Code.CAPABILITY_DISABLED);
-      default:
-        this.logger.error({
-          event: "raw_execution_failed",
-          code: failure.code,
-        });
-        throw new Error("Native document execution failed");
     }
   }
 }

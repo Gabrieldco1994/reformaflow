@@ -265,7 +265,6 @@ export class ImportUploadService {
     assertSessionId(id);
     const request = parseReserveRequest(body);
     if (
-      !this.capability.writesEnabled() &&
       request.files.some(
         (file) =>
           !/\.csv$/i.test(file.fileName) ||

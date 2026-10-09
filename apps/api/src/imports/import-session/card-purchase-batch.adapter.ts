@@ -993,13 +993,14 @@ export class CardPurchaseBatchAdapter implements CardPurchaseBatchPort {
         formaPagamento: PaymentForm.PARCELADO,
         quantidadeParcela: line.installmentCount,
         dataInicioParcela: new Date(`${line.firstDueDate}T00:00:00.000Z`),
-      }).map((item) => {
+      }).map((item, index) => {
         const invoiceDueMonth = addMonthsToMonthKey(
           line.firstDueDate!.slice(0, 7),
-          item.index,
+          index,
         );
         return {
           ...item,
+          index,
           data: caixaDateForCardPurchase(
             line.dataCompra!,
             card.closingDay,
