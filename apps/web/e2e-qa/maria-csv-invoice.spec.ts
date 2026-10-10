@@ -108,8 +108,12 @@ test(phase === 'upload'
     await expect(cta).toHaveCount(1);
     await assertUniqueButtonNames(page);
     await evidence.capture('maria-visible-csv-cta');
+    const entryResponse = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/agent/chat' && response.request().method() === 'POST');
     await cta.click();
-    const cardPicker = page.getByLabel('Cartão da fatura', { exact: true });
+    await evidence.checkApi(await entryResponse);
+    await evidence.capture('csv-entry-response');
+    const cardPicker = page.getByRole('combobox', { name: 'Cartão da fatura', exact: true });
     await expect(cardPicker).toBeEnabled();
     await expect(cardPicker).toHaveValue('');
     await expect(cardPicker.locator(`option[value="${card.id}"]`)).toContainText(personal[0].name);

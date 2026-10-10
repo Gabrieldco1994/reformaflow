@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { expect, type APIResponse, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, type APIResponse, type Response, type Locator, type Page, type TestInfo } from '@playwright/test';
 
 type HttpFailure = { status: number; method: string; url: string; expected: boolean; reason?: string };
 
@@ -43,7 +43,7 @@ export class JourneyEvidence {
 
   authenticated() { this.signedIn = true; }
 
-  async checkApi(response: APIResponse) {
+  async checkApi(response: APIResponse | Response) {
     if (!response.ok()) this.httpFailures.push({ status: response.status(), method: 'API helper',
       url: safeUrl(response.url()), expected: false });
     await this.persist();
