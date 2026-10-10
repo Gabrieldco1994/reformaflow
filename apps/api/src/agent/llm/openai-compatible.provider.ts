@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import { isNativeError } from "node:util/types";
 import {
   ChatMessage,
@@ -22,6 +22,27 @@ interface OpenAiMessage {
   tool_calls?: OpenAiToolCall[];
   tool_call_id?: string;
   name?: string;
+}
+
+const LLM_TRANSPORT_UNAVAILABLE_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
+/** Native fetch may throw across realms; only known transport causes are unavailable. */
+function isTransportUnavailable(error: unknown): boolean {
+  if (!isNativeError(error) || error.name !== "TypeError") return false;
+  const cause: unknown = Reflect.get(error, "cause");
+  return (
+    isRecord(cause) &&
+    typeof cause.code === "string" &&
+    LLM_TRANSPORT_UNAVAILABLE_CODES.has(cause.code)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -102,6 +123,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     options?: LlmCallOptions,
   ): Promise<LlmChatResult> {
     validateLlmCallOptions(options);
+    if (!this.isConfigured()) throw new ServiceUnavailableException();
     const body: Record<string, unknown> = {
       model: this.model,
       temperature: 0.2,
@@ -188,7 +210,16 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     const RETRIABLE = new Set([429, 500, 503]);
     let attempt = 0;
     for (;;) {
-      const res = await fetch(url, init);
+      let res: Response;
+      try {
+        res = await fetch(url, init);
+      } catch (error) {
+        // Do not publish URLs, request content or native causes. Programming/URL
+        // errors still propagate; a missing endpoint is provider unavailability.
+        if (isTransportUnavailable(error))
+          throw new ServiceUnavailableException();
+        throw error;
+      }
       if (!RETRIABLE.has(res.status) || attempt >= maxRetries) return res;
 
       const body = await res

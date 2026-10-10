@@ -122,6 +122,25 @@ Fontes complementares: [contrato Maria](maria-ia.md#importação-consentimentos-
 O manual da experiência permanece sob ownership frontend; este documento não substitui sua
 atualização e verificação na entrega funcional.
 
+### Dependência de modelo na resposta guiada (candidato, não prova de entrega)
+
+`AgentService.contextual` encaminha `ANSWER` ao provider construído em
+`agent.module.ts`; o parsing determinístico do CSV não elimina essa dependência.
+O padrão atual é Ollama em `http://localhost:11434/v1`: uma URL configurada não
+comprova disponibilidade do serviço/modelo. Falhas reconhecidas de transporte e
+ausência de credenciais retornam `503` com `importOutcome.code = PROVIDER_UNAVAILABLE`,
+sem editar o rascunho nem autorizar finanças. Erros de contrato do modelo permanecem
+distintos (`MODEL_OUTPUT_INVALID`).
+
+O teste `apps/api/src/agent/agent.import-provider.spec.ts` cobre DTO, controller,
+admissão/bridge e provider reais, com persistência representativa e conexão recusada
+em loopback. A jornada Linux completa precisa de Ollama acessível com o modelo
+configurado (`AGENT_MODEL`, padrão `qwen2.5:7b-instruct`), ou de autorização explícita
+para usar um provider externo e enviar o conteúdo mínimo da sessão: por exemplo,
+`AGENT_LLM_PROVIDER=gemini` com `GEMINI_API_KEY` (ou `GOOGLE_API_KEY`) e modelo
+compatível com tools. Não habilitar acesso externo nem obter credenciais implicitamente;
+503 não é evidência de confirmação bem-sucedida.
+
 ## Apêndice histórico
 
 - 2026-10-09: documentado o recorte CSV independente de `main` conforme ledger #711, separado

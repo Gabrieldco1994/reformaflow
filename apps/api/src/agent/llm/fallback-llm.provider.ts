@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import {
   ChatMessage,
   LlmCallOptions,
@@ -47,7 +47,7 @@ export class FallbackLlmProvider implements LlmProvider {
     validateLlmCallOptions(options);
     const active = this.providers.filter((p) => p.isConfigured());
     if (active.length === 0) {
-      throw new Error("Nenhum provider de LLM configurado.");
+      throw new ServiceUnavailableException();
     }
 
     let lastRateLimited = false;
