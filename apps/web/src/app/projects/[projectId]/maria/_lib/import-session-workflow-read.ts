@@ -48,6 +48,20 @@ export class ImportWorkflowResponseError extends Error {
 export type ImportObservationView = ImportSessionObservationViewV1 & {
   ignoredReason?: "INVOICE_PAYMENT" | null;
 };
+/**
+ * Additive receipt metadata owned by the workflow API. Keep this local until
+ * the shared domain contract lands; historical stored receipts normalize to [].
+ */
+export interface ImportWorkflowAuditItem {
+  observationId: string;
+  outcome: "IGNORED";
+  reason: "INVOICE_PAYMENT";
+  title: string;
+  amountCents: number | null;
+}
+export type ImportWorkflowReceipt = ImportSessionReceiptV1 & {
+  auditItems: ImportWorkflowAuditItem[];
+};
 const invalid = (): never => {
   throw new ImportWorkflowResponseError();
 };
@@ -525,6 +539,17 @@ function receiptItem(v: unknown): v is ImportSessionReceiptV1["items"][number] {
     )
   );
 }
+function receiptAuditItem(v: unknown): v is ImportWorkflowAuditItem {
+  return (
+    isRecord(v) &&
+    exact(v, ["observationId", "outcome", "reason", "title", "amountCents"]) &&
+    id(v.observationId) &&
+    v.outcome === "IGNORED" &&
+    v.reason === "INVOICE_PAYMENT" &&
+    text(v.title, 1, P.maxTitleLength) &&
+    (v.amountCents === null || (cents(v.amountCents) && v.amountCents < 0))
+  );
+}
 function snapshotLine(v: unknown): v is ImportSessionReceiptLineSnapshotV1 {
   return (
     isRecord(v) &&
@@ -559,7 +584,8 @@ function snapshotLine(v: unknown): v is ImportSessionReceiptLineSnapshotV1 {
 export function readImportWorkflowReceipt(
   value: unknown,
   anchorProjectId: string,
-): ImportSessionReceiptV1 {
+): ImportWorkflowReceipt {
+  const hasAuditItems = isRecord(value) && Object.hasOwn(value, "auditItems");
   if (
     !isRecord(value) ||
     !exact(value, [
@@ -572,6 +598,7 @@ export function readImportWorkflowReceipt(
       "continuationSessionId",
       "items",
       "snapshot",
+      ...(hasAuditItems ? ["auditItems"] : []),
     ]) ||
     value.version !== VERSION ||
     !id(value.sessionId) ||
@@ -586,6 +613,9 @@ export function readImportWorkflowReceipt(
     ) ||
     !every(value.items, receiptItem, 1, L.selectedLines) ||
     !distinct(value.items.map((i) => i.lineId)) ||
+    (hasAuditItems &&
+      (!every(value.auditItems, receiptAuditItem, 0, L.parsedRowsPerSession) ||
+        !distinct(value.auditItems.map((item) => item.observationId)))) ||
     !distinct(
       value.items
         .filter((i) => i.outcome === "CREATED")
@@ -594,6 +624,9 @@ export function readImportWorkflowReceipt(
   )
     return invalid();
   const items = value.items;
+  const auditItems = hasAuditItems
+    ? (value.auditItems as ImportWorkflowAuditItem[])
+    : [];
   const s = value.snapshot;
   if (
     !isRecord(s) ||
@@ -668,6 +701,7 @@ export function readImportWorkflowReceipt(
     appliedAt: value.appliedAt,
     continuationSessionId: value.continuationSessionId,
     items: value.items,
+    auditItems,
     snapshot: {
       lines: s.lines,
       participantProjectIds: s.participantProjectIds,

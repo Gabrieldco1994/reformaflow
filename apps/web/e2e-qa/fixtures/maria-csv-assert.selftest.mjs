@@ -244,17 +244,66 @@ COMMIT;`);
     });
   }
   check("pre-confirm", false, [], "created financial expenses");
+  const remaining = expected.purchases.slice(2);
+  const continuationDraft = {
+    version: 1,
+    lines: remaining.map((purchase, index) => ({
+      id: `qa-line-${index + 2}`,
+      observationIds: [`qa-observation-${index + 2}`],
+      titulo: purchase.title,
+      amountCents: purchase.amountCents,
+    })),
+    selectedLineIds: remaining.map(
+      (_purchase, index) => `qa-line-${index + 2}`,
+    ),
+    questions: [],
+    scope: {
+      observationIds: remaining.map(
+        (_purchase, index) => `qa-observation-${index + 2}`,
+      ),
+      pendingAttachmentIds: [],
+    },
+  };
+  insert("import_sessions", {
+    id: "qa-successor",
+    tenant_id: "qa-tenant",
+    owner_user_id: "qa-user",
+    owner_project_id: "qa-project",
+    card_id: "qa-card",
+    kind: "CREATE_CARD_PURCHASES",
+    state: "DRAFT",
+    revision: 1,
+    create_request_id: "qa-successor-request",
+    create_payload_hash: "b".repeat(64),
+    consent_policy_version: 1,
+    consented_at: start,
+    created_at: start,
+    updated_at: start,
+    last_user_edit_at: start,
+    expires_at: Date.now() + 3600000,
+    draft_json: JSON.stringify(continuationDraft),
+  });
   const receipt = {
     version: 1,
     sessionId: "qa-session",
-    continuationSessionId: null,
+    continuationSessionId: "qa-successor",
     items: selected.map((purchase, index) => ({
       lineId: `qa-line-${index}`,
       outcome: "CREATED",
       sourceExpenseId: `qa-expense-${index}`,
       targetExpenseIds: [],
+      allocationIds: [],
       cashFlowEntryIds: [`qa-cash-${index}`],
     })),
+    auditItems: [
+      {
+        observationId: "qa-observation-payment",
+        outcome: "IGNORED",
+        reason: "INVOICE_PAYMENT",
+        title: expected.ignoredPaymentRow,
+        amountCents: expected.ignoredPaymentAmountCents,
+      },
+    ],
     snapshot: {
       bankCashDeltaCents: 0,
       createdEconomicTotalCents: selected.reduce(
@@ -284,7 +333,28 @@ COMMIT;`);
       claimed_at: start + 1,
     });
   }
-  sql(`UPDATE import_sessions SET state='APPLIED',receipt_json=${sqlText(JSON.stringify(receipt))},financial_request_id='qa-confirm',confirmed_revision=1,confirmed_session_version=1,proposal_hash=${sqlText("c".repeat(64))},confirmed_at=${start + 1},closed_at=${start + 1};
+  for (const [index] of remaining.entries()) {
+    insert("import_observations", {
+      id: `qa-observation-${index + 2}`,
+      tenant_id: "qa-tenant",
+      owner_project_id: "qa-project",
+      artifact_id: "qa-artifact",
+      reference: `csv:record:${index + 4}`,
+      evidence_json: "{}",
+    });
+  }
+  insert("import_observations", {
+    id: "qa-observation-payment",
+    tenant_id: "qa-tenant",
+    owner_project_id: "qa-project",
+    artifact_id: "qa-artifact",
+    reference: "csv:record:7",
+    evidence_json: JSON.stringify({
+      sourceDescription: expected.ignoredPaymentRow,
+      amountCents: expected.ignoredPaymentAmountCents,
+    }),
+  });
+  sql(`UPDATE import_sessions SET state='APPLIED',receipt_json=${sqlText(JSON.stringify(receipt))},financial_request_id='qa-confirm',confirmed_revision=1,confirmed_session_version=1,proposal_hash=${sqlText("c".repeat(64))},confirmed_at=${start + 1},closed_at=${start + 1} WHERE id='qa-session';
     UPDATE import_session_artifacts SET state='RELEASED',released_at=${start},file_name='document';`);
   check("post-confirm", true, ["--selected-count", "2"]);
   check("post-confirm", false, [], "selection count mismatch");
@@ -341,33 +411,15 @@ COMMIT;`);
     if (purger.exitCode === null) purger.kill();
   }
   // A continuation's unexpired live reference is legitimate retention, not a purge failure.
-  insert("import_sessions", {
-    id: "qa-successor",
-    tenant_id: "qa-tenant",
-    owner_user_id: "qa-user",
-    owner_project_id: "qa-project",
-    card_id: "qa-card",
-    kind: "CREATE_CARD_PURCHASES",
-    state: "DRAFT",
-    revision: 1,
-    create_request_id: "qa-successor-request",
-    create_payload_hash: "b".repeat(64),
-    consented_at: start,
-    created_at: start,
-    updated_at: start,
-    last_user_edit_at: start,
-    expires_at: Date.now() + 3600000,
-    draft_json: JSON.stringify(draft),
-  });
   sql(
     `UPDATE import_artifacts SET storage_key='original.csv',state='RAW_READY';`,
   );
   sql(
     `PRAGMA foreign_keys=ON; UPDATE import_session_artifacts SET session_id='qa-successor',state='ATTACHED' WHERE id='qa-original';`,
   );
-  receipt.continuationSessionId = "qa-successor";
-  sql(`UPDATE import_sessions SET receipt_json=${sqlText(JSON.stringify(receipt))} WHERE id='qa-session';
-    UPDATE import_artifacts SET storage_key='original.csv',state='EXTRACTED';`);
+  sql(
+    `UPDATE import_artifacts SET storage_key='original.csv',state='EXTRACTED';`,
+  );
   fs.writeFileSync(path.join(vault, "original.csv"), bytes);
   const retained = check("post-confirm", true, [
     "--selected-count",
@@ -383,8 +435,93 @@ COMMIT;`);
     ["--selected-count", "2", "--vault", vault],
     "Unauthorized/expired",
   );
+  insert("receipts", {
+    id: "qa-forbidden-receipt",
+    tenant_id: "qa-tenant",
+    project_id: "qa-project",
+    valor: 1,
+    data: start + 1,
+    tipo: "OUTROS",
+    created_at: start + 1,
+    updated_at: start + 1,
+  });
+  check("post-confirm", false, ["--selected-count", "2"], "financial receipts");
+  sql(`DELETE FROM receipts WHERE id='qa-forbidden-receipt';`);
+
+  insert("rateio_allocations", {
+    id: "qa-forbidden-rateio",
+    tenant_id: "qa-tenant",
+    source_expense_id: "qa-expense-0",
+    target_expense_id: "qa-expense-1",
+    allocation: 1,
+    planned_status: "PLANEJADO",
+    created_at: start + 1,
+  });
+  check("post-confirm", false, ["--selected-count", "2"], "rateio allocations");
+  sql(`DELETE FROM rateio_allocations WHERE id='qa-forbidden-rateio';`);
+
+  insert("cross_project_settlements", {
+    id: "qa-forbidden-settlement",
+    tenant_id: "qa-tenant",
+    source_expense_id: "qa-expense-0",
+    target_expense_id: "qa-expense-1",
+    parcela_index: 0,
+    real_valor: 1,
+    planned_valor: 1,
+    planned_status: "PLANEJADO",
+    created_at: start + 1,
+  });
+  check(
+    "post-confirm",
+    false,
+    ["--selected-count", "2"],
+    "cross-project settlements",
+  );
+  sql(
+    `DELETE FROM cross_project_settlements WHERE id='qa-forbidden-settlement';`,
+  );
+
+  insert("budget_allocations", {
+    id: "qa-forbidden-budget",
+    tenant_id: "qa-tenant",
+    source_project_id: "qa-project",
+    target_project_id: "qa-project",
+    valor: 1,
+    mes: "2026-10",
+    data_alocacao: start + 1,
+    created_at: start + 1,
+    updated_at: start + 1,
+  });
+  check("post-confirm", false, ["--selected-count", "2"], "budget allocations");
+  sql(`DELETE FROM budget_allocations WHERE id='qa-forbidden-budget';`);
+
+  insert("merchant_categories", {
+    id: "qa-forbidden-merchant-category",
+    tenant_id: "qa-tenant",
+    merchant_key: "forbidden merchant",
+    merchant_sample: "Forbidden Merchant",
+    category: "outros",
+    source: "AI",
+    created_at: start + 1,
+    updated_at: start + 1,
+  });
+  check(
+    "post-confirm",
+    false,
+    ["--selected-count", "2"],
+    "newly learned merchant categories",
+  );
+  sql(
+    `DELETE FROM merchant_categories WHERE id='qa-forbidden-merchant-category';`,
+  );
+
   sql(`UPDATE expenses SET valor_total=valor_total+1 WHERE id='qa-expense-0';`);
-  check("post-confirm", false, ["--selected-count", "2"], "amount differs");
+  check(
+    "post-confirm",
+    false,
+    ["--selected-count", "2"],
+    "exact fixture subset",
+  );
   sql(`UPDATE expenses SET valor_total=valor_total-1 WHERE id='qa-expense-0';`);
   insert("expenses", {
     id: "qa-extra-expense",
@@ -399,7 +536,12 @@ COMMIT;`);
     created_at: start + 1,
     updated_at: start + 1,
   });
-  check("post-confirm", false, ["--selected-count", "2"], "expense count");
+  check(
+    "post-confirm",
+    false,
+    ["--selected-count", "2"],
+    "exact fixture subset",
+  );
   sql(`DELETE FROM expenses WHERE id='qa-extra-expense';`);
   sql(`UPDATE expenses SET tenant_id='nonexistent' WHERE id='qa-expense-0';`);
   check("fk", false, [], "Foreign key violations");

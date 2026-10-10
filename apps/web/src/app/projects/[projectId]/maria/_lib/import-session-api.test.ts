@@ -6,6 +6,7 @@ import {
 } from "./import-session-api";
 import {
   ImportWorkflowResponseError,
+  readImportWorkflowReceipt,
   readImportWorkflowView,
 } from "./import-session-workflow-read";
 
@@ -50,6 +51,54 @@ const view = {
   confirmation: null,
   receipt: null,
   actions: ["UPLOAD", "CANCEL"],
+};
+
+const appliedReceipt = {
+  version: 1,
+  sessionId: "session",
+  financialRequestId: "12345678-1234-4123-8123-123456789abc",
+  confirmedRevision: 2,
+  proposalHash: "a".repeat(64),
+  appliedAt: "2026-10-16T21:00:00.000Z",
+  continuationSessionId: null,
+  items: [
+    {
+      lineId: "line",
+      outcome: "CREATED",
+      sourceExpenseId: "expense",
+      targetExpenseIds: [],
+      allocationIds: [],
+      cashFlowEntryIds: ["cash-flow"],
+    },
+  ],
+  snapshot: {
+    lines: [
+      {
+        lineId: "line",
+        titulo: "Compra documental",
+        dataCompra: "2026-10-10",
+        totalCents: 12345,
+        schedule: {
+          version: 1,
+          occurrences: [
+            {
+              index: 0,
+              parcela: null,
+              valor: 12345,
+              data: "2026-11-10",
+              invoiceDueMonth: "2026-11",
+            },
+          ],
+        },
+        sourceProjectId: "project",
+        targets: [],
+      },
+    ],
+    participantProjectIds: ["project"],
+    createdEconomicTotalCents: 12345,
+    bankCashDeltaCents: 0,
+    invoiceDeltas: [{ invoiceDueMonth: "2026-11", amountCents: 12345 }],
+  },
 };
 
 describe("answerImportFocusedDraftQuestion", () => {
@@ -166,6 +215,96 @@ describe("readImportWorkflowView analysisOutcome contract", () => {
 
     expect(result).toEqual(view);
     expect(Object.hasOwn(result, "analysisOutcome")).toBe(false);
+  });
+
+  describe("readImportWorkflowReceipt audit contract", () => {
+    const auditItem = {
+      observationId: "observation-payment",
+      outcome: "IGNORED",
+      reason: "INVOICE_PAYMENT",
+      title: "Pagamento de fatura",
+      amountCents: -12000,
+    };
+
+    it("accepts and retains an APPLIED receipt with terminal invoice-payment audit", () => {
+      const receipt = {
+        ...appliedReceipt,
+        auditItems: [auditItem],
+      };
+      const parsed = readImportWorkflowView({
+        ...view,
+        state: "APPLIED",
+        expiresAt: null,
+        searchComplete: true,
+        confirmation: {
+          financialRequestId: appliedReceipt.financialRequestId,
+          confirmedRevision: appliedReceipt.confirmedRevision,
+          proposalHash: appliedReceipt.proposalHash,
+        },
+        receipt,
+        actions: ["READ_RESULT"],
+      });
+
+      expect(parsed.receipt).toMatchObject({ auditItems: [auditItem] });
+    });
+
+    it("normalizes a historical audit-less receipt and accepts an empty audit list", () => {
+      expect(
+        readImportWorkflowReceipt(appliedReceipt, "project"),
+      ).toMatchObject({ auditItems: [] });
+      expect(
+        readImportWorkflowReceipt(
+          { ...appliedReceipt, auditItems: [] },
+          "project",
+        ),
+      ).toMatchObject({ auditItems: [] });
+      expect(
+        readImportWorkflowReceipt(
+          {
+            ...appliedReceipt,
+            auditItems: [{ ...auditItem, amountCents: null }],
+          },
+          "project",
+        ),
+      ).toMatchObject({
+        auditItems: [{ ...auditItem, amountCents: null }],
+      });
+    });
+
+    it.each([
+      { ...auditItem, outcome: "CREATED" },
+      { ...auditItem, reason: "UNKNOWN" },
+      { ...auditItem, amountCents: 0 },
+      { ...auditItem, amountCents: 12000 },
+      { ...auditItem, amountCents: Number.MAX_SAFE_INTEGER },
+      { ...auditItem, unexpected: true },
+    ])("rejects malformed audit item %#", (malformed) => {
+      expect(() =>
+        readImportWorkflowReceipt(
+          { ...appliedReceipt, auditItems: [malformed] },
+          "project",
+        ),
+      ).toThrow(ImportWorkflowResponseError);
+    });
+
+    it("rejects duplicate audit observation identities and unknown receipt keys", () => {
+      expect(() =>
+        readImportWorkflowReceipt(
+          { ...appliedReceipt, auditItems: [auditItem, { ...auditItem }] },
+          "project",
+        ),
+      ).toThrow(ImportWorkflowResponseError);
+      expect(() =>
+        readImportWorkflowReceipt(
+          {
+            ...appliedReceipt,
+            auditItems: [auditItem],
+            unexpected: true,
+          },
+          "project",
+        ),
+      ).toThrow(ImportWorkflowResponseError);
+    });
   });
 
   it.each([null, "NO_ELIGIBLE_PURCHASES"])(

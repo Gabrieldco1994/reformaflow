@@ -209,7 +209,54 @@ function financialRows(config, session) {
     `SELECT id, expense_id, created_at FROM cash_flow_entries
     WHERE tenant_id=${literal(session.tenant_id)} AND project_id=${literal(session.owner_project_id)}`,
   ).filter((row) => instant(row.created_at) >= instant(session.created_at));
-  return { expenses, cashFlows };
+  const sinceSession = (rows) =>
+    rows.filter(
+      (row) => instant(row.created_at) >= instant(session.created_at),
+    );
+  const receipts = sinceSession(
+    query(
+      config.db,
+      `SELECT id, created_at FROM receipts
+      WHERE tenant_id=${literal(session.tenant_id)} AND project_id=${literal(session.owner_project_id)}`,
+    ),
+  );
+  const rateioAllocations = sinceSession(
+    query(
+      config.db,
+      `SELECT id, created_at FROM rateio_allocations
+      WHERE tenant_id=${literal(session.tenant_id)}`,
+    ),
+  );
+  const settlements = sinceSession(
+    query(
+      config.db,
+      `SELECT id, created_at FROM cross_project_settlements
+      WHERE tenant_id=${literal(session.tenant_id)}`,
+    ),
+  );
+  const budgetAllocations = sinceSession(
+    query(
+      config.db,
+      `SELECT id, created_at FROM budget_allocations
+      WHERE tenant_id=${literal(session.tenant_id)}`,
+    ),
+  );
+  const merchantCategories = sinceSession(
+    query(
+      config.db,
+      `SELECT id, created_at FROM merchant_categories
+      WHERE tenant_id=${literal(session.tenant_id)}`,
+    ),
+  );
+  return {
+    expenses,
+    cashFlows,
+    receipts,
+    rateioAllocations,
+    settlements,
+    budgetAllocations,
+    merchantCategories,
+  };
 }
 
 function attachments(config, session) {
@@ -382,6 +429,8 @@ function checkReceipt(config, session, rows) {
     "Applied import batch receipt missing (not a financial Receipt/recebimento)",
   );
   const receipt = JSON.parse(session.receipt_json);
+  const expectedSelected = expected.purchases.slice(0, config.count);
+  const expectedRemaining = expected.purchases.slice(config.count);
   assert.equal(receipt.version, 1, "Unexpected receipt protocol");
   assert.equal(
     receipt.sessionId,
@@ -402,6 +451,34 @@ function checkReceipt(config, session, rows) {
     receipt.snapshot.bankCashDeltaCents,
     0,
     "Card purchases must not debit bank cash",
+  );
+  assert.deepEqual(
+    [...rows.expenses.map((row) => row.valor_total)].sort((a, b) => a - b),
+    [...expectedSelected.map((purchase) => purchase.amountCents)].sort(
+      (a, b) => a - b,
+    ),
+    "Selected expense cents differ from exact fixture subset",
+  );
+  assert.equal(rows.receipts.length, 0, "Unexpected financial receipts");
+  assert.equal(
+    rows.rateioAllocations.length,
+    0,
+    "Unexpected rateio allocations",
+  );
+  assert.equal(
+    rows.settlements.length,
+    0,
+    "Unexpected cross-project settlements",
+  );
+  assert.equal(
+    rows.budgetAllocations.length,
+    0,
+    "Unexpected budget allocations",
+  );
+  assert.equal(
+    rows.merchantCategories.length,
+    0,
+    "Unexpected newly learned merchant categories",
   );
   assert.equal(
     rows.expenses.length,
@@ -478,13 +555,32 @@ function checkReceipt(config, session, rows) {
     config.count,
     "Duplicate fixture purchase imported",
   );
+  assert.deepEqual(
+    [...titles].sort(),
+    expectedSelected.map((purchase) => purchase.title).sort(),
+    "Selected expense titles differ from exact fixture subset",
+  );
   const total = rows.expenses.reduce((sum, row) => sum + row.valor_total, 0);
+  const expectedTotal = expectedSelected.reduce(
+    (sum, purchase) => sum + purchase.amountCents,
+    0,
+  );
+  assert.equal(total, expectedTotal, "Exact selected economic total differs");
   assert.equal(
     receipt.snapshot.createdEconomicTotalCents,
     total,
     "Receipt economic total differs",
   );
   const cashIds = receipt.items.flatMap((item) => item.cashFlowEntryIds);
+  assert(
+    receipt.items.every((item) => item.cashFlowEntryIds.length === 1),
+    "Each selected expense must link exactly one cash-flow entry",
+  );
+  assert.equal(
+    rows.cashFlows.length,
+    config.count,
+    "Unexpected selected cash-flow entry count",
+  );
   assert.equal(
     new Set(cashIds).size,
     cashIds.length,
@@ -499,9 +595,111 @@ function checkReceipt(config, session, rows) {
     rows.cashFlows.every((row) => expenseIds.includes(row.expense_id)),
     "Cash flow linked to an unexpected expense",
   );
+  assert.deepEqual(
+    receipt.auditItems,
+    [
+      {
+        observationId: receipt.auditItems?.[0]?.observationId,
+        outcome: "IGNORED",
+        reason: "INVOICE_PAYMENT",
+        title: expected.ignoredPaymentRow,
+        amountCents: expected.ignoredPaymentAmountCents,
+      },
+    ],
+    "Ignored invoice payment audit differs",
+  );
+  const ignoredObservationId = receipt.auditItems[0].observationId;
+  assert(
+    typeof ignoredObservationId === "string" && ignoredObservationId.length > 0,
+    "Ignored audit observation identity missing",
+  );
+  const ignoredObservations = query(
+    config.db,
+    `SELECT id FROM import_observations WHERE id=${literal(ignoredObservationId)}
+    AND tenant_id=${literal(session.tenant_id)} AND owner_project_id=${literal(session.owner_project_id)}`,
+  );
+  assert.equal(
+    ignoredObservations.length,
+    1,
+    "Ignored payment observation must exist exactly once",
+  );
+  if (expectedRemaining.length === 0) {
+    assert.equal(
+      receipt.continuationSessionId,
+      null,
+      "Fully selected fixture must not create continuation",
+    );
+  } else {
+    assert(
+      typeof receipt.continuationSessionId === "string",
+      "Selected subset must create continuation",
+    );
+    const continuationRows = query(
+      config.db,
+      `SELECT id, tenant_id, owner_user_id, owner_project_id, draft_json
+      FROM import_sessions WHERE id=${literal(receipt.continuationSessionId)}`,
+    );
+    assert.equal(continuationRows.length, 1, "Continuation session missing");
+    const continuation = continuationRows[0];
+    for (const key of ["tenant_id", "owner_user_id", "owner_project_id"])
+      assert.equal(
+        continuation[key],
+        session[key],
+        "Continuation ownership mismatch",
+      );
+    const draft = JSON.parse(continuation.draft_json);
+    assert.deepEqual(
+      draft.lines?.map((line) => ({
+        title: line.titulo,
+        amountCents: line.amountCents,
+      })),
+      expectedRemaining.map((purchase) => ({
+        title: purchase.title,
+        amountCents: purchase.amountCents,
+      })),
+      "Continuation lines differ from stable remaining fixture order",
+    );
+    assert.deepEqual(
+      draft.selectedLineIds,
+      draft.lines.map((line) => line.id),
+      "Every remaining continuation line must be selected in stable order",
+    );
+    const continuationObservationIds = draft.scope?.observationIds;
+    assert(
+      Array.isArray(continuationObservationIds),
+      "Continuation observation scope missing",
+    );
+    assert.equal(
+      continuationObservationIds.length,
+      expectedRemaining.length,
+      "Continuation observation count differs",
+    );
+    assert(
+      !continuationObservationIds.includes(ignoredObservationId),
+      "Ignored payment leaked into continuation scope",
+    );
+    assert.deepEqual(
+      [...new Set(draft.lines.flatMap((line) => line.observationIds))].sort(),
+      [...continuationObservationIds].sort(),
+      "Continuation line observations differ from continuation scope",
+    );
+  }
   return {
     expenseCount: rows.expenses.length,
+    expenseAmountsCents: rows.expenses
+      .map((row) => row.valor_total)
+      .sort((a, b) => a - b),
+    cashFlowCount: rows.cashFlows.length,
     totalCents: total,
+    bankCashDeltaCents: receipt.snapshot.bankCashDeltaCents,
+    ignoredAuditCount: receipt.auditItems.length,
+    forbiddenMutationCounts: {
+      receipts: rows.receipts.length,
+      rateioAllocations: rows.rateioAllocations.length,
+      crossProjectSettlements: rows.settlements.length,
+      budgetAllocations: rows.budgetAllocations.length,
+      merchantCategories: rows.merchantCategories.length,
+    },
     receiptLineIds: lineIds,
     continuationSessionId: receipt.continuationSessionId ?? null,
   };

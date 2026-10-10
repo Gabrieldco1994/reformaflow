@@ -7,6 +7,7 @@ import type {
 export interface CsvExpected {
   purchases: { title: string; amountCents: number; date: string }[];
   ignoredPaymentRow: string;
+  ignoredPaymentAmountCents: number;
   declarations: {
     invoiceDueMonth: string;
     amountMeaning: string;

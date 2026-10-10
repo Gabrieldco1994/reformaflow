@@ -95,10 +95,12 @@ function Schedule({
 export function ImportProposalCard({
   sessionId,
   onRemoveSelected,
+  onOpenContinuation,
   selectionPending = false,
 }: {
   sessionId: string;
   onRemoveSelected?: (lineId: string) => void;
+  onOpenContinuation?: (sessionId: string) => void;
   selectionPending?: boolean;
 }) {
   const workflow = useImportExecution(sessionId);
@@ -173,7 +175,7 @@ export function ImportProposalCard({
           />
         ))}
       {receipt ? (
-        <ImportReceipt view={receipt} />
+        <ImportReceipt view={receipt} onOpenContinuation={onOpenContinuation} />
       ) : (
         proposal &&
         catalog && (

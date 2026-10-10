@@ -368,8 +368,11 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   explícitos de data/tipo e declarações documentais guardam apenas a informação
   revisada, sem interpretação pela IA. A gravação financeira exige uma confirmação
   separada no resumo; repetir uma execução concluída devolve o mesmo recibo.
-  Sessões podem ser retomadas após recarregar. Trocar de conta limpa a seleção
-  e o contexto privado anterior. Não envie senha de PDF à Maria.
+  Se a resposta da aplicação se perder, a tela consulta o estado guardado antes
+  de permitir qualquer nova ação. O recibo de um lote parcial oferece **Ver
+  rascunho restante**, que abre as compras ainda não aplicadas já selecionadas.
+  Sessões podem ser retomadas após recarregar. Trocar de conta limpa a seleção e
+  o contexto privado anterior. Não envie senha de PDF à Maria.
 - Mostra abertura proativa com leitura do mês atual.
 - No cockpit mensal, o CTA **"Ver detalhes"** dos cards de "Maria percebeu" abre
   a mesma tela **Maria** do projeto, para aprofundar o insight.

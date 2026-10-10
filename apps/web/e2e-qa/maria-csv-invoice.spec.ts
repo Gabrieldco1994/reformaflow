@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
 import {
   isPendingImportQuestion,
@@ -32,6 +34,34 @@ import {
 
 const apiURL = process.env.API_URL!;
 const fixtures = path.resolve(__dirname, "fixtures");
+const execFileAsync = promisify(execFile);
+
+async function assertDisposableInventory(
+  sessionId: string,
+  selectedLineIds: string[],
+) {
+  const db = process.env.QA_DB_PATH;
+  expect(
+    db,
+    "Real Maria QA must run against disposable QA_DB_PATH",
+  ).toBeTruthy();
+  const script = path.resolve(
+    __dirname,
+    "../../../scripts/qa/maria-csv-assert.mjs",
+  );
+  await execFileAsync(process.execPath, [
+    script,
+    "post-confirm",
+    "--db",
+    db!,
+    "--session",
+    sessionId,
+    "--selected-ids",
+    selectedLineIds.join(","),
+    "--purge-wait-ms",
+    "30000",
+  ]);
+}
 
 async function dismissJourney(page: Page) {
   const close = page.getByRole("button", {
@@ -60,7 +90,7 @@ for (const phase of ["upload", "confirmation"] as const) {
   test(
     phase === "upload"
       ? "real signup → visible Maria → CSV consent/dedupe/analysis → reload with no expenses"
-      : "real signup → Maria CSV → explicit subset confirmation → persistent receipt",
+      : "real signup → Maria CSV → lost execute response → authorized APPLIED recovery with exact inventory",
     async ({ page }, info) => {
       const evidence = new JourneyEvidence(page, info);
       let primaryFailure: { error: unknown } | null = null;
@@ -550,7 +580,32 @@ for (const phase of ["upload", "confirmation"] as const) {
         await assertTouchable(confirm);
         await noExpenses();
         await evidence.capture("review-exact-subset-no-financial-writes");
+        let executeRequests = 0;
+        let executeCommitted = false;
+        await page.route(
+          (url) => url.pathname === `/import-sessions/${sessionId}/execute`,
+          async (route) => {
+            executeRequests++;
+            const committed = await route.fetch();
+            expect(
+              committed.status(),
+              "The server must commit execute before its browser response is lost",
+            ).toBe(200);
+            executeCommitted = true;
+            await route.abort("failed");
+          },
+        );
+        const recoveredRead = page.waitForResponse(
+          (response) =>
+            executeCommitted &&
+            response.request().method() === "GET" &&
+            new URL(response.url()).pathname ===
+              `/import-sessions/${sessionId}` &&
+            response.ok(),
+          { timeout: 120_000 },
+        );
         await confirm.click();
+        await recoveredRead;
         const receipt = page.getByTestId("import-receipt");
         await expect(receipt).toBeVisible();
         await expect(
@@ -575,9 +630,73 @@ for (const phase of ["upload", "confirmation"] as const) {
         expect(terminal.cardId).toBe(card.id);
         expect(terminal.state).toBe("APPLIED");
         expect(terminal.receipt).toBeTruthy();
+        expect(executeRequests).toBe(1);
         expect(
           terminal.receipt!.items.map((item) => item.sourceExpenseId).sort(),
         ).toEqual(applied.items.map((item) => item.id).sort());
+        expect(terminal.receipt!.items).toHaveLength(2);
+        expect(terminal.receipt!.snapshot.createdEconomicTotalCents).toBe(
+          19134,
+        );
+        const auditedReceipt = terminal.receipt as typeof terminal.receipt & {
+          auditItems: Array<{
+            observationId: string;
+            outcome: string;
+            reason: string;
+            title: string;
+            amountCents: number | null;
+          }>;
+        };
+        expect(auditedReceipt.auditItems).toEqual([
+          {
+            observationId: expect.any(String),
+            outcome: "IGNORED",
+            reason: "INVOICE_PAYMENT",
+            title: expected.ignoredPaymentRow,
+            amountCents: expected.ignoredPaymentAmountCents,
+          },
+        ]);
+        const continuationSessionId = terminal.receipt!.continuationSessionId;
+        expect(continuationSessionId).toEqual(expect.any(String));
+        const continuation = (await get(
+          `/import-sessions/${continuationSessionId}`,
+        )) as ImportSessionViewV1;
+        const remaining = expected.purchases.slice(2);
+        expect(continuation.lines.map((line) => line.titulo)).toEqual(
+          remaining.map((purchase) => purchase.title),
+        );
+        expect(continuation.lines.map((line) => line.amountCents)).toEqual(
+          remaining.map((purchase) => purchase.amountCents),
+        );
+        expect(continuation.selectedLineIds).toEqual(
+          continuation.lines.map((line) => line.id),
+        );
+        const continuationObservations = (await get(
+          `/import-sessions/${continuationSessionId}/observations`,
+        )) as {
+          items: Array<{
+            id: string;
+            text: string;
+            ignoredReason?: string | null;
+          }>;
+        };
+        expect(continuationObservations.items).toHaveLength(3);
+        expect(
+          continuationObservations.items.every(
+            (observation) =>
+              !Object.hasOwn(observation, "ignoredReason") ||
+              observation.ignoredReason === null,
+          ),
+        ).toBe(true);
+        expect(
+          continuationObservations.items.map((observation) => observation.id),
+        ).not.toContain(auditedReceipt.auditItems[0].observationId);
+        const continuationAction = receipt.getByRole("button", {
+          name: "Ver rascunho restante",
+          exact: true,
+        });
+        await expect(continuationAction).toBeVisible();
+        await assertTouchable(continuationAction);
         await assertReadableMoney(receipt, true);
         await evidence.capture("confirmed-receipt-two-purchases");
 
@@ -597,6 +716,7 @@ for (const phase of ["upload", "confirmation"] as const) {
         await expect(receipt).toBeVisible();
         expect((await view()).state).toBe("APPLIED");
         expect((await view()).receipt).toEqual(terminal.receipt);
+        expect(executeRequests).toBe(1);
         await expect(picker).toHaveCount(0);
         await expect(
           page.getByRole("button", {
@@ -606,8 +726,26 @@ for (const phase of ["upload", "confirmation"] as const) {
         expect((await expenses()).items.map((item) => item.id).sort()).toEqual(
           applied.items.map((item) => item.id).sort(),
         );
+        await assertDisposableInventory(sessionId, selectedIds);
+        expect(executeRequests).toBe(1);
         await assertReadableMoney(receipt, true);
         await evidence.capture("terminal-receipt-persists-no-reupload");
+        await continuationAction.click();
+        await expect(page).toHaveURL(
+          new RegExp(
+            `/projects/${projectId}/maria\\?importSessionId=${continuationSessionId}$`,
+          ),
+        );
+        await expect
+          .poll(async () => {
+            const current = (await get(
+              `/import-sessions/${continuationSessionId}`,
+            )) as ImportSessionViewV1;
+            return current.selectedLineIds;
+          })
+          .toEqual(continuation.lines.map((line) => line.id));
+        expect(executeRequests).toBe(1);
+        await evidence.capture("continuation-opens-selected-remaining-draft");
       } catch (error) {
         primaryFailure = { error };
         throw error;

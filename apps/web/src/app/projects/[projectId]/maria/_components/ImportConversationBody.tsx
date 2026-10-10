@@ -90,6 +90,14 @@ function Conversation({
   const receipt = conversation.result?.receipt
     ? buildReceiptView(conversation.result.receipt, names)
     : null;
+  const openContinuation = useCallback(
+    (continuationSessionId: string) => {
+      router.replace(
+        `/projects/${encodeURIComponent(projectId)}/maria?importSessionId=${encodeURIComponent(continuationSessionId)}`,
+      );
+    },
+    [projectId, router],
+  );
   const onIgnoredCountChange = useCallback(
     (count: number) => setIgnoredCount(count),
     [],
@@ -476,13 +484,16 @@ function Conversation({
         {conversation.review && !documents.error && (
           <ImportProposalCard
             sessionId={sessionId}
+            onOpenContinuation={openContinuation}
             selectionPending={
               busy || Boolean(error) || Boolean(documents.error)
             }
             onRemoveSelected={(id) => void conversation.removeFromSelection(id)}
           />
         )}
-        {receipt && <ImportReceipt view={receipt} />}
+        {receipt && (
+          <ImportReceipt view={receipt} onOpenContinuation={openContinuation} />
+        )}
         {conversation.result && !receipt && (
           <p role="status">
             Esta importação ainda não tem comprovante disponível.
