@@ -271,9 +271,15 @@ test("migration failure never executes API and releases unchanged lock", async (
     await first.ready();
     await first.stop();
     const before = f.snapshotVault();
+    // Prisma creates missing parents, so an absent directory is NOT a failure
+    // fixture. A regular-file parent forces ENOTDIR without touching the valid DB.
+    writeFileSync(
+      join(f.dir, "migration-failure-parent"),
+      "synthetic-not-a-directory",
+    );
     const failed = await f.start({
       ...ON,
-      DATABASE_URL: "file:/absent-synthetic-directory/test.db",
+      DATABASE_URL: "file:/data/migration-failure-parent/test.db",
     });
     await until(() => !failed.running(), "migration failure exit");
     assert.notEqual(failed.exitCode(), 0);
@@ -282,98 +288,86 @@ test("migration failure never executes API and releases unchanged lock", async (
     assert.deepEqual(f.snapshotVault(), before);
     assert.equal(f.tryLock(), "ACQUIRED");
   });
+});
 
-  const faultMount = () => [
-    "--mount",
-    `type=bind,src=${resolve("deploy/vault-startup/test/fault-preload.cjs")},dst=/qa/fault.cjs,readonly`,
-  ];
-  test("test-derived runtime missing flock fails explicitly before migration/API", async () => {
-    await withImageFixture(async (f) => {
-      const api = await f.start(
-        ON,
-        ["--entrypoint", "bash"],
-        ["-c", "rm /usr/bin/flock; exec /entrypoint.sh"],
-      );
-      assert.match(await api.failed(), /FLOCK_MISSING/);
-    });
+const faultMount = () => [
+  "--mount",
+  `type=bind,src=${resolve("deploy/vault-startup/test/fault-preload.cjs")},dst=/qa/fault.cjs,readonly`,
+];
+test("test-derived runtime missing flock fails explicitly before migration/API", async () => {
+  await withImageFixture(async (f) => {
+    const api = await f.start(
+      ON,
+      ["--entrypoint", "bash"],
+      ["-c", "rm /usr/bin/flock; exec /entrypoint.sh"],
+    );
+    assert.match(await api.failed(), /FLOCK_MISSING/);
   });
-  test("simultaneous first starts use a creation barrier and keep a single lock inode", async () => {
-    await withImageFixture(async (f) => {
-      const settings = {
+});
+test("simultaneous first starts use a creation barrier and keep a single lock inode", async () => {
+  await withImageFixture(async (f) => {
+    const settings = {
+      ...ON,
+      NODE_OPTIONS: "--require=/qa/fault.cjs",
+      QA_STARTUP_FAULT: "first-start",
+    };
+    const first = await f.start(settings, faultMount());
+    const second = await f.start(settings, faultMount());
+    await until(
+      () =>
+        [first, second].every((api) => api.logs().includes("QA_BEFORE_CREATE")),
+      "creation barrier",
+    );
+    writeFileSync(join(f.dir, "qa-release"), "synthetic");
+    await until(
+      () => [first, second].some((api) => !api.running()),
+      "single bounded loser",
+    );
+    const winner = first.running() ? first : second;
+    const loser = first.running() ? second : first;
+    await winner.ready();
+    assert.match(await loser.failed(), /LOCK_COLLISION/);
+    winner.assertLockProof();
+    assert.equal(f.tryLock(), "COLLISION");
+  });
+});
+test("missing lock between provision and open is not recreated", async () => {
+  await withImageFixture(async (f) => {
+    const api = await f.start(
+      {
         ...ON,
         NODE_OPTIONS: "--require=/qa/fault.cjs",
-        QA_STARTUP_FAULT: "first-start",
-      };
-      const first = await f.start(settings, faultMount());
-      const second = await f.start(settings, faultMount());
-      await until(
-        () =>
-          [first, second].every((api) =>
-            api.logs().includes("QA_BEFORE_CREATE"),
-          ),
-        "creation barrier",
-      );
-      writeFileSync(join(f.dir, "qa-release"), "synthetic");
-      await until(
-        () => [first, second].some((api) => !api.running()),
-        "single bounded loser",
-      );
-      const winner = first.running() ? first : second;
-      const loser = first.running() ? second : first;
-      await winner.ready();
-      assert.match(await loser.failed(), /LOCK_COLLISION/);
-      winner.assertLockProof();
-      assert.equal(f.tryLock(), "COLLISION");
-    });
+        QA_STARTUP_FAULT: "missing-lock",
+      },
+      faultMount(),
+    );
+    await until(() => api.logs().includes("QA_PREPARED"), "provision barrier");
+    rmSync(join(f.vault, ".lock"));
+    const before = f.snapshotVault();
+    writeFileSync(join(f.dir, "qa-release"), "synthetic");
+    assert.match(await api.failed(), /LOCK_OPEN_FAILED/);
+    assert.deepEqual(f.snapshotVault(), before);
   });
-  test("missing lock between provision and open is not recreated", async () => {
+});
+for (const fault of ["closed-fd", "fsync", "statfs", "timeout"]) {
+  test(`actual requested-ON gate ${fault} failure cannot listen`, async () => {
     await withImageFixture(async (f) => {
       const api = await f.start(
         {
           ...ON,
           NODE_OPTIONS: "--require=/qa/fault.cjs",
-          QA_STARTUP_FAULT: "missing-lock",
+          QA_STARTUP_FAULT: fault,
         },
         faultMount(),
       );
-      await until(
-        () => api.logs().includes("QA_PREPARED"),
-        "provision barrier",
-      );
-      rmSync(join(f.vault, ".lock"));
-      const before = f.snapshotVault();
-      writeFileSync(join(f.dir, "qa-release"), "synthetic");
-      assert.match(await api.failed(), /LOCK_OPEN_FAILED/);
-      assert.deepEqual(f.snapshotVault(), before);
+      await until(() => !api.running(), "actual gate failure must exit", 15000);
+      assert.notEqual(api.exitCode(), 0);
+      assert.match(api.logs(), /vault_startup_gate[\s\S]*?"state": "OFF"/);
+      assert.doesNotMatch(api.logs(), /Nest application successfully started/);
+      assert.equal(f.tryLock(), "ACQUIRED");
     });
   });
-  for (const fault of ["closed-fd", "fsync", "statfs", "timeout"]) {
-    test(`actual requested-ON gate ${fault} failure cannot listen`, async () => {
-      await withImageFixture(async (f) => {
-        const api = await f.start(
-          {
-            ...ON,
-            NODE_OPTIONS: "--require=/qa/fault.cjs",
-            QA_STARTUP_FAULT: fault,
-          },
-          faultMount(),
-        );
-        await until(
-          () => !api.running(),
-          "actual gate failure must exit",
-          15000,
-        );
-        assert.notEqual(api.exitCode(), 0);
-        assert.match(api.logs(), /vault_startup_gate[\s\S]*?"state": "OFF"/);
-        assert.doesNotMatch(
-          api.logs(),
-          /Nest application successfully started/,
-        );
-        assert.equal(f.tryLock(), "ACQUIRED");
-      });
-    });
-  }
-});
+}
 
 test("actual image contains util-linux flock; ON refuses image layer and tmpfs /data", async () => {
   assert.match(
