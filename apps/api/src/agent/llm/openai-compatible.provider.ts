@@ -126,7 +126,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     if (!this.isConfigured()) throw new ServiceUnavailableException();
     const body: Record<string, unknown> = {
       model: this.model,
-      temperature: 0.2,
+      temperature: options ? 0 : 0.2,
       messages: messages.map((m) => this.toOpenAiMessage(m)),
     };
     if (tools.length > 0) {
@@ -138,7 +138,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
           parameters: t.parameters,
         },
       }));
-      body["tool_choice"] = "auto";
+      body["tool_choice"] = options ? "required" : "auto";
     }
 
     const headers: Record<string, string> = {

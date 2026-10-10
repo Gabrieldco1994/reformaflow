@@ -91,11 +91,11 @@ jobs:
           tar --zstd -xf "$RUNNER_TEMP/ollama.tar.zst" -C "$dest"
           rm -f "$RUNNER_TEMP/ollama.tar.zst"
           "$dest/bin/ollama" --version
-      - name: Start loopback Ollama, pull qwen2.5:3b and prove real inference
-        # Provider env (set by boot.sh): AGENT_LLM_PROVIDER=ollama, AGENT_MODEL=qwen2.5:3b,
+      - name: Start loopback Ollama, pull qwen2.5:7b and prove real inference
+        # Provider env (set by boot.sh): AGENT_LLM_PROVIDER=ollama, AGENT_MODEL=qwen2.5:7b,
         # OLLAMA_BASE_URL=http://127.0.0.1:11434/v1; fallback/hosted keys unset. Synthetic only.
         # Any failure here fails the job; there is no skip or fallback path.
-        timeout-minutes: 12
+        timeout-minutes: 15
         run: |
           bash scripts/qa/maria-csv-boot.sh ollama
           bash scripts/qa/maria-csv-boot.sh wait-ollama
