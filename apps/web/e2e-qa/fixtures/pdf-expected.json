@@ -1,4 +1,10 @@
 {
+  "positiveDateEvidence": "Every purchase/payment row includes /2026; invoice header alone is insufficient",
+  "noYearNegative": {
+    "fileName": "no-year-invoice.pdf",
+    "preparationBlocker": "SEARCH_IDENTITY_UNAVAILABLE",
+    "regressionTest": "apps/api/src/imports/import-session/documentary-coalescing.integration.spec.ts"
+  },
   "purchases": [
     {
       "title": "MERCADO SINTETICO",
