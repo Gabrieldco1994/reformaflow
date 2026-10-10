@@ -85,6 +85,10 @@ export class PdfEvidence {
   }
   async capture(name: string) {
     await fs.mkdir(this.directory, { recursive: true });
+    await fs.writeFile(
+      path.join(this.directory, `${this.step + 1}-${name}-page.json`),
+      JSON.stringify({ url: this.page.url(), title: await this.page.title() }),
+    );
     await this.page.screenshot({
       path: path.join(this.directory, `${++this.step}-${name}.png`),
       fullPage: true,
@@ -109,6 +113,35 @@ export class PdfEvidence {
   ) {
     const started = Date.now();
     const pending = this.page.waitForResponse(matches, { timeout: 120_000 });
+    const observed: {
+      kind: string;
+      path: string;
+      status?: number;
+      turn?: unknown;
+    }[] = [];
+    const onRequest = (request: import("@playwright/test").Request) => {
+      if (
+        request.method() !== "POST" ||
+        safePath(request.url()) !== "/agent/chat"
+      )
+        return;
+      observed.push({
+        kind: "request",
+        path: safePath(request.url()),
+        turn: request.postDataJSON()?.importTurn,
+      });
+    };
+    const onResponse = (response: Response) => {
+      if (safePath(response.url()) === "/agent/chat")
+        observed.push({
+          kind: "response",
+          path: safePath(response.url()),
+          status: response.status(),
+          turn: response.request().postDataJSON()?.importTurn,
+        });
+    };
+    this.page.on("request", onRequest);
+    this.page.on("response", onResponse);
     const artifact = path.join(
       this.directory,
       `${++this.step}-${name}-response.json`,
@@ -130,6 +163,7 @@ export class PdfEvidence {
             {
               transportBudgetMs: 120_000,
               elapsedMs: Date.now() - started,
+              observed,
               path: safePath(response.url()),
               status: response.status(),
               body,
@@ -177,6 +211,9 @@ export class PdfEvidence {
         ),
       );
       throw error;
+    } finally {
+      this.page.off("request", onRequest);
+      this.page.off("response", onResponse);
     }
   }
   async finalize(primary: unknown) {
@@ -321,7 +358,7 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
         id: string;
         titulo: string;
         valor: number;
-        creditCardId: string | null;
+        cardLast4: string | null;
       }[];
     }>(`/projects/${projectId}/expenses?pageSize=2000`);
   const noFinance = async () => {

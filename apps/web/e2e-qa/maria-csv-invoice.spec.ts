@@ -81,7 +81,7 @@ for (const phase of ["upload", "confirmation"] as const) {
           id: string;
           titulo: string;
           valor: number;
-          creditCardId: string | null;
+          cardLast4: string | null;
         }[];
       }> => get(`/projects/${projectId}/expenses?pageSize=2000`);
       const noExpenses = async () => {
@@ -528,15 +528,19 @@ for (const phase of ["upload", "confirmation"] as const) {
           [...chosen].sort(),
         );
         expect(new Set(applied.items.map((item) => item.id)).size).toBe(2);
-        expect(
-          applied.items.every((item) => item.creditCardId === card.id),
-        ).toBe(true);
+        expect(applied.items.every((item) => item.cardLast4 === "4242")).toBe(
+          true,
+        );
         expect(applied.items.reduce((sum, item) => sum + item.valor, 0)).toBe(
           selectedTotal,
         );
         const terminal = await view();
+        expect(terminal.cardId).toBe(card.id);
         expect(terminal.state).toBe("APPLIED");
         expect(terminal.receipt).toBeTruthy();
+        expect(
+          terminal.receipt!.items.map((item) => item.sourceExpenseId).sort(),
+        ).toEqual(applied.items.map((item) => item.id).sort());
         await assertReadableMoney(receipt, true);
         await evidence.capture("confirmed-receipt-two-purchases");
 

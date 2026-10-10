@@ -322,12 +322,14 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
       20697,
     );
     expect(new Set(applied.items.map((item) => item.id)).size).toBe(2);
-    expect(
-      applied.items.every((item) => item.creditCardId === journey.card.id),
-    ).toBe(true);
+    expect(applied.items.every((item) => item.cardLast4 === "4242")).toBe(true);
     const terminal = await view();
+    expect(terminal.cardId).toBe(journey.card.id);
     expect(terminal.state).toBe("APPLIED");
     expect(terminal.receipt).toBeTruthy();
+    expect(
+      terminal.receipt!.items.map((item) => item.sourceExpenseId).sort(),
+    ).toEqual(applied.items.map((item) => item.id).sort());
     await assertReadableMoney(receipt, true);
     await evidence.capture("two-exact-pdf-purchases-receipt");
     await page.reload();
