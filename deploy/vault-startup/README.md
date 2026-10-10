@@ -128,6 +128,22 @@ Fly kill grace and operation deadlines. The image tests' 1 MiB threshold is
 SRE's suggested headroom 512 MiB, idle 300000 ms and drain 5000 ms remain
 PO-approval-pending recommendations only; none are production defaults here.
 
+## Canonical deploy command preparation
+
+The existing serialized `deploy-api` command now selects `--strategy immediate
+--ha=false --update-only`: replace existing machines without rolling overlap or
+automatic HA creation. Full-SHA stale-run checks, serialization, machine/release
+identity checks and HTTP contracts are unchanged. Release contract tests assert
+the exact argv and reject removal of each safeguard or a strategy change; the
+entrypoint contract reads the tracked shell copied by Docker, not obsolete inline
+Dockerfile text.
+
+These flags are **not proof of process non-overlap** and do not authorize a
+deploy. SRE must observe machine/process lifecycle during a separately authorized
+operation; quiescence, backup, migration disposition and PO-approved downtime
+remain prerequisites. No deployment, vault activation or financial change is
+performed by this preparation.
+
 The Linux cleanup trap unmounts only its unique loopback mount, removes only its
 unique backing image, then `rmdir`s the mountpoint/runtime. Fixture content lives
 on the mounted image, so it is not present beneath the mountpoint after unmount.
