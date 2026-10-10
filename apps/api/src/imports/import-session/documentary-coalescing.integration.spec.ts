@@ -33,6 +33,8 @@ import {
 } from "./import-session-ui-grant";
 import { ImportUiGuard } from "./import-session-ui.guard";
 import { documentaryAnswerScope } from "./import-session.native-answer";
+import { parseStoredImportObservationEvidence } from "./import-session.observation";
+import { ImportSessionController } from "./import-session.controller";
 import type { UiImportGrantScope } from "./import-session.contract";
 import { ImportUploadService } from "./vault/import-upload.service";
 import { VaultFdRegistry } from "./vault/vault-fd-registry";
@@ -41,12 +43,19 @@ import { PurgeCoordinator } from "./vault/vault-purger";
 import type { VaultBootHandle, VaultRuntime } from "./vault/vault-boot";
 
 /** Synthetic textual bytes only; no parser result, original identity or draft is seeded. */
-function invoice(): Buffer {
-  const text = [
-    "Fatura",
-    "01/09 LOJA FICTICIA NORTE 1.234,56",
-    "02/09 PAGAMENTO DE FATURA -1.234,56",
-  ];
+function invoice(documentedYear = false): Buffer {
+  const text = documentedYear
+    ? [
+        "Fatura",
+        "01/09/2025 LOJA FICTICIA NORTE 1.234,56",
+        "01/09/2025 LOJA FICTICIA NORTE 1.234,56",
+        "02/09/2025 PAGAMENTO DE FATURA -2.469,12",
+      ]
+    : [
+        "Fatura",
+        "01/09 LOJA FICTICIA NORTE 1.234,56",
+        "02/09 PAGAMENTO DE FATURA -1.234,56",
+      ];
   const body = text
     .map((line, i) => `BT /F1 12 Tf 50 ${750 - i * 20} Td (${line}) Tj ET`)
     .join("\n");
@@ -88,11 +97,13 @@ describe("real upload → materialization → native documentary coalescing → 
     await prisma.$disconnect();
   });
 
-  it.each(["PDF", "CSV"] as const)(
+  it.each(["PDF", "CSV", "PDF_DOCUMENTED_YEAR"] as const)(
     "%s: native facts retire duplicate tasks without gaining financial authority",
     async (format) => {
       expect(process.env.DATABASE_URL).toMatch(/test(?:-worker-\d+)?\.db/);
       await prisma.$connect();
+      const documentedYear = format === "PDF_DOCUMENTED_YEAR";
+      const documentFormat = documentedYear ? "PDF" : format;
       const tenantId = (
         await prisma.tenant.create({ data: { name: "native coalescing" } })
       ).id;
@@ -216,6 +227,12 @@ describe("real upload → materialization → native documentary coalescing → 
         gate,
         raw,
       );
+      const controller = new ImportSessionController(
+        sessions,
+        issuer,
+        capability,
+        workflow,
+      );
       const counts = async (): Promise<number[]> =>
         Promise.all([
           prisma.expense.count({ where: { tenantId } }),
@@ -283,8 +300,8 @@ describe("real upload → materialization → native documentary coalescing → 
           )
         ).view;
         const bytes =
-          format === "PDF"
-            ? invoice()
+          documentFormat === "PDF"
+            ? invoice(documentedYear)
             : Buffer.from(
                 "date,title,amount\n2025-09-01,LOJA FICTICIA NORTE,1234.56\n2025-09-02,PAGAMENTO DE FATURA,-1234.56\n",
               );
@@ -297,9 +314,9 @@ describe("real upload → materialization → native documentary coalescing → 
             files: [
               {
                 id: attachmentId,
-                fileName: `invoice.${format.toLowerCase()}`,
+                fileName: `invoice.${documentFormat.toLowerCase()}`,
                 declaredBytes: bytes.length,
-                mime: format === "PDF" ? "application/pdf" : "text/csv",
+                mime: documentFormat === "PDF" ? "application/pdf" : "text/csv",
               },
             ],
           },
@@ -334,6 +351,223 @@ describe("real upload → materialization → native documentary coalescing → 
             expectedRevision: view.revision,
           }),
         );
+        if (documentedYear) {
+          expect(view.lines).toHaveLength(2);
+          const originals = await prisma.importObservation.findMany({
+            where: { tenantId },
+            orderBy: { reference: "asc" },
+          });
+          expect(originals).toHaveLength(3);
+          const evidence = originals.map((row) =>
+            parseStoredImportObservationEvidence(row.evidenceJson),
+          );
+          expect(
+            evidence.map((row) => ({
+              date: row.dataCompra,
+              cents: row.amountCents,
+              ordinal: row.identity.ordinal,
+            })),
+          ).toEqual([
+            { date: "2025-09-01", cents: 123456, ordinal: 0 },
+            { date: "2025-09-01", cents: 123456, ordinal: 1 },
+            { date: "2025-09-02", cents: -246912, ordinal: 0 },
+          ]);
+          expect(
+            view.questions.filter(
+              (q) => q.field === "dataCompra" && isPendingImportQuestion(q),
+            ),
+          ).toEqual([]);
+          for (let i = 0; i < 2; i++)
+            await answer("amountMeaning", "total da compra");
+          for (let i = 0; i < 2; i++) await answer("installmentCount", "1");
+          for (let i = 0; i < 2; i++) await answer("installmentIndex", "1");
+          expect(
+            view.lines.map((line) => ({
+              date: line.dataCompra,
+              cents: line.amountCents,
+              meaning: line.amountMeaning,
+              decision: line.decision.kind,
+            })),
+          ).toEqual([
+            {
+              date: "2025-09-01",
+              cents: 123456,
+              meaning: "TOTAL_PURCHASE",
+              decision: "UNRESOLVED",
+            },
+            {
+              date: "2025-09-01",
+              cents: 123456,
+              meaning: "TOTAL_PURCHASE",
+              decision: "UNRESOLVED",
+            },
+          ]);
+          const immutable = async () =>
+            (
+              await prisma.importObservation.findMany({
+                where: { tenantId },
+                orderBy: { reference: "asc" },
+              })
+            ).map((row) => ({
+              id: row.id,
+              reference: row.reference,
+              evidenceJson: row.evidenceJson,
+            }));
+          const originalEvidence = originals.map((row) => ({
+            id: row.id,
+            reference: row.reference,
+            evidenceJson: row.evidenceJson,
+          }));
+          expect(await immutable()).toEqual(originalEvidence);
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0]);
+          const paymentPage = await sessions.getObservations(auth, view.id);
+          const payment = paymentPage.items.filter(
+            (o) => o.ignoredReason === "INVOICE_PAYMENT",
+          );
+          expect(payment).toHaveLength(1);
+          expect(payment[0].amountCents).toBe(-246912);
+          expect(
+            view.lines.flatMap((line) => line.observationIds),
+          ).not.toContain(payment[0].id);
+          // Dedicated native draft action, never conversational/model permission.
+          view = await controller.edit(auth, view.id, {
+            expectedRevision: view.revision,
+            questionId: null,
+            selectedLineIds: view.lines.map((line) => line.id),
+            replaceLines: view.lines.map((line) => ({
+              ...line,
+              firstDueDate: "2026-10-10",
+              tipoDespesa: ExpenseType.OUTROS,
+              targets: [],
+              decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+            })),
+          });
+          view = await controller.prepare(auth, view.id, {
+            expectedRevision: view.revision,
+          });
+          expect(view.state).toBe("READY");
+          expect(
+            view.reviewBlockers.some(
+              (b) => b.resolution === "SEARCH_IDENTITY_UNAVAILABLE",
+            ),
+          ).toBe(false);
+          expect(await immutable()).toEqual(originalEvidence);
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0]);
+          const ready = view;
+          const proposalHash = ready.proposal!.proposalHash;
+          const financialRequest = () => {
+            const fresh = {
+              headers: { ...request.headers },
+              user: { ...request.user },
+            };
+            const freshContext = {
+              switchToHttp: () => ({ getRequest: () => fresh }),
+            } as ExecutionContext;
+            new ImportAuthGuard().canActivate(freshContext);
+            ui.canActivate(freshContext);
+            return { request: fresh, auth: readImportAuthForRequest(fresh) };
+          };
+          const challengeRequest = financialRequest();
+          const challenge = await controller.challenge(
+            challengeRequest.request as never,
+            challengeRequest.auth,
+            ready.id,
+            {
+              expectedRevision: ready.revision,
+              proposalHash,
+            },
+          );
+          const confirmation = {
+            expectedRevision: ready.revision,
+            proposalHash,
+            financialRequestId: randomUUID(),
+            nonce: challenge.nonce,
+          };
+          const confirmRequest = financialRequest();
+          await controller.confirm(
+            confirmRequest.request as never,
+            confirmRequest.auth,
+            ready.id,
+            confirmation,
+          );
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0]);
+          const execute = () => {
+            const executeRequest = financialRequest();
+            return controller.execute(
+              executeRequest.request as never,
+              executeRequest.auth,
+              ready.id,
+              {
+                financialRequestId: confirmation.financialRequestId,
+              },
+            );
+          };
+          const receipt = await execute();
+          expect(receipt.items).toHaveLength(2);
+          expect(receipt.snapshot.createdEconomicTotalCents).toBe(246912);
+          const confirmReplayRequest = financialRequest();
+          await controller.confirm(
+            confirmReplayRequest.request as never,
+            confirmReplayRequest.auth,
+            ready.id,
+            confirmation,
+          );
+          expect(await execute()).toEqual(receipt);
+          expect(await counts()).toEqual([2, 2, 0, 0, 0, 0]);
+          const expenses = await prisma.expense.findMany({
+            where: { tenantId },
+            orderBy: { externalId: "asc" },
+          });
+          expect(expenses.map((expense) => expense.valorTotal)).toEqual([
+            123456, 123456,
+          ]);
+          // Native planned purchases bind immutable observations to distinct
+          // canonical IDs; legacy imported-ledger externalId is not that contract.
+          expect(new Set(expenses.map((expense) => expense.id)).size).toBe(2);
+          const flows = await prisma.cashFlowEntry.findMany({
+            where: { tenantId },
+          });
+          expect(
+            flows.map((flow) => ({
+              cents: flow.valor,
+              date: flow.data.toISOString().slice(0, 10),
+              status: flow.status,
+              tipo: flow.tipo,
+            })),
+          ).toEqual(
+            Array.from({ length: 2 }, () => ({
+              cents: 123456,
+              date: "2026-10-10",
+              status: "PLANEJADO",
+              tipo: "DESPESA",
+            })),
+          );
+          expect(new Set(flows.map((flow) => flow.expenseId))).toEqual(
+            new Set(expenses.map((expense) => expense.id)),
+          );
+          expect(await immutable()).toEqual(originalEvidence);
+          const claimedPurchases = await prisma.importObservation.findMany({
+            where: { tenantId, canonicalExpenseId: { not: null } },
+          });
+          expect(claimedPurchases).toHaveLength(2);
+          expect(
+            new Set(claimedPurchases.map((row) => row.canonicalExpenseId)),
+          ).toEqual(new Set(expenses.map((expense) => expense.id)));
+          const ignored = await prisma.importObservation.findUniqueOrThrow({
+            where: { id: payment[0].id },
+          });
+          expect(ignored).toMatchObject({
+            canonicalExpenseId: null,
+            canonicalReceiptId: null,
+            claimSessionId: null,
+            claimedAt: null,
+          });
+          const terminal = await sessions.getSession(auth, ready.id);
+          expect(terminal.state).toBe("APPLIED");
+          expect(terminal.receipt).toEqual(receipt);
+          expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+          return;
+        }
         expect(view.lines).toHaveLength(1);
         const evidenceBefore = await prisma.importObservation.findMany({
           where: { tenantId },
@@ -504,6 +738,11 @@ describe("real upload → materialization → native documentary coalescing → 
         await registry.shutdown(1000);
         rmSync(root, { recursive: true, force: true });
         await prisma.$transaction(async (tx) => {
+          if (documentedYear) {
+            await tx.cashFlowEntry.deleteMany({ where: { tenantId } });
+            await tx.importObservation.deleteMany({ where: { tenantId } });
+            await tx.expense.deleteMany({ where: { tenantId } });
+          }
           await tx.importSessionArtifact.deleteMany({ where: { tenantId } });
           await tx.importObservation.deleteMany({ where: { tenantId } });
           await tx.importSession.deleteMany({ where: { tenantId } });
