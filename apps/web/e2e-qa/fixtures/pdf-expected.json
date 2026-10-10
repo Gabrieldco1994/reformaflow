@@ -1,0 +1,28 @@
+{
+  "purchases": [
+    {
+      "title": "MERCADO SINTETICO",
+      "amountCents": 20696,
+      "date": "2026-09-01"
+    },
+    { "title": "CAFE TESTE", "amountCents": 1, "date": "2026-09-02" },
+    {
+      "title": "LIVRARIA FICTICIA",
+      "amountCents": 150000,
+      "date": "2026-09-03"
+    },
+    { "title": "OFICINA DEMO", "amountCents": 2069600, "date": "2026-09-04" },
+    { "title": "FARMACIA TESTE", "amountCents": 8743, "date": "2026-09-05" }
+  ],
+  "ignoredPaymentRow": "PAGAMENTO DE FATURA",
+  "purchaseTotalCents": 2249040,
+  "selectedTotalCents": 20697,
+  "declarations": {
+    "invoiceDueMonth": "2026-10",
+    "amountMeaning": "TOTAL_PURCHASE",
+    "installmentCount": 1,
+    "firstDueDate": "2026-10-10",
+    "decision": "CREATE_NEW",
+    "purpose": "Personal purchase; no cross-project allocation"
+  }
+}

@@ -1,10 +1,14 @@
-name: Maria CSV private-vault QA
+name: Maria CSV + textual PDF private-vault QA
 
 on:
   workflow_dispatch:
   # Dispatch is unavailable until this workflow is on the default branch.
   push:
-    branches: [feat/maria-conversational-csv-20261009]
+    branches:
+      [
+        feat/maria-conversational-csv-20261009,
+        feat/maria-pdf-integration-20261010,
+      ]
     paths:
       - .github/workflows/maria-csv-vault-qa.yml
       - scripts/qa/**
@@ -12,6 +16,11 @@ on:
       - apps/web/playwright.qa.config.ts
       - apps/web/src/app/projects/**/maria/**
       - apps/api/src/imports/**
+      - apps/api/src/credit-card/parsers/**
+      - apps/api/src/agent/**
+      - apps/api/package.json
+      - apps/api/nest-cli.json
+      - packages/domain/src/import-*.ts
       - packages/domain/src/import-session.ts
 
 permissions:
@@ -20,14 +29,14 @@ permissions:
 jobs:
   maria-csv-vault:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
-      CI: '1'
+      CI: "1"
       TZ: UTC
       API_URL: http://127.0.0.1:3011
       WEB_URL: http://127.0.0.1:3010
       NEXT_PUBLIC_API_URL: http://127.0.0.1:3011
-      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -113,8 +122,14 @@ jobs:
           bash scripts/qa/maria-csv-boot.sh wait-api
           bash scripts/qa/maria-csv-boot.sh wait-web
           bash scripts/qa/maria-csv-boot.sh gate
-      - name: Run real Maria CSV browser journey
-        run: npx playwright test -c apps/web/playwright.qa.config.ts
+      - name: Typecheck and list mandatory live CSV + PDF journeys
+        run: |
+          cd apps/web
+          npx tsc --noEmit
+          npx playwright test -c playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts --list
+      - name: Run mandatory real Maria CSV + PDF journeys at all three viewports
+        timeout-minutes: 45
+        run: npx playwright test -c apps/web/playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts
       - name: Stop owned QA servers
         if: always() && env.QA_RUNTIME_DIR != ''
         run: bash scripts/qa/maria-csv-boot.sh stop
