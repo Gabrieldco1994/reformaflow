@@ -57,6 +57,52 @@ const auditItem = {
 };
 
 describe("immutable import receipt audit", () => {
+  it.each([2, 4])(
+    "keeps historical APPLIED receipts with %s destinations readable",
+    (targetCount) => {
+      const targets = Array.from({ length: targetCount }, (_, index) => ({
+        projectId: `project-${index}`,
+        amountCents: index === targetCount - 1 ? 12345 - 1000 * index : 1000,
+      }));
+      const targetExpenseIds = targets.map(
+        (_, index) => `target-expense-${index}`,
+      );
+      const receipt = {
+        ...validReceipt,
+        items: [
+          {
+            ...validReceipt.items[0],
+            targetExpenseIds,
+            allocationIds: targets.map((_, index) => `allocation-${index}`),
+          },
+        ],
+        snapshot: {
+          ...validReceipt.snapshot,
+          lines: [
+            {
+              ...validReceipt.snapshot.lines[0],
+              targets,
+            },
+          ],
+          participantProjectIds: [
+            "owner",
+            ...targets.map(({ projectId }) => projectId),
+          ].sort(),
+        },
+      };
+
+      expect(
+        parseReceipt(JSON.stringify(receipt), "session", "owner"),
+      ).toMatchObject({
+        auditItems: [],
+        items: [{ targetExpenseIds }],
+        snapshot: {
+          lines: [{ targets }],
+        },
+      });
+    },
+  );
+
   it("accepts historical receipts without audit as an empty list", () => {
     expect(
       parseReceipt(JSON.stringify(validReceipt), "session", "owner").auditItems,

@@ -25,6 +25,7 @@ import {
   ImportSessionAttachmentState,
   ImportSessionErrorCode as Code,
   ImportSessionState as State,
+  isZeroOrOneIntegralImportTargetSet,
   type ImportSessionChallengeRequestV1,
   type ImportSessionChallengeResponseV1,
   type ImportSessionConfirmRequestV1,
@@ -266,6 +267,14 @@ function editRequest(body: unknown): ImportSessionEditRequestV1 {
     if (error instanceof ImportSessionCorruptStateError) throw invalid();
     throw error;
   }
+  if (
+    replacements.lines.some(
+      (line) =>
+        line.targets !== null &&
+        !isZeroOrOneIntegralImportTargetSet(line.targets, line.amountCents),
+    )
+  )
+    throw invalid();
   return {
     ...parseRevisionRequest({ expectedRevision: value.expectedRevision }),
     questionId: value.questionId,

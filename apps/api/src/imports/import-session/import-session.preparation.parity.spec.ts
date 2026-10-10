@@ -16,6 +16,7 @@ import {
 } from "./import-session.preparation";
 import { ImportSessionCorruptStateError } from "./import-session.errors";
 import { validateProposal } from "./import-session.validation";
+import { parseStoredDraft } from "./import-session.projection";
 
 const expiresAt = new Date("2026-10-13T15:00:00.000Z");
 const session = {
@@ -142,7 +143,128 @@ function proposalBody(): ProposalBody {
   };
 }
 
+function historicalTargetAmounts(count: number): number[] {
+  const base = Math.floor(12345 / count);
+  return Array.from({ length: count }, (_, index) =>
+    index === count - 1 ? 12345 - base * (count - 1) : base,
+  );
+}
+
+function targetSchedule(amountCents: number) {
+  return {
+    version: 1 as const,
+    occurrences: [
+      {
+        index: 0,
+        data: "2026-10-10",
+        valor: amountCents,
+        parcela: null,
+        invoiceDueMonth: "2026-10",
+      },
+    ],
+  };
+}
+
 describe("import preparation parity", () => {
+  it.each([2, 4])(
+    "keeps historical v1 drafts and proposals with %s destinations readable",
+    (targetCount) => {
+      const targets = historicalTargetAmounts(targetCount).map(
+        (amountCents, index) => ({
+          projectId: `historical-project-${index}`,
+          roomId: null,
+          amountCents,
+        }),
+      );
+      const draft: ImportSessionStoredDraftV1 = {
+        version: 1,
+        lines: [
+          {
+            ...line("line-selected", "obs-selected"),
+            targets,
+          },
+        ],
+        selectedLineIds: ["line-selected"],
+        questions: [],
+        scope: {
+          observationIds: ["obs-selected"],
+          pendingAttachmentIds: [],
+        },
+      };
+      expect(parseStoredDraft(JSON.stringify(draft)).lines[0].targets).toEqual(
+        targets,
+      );
+
+      const historicalProposal = {
+        ...proposalBody(),
+        proposalHash: "a".repeat(64),
+        lines: [
+          {
+            ...proposalBody().lines[0],
+            targets: targets.map((target) => ({
+              ...target,
+              schedule: targetSchedule(target.amountCents),
+            })),
+          },
+        ],
+        deferredObservationIds: [],
+        deferredAttachmentIds: [],
+        retainUntil: null,
+      };
+      expect(
+        validateProposal(historicalProposal, session.id, null).lines[0],
+      ).toMatchObject({ targets });
+    },
+  );
+
+  it("rejects a new multi-destination preparation while preserving historical parsing", () => {
+    const targets = historicalTargetAmounts(2).map((amountCents, index) => ({
+      projectId: `new-project-${index}`,
+      roomId: null,
+      amountCents,
+    }));
+    const draft: ImportSessionStoredDraftV1 = {
+      version: 1,
+      lines: [
+        {
+          ...line("line-selected", "obs-selected"),
+          targets,
+        },
+      ],
+      selectedLineIds: ["line-selected"],
+      questions: [],
+      scope: {
+        observationIds: ["obs-selected"],
+        pendingAttachmentIds: [],
+      },
+    };
+    const plannedLine = proposalBody().lines[0];
+    if (!plannedLine || plannedLine.kind !== "CREATE")
+      throw new Error("Invalid proposal fixture");
+    const body: ProposalBody = {
+      ...proposalBody(),
+      lines: [
+        {
+          ...plannedLine,
+          targets: targets.map((target) => ({
+            ...target,
+            schedule: targetSchedule(target.amountCents),
+          })),
+        },
+      ],
+    };
+
+    expect(() =>
+      buildImportPreparationPlan({
+        session,
+        draft,
+        proposalBody: body,
+        observations: [observation("obs-selected")],
+        references: [reference()],
+      }),
+    ).toThrow(ImportSessionCorruptStateError);
+  });
+
   it("keeps terminal invoice payments out of continuation and preselects remaining mapped rows deterministically", () => {
     const draft: ImportSessionStoredDraftV1 = {
       version: 1,

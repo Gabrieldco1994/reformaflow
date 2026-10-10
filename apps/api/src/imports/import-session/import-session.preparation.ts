@@ -13,6 +13,7 @@ import {
   ImportSessionArtifactState,
   ImportSessionAttachmentState,
   ImportSessionErrorCode,
+  isZeroOrOneIntegralImportTargetSet,
   type ImportSessionProposalV1,
   type ImportSessionStoredDraftV1,
 } from "@reformaflow/domain";
@@ -363,6 +364,14 @@ export function buildImportPreparationPlan(input: {
       ),
     ),
   );
+  if (
+    proposal.lines.some(
+      (line) =>
+        line.kind === "CREATE" &&
+        !isZeroOrOneIntegralImportTargetSet(line.targets, line.totalCents),
+    )
+  )
+    throw corrupt();
   assertProposalDraftReferences(proposal, draft);
 
   let sources = 0;

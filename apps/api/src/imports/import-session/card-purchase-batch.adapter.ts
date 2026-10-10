@@ -21,6 +21,7 @@ import {
   ImportSessionAmountMeaning,
   ImportSessionAttachmentState,
   ImportSessionErrorCode,
+  isZeroOrOneIntegralImportTargetSet,
   PaymentForm,
   ProjectType,
   resolveInstallmentIndex,
@@ -948,8 +949,7 @@ export class CardPurchaseBatchAdapter implements CardPurchaseBatchPort {
         ask(line, "categoriaMaoDeObra");
       if (
         line.targets === null ||
-        line.targets.length > 1 ||
-        line.targets.some((target) => target.amountCents !== line.amountCents)
+        !isZeroOrOneIntegralImportTargetSet(line.targets, line.amountCents)
       )
         ask(line, "targets");
       const strongMatch =

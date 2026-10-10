@@ -60,7 +60,8 @@ export const IMPORT_SESSION_LIMITS = Object.freeze({
   editableLines: 100,
   selectedLines: 10,
   installmentsPerPurchase: 24,
-  targetsPerPurchase: 1,
+  /** Wire-v1 compatibility bound; new mutations/preparations enforce the invariant below. */
+  targetsPerPurchase: 4,
   expandedCFEsPerBatch: 240,
   financialAndCoordinationWritesPerBatch: 512,
   matchingRowsVisitedPerPreparation: 5000,
@@ -185,6 +186,18 @@ export interface ImportSessionTargetInputV1 {
   projectId: ImportSessionId;
   roomId: ImportSessionId | null;
   amountCents: ImportSessionCents;
+}
+export const IMPORT_SESSION_NEW_INTEGRAL_TARGET_LIMIT = 1 as const;
+/** New mutations/preparations allow no destination or one destination for the full purchase. */
+export function isZeroOrOneIntegralImportTargetSet(
+  targets: readonly Pick<ImportSessionTargetInputV1, "amountCents">[],
+  totalCents: ImportSessionCents | null,
+): boolean {
+  return (
+    targets.length <= IMPORT_SESSION_NEW_INTEGRAL_TARGET_LIMIT &&
+    (targets.length === 0 ||
+      (totalCents !== null && targets[0]?.amountCents === totalCents))
+  );
 }
 export type ImportSessionDecisionV1 =
   | { kind: "UNRESOLVED" }
