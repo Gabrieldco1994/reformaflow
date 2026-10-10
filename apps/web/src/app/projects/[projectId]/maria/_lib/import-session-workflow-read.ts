@@ -1,6 +1,7 @@
 import {
   ExpenseType,
   LaborCategory,
+  IMPORT_NO_ELIGIBLE_PURCHASES,
   IMPORT_SESSION_KIND,
   IMPORT_SESSION_LIMITS as L,
   IMPORT_SESSION_PRIMITIVES as P,
@@ -762,6 +763,7 @@ export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
       "confirmation",
       "receipt",
       "actions",
+      ...(Object.hasOwn(value, "analysisOutcome") ? ["analysisOutcome"] : []),
     ]) ||
     value.version !== VERSION ||
     !id(value.id) ||
@@ -911,6 +913,14 @@ export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
     receipt,
     actions: value.actions,
   };
+  if (Object.hasOwn(value, "analysisOutcome")) {
+    if (
+      value.analysisOutcome !== null &&
+      value.analysisOutcome !== IMPORT_NO_ELIGIBLE_PURCHASES
+    )
+      return invalid();
+    view.analysisOutcome = value.analysisOutcome;
+  }
   if (receipt) assertWorkflowReceipt(receipt, view);
   return view;
 }

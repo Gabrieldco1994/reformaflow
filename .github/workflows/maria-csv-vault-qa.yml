@@ -10,6 +10,9 @@ on:
       - scripts/qa/**
       - apps/web/e2e-qa/**
       - apps/web/playwright.qa.config.ts
+      - apps/web/src/app/projects/**/maria/**
+      - apps/api/src/imports/**
+      - packages/domain/src/import-session.ts
 
 permissions:
   contents: read
