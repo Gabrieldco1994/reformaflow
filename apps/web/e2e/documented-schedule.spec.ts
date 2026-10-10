@@ -155,9 +155,15 @@ for (const width of [375, 390, 1280]) {
       .locator("../../..");
     await expect(purchaseRow.getByText(/R\$\s*100,01/)).toBeVisible();
     await expect(lastPurchaseRow.getByText(/R\$\s*100,03/)).toBeVisible();
+    // Status é financeiro: o servidor responde 409 para documentado, então a
+    // pílula fica desabilitada (mantendo o alvo de toque de 44×44).
     const status = purchaseRow.getByTitle(
-      "Clique para alternar entre Planejado e Pago",
+      "Cronograma documentado: valores, datas e status não são alterados por aqui.",
     );
+    await expect(status).toBeDisabled();
+    await expect(
+      purchaseRow.getByRole("button", { name: "Excluir", exact: true }),
+    ).toBeDisabled();
     const statusBox = await status.boundingBox();
     expect(statusBox?.width).toBeGreaterThanOrEqual(44);
     expect(statusBox?.height).toBeGreaterThanOrEqual(44);

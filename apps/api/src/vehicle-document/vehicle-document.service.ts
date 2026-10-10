@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { VehicleDocument } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveUploadsRoots } from '../common/uploads-roots';
 import {
   CreateVehicleDocumentDto,
   UpdateVehicleDocumentDto,
@@ -47,17 +48,10 @@ function hasExpectedSignature(mimeType: string, buffer: Buffer): boolean {
   return false;
 }
 
-const PRIVATE_UPLOADS_ROOT = (() => {
-  const raw = process.env['PRIVATE_UPLOADS_DIR'];
-  if (raw) return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
-  const publicRaw = process.env['UPLOADS_DIR'];
-  const publicRoot = publicRaw
-    ? path.isAbsolute(publicRaw)
-      ? publicRaw
-      : path.join(process.cwd(), publicRaw)
-    : path.join(process.cwd(), 'uploads');
-  return path.join(path.dirname(publicRoot), 'private-uploads');
-})();
+const PRIVATE_UPLOADS_ROOT = resolveUploadsRoots(
+  process.env,
+  process.cwd(),
+).privateDir;
 const UPLOADS_DIR = path.join(PRIVATE_UPLOADS_ROOT, 'vehicle-documents');
 
 function parseDateOnlyUtc(value: string): Date {

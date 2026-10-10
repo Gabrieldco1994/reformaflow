@@ -45,11 +45,12 @@ it('upgrades the SAME legacy database after a restorable backup, without inline 
     await db.$executeRawUnsafe(`INSERT INTO bank_statement_imports
       (id, account_id, tenant_id, period_label, source, inserted, total_amount_cents, updated_at)
       VALUES ('upgrade-690-import', 'upgrade-690-account', 'upgrade-690-tenant', '2026-08', 'OFX', 1, 12345, 1)`);
-    await db.expense.create({ data: {
-      id: 'upgrade-690-expense', tenantId: 'upgrade-690-tenant', projectId: 'upgrade-690-project',
-      tipoDespesa: 'OUTROS', valor: 12345, valorTotal: 12345, formaPagamento: 'A_VISTA', status: 'PAGO',
-      bankLast4: '0690', importId: 'upgrade-690-import', externalId: 'legacy',
-    }, select: { id: true } });
+    await db.$executeRaw`INSERT INTO expenses
+      (id, tenant_id, project_id, tipo_despesa, valor, valor_total, forma_pagamento, status,
+       bank_last4, import_id, external_id, updated_at)
+      VALUES (${'upgrade-690-expense'}, ${'upgrade-690-tenant'}, ${'upgrade-690-project'},
+       ${'OUTROS'}, ${12345}, ${12345}, ${'A_VISTA'}, ${'PAGO'},
+       ${'0690'}, ${'upgrade-690-import'}, ${'legacy'}, ${new Date(1)})`;
     const before = await db.$queryRawUnsafe<Array<Record<string, unknown>>>('SELECT * FROM bank_statement_imports');
     const beforeExpenses = await db.$queryRaw`SELECT * FROM expenses`;
     await db.$disconnect();

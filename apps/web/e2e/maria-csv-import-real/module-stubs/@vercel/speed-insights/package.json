@@ -1,0 +1,7 @@
+{
+  "name": "@vercel/speed-insights",
+  "private": true,
+  "exports": {
+    "./next": "./next.js"
+  }
+}

@@ -1,6 +1,18 @@
 import { buildInstallments, type InstallmentInput } from "@reformaflow/domain";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 
+/**
+ * `buildInstallments` devolve o dia-calendário financeiro como Date à meia-noite
+ * UTC. Formatar o Date direto usaria getDate() local (19/09 em BRT para
+ * 2026-09-20). Convertemos para a string ISO canônica, que `formatDateBR`
+ * preserva sem aplicar timezone (política de datas).
+ */
+function occurrenceDateLabel(date: Date): string {
+  return Number.isNaN(date.getTime())
+    ? formatDateBR(null)
+    : formatDateBR(date.toISOString().slice(0, 10));
+}
+
 export function DocumentedSchedule({
   expense,
 }: {
@@ -38,7 +50,7 @@ export function DocumentedSchedule({
                 {occurrence.parcela
                   ? `Parcela ${occurrence.parcela}`
                   : "Lançamento"}{" "}
-                · {formatDateBR(occurrence.data)}
+                · {occurrenceDateLabel(occurrence.data)}
               </p>
               {occurrence.invoiceDueMonth && (
                 <p className="text-xs text-darc-velvet/70">

@@ -6,6 +6,8 @@ import { api } from '@/lib/api';
 import type { Expense, ExpenseFormData } from '@/types';
 import type { ExpenseType } from '@reformaflow/domain';
 import { type InlineNewRow, makeEmptyNewRow } from '../_types';
+import { canDeleteExpense, expenseUpdatePayload } from '../_lib/credit-policy';
+import { assertNoDocumentedSchedule, isDocumentedScheduleConflict } from '../_lib/documented-schedule-policy';
 
 /**
  * Conjunto canônico de queries a invalidar após QUALQUER mutação de despesa
@@ -16,6 +18,8 @@ import { type InlineNewRow, makeEmptyNewRow } from '../_types';
  */
 export function invalidateExpenseQueries(queryClient: QueryClient, projectId: string) {
   queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
+  // Detalhe da despesa (`['expense', owner, id]`): é de onde a Conta lê `canDelete` de créditos.
+  queryClient.invalidateQueries({ queryKey: ['expense', projectId] });
   queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
   queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
   queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', projectId] });
@@ -130,10 +134,16 @@ export function useExpenseMutations({
     return exp?.project?.id ?? exp?.projectId ?? projectId;
   };
 
-  const requireLegacyFinancialEdit = (ids: string[]) => {
-    if (allExpensesPersonal.some((expense) => ids.includes(expense.id) && expense.schedule)) {
-      throw new Error('Cronograma documentado: alterações financeiras precisam de correção assistida.');
-    }
+  // Política compartilhada (`_lib/documented-schedule-policy`): falha ANTES de
+  // qualquer request quando o conjunto inclui um cronograma documentado.
+  const requireLegacyFinancialEdit = (ids: string[]) =>
+    assertNoDocumentedSchedule(allExpensesPersonal, ids);
+
+  // O servidor é a autoridade (409 para documentado concorrente/estado defasado).
+  // Recarrega as listas para exibir o estado atual — sem prometer atomicidade de
+  // lote: em bulk sequencial, escritas anteriores ao 409 já foram aplicadas.
+  const refreshOnConflict = (error: unknown) => {
+    if (isDocumentedScheduleConflict(error)) invalidate();
   };
 
   const createMutation = useMutation({
@@ -153,7 +163,13 @@ export function useExpenseMutations({
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<ExpenseFormData> }) =>
-      api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, data),
+      api.patch(
+        `/projects/${resolveOwnerProjectId(id)}/expenses/${id}`,
+        expenseUpdatePayload(
+          allExpensesPersonal.find((expense) => expense.id === id),
+          data,
+        ),
+      ),
     onSuccess: () => {
       toast.success('Despesa atualizada com sucesso');
       invalidate();
@@ -161,18 +177,26 @@ export function useExpenseMutations({
     },
     onError: (e: Error) => {
       console.error('[expenses] update failed', e);
+      refreshOnConflict(e);
       toast.error(`Erro ao salvar despesa: ${e.message}`);
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`),
+    mutationFn: (id: string) => {
+      requireLegacyFinancialEdit([id]);
+      const expense = allExpensesPersonal.find((item) => item.id === id);
+      if (expense && !canDeleteExpense(expense)) throw new Error('Exclusão indisponível para este lançamento.');
+      return api.delete(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`);
+    },
     onSuccess: () => {
       toast.success('Despesa excluída com sucesso');
       invalidate();
     },
     onError: (e: Error) => {
       console.error('[expenses] delete failed', e);
+      // A capacidade (`canDelete`) e o guard documentado (409) podem ter mudado no servidor: releia em vez de confiar no cache.
+      invalidate();
       toast.error(`Erro ao excluir despesa: ${e.message}`);
     },
   });
@@ -192,22 +216,28 @@ export function useExpenseMutations({
 
   // Toggle rápido de status (PAGO ↔ PLANEJADO)
   const toggleStatusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: 'PAGO' | 'PLANEJADO' }) =>
-      api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { status }),
+    mutationFn: ({ id, status }: { id: string; status: 'PAGO' | 'PLANEJADO' }) => {
+      requireLegacyFinancialEdit([id]);
+      return api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { status });
+    },
     onSuccess: invalidate,
     onError: (e: Error) => {
       console.error('[expenses] toggle status failed', e);
+      refreshOnConflict(e);
       toast.error(`Erro ao alterar status: ${e.message}`);
     },
   });
 
   // Toggle de status de UMA parcela específica (quinzena/parcela individual)
   const toggleParcelaMutation = useMutation({
-    mutationFn: ({ id, parcela, paid }: { id: string; parcela: number; paid: boolean }) =>
-      api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}/parcela`, { parcela, paid }),
+    mutationFn: ({ id, parcela, paid }: { id: string; parcela: number; paid: boolean }) => {
+      requireLegacyFinancialEdit([id]);
+      return api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}/parcela`, { parcela, paid });
+    },
     onSuccess: invalidate,
     onError: (e: Error) => {
       console.error('[expenses] toggle parcela failed', e);
+      refreshOnConflict(e);
       toast.error(`Erro ao alterar parcela: ${e.message}`);
     },
   });
@@ -238,6 +268,7 @@ export function useExpenseMutations({
     },
     onError: (e: Error) => {
       console.error('[expenses] installment date update failed', e);
+      refreshOnConflict(e);
       toast.error(`Erro ao alterar data da parcela: ${e.message}`);
     },
   });
@@ -264,6 +295,7 @@ export function useExpenseMutations({
     onSuccess: invalidate,
     onError: (e: Error) => {
       console.error('[expenses] quick update failed', e);
+      refreshOnConflict(e);
       toast.error(`Erro ao atualizar: ${e.message}`);
     },
   });
@@ -275,6 +307,7 @@ export function useExpenseMutations({
     onSuccess: invalidate,
     onError: (e: Error) => {
       console.error('[expenses] change tipo failed', e);
+      refreshOnConflict(e);
       toast.error(`Erro ao alterar categoria: ${e.message}`);
     },
   });
@@ -310,12 +343,16 @@ export function useExpenseMutations({
     },
     onError: (e: Error) => {
       console.error('[expenses] bulk date failed', e);
+      refreshOnConflict(e);
       toast.error(`Erro ao alterar data: ${e.message}`);
     },
   });
 
   const bulkPaidMutation = useMutation({
     mutationFn: async ({ ids }: { ids: string[] }) => {
+      // Fail-before-write: um documentado no conjunto (mesmo no meio) aborta o
+      // lote inteiro ANTES do primeiro PATCH — sem escrita parcial conhecida.
+      requireLegacyFinancialEdit(ids);
       // Sequencial de propósito: SQLite serializa escritas e PATCHs concorrentes
       // (Promise.all) podem disparar "database is locked" → 500.
       // Despesas cross-project (alvo de OUTRO projeto exibido no PESSOAL) NÃO podem
@@ -346,6 +383,7 @@ export function useExpenseMutations({
     },
     onError: (e: Error) => {
       console.error('[expenses] bulk paid failed', e);
+      refreshOnConflict(e);
       toast.error(`Erro ao marcar como pago: ${e.message}`);
     },
   });

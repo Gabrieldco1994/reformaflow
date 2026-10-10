@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ExpenseController } from './expense.controller';
 import { ExpenseService } from './expense.service';
 import { PaidOriginsService } from './paid-origins.service';
+import { RefundPurposeService } from './refund-purpose.service';
 
 describe('ExpenseController — GET :id/rateio (contrato de rota + lente, #423)', () => {
   let controller: ExpenseController;
@@ -16,6 +17,7 @@ describe('ExpenseController — GET :id/rateio (contrato de rota + lente, #423)'
       providers: [
         { provide: ExpenseService, useValue: service },
         { provide: PaidOriginsService, useValue: { findForProject: jest.fn() } },
+        { provide: RefundPurposeService, useValue: { execute: jest.fn(), undo: jest.fn() } },
       ],
     }).compile();
     controller = mod.get(ExpenseController);

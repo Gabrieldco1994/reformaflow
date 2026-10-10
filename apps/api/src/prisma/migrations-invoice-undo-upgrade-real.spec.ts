@@ -583,7 +583,15 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
       expect(inline_expense_creations).toBeNull();
       return legacyImport;
     });
-    expect({ ...afterMigration, imports: legacyImports }).toEqual({
+    const legacyExpenses = afterMigration.expenses.map(({ refund_purpose_revision, ...expense }) => {
+      expect(refund_purpose_revision).toBe(0);
+      return expense;
+    });
+    const legacyAllocations = afterMigration.allocations.map(({ is_refund_credit, ...allocation }) => {
+      expect(is_refund_credit).toBe(false);
+      return allocation;
+    });
+    expect({ ...afterMigration, imports: legacyImports, expenses: legacyExpenses, allocations: legacyAllocations }).toEqual({
       ...beforeMigration,
       expenses: beforeMigration.expenses.map((row) => ({ ...row, documented_schedule: null })),
       entries: beforeMigration.entries.map((row) => ({ ...row, invoice_due_month: null })),

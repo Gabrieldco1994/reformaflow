@@ -6,6 +6,13 @@ import { knownCents, rateioWarningMessage } from '../_lib/rateio-partial';
 import { StatusBadge } from './StatusBadge';
 import type { RateioDetalhe } from '../_hooks/useRateioDetalhe';
 
+/**
+ * Total/Rateado/Sobra respondem à largura REAL do bloco (não ao viewport): abaixo de 24rem cada bloco ocupa
+ * a linha inteira (rótulo + valor empilhados); a partir dela dividem a mesma linha. É CSS puro: com o bloco
+ * estreito o `flex-basis` fica gigante e quebra a linha; com espaço vira negativo (0) e os três dividem.
+ */
+const SUMMARY_BLOCK = 'grow basis-[calc((24rem_-_100%)*999)]';
+
 interface Props {
   isLoading: boolean;
   isError: boolean;
@@ -70,20 +77,20 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-darc-velvet/50">Compra rateada</p>
 
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div>
+      <div className="flex flex-wrap gap-2 text-center">
+        <div className={SUMMARY_BLOCK}>
           <p className="text-[11px] uppercase tracking-wide text-darc-velvet/50">Total</p>
           <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-darc-velvet">
             {totalCents === null ? '—' : formatCurrency(totalCents / 100)}
           </p>
         </div>
-        <div>
+        <div className={SUMMARY_BLOCK}>
           <p className="text-[11px] uppercase tracking-wide text-darc-velvet/50">Rateado</p>
           <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-darc-velvet">
             {rateadoCents === null ? '—' : formatCurrency(rateadoCents / 100)}
           </p>
         </div>
-        <div>
+        <div className={SUMMARY_BLOCK}>
           <p className="text-[11px] uppercase tracking-wide text-darc-velvet/50">Sobra</p>
           <p
             className={`whitespace-nowrap text-sm font-semibold tabular-nums ${

@@ -15,6 +15,11 @@ import { FallbackLlmProvider } from './llm/fallback-llm.provider';
 import { LLM_PROVIDER, type LlmProvider } from './llm/llm.types';
 import { AgentChatThrottleGuard } from './agent-chat-throttle.guard';
 import { AgentDailyQuotaGuard } from './agent-daily-quota.guard';
+import { ImportSessionModule } from "../imports/import-session/import-session.module";
+import {
+  AGENT_ADMISSION_CLOCK,
+  SystemAgentAdmissionClock,
+} from './agent-admission-clock';
 
 /**
  * Monta o provider de LLM: principal (AGENT_LLM_PROVIDER) com fallback automático
@@ -38,6 +43,7 @@ export function buildLlmProvider(): LlmProvider {
 
 @Module({
   imports: [
+    ImportSessionModule,
     PrismaModule,
     TenantFinancialModule,
     ExpenseModule,
@@ -55,6 +61,10 @@ export function buildLlmProvider(): LlmProvider {
     AgentToolsService,
     AgentChatThrottleGuard,
     AgentDailyQuotaGuard,
+    {
+      provide: AGENT_ADMISSION_CLOCK,
+      useClass: SystemAgentAdmissionClock,
+    },
     { provide: LLM_PROVIDER, useFactory: buildLlmProvider },
   ],
 })

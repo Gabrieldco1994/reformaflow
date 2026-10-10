@@ -18,6 +18,12 @@ import { effectiveDate, expensePaymentTotals } from '../_lib/grouping-by-month';
 import { centsToReais, maskReaisInput, reaisToCents } from '../_lib/money';
 import { formatPaidOriginLabel } from '../_lib/paid-origin-label';
 import { BulkCheckbox } from './BulkDateSelection';
+import { canDeleteExpense, isExpenseCredit } from '../_lib/credit-policy';
+import {
+  DOCUMENTED_SCHEDULE_ACTION_TITLE,
+  DOCUMENTED_SCHEDULE_DELETE_TITLE,
+  isDocumentedScheduleExpense,
+} from '../_lib/documented-schedule-policy';
 
 interface Props {
   categorias: ExpenseCategoryGroup[];
@@ -126,7 +132,7 @@ function CategoryExpenseViewImpl({
                 </div>
 
                 <div className="text-right flex-shrink-0">
-                  <p className="font-bold text-darc-velvet tabular-nums text-sm">
+                  <p className="whitespace-nowrap font-bold text-darc-velvet tabular-nums text-sm">
                     {formatCurrency(cat.total / 100)}
                   </p>
                   <p className="text-[10px] text-darc-velvet/60 tabular-nums mt-0.5">
@@ -149,8 +155,10 @@ function CategoryExpenseViewImpl({
             {!collapsed && (
               <div className="divide-y divide-darc-linen border-t border-darc-linen">
                 {cat.expenses.map((e) => {
+                  const credit = isExpenseCredit(e);
                   const isEditing = editingId === e.id;
                   const isCopying = copyingId === e.id;
+                  const isDocumented = isDocumentedScheduleExpense(e);
                   const dateStr = effectiveDate(e) || '';
                   const parcelas = e.quantidadeParcela ?? 1;
                   const isInstallment =
@@ -169,6 +177,8 @@ function CategoryExpenseViewImpl({
                   return (
                     <div
                       key={e.id}
+                      role="group"
+                      aria-label={e.titulo || tipoLabel(e.tipoDespesa)}
                       className="px-4 py-2.5 hover:bg-darc-cream/30 transition-colors group"
                     >
                       {isCopying ? (
@@ -261,7 +271,7 @@ function CategoryExpenseViewImpl({
                         </div>
                       ) : (
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <BulkCheckbox id={e.id} />
+                          {!credit && <BulkCheckbox id={e.id} blocked={isDocumented} />}
                           <div className="flex-shrink-0 w-12 text-center">
                             {dateStr ? (
                               <p className="text-sm font-semibold text-darc-velvet tabular-nums">
@@ -277,16 +287,19 @@ function CategoryExpenseViewImpl({
                               {e.titulo || tipoLabel(e.tipoDespesa)}
                             </p>
                             <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                              {credit ? (
+                                <span className="text-[11px] text-emerald-700">Crédito</span>
+                              ) : (
                               <button
                                 type="button"
-                                disabled={hasFunding}
+                                disabled={hasFunding || isDocumented}
                                 onClick={(ev) => {
                                   ev.stopPropagation();
                                   const newStatusVal =
                                     e.status === 'PAGO' ? 'PLANEJADO' : 'PAGO';
                                   onToggleStatus(e.id, newStatusVal);
                                 }}
-                                className="inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                                className="inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-all hover:scale-105 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
                                 style={{
                                   backgroundColor:
                                     e.status === 'PAGO'
@@ -297,7 +310,11 @@ function CategoryExpenseViewImpl({
                                       ? 'rgb(22 101 52)'
                                       : 'rgb(146 64 14)',
                                 }}
-                                title="Clique para alternar entre Planejado e Pago"
+                                title={
+                                  isDocumented
+                                    ? DOCUMENTED_SCHEDULE_ACTION_TITLE
+                                    : 'Clique para alternar entre Planejado e Pago'
+                                }
                               >
                                 {e.status === 'PAGO' ? (
                                   <>
@@ -315,6 +332,7 @@ function CategoryExpenseViewImpl({
                                   </>
                                 )}
                               </button>
+                              )}
                               {e.fornecedor && (
                                 <span className="text-[10px] text-darc-velvet/50 truncate">
                                   {e.fornecedor}
@@ -352,6 +370,8 @@ function CategoryExpenseViewImpl({
                           </p>
 
                           <div className="flex items-center gap-0.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                            {!credit && (
+                              <>
                             <button
                               type="button"
                               onClick={() => {
@@ -371,6 +391,12 @@ function CategoryExpenseViewImpl({
                             <button
                               type="button"
                               onClick={() => {
+                                // Documentado: valor/data são financeiros — a edição
+                                // rápida vira o modal descritivo (mesma regra da Visão Mês).
+                                if (isDocumented) {
+                                  openEdit(e);
+                                  return;
+                                }
                                 setEditingId(e.id);
                                 setEditValor(centsToReais(e.valorTotal));
                                 setEditData((dateStr || '').slice(0, 10));
@@ -382,6 +408,8 @@ function CategoryExpenseViewImpl({
                             >
                               <Pencil className="w-3.5 h-3.5 text-darc-velvet/70" />
                             </button>
+                              </>
+                            )}
                             <button
                               type="button"
                               onClick={() => openEdit(e)}
@@ -391,14 +419,18 @@ function CategoryExpenseViewImpl({
                             >
                               <Pencil className="w-3.5 h-3.5 text-darc-velvet/40" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(e.id)}
-                              aria-label="Excluir"
-                              className="p-1.5 rounded-full hover:bg-darc-red-bright/10"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 text-darc-red" />
-                            </button>
+                            {canDeleteExpense(e) && (
+                              <button
+                                type="button"
+                                onClick={() => onDelete(e.id)}
+                                aria-label="Excluir"
+                                disabled={isDocumented}
+                                title={isDocumented ? DOCUMENTED_SCHEDULE_DELETE_TITLE : undefined}
+                                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full hover:bg-darc-red-bright/10 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-darc-red" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}

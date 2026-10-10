@@ -5,7 +5,7 @@ import type { Expense } from '@/types';
 import { MonthlyExpenseView } from './MonthlyExpenseView';
 
 describe('MonthlyExpenseView — edição de ocorrência parcelada', () => {
-  it('#701 renders documented labels but toggles local indices and opens metadata-only editing', () => {
+  it('#701 renders documented labels, blocks financial toggles and opens metadata-only editing', () => {
     const expense: Expense = {
       id: 'documented',
       tipoDespesa: 'OUTROS',
@@ -46,12 +46,15 @@ describe('MonthlyExpenseView — edição de ocorrência parcelada', () => {
     expect(screen.getByText('parcela 2/3')).toBeInTheDocument();
     expect(screen.getByText('parcela 3/3')).toBeInTheDocument();
     expect(screen.getByText(/-.*2,48/)).toBeInTheDocument();
-    const toggles = screen.getAllByTitle('Clique para alternar entre Planejado e Pago');
-    fireEvent.click(toggles[0]);
-    fireEvent.click(toggles[1]);
-    expect(onToggleParcela.mock.calls).toEqual([
-      ['documented', 0, true], ['documented', 1, true],
-    ]);
+    // Status por parcela é financeiro: o servidor responde 409 para documentado,
+    // então a visão não oferece o toggle (política #701).
+    const toggles = screen.getAllByRole('button', { name: /Planejado/ });
+    expect(toggles).toHaveLength(2);
+    for (const toggle of toggles) {
+      expect(toggle).toBeDisabled();
+      fireEvent.click(toggle);
+    }
+    expect(onToggleParcela).not.toHaveBeenCalled();
     fireEvent.click(screen.getAllByRole('button', { name: 'Editar rápido' })[1]);
     expect(openEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 'documented', schedule: expense.schedule }));
     expect(onQuickUpdate).not.toHaveBeenCalled();

@@ -8,6 +8,8 @@ import { api } from "@/lib/api";
 import type { RunwayCandidato } from "../../dre/_types";
 import { fmtMoney } from "./format";
 import { moneyGlance } from "@/lib/money";
+import { canDeleteExpense, rootIdentity } from "../../expenses/_lib/credit-policy";
+import { useExpenseRoot } from "../../expenses/_hooks/useExpenseRoot";
 
 type Action = "adiar" | "reduzir" | null;
 
@@ -39,7 +41,11 @@ function useRunwayMutations(projectId: string, candidato: RunwayCandidato) {
   const removerMutation = useMutation({
     mutationFn: () => api.delete(`/projects/${ownerProject}/expenses/${expenseId}`),
     onSuccess: () => { toast.success("Despesa removida"); invalidate(); },
-    onError: (e: Error) => toast.error(`Erro ao remover: ${e.message}`),
+    onError: (e: Error) => {
+      // A capacidade pode ter mudado no servidor: releia em vez de confiar no detalhe em cache.
+      qc.invalidateQueries({ queryKey: ["expense", ownerProject, expenseId] });
+      toast.error(`Erro ao remover: ${e.message}`);
+    },
   });
 
   return { adiarMutation, reduzirMutation, removerMutation };
@@ -59,19 +65,35 @@ function CandidatoRow({
   const [valorCents, setValorCents] = useState(c.valor);
   const { adiarMutation, reduzirMutation, removerMutation } = useRunwayMutations(projectId, c);
 
+  // Ações financeiras só para gasto a cortar: soma da janela > 0, raiz que não é crédito
+  // e sem cronograma documentado (#701). O valor é uma SOMA de ocorrências: não identifica
+  // a raiz. O detalhe real é lido sob demanda (no máximo as candidatas da sheet); enquanto
+  // carrega / em erro / sem corpo, as ações ficam restritas.
+  const cutCandidate = c.valor > 0 && c.expenseIsCredit !== true;
+  const root = useExpenseRoot(c.projetoOrigem?.id ?? projectId, c.expenseId, cutCandidate);
+  const rootCredit = rootIdentity(c.expenseIsCredit, root.expense) === "credit";
+  const documented = !!root.expense?.schedule;
+  const actionsAllowed = cutCandidate && root.status === "ready" && !rootCredit && !documented;
+  // Remover exige a capacidade real de exclusão do detalhe (não a do sinal/valor).
+  const removeAllowed = actionsAllowed && !!root.expense && canDeleteExpense(root.expense);
   const busy =
     adiarMutation.isPending || reduzirMutation.isPending || removerMutation.isPending;
 
-  const submit = async () => {
-    if (action === "adiar") await adiarMutation.mutateAsync(dateValue);
-    else if (action === "reduzir") await reduzirMutation.mutateAsync(valorCents);
-    setAction(null);
-    onDone();
+  // `mutate` (not `mutateAsync`): a rejection is consumed by the hook's `onError` (toast +
+  // refetch); only success closes the editor and the sheet.
+  const submit = () => {
+    const done = {
+      onSuccess: () => {
+        setAction(null);
+        onDone();
+      },
+    };
+    if (action === "adiar") adiarMutation.mutate(dateValue, done);
+    else if (action === "reduzir") reduzirMutation.mutate(valorCents, done);
   };
 
-  const remove = async () => {
-    await removerMutation.mutateAsync();
-    onDone();
+  const remove = () => {
+    removerMutation.mutate(undefined, { onSuccess: onDone });
   };
 
   return (
@@ -145,8 +167,25 @@ function CandidatoRow({
         </div>
       )}
 
+      {cutCandidate && root.status !== "ready" && root.status !== "error" && (
+        <p role="status" className="text-[11px] text-[var(--ck-muted)]">Verificando ações</p>
+      )}
+      {cutCandidate && root.status === "error" && (
+        <p role="alert" className="text-[11px] text-[var(--ck-muted)]">
+          Não foi possível verificar as ações.{" "}
+          <button type="button" onClick={root.retry} className="min-h-[44px] font-semibold underline">
+            Tentar novamente
+          </button>
+        </p>
+      )}
+      {cutCandidate && root.status === "ready" && documented && !rootCredit && (
+        <p className="text-[11px] text-[var(--ck-muted)]">
+          Cronograma documentado: alterações financeiras precisam de correção assistida.
+        </p>
+      )}
+
       {/* Action buttons */}
-      {!action && (
+      {!action && actionsAllowed && (
         <div className="flex gap-2">
           <button
             type="button"
@@ -166,15 +205,17 @@ function CandidatoRow({
             <Minus className="h-3.5 w-3.5" />
             Reduzir
           </button>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={busy}
-            aria-label="Remover despesa"
-            className="flex min-h-[44px] w-[44px] items-center justify-center rounded-xl border border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10 text-[var(--ck-neg)] disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {removeAllowed && (
+            <button
+              type="button"
+              onClick={remove}
+              disabled={busy}
+              aria-label="Remover despesa"
+              className="flex min-h-[44px] w-[44px] items-center justify-center rounded-xl border border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10 text-[var(--ck-neg)] disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       )}
     </li>

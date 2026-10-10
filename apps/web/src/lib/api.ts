@@ -24,6 +24,7 @@ interface RequestExtra {
   /** Timeout específico em ms (sobrepõe o default de 25s). Ex.: Copilot/LLM. */
   timeoutMs?: number;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 }
 
 export class ApiResponseError extends Error {
@@ -52,17 +53,31 @@ async function request<T>(
   extra?: RequestExtra,
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(),
-    extra?.timeoutMs ?? REQUEST_TIMEOUT_MS,
-  );
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+  const checkAbort = () => {
+    if (controller.signal.aborted) {
+      if (timedOut) throw new ApiTimeoutError();
+      throw new DOMException("Request cancelled", "AbortError");
+    }
+  };
+  if (extra?.signal?.aborted) abortFromCaller();
+  extra?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timer = setTimeout(() => {
+    if (!controller.signal.aborted) {
+      timedOut = true;
+      controller.abort();
+    }
+  }, extra?.timeoutMs ?? REQUEST_TIMEOUT_MS);
   try {
+    checkAbort();
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       credentials: "include",
       headers: { ...DEFAULT_HEADERS, ...extra?.headers, ...options?.headers },
       signal: controller.signal,
     });
+    checkAbort();
 
     if (res.status === 401 && typeof window !== "undefined") {
       const here = window.location.pathname;
@@ -78,6 +93,7 @@ async function request<T>(
 
     if (!res.ok) {
       const error = await res.json().catch(() => ({ message: "Erro de rede" }));
+      checkAbort();
       const msg = Array.isArray(error.message)
         ? error.message.join("; ")
         : (error.message ?? `HTTP ${res.status}`);
@@ -85,15 +101,15 @@ async function request<T>(
     }
 
     const text = await res.text();
+    checkAbort();
     if (text.trim() === "") return null as T;
     return JSON.parse(text) as T;
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new ApiTimeoutError();
-    }
+    checkAbort();
     throw err;
   } finally {
     clearTimeout(timer);
+    extra?.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -106,8 +122,20 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, opts),
   put: <T>(path: string, body: unknown, opts?: RequestExtra) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }, opts),
+  putBytes: <T>(path: string, body: Blob, opts?: RequestExtra) =>
+    request<T>(
+      path,
+      {
+        method: "PUT",
+        body,
+        headers: { "Content-Type": "application/octet-stream" },
+      },
+      opts,
+    ),
   delete: <T>(path: string, opts?: RequestExtra) =>
     request<T>(path, { method: "DELETE" }, opts),
+  deleteWithBody: <T>(path: string, body: unknown, opts?: RequestExtra) =>
+    request<T>(path, { method: "DELETE", body: JSON.stringify(body) }, opts),
   upload: <T>(
     path: string,
     formData: FormData,

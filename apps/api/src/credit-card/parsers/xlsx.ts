@@ -1,4 +1,5 @@
-import * as XLSX from 'xlsx';
+import * as XLSX from "xlsx";
+import { IMPORT_SESSION_LIMITS } from "@reformaflow/domain";
 import {
   assignOrdinals,
   detectInstallment,
@@ -7,8 +8,16 @@ import {
   parseBrlMoney,
   type NormalizedTx,
   type ParseResult,
-} from './types';
-import { expandSheetRange } from './xlsx-range';
+  BinaryDocumentExtractionError,
+  DocumentExtractionError,
+  BINARY_DOCUMENT_LIMITS,
+  buildBinaryCardDocument,
+  captureDocumentHeading,
+  type CardDocumentCapture,
+  type CardDocumentEvent,
+  type DocumentExtractionV1,
+} from "./types";
+import { expandSheetRange } from "./xlsx-range";
 
 /**
  * Parser Excel (.xlsx/.xls) para faturas e extratos.
@@ -29,13 +38,13 @@ interface ParseOptions {
 
 export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
   try {
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const workbook = XLSX.read(buffer, { type: "buffer" });
     if (!workbook.SheetNames.length) {
       return {
-        source: 'XLSX',
+        source: "XLSX",
         transactions: [],
         totalAmountCents: 0,
-        error: 'Arquivo Excel vazio',
+        error: "Arquivo Excel vazio",
       };
     }
 
@@ -49,10 +58,10 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
 
     if (!data.length) {
       return {
-        source: 'XLSX',
+        source: "XLSX",
         transactions: [],
         totalAmountCents: 0,
-        error: 'Nenhuma linha no Excel',
+        error: "Nenhuma linha no Excel",
       };
     }
 
@@ -60,10 +69,11 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
     const headerIdx = findHeaderRow(data);
     if (headerIdx === -1) {
       return {
-        source: 'XLSX',
+        source: "XLSX",
         transactions: [],
         totalAmountCents: 0,
-        error: 'Não identifiquei as colunas de data, descrição e valor. Exporte como CSV ou OFX.',
+        error:
+          "Não identifiquei as colunas de data, descrição e valor. Exporte como CSV ou OFX.",
       };
     }
 
@@ -73,10 +83,11 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
 
     if (colMap.date === -1 || colMap.merchant === -1 || colMap.amount === -1) {
       return {
-        source: 'XLSX',
+        source: "XLSX",
         transactions: [],
         totalAmountCents: 0,
-        error: 'Não identifiquei as colunas de data, descrição e valor. Exporte como CSV ou OFX.',
+        error:
+          "Não identifiquei as colunas de data, descrição e valor. Exporte como CSV ou OFX.",
       };
     }
 
@@ -87,10 +98,20 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
       const row = data[i] ?? [];
       if (!Array.isArray(row) || row.length === 0) continue;
 
-      const dateRaw = String(row[colMap.date] ?? '').trim();
-      const descRaw = String(row[colMap.merchant] ?? '').trim();
-      const amountRaw = String(row[colMap.amount] ?? '').trim();
-      const categoryRaw = colMap.category !== -1 ? String(row[colMap.category] ?? '').trim() : undefined;
+      const captured = captureSpreadsheetRow(
+        row,
+        i + 1,
+        colMap,
+        installmentColIdx,
+        "XLSX",
+      );
+      const dateRaw = (captured.date ?? "").trim();
+      const descRaw = (captured.description ?? "").trim();
+      const amountRaw = (captured.amount ?? "").trim();
+      const categoryRaw =
+        colMap.category !== -1
+          ? String(row[colMap.category] ?? "").trim()
+          : undefined;
 
       if (!dateRaw || !amountRaw) continue;
 
@@ -102,16 +123,15 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
 
       // Itaú manda o parcelamento numa coluna separada ("Parcela 1 de 2"), não
       // embutido na descrição — detectInstallment() só olha a descrição.
-      const installmentColRaw =
-        installmentColIdx !== -1 ? String(row[installmentColIdx] ?? '').trim() : '';
+      const installmentColRaw = (captured.installment ?? "").trim();
       const fromColumn = parseInstallmentColumn(installmentColRaw);
       const { current, total, cleanMerchant } = fromColumn
         ? { ...fromColumn, cleanMerchant: descRaw }
         : detectInstallment(descRaw);
       transactions.push({
-        externalId: '', // preenchido abaixo após assignOrdinals
+        externalId: "", // preenchido abaixo após assignOrdinals
         date,
-        merchant: cleanMerchant || 'Lançamento',
+        merchant: cleanMerchant || "Lançamento",
         amountCents,
         rawCategory: categoryRaw || undefined,
         installmentCurrent: current,
@@ -133,7 +153,7 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
     }
 
     return {
-      source: 'XLSX',
+      source: "XLSX",
       transactions,
       totalAmountCents,
       periodLabel: inferPeriodLabel(transactions),
@@ -142,7 +162,7 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
-      source: 'XLSX',
+      source: "XLSX",
       transactions: [],
       totalAmountCents: 0,
       error: `Erro ao parsear Excel: ${message}`,
@@ -160,7 +180,7 @@ function findHeaderRow(data: unknown[][]): number {
   for (let i = 0; i < Math.min(data.length, 30); i++) {
     const row = data[i];
     if (!Array.isArray(row)) continue;
-    const headers = row.map((cell) => String(cell ?? '').toLowerCase());
+    const headers = row.map((cell) => String(cell ?? "").toLowerCase());
     if (hasHeaderKeywords(headers)) {
       return i;
     }
@@ -174,8 +194,12 @@ function findHeaderRow(data: unknown[][]): number {
 function hasHeaderKeywords(headers: string[]): boolean {
   const normalized = headers.map((h) => removeAccents(h));
   const hasData = normalized.some((h) => /data|date|dt/.test(h));
-  const hasDesc = normalized.some((h) => /descri|historico|lancamento|memo|title/.test(h));
-  const hasAmount = normalized.some((h) => /valor|amount|montante|quantia/.test(h));
+  const hasDesc = normalized.some((h) =>
+    /descri|historico|lancamento|memo|title/.test(h),
+  );
+  const hasAmount = normalized.some((h) =>
+    /valor|amount|montante|quantia/.test(h),
+  );
   return hasData && hasDesc && hasAmount;
 }
 
@@ -184,8 +208,8 @@ function hasHeaderKeywords(headers: string[]): boolean {
  */
 function removeAccents(str: string): string {
   return str
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 }
 
@@ -204,10 +228,14 @@ function mapColumns(headers: string[]): ColumnMap {
   // Array.from (não .map): células vazias viram buracos no array (sparse),
   // e .map() pula buracos preservando-os — daí .includes() quebrando em
   // undefined mais abaixo. Array.from percorre todo índice, buraco ou não.
-  const normalized = Array.from(headers, (h) => removeAccents(String(h ?? '')));
+  const normalized = Array.from(headers, (h) => removeAccents(String(h ?? "")));
 
   // Procura mais específica: prioritiza keywords únicos por coluna
-  const findBest = (dateKeywords: string[], descKeywords: string[], amountKeywords: string[]): ColumnMap => {
+  const findBest = (
+    dateKeywords: string[],
+    descKeywords: string[],
+    amountKeywords: string[],
+  ): ColumnMap => {
     const scores: { date: number; merchant: number; amount: number } = {
       date: -1,
       merchant: -1,
@@ -230,7 +258,8 @@ function mapColumns(headers: string[]): ColumnMap {
       let foundDesc = false;
       for (const kw of descKeywords) {
         if (h.includes(kw)) {
-          if (!h.includes('data')) { // Evita "data lancamento"
+          if (!h.includes("data")) {
+            // Evita "data lancamento"
             if (scores.merchant === -1) scores.merchant = i;
             foundDesc = true;
             break;
@@ -256,15 +285,18 @@ function mapColumns(headers: string[]): ColumnMap {
   };
 
   const result = findBest(
-    ['data', 'date', 'dt'],
-    ['descri', 'historico', 'memo', 'title', 'estabelec', 'lancamento'],
-    ['valor', 'amount', 'montante', 'quantia'],
+    ["data", "date", "dt"],
+    ["descri", "historico", "memo", "title", "estabelec", "lancamento"],
+    ["valor", "amount", "montante", "quantia"],
   );
 
   // Se não encontrou, tenta category
   if (result.category === -1) {
     for (let i = 0; i < normalized.length; i++) {
-      if (normalized[i].includes('categ') || normalized[i].includes('category')) {
+      if (
+        normalized[i].includes("categ") ||
+        normalized[i].includes("category")
+      ) {
         result.category = i;
         break;
       }
@@ -283,19 +315,22 @@ function mapColumns(headers: string[]): ColumnMap {
  * parcelas, então sem o vencimento não há como saber em qual fatura a
  * "Parcela 2 de 10" está sendo cobrada.
  */
-function findInvoiceDueMonth(data: unknown[][], headerIdx: number): string | undefined {
+function findInvoiceDueMonth(
+  data: unknown[][],
+  headerIdx: number,
+): string | undefined {
   const limit = Math.min(headerIdx, data.length);
   for (let i = 0; i < limit; i++) {
     const row = data[i];
     if (!Array.isArray(row)) continue;
     for (let c = 0; c < row.length; c++) {
-      if (removeAccents(String(row[c] ?? '')).trim() !== 'vencimento') continue;
+      if (removeAccents(String(row[c] ?? "")).trim() !== "vencimento") continue;
       // Data costuma vir na MESMA coluna, poucas linhas abaixo.
       for (let r = i; r < Math.min(i + 4, limit); r++) {
         const cell = data[r]?.[c];
         const date = parseCellDate(cell);
         if (date) {
-          return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+          return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
         }
       }
     }
@@ -306,13 +341,13 @@ function findInvoiceDueMonth(data: unknown[][], headerIdx: number): string | und
 /** Data de uma célula que pode vir como Date, serial Excel ou texto. */
 function parseCellDate(cell: unknown): Date | null {
   if (cell instanceof Date) return cell;
-  if (typeof cell === 'number') {
+  if (typeof cell === "number") {
     // Serial Excel: dia 1 = 1900-01-01, com o bug do ano 1900 bissexto —
     // a época efetiva é 1899-12-30.
     if (cell <= 0 || cell > 100000) return null;
     return new Date(Date.UTC(1899, 11, 30) + cell * 86400000);
   }
-  const s = String(cell ?? '').trim();
+  const s = String(cell ?? "").trim();
   if (!s) return null;
   return parseFlexibleDate(s);
 }
@@ -322,15 +357,17 @@ function parseCellDate(cell: unknown): Date | null {
  * descrição, ex.: "Parcela 1 de 2", em vez de embutido no texto).
  */
 function findInstallmentColumn(headers: string[]): number {
-  const normalized = Array.from(headers, (h) => removeAccents(String(h ?? '')));
-  return normalized.findIndex((h) => h.includes('parcela'));
+  const normalized = Array.from(headers, (h) => removeAccents(String(h ?? "")));
+  return normalized.findIndex((h) => h.includes("parcela"));
 }
 
 /**
  * Extrai current/total de uma coluna de parcelamento dedicada, ex.:
  * "Parcela 1 de 2" -> { current: 1, total: 2 }.
  */
-function parseInstallmentColumn(raw: string): { current: number; total: number } | null {
+function parseInstallmentColumn(
+  raw: string,
+): { current: number; total: number } | null {
   const m = raw.match(/(\d{1,2})\s*(?:de|\/)\s*(\d{1,2})/i);
   if (!m) return null;
   const current = parseInt(m[1], 10);
@@ -394,19 +431,445 @@ function parseFlexibleMoney(raw: string): number {
     return parseBrlMoney(s);
   }
 
-  const hasDot = s.includes('.');
-  const hasComma = s.includes(',');
+  const hasDot = s.includes(".");
+  const hasComma = s.includes(",");
 
   // Com ponto e vírgula: inferimos decimal pelo último separador.
   if (hasDot && hasComma) {
-    const lastDot = s.lastIndexOf('.');
-    const lastComma = s.lastIndexOf(',');
+    const lastDot = s.lastIndexOf(".");
+    const lastComma = s.lastIndexOf(",");
     const normalized =
       lastDot > lastComma
-        ? s.replace(/,/g, '') // US: 1,234.56
-        : s.replace(/\./g, '').replace(',', '.'); // BR: 1.234,56
+        ? s.replace(/,/g, "") // US: 1,234.56
+        : s.replace(/\./g, "").replace(",", "."); // BR: 1.234,56
     return parseBrlMoney(normalized);
   }
 
   return parseBrlMoney(s);
+}
+
+function captureSpreadsheetRow(
+  row: readonly unknown[],
+  physicalRow: number,
+  columns: ColumnMap,
+  installmentColumn: number,
+  format: "XLS" | "XLSX",
+  date1904?: boolean,
+): CardDocumentCapture {
+  const raw = (column: number): string | null =>
+    row[column] === undefined || row[column] === null
+      ? null
+      : String(row[column]);
+  const date = row[columns.date];
+  return {
+    reference: `${format.toLowerCase()}:sheet:1:row:${physicalRow}`,
+    date: raw(columns.date),
+    description: raw(columns.merchant),
+    amount: raw(columns.amount),
+    installment: installmentColumn < 0 ? null : raw(installmentColumn),
+    fitId: null,
+    ...(date1904 !== undefined && typeof date === "number"
+      ? { serialDate: { value: date, date1904 } }
+      : {}),
+  };
+}
+
+function invalidInventory(): never {
+  throw new DocumentExtractionError("INVALID_RESULT");
+}
+
+function inventoryRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return invalidInventory();
+  return value as Record<string, unknown>;
+}
+
+function property(record: Record<string, unknown>, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(record, key);
+  if (descriptor && !("value" in descriptor)) return invalidInventory();
+  return descriptor?.value;
+}
+
+function denseArray(value: unknown): unknown[] {
+  if (!Array.isArray(value)) return invalidInventory();
+  for (let i = 0; i < value.length; i++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, i);
+    if (!descriptor || !("value" in descriptor)) return invalidInventory();
+  }
+  return value;
+}
+
+function binaryContent(value: unknown): Uint8Array {
+  if (!Buffer.isBuffer(value) && !(value instanceof Uint8Array))
+    return invalidInventory();
+  return value;
+}
+
+function inventorySize(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
+    return invalidInventory();
+  return value;
+}
+
+function emptyContent(value: unknown): void {
+  if (value !== undefined && binaryContent(value).byteLength !== 0)
+    invalidInventory();
+}
+
+function readSpreadsheetInventory(
+  workbook: XLSX.WorkBook,
+  format: "XLS" | "XLSX",
+): { archiveEntries: number; expandedBytes: number } {
+  let archiveEntries = 0;
+  let expandedBytes = 0;
+  const count = (bytes: number): void => {
+    archiveEntries++;
+    expandedBytes += bytes;
+    if (
+      !Number.isSafeInteger(expandedBytes) ||
+      archiveEntries > IMPORT_SESSION_LIMITS.expandedArchiveEntries ||
+      expandedBytes > IMPORT_SESSION_LIMITS.expandedArchiveBytes
+    )
+      throw new DocumentExtractionError("LIMIT_EXCEEDED");
+  };
+  const book = inventoryRecord(workbook);
+  if (format === "XLS") {
+    const cfb = inventoryRecord(property(book, "cfb"));
+    const paths = denseArray(property(cfb, "FullPaths"));
+    const entries = denseArray(property(cfb, "FileIndex"));
+    if (!entries.length || entries.length !== paths.length) invalidInventory();
+    const root = inventoryRecord(entries[0]);
+    const rootName = property(root, "name");
+    const rootPath = paths[0];
+    if (
+      property(root, "type") !== 5 ||
+      typeof rootName !== "string" ||
+      !rootName ||
+      rootName.includes("/") ||
+      rootPath !== `${rootName}/`
+    )
+      invalidInventory();
+    inventorySize(property(root, "size"));
+    if (property(root, "content") !== undefined)
+      binaryContent(property(root, "content"));
+    const active = new Map<string, number>();
+    active.set(String(rootPath), 5);
+    for (let i = 1; i < entries.length; i++) {
+      const entry = inventoryRecord(entries[i]);
+      const type = property(entry, "type");
+      const content = property(entry, "content");
+      if (type === 0) {
+        if (
+          property(entry, "name") !== "" ||
+          inventorySize(property(entry, "size")) !== 0
+        )
+          invalidInventory();
+        emptyContent(content);
+        continue;
+      }
+      const path = paths[i];
+      const name = property(entry, "name");
+      if (
+        (type !== 1 && type !== 2) ||
+        typeof path !== "string" ||
+        typeof name !== "string" ||
+        !name ||
+        name.includes("/") ||
+        !path.startsWith(String(rootPath)) ||
+        active.has(path)
+      )
+        invalidInventory();
+      const withoutSlash = type === 1 ? path.slice(0, -1) : path;
+      if (
+        (type === 1) !== path.endsWith("/") ||
+        withoutSlash.slice(withoutSlash.lastIndexOf("/") + 1) !== name
+      )
+        invalidInventory();
+      active.set(path, type);
+      if (type === 1) {
+        emptyContent(content);
+        count(0);
+      } else {
+        const size = inventorySize(property(entry, "size"));
+        const bytes =
+          content === undefined && size === 0
+            ? 0
+            : binaryContent(content).byteLength;
+        if (bytes !== size) invalidInventory();
+        count(bytes);
+      }
+    }
+    for (const [path, type] of active) {
+      if (type === 5) continue;
+      const trimmed = type === 1 ? path.slice(0, -1) : path;
+      const parent = active.get(trimmed.slice(0, trimmed.lastIndexOf("/") + 1));
+      if (parent !== 1 && parent !== 5) invalidInventory();
+    }
+  } else {
+    const seedKey = "\u0001Sh33tJ5";
+    const keys = denseArray(property(book, "keys"));
+    const files = inventoryRecord(property(book, "files"));
+    const unique = new Set<string>();
+    for (const key of keys) {
+      if (typeof key !== "string" || unique.has(key)) invalidInventory();
+      unique.add(key);
+    }
+    const own = Reflect.ownKeys(files);
+    if (
+      own.length !== keys.length ||
+      own.some((key) => typeof key !== "string" || !unique.has(key)) ||
+      !unique.has("") ||
+      !unique.has(seedKey)
+    )
+      invalidInventory();
+    const root = inventoryRecord(property(files, ""));
+    if (
+      property(root, "name") !== "Root Entry" ||
+      property(root, "type") !== 5 ||
+      property(root, "size") !== 0
+    )
+      invalidInventory();
+    emptyContent(property(root, "content"));
+    const seed = inventoryRecord(property(files, seedKey));
+    const seedBytes = binaryContent(property(seed, "content"));
+    if (
+      property(seed, "name") !== seedKey ||
+      property(seed, "type") !== 2 ||
+      property(seed, "size") !== 4 ||
+      seedBytes.byteLength !== 4 ||
+      ![55, 50, 54, 50].every((byte, i) => seedBytes[i] === byte)
+    )
+      invalidInventory();
+    for (const key of unique) {
+      if (key === "" || key === seedKey) continue;
+      const entry = inventoryRecord(property(files, key));
+      if (property(entry, "type") !== 2) invalidInventory();
+      const size = inventorySize(property(entry, "size"));
+      const content = binaryContent(property(entry, "content"));
+      if (size !== content.byteLength || (key.endsWith("/") && size !== 0))
+        invalidInventory();
+      count(content.byteLength);
+    }
+  }
+  return { archiveEntries, expandedBytes };
+}
+
+interface SparseRow {
+  index: number;
+  values: unknown[];
+}
+
+function readSparseWorksheetRows(sheet: XLSX.WorkSheet): SparseRow[] {
+  const populatedRows = new Set<number>();
+  const populatedColumns = new Set<number>();
+  const cells: { row: number; column: number; value: unknown }[] = [];
+  for (const address of Object.keys(sheet)) {
+    if (address.startsWith("!")) continue;
+    if (!/^[A-Z]{1,3}[1-9]\d*$/.test(address))
+      throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+    const { r, c } = XLSX.utils.decode_cell(address);
+    if (r >= 1048576 || c >= 16384)
+      throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+    populatedRows.add(r);
+    populatedColumns.add(c);
+    if (
+      populatedRows.size > BINARY_DOCUMENT_LIMITS.populatedRows ||
+      populatedColumns.size > BINARY_DOCUMENT_LIMITS.populatedColumns
+    )
+      throw new DocumentExtractionError("LIMIT_EXCEEDED");
+    const value: unknown = sheet[address]?.v;
+    if (
+      value !== undefined &&
+      value !== null &&
+      typeof value !== "string" &&
+      typeof value !== "number"
+    )
+      throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+    cells.push({ row: r, column: c, value });
+  }
+  const rows = new Map<number, unknown[]>();
+  for (const cell of cells) {
+    let row = rows.get(cell.row);
+    if (!row) rows.set(cell.row, (row = []));
+    row[cell.column] = cell.value;
+  }
+  return [...rows]
+    .sort(([a], [b]) => a - b)
+    .map(([index, values]) => ({ index, values }));
+}
+
+export function parseXlsxDocument(
+  bytes: Buffer,
+  format: "XLS" | "XLSX",
+): DocumentExtractionV1 {
+  const magic = format === "XLS" ? "d0cf11e0a1b11ae1" : "504b0304";
+  if (bytes.subarray(0, magic.length / 2).toString("hex") !== magic)
+    throw new BinaryDocumentExtractionError("UNSUPPORTED_CONTAINER");
+  let book: XLSX.WorkBook;
+  try {
+    book = XLSX.read(bytes, { type: "buffer", bookFiles: true });
+  } catch {
+    throw new BinaryDocumentExtractionError("CORRUPT_DOCUMENT");
+  }
+  if (book.SheetNames.length > 1)
+    throw new BinaryDocumentExtractionError("MULTIPLE_SHEETS");
+  if (book.SheetNames.length !== 1)
+    throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+  const inventory = readSpreadsheetInventory(book, format);
+  const sheet = book.Sheets[book.SheetNames[0]];
+  if (!sheet) throw new DocumentExtractionError("INVALID_RESULT");
+  const rows = readSparseWorksheetRows(sheet);
+  const events: CardDocumentEvent[] = [];
+  const date1904 = book.Workbook?.WBProps?.date1904 === true;
+  let columns: ColumnMap | null = null;
+  let installmentColumn = -1;
+  let totalPurchase = false;
+  let occurrences = 0;
+  let pendingDue: { column: number; reference: string } | null = null;
+  const cellRef = (row: number, column: number): string =>
+    `${format.toLowerCase()}:sheet:1:cell:${XLSX.utils.encode_cell({ r: row, c: column })}`;
+  for (const row of rows) {
+    const present = Object.keys(row.values)
+      .map(Number)
+      .filter((c) => row.values[c] !== undefined && row.values[c] !== null);
+    if (!present.length) continue;
+    if (pendingDue) {
+      const value = row.values[pendingDue.column];
+      if (present.length !== 1 || value === undefined || value === null)
+        throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+      events.push({
+        kind: "due",
+        raw: String(value),
+        reference: cellRef(row.index, pendingDue.column),
+        ...(typeof value === "number"
+          ? { serialDate: { value, date1904 } }
+          : {}),
+      });
+      pendingDue = null;
+      continue;
+    }
+    const texts = row.values.map((value) => String(value ?? ""));
+    const capture = columns
+      ? captureSpreadsheetRow(
+          row.values,
+          row.index + 1,
+          columns,
+          installmentColumn,
+          format,
+          date1904,
+        )
+      : null;
+    const dateRow =
+      capture !== null &&
+      (capture.serialDate !== undefined ||
+        /^\s*(?:\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2})/.test(capture.date ?? ""));
+    const dataRow = capture !== null && (dateRow || capture.amount !== null);
+    if (!dataRow && hasHeaderKeywords(texts)) {
+      if (columns)
+        throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+      columns = mapColumns(texts);
+      installmentColumn = findInstallmentColumn(texts);
+      const normalized = texts.map(removeAccents);
+      const dateColumns = normalized.filter((h) =>
+        /data|date|dt/.test(h),
+      ).length;
+      const merchantColumns = normalized.filter(
+        (h) =>
+          !h.includes("data") &&
+          /descri|historico|memo|title|estabelec|lancamento/.test(h),
+      ).length;
+      const amountColumns = normalized.filter((h) =>
+        /valor|amount|montante|quantia/.test(h),
+      ).length;
+      if (
+        dateColumns !== 1 ||
+        merchantColumns !== 1 ||
+        amountColumns !== 1 ||
+        normalized.filter((h) => h.includes("parcela")).length > 1
+      )
+        throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+      totalPurchase = /\b(?:valor\s+)?total\s+da\s+compra\b/.test(
+        normalized[columns.amount],
+      );
+      if (
+        (sheet["!merges"] ?? []).some(
+          (merge) =>
+            merge.e.r > row.index &&
+            [
+              columns!.date,
+              columns!.merchant,
+              columns!.amount,
+              installmentColumn,
+            ].some((c) => c >= merge.s.c && c <= merge.e.c),
+        )
+      )
+        throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+      continue;
+    }
+    let heading = false;
+    for (const column of dataRow ? [] : present) {
+      const value = row.values[column];
+      if (typeof value !== "string") continue;
+      if (/^vencimento\s*:?\s*$/i.test(value.trim())) {
+        const nextColumn = present.find((c) => c > column);
+        if (nextColumn !== undefined) {
+          const next = row.values[nextColumn];
+          events.push({
+            kind: "due",
+            raw: String(next),
+            reference: cellRef(row.index, nextColumn),
+            ...(typeof next === "number"
+              ? { serialDate: { value: next, date1904 } }
+              : {}),
+          });
+        } else pendingDue = { column, reference: cellRef(row.index, column) };
+        heading = true;
+      } else {
+        const event = captureDocumentHeading(value, cellRef(row.index, column));
+        if (event) {
+          events.push(event);
+          heading = true;
+        }
+      }
+    }
+    if (heading) continue;
+    if (!columns || !capture) {
+      if (
+        present.some((c) =>
+          /^\s*(?:\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2})/.test(
+            String(row.values[c]),
+          ),
+        )
+      )
+        throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+      continue;
+    }
+    const first = String(row.values[present[0]] ?? "").trim();
+    if (!dateRow && /^(?:total|subtotal|saldo|limite)\b/i.test(first)) {
+      if (capture.description?.trim() || capture.installment?.trim())
+        throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+      continue;
+    }
+    if (/^(?:data|date|dt)\b/i.test(String(row.values[columns.date] ?? "")))
+      throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+    if (capture.description === null && capture.amount === null && !dateRow)
+      throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+    if (++occurrences > IMPORT_SESSION_LIMITS.parsedRowsPerFile)
+      throw new DocumentExtractionError("LIMIT_EXCEEDED");
+    events.push({
+      kind: "row",
+      capture: {
+        ...capture,
+        ...(totalPurchase ? { amountMeaning: "TOTAL_PURCHASE" } : {}),
+      },
+    });
+  }
+  if (!columns || !occurrences || pendingDue)
+    throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+  return buildBinaryCardDocument(events, format, {
+    ...inventory,
+    pages: 0,
+    imagePixels: 0,
+    frames: 0,
+  });
 }

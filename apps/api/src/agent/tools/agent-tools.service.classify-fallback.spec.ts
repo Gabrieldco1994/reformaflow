@@ -8,6 +8,7 @@ import { CreditCardService } from '../../credit-card/credit-card.service';
 import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
 import { PriceMonitorService } from '../../price-compare/price-monitor.service';
+import { ImportChatBridge } from '../../imports/import-session/import-chat.bridge';
 
 describe('create_expense — fallback do MerchantClassifier', () => {
   let service: AgentToolsService;
@@ -37,6 +38,21 @@ describe('create_expense — fallback do MerchantClassifier', () => {
       }),
     };
 
+    const unexpectedImportCall = () => {
+      throw new Error(
+        'Generic classifier fixture must not call the import bridge',
+      );
+    };
+    const importBridge: Pick<
+      ImportChatBridge,
+      'contextForRequest' | 'read' | 'editAnswer' | 'prepare' | 'release'
+    > = {
+      contextForRequest: unexpectedImportCall,
+      read: unexpectedImportCall,
+      editAnswer: unexpectedImportCall,
+      prepare: unexpectedImportCall,
+      release: unexpectedImportCall,
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentToolsService,
@@ -48,6 +64,7 @@ describe('create_expense — fallback do MerchantClassifier', () => {
         { provide: MonthlyOverviewService, useValue: {} },
         { provide: MerchantClassifierService, useValue: classifier },
         { provide: PriceMonitorService, useValue: {} },
+        { provide: ImportChatBridge, useValue: importBridge },
       ],
     }).compile();
     service = module.get(AgentToolsService);

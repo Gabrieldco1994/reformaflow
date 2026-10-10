@@ -3,16 +3,21 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import {
   isFullAccessRole,
   userCanAccessProject,
   userCanAccessProjectType,
+  ACL_NOT_FOUND_MESSAGE,
 } from '../access-rules';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SERVICE_OWNED_PROJECT_ACCESS_KEY } from '../decorators/service-owned-project-access.decorator';
 
 /** Campos que carregam um ID de projeto em params/query/body. */
 const PROJECT_ID_FIELDS = ['projectId', 'sourceProjectId', 'targetProjectId'];
+export const OPAQUE_PROJECT_ACCESS = 'opaqueProjectAccess';
 
 function collectProjectIds(
   source: Record<string, unknown> | undefined,
@@ -37,19 +42,38 @@ function collectProjectIds(
  * allowedProjects vazio = sem restricao; nao-vazio = so os listados.
  * ADMIN/OWNER sempre passam. Rotas sem projeto e usuarios sem restricao passam direto.
  *
+ * Excecao explicita: handlers marcados com `@ServiceOwnedProjectAccess()` (metadata estatica
+ * por handler, hoje so os cinco do controller de sessoes de importacao) pulam a extracao de ids; o service deles faz
+ * reauth + ancora/cartao. Ausencia da marca NAO protege um handler novo: o guard so age
+ * quando encontra um id de projeto reconhecido.
+ *
  * Observacao: rotas que referenciam um projeto apenas via ID de recurso-filho
  * (ex.: budget-allocations/:id, links cross-project por targetExpenseId) nao sao
  * cobertas aqui — exigem checagem no service.
  */
 @Injectable()
 export class ProjectAccessGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
     if (!user) return true;
     if (isFullAccessRole(user.role)) return true;
+    if (
+      this.reflector.get<boolean | undefined>(
+        SERVICE_OWNED_PROJECT_ACCESS_KEY,
+        context.getHandler(),
+      ) === true
+    ) {
+      return true;
+    }
+    const denied = (message: string) => Reflect.getMetadata(OPAQUE_PROJECT_ACCESS, context.getHandler())
+      ? new NotFoundException(ACL_NOT_FOUND_MESSAGE)
+      : new ForbiddenException(message);
 
     const ids = new Set<string>([
       ...collectProjectIds(request.params),
@@ -59,14 +83,14 @@ export class ProjectAccessGuard implements CanActivate {
 
     for (const projectId of ids) {
       if (!userCanAccessProject(user.role, user.allowedProjects, projectId)) {
-        throw new ForbiddenException('Sem permissao para acessar este projeto');
+        throw denied('Sem permissao para acessar este projeto');
       }
       const project = await this.prisma.project.findFirst({
         where: { id: projectId, tenantId: user.tenantId },
         select: { type: true },
       });
       if (!project) {
-        throw new ForbiddenException('Sem permissao para acessar este projeto');
+        throw denied('Sem permissao para acessar este projeto');
       }
       if (
         !userCanAccessProjectType(
@@ -76,7 +100,7 @@ export class ProjectAccessGuard implements CanActivate {
           project.type,
         )
       ) {
-        throw new ForbiddenException(
+        throw denied(
           'Sem permissao para acessar este tipo de projeto',
         );
       }

@@ -110,7 +110,7 @@ export function categoriasDoAno(
   }
   return Array.from(totalPorTipo.entries())
     .map(([categoria, valor]) => ({ categoria, valor, media: Math.round(valor / 12) }))
-    .filter((c) => c.valor > 0)
+    .filter((c) => c.valor !== 0)
     .sort((a, b) => b.valor - a.valor);
 }
 
@@ -226,6 +226,24 @@ export interface CategoriaBarra {
   pct: number; // 0..1 sobre o maior
   /** Média mensal (centavos) do tipo — só despesas pagas. Opcional (visão Ano). */
   media?: number;
+}
+
+/**
+ * Barras da visão Ano. Os valores (centavos) seguem com sinal; só a GEOMETRIA usa
+ * magnitude: `pct` = |valor| / maior |valor|, como em `deriveMonth`. Crédito
+ * negativo nunca gera largura negativa nem é achatado a 0 por um máximo com sinal.
+ */
+export function categoriaBarrasDoAno(
+  full: Array<{ categoria: string; valor: number; media?: number }>,
+): CategoriaBarra[] {
+  const maxAbs = full.reduce((mx, c) => Math.max(mx, Math.abs(c.valor)), 0);
+  return full.map((c, i) => ({
+    categoria: c.categoria,
+    valor: c.valor,
+    cor: colorForCategoria(c.categoria, i),
+    pct: maxAbs > 0 ? Math.abs(c.valor) / maxAbs : 0,
+    media: c.media,
+  }));
 }
 
 export interface MonthDerived {
@@ -411,14 +429,14 @@ export function deriveMonth(
   // das entries acima — SEM neutros (pagamento de fatura / mov. interna) nem espelhos.
   const cats = Array.from(categoriaAcc.entries())
     .map(([categoria, valor]) => ({ categoria, valor }))
-    .filter((c) => c.valor > 0)
+    .filter((c) => c.valor !== 0)
     .sort((a, b) => b.valor - a.valor);
-  const maxCat = cats.reduce((mx, c) => Math.max(mx, c.valor), 0);
+  const maxCat = cats.reduce((mx, c) => Math.max(mx, Math.abs(c.valor)), 0);
   const categorias: CategoriaBarra[] = cats.map((c, i) => ({
     categoria: c.categoria,
     valor: c.valor,
     cor: colorForCategoria(c.categoria, i),
-    pct: maxCat > 0 ? c.valor / maxCat : 0,
+    pct: maxCat > 0 ? Math.abs(c.valor) / maxCat : 0,
   }));
 
   // Maior gasto "variável": maior categoria que não seja tipicamente fixa (Moradia/Mão de Obra).

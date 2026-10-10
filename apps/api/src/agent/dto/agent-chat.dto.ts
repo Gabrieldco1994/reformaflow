@@ -7,7 +7,8 @@ import {
   IsString,
   MaxLength,
   ValidateNested,
-} from 'class-validator';
+  Allow,
+} from "class-validator";
 import { Type } from 'class-transformer';
 
 export class ChatMessageDto {
@@ -22,6 +23,10 @@ export class ChatMessageDto {
 }
 
 export class AgentChatDto {
+  // The contextual guard validates presence (including null) before this whitelist pipe.
+  @Allow()
+  importTurn?: unknown;
+
   @ApiProperty({ type: [ChatMessageDto] })
   @IsArray()
   @ArrayNotEmpty()
@@ -29,7 +34,7 @@ export class AgentChatDto {
   @Type(() => ChatMessageDto)
   messages!: ChatMessageDto[];
 
-  @ApiProperty({ required: false, description: 'Projeto em foco (opcional).' })
+  @ApiProperty({ required: false, description: "Projeto em foco (opcional)." })
   @IsOptional()
   @IsString()
   projectId?: string;

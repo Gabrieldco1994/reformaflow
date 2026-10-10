@@ -27,6 +27,25 @@ export type ScheduleEvidence = ScheduleEvidenceInput & {
   recordedAt: string;
 };
 
+export const DERIVED_SEQUENTIAL = 'derived-sequential' as const;
+
+/**
+ * Private proof that a future occurrence's `invoiceDueMonth` was computed by
+ * the server as `derivedFrom.invoiceDueMonth + offset` months, where `offset`
+ * is the ARRAY distance to the anchor occurrence (never a printed installment
+ * number). It carries no artifact hash: the document belongs to the anchor's
+ * own evidence. Only the server writes it; no client input can carry it.
+ */
+export interface DerivedSequentialEvidence {
+  evidenceKind: typeof DERIVED_SEQUENTIAL;
+  derivedFrom: { index: number; invoiceDueMonth: string };
+  offset: number;
+  actorUserId: string;
+  recordedAt: string;
+}
+
+export type StoredCycleEvidence = ScheduleEvidence | DerivedSequentialEvidence;
+
 export interface DocumentaryCycle {
   invoiceDueMonth: string;
   evidence: DocumentScheduleEvidenceInput;
@@ -84,7 +103,7 @@ export type AssistedCardProvenance = {
 
 export interface StoredSourceOccurrence extends ExpenseScheduleOccurrence {
   amountEvidence: ScheduleEvidence | null;
-  cycleEvidence: ScheduleEvidence | null;
+  cycleEvidence: StoredCycleEvidence | null;
 }
 
 export interface StoredProjectionOccurrence extends ExpenseScheduleOccurrence {

@@ -14,6 +14,8 @@ import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
 import { PagarFaturaDialog } from '../../conta/_components/PagarFaturaDialog';
 import { QuitarParcelaModal } from '../../conta/_components/QuitarParcelaModal';
 import { foreignParcelaActionAllowed } from '../../expenses/_lib/quitarParcelaCross';
+import { isExpenseCredit, rootIdentity } from '../../expenses/_lib/credit-policy';
+import { fetchExpenseRoot } from '../../expenses/_hooks/useExpenseRoot';
 import { ReceitaModal, type ReceitaEditing } from '../../conta/_components/ReceitaModal';
 import { AssociarContaModal } from './AssociarContaModal';
 import { invoicePayBlockedReason } from '../../conta/_lib';
@@ -50,6 +52,8 @@ type QueueItem = {
   foreignExpenseId?: string;
   parcelaIndex?: number;
   suggestionTipoDespesa?: string;
+  /** Root signal (Expense.valorTotal < 0), server-derived; optional for older payloads. NOT a permission. */
+  expenseIsCredit?: boolean;
   cardCandidates?: CardCandidate[];
   installmentSettlement?: Pick<
     InstallmentSettlement,
@@ -240,6 +244,11 @@ export function PendenciasQueueCard({
     if (!foreignParcelaActionAllowed(item)) {
       return "Nenhuma ação disponível para esta pendência.";
     }
+    // O sinal de `valor` (ocorrência / restante) não identifica a raiz: só o sinal do servidor
+    // ou o detalhe real (verificado sob demanda em handleItemAction) bloqueiam a categoria.
+    if (item.tipo === "SEM_CATEGORIA" && rootIdentity(item.expenseIsCredit) === "credit") {
+      return "Crédito: a categoria não é alterada aqui.";
+    }
     if (item.tipo !== "FATURA_NAO_PAGA" || !item.cardLast4) return null;
     const card = (accountView?.cartoes ?? []).find(
       (c) => c.last4 === item.cardLast4,
@@ -299,6 +308,7 @@ export function PendenciasQueueCard({
         tipoDespesa?: string | null;
         fornecedor?: string | null;
         titulo?: string | null;
+        valorTotal?: number;
       };
       const merchant = (
         expense.fornecedor ??
@@ -306,6 +316,10 @@ export function PendenciasQueueCard({
         item.descricao ??
         ""
       ).trim();
+      // Rede de segurança: a categoria de um crédito não muda por aqui (o servidor decide).
+      if (isExpenseCredit(expense as { valorTotal: number })) {
+        throw new Error("Crédito: a categoria não é alterada aqui.");
+      }
       const previousTipoDespesa = expense.tipoDespesa ?? "OUTROS";
       // A categoria é o compromisso; a regra é conveniência. Mudar a categoria
       // vem primeiro e, se a regra não puder ser criada (tipo sem categoria de
@@ -381,12 +395,42 @@ export function PendenciasQueueCard({
     },
   });
 
+  // Verificação da raiz sob demanda (categoria sem sinal do servidor): estado neutro,
+  // erro visível com nova tentativa; nada é liberado sem prova.
+  const [rootCheck, setRootCheck] = useState<Record<string, "loading" | "error" | "credit">>({});
   const handleItemAction = (item: QueueItem) => {
     const blockedReason = queueItemBlockedReason(item);
     if (blockedReason) {
       toast.error(blockedReason);
       return;
     }
+    if (
+      item.tipo === "SEM_CATEGORIA" &&
+      item.expenseId &&
+      rootIdentity(item.expenseIsCredit) === "unknown"
+    ) {
+      const expenseId = item.expenseId;
+      setRootCheck((current) => ({ ...current, [item.id]: "loading" }));
+      fetchExpenseRoot(queryClient, projectId, expenseId).then(
+        (expense) => {
+          if (rootIdentity(undefined, expense) === "credit") {
+            setRootCheck((current) => ({ ...current, [item.id]: "credit" }));
+            return;
+          }
+          setRootCheck((current) => {
+            const { [item.id]: _done, ...rest } = current;
+            return rest;
+          });
+          runItemAction(item);
+        },
+        () => setRootCheck((current) => ({ ...current, [item.id]: "error" })),
+      );
+      return;
+    }
+    runItemAction(item);
+  };
+
+  const runItemAction = (item: QueueItem) => {
     if (
       item.tipo === "SEM_CONTA" &&
       item.foreignExpenseId &&
@@ -560,18 +604,29 @@ export function PendenciasQueueCard({
                             )}
                           </p>
                         </div>
-                        {blockedReason ? (
+                        {blockedReason || rootCheck[item.id] === "credit" ? (
                           <span className="basis-full text-[11px] font-medium text-[#B54708]">
-                            {blockedReason}
+                            {blockedReason ?? "Crédito: a categoria não é alterada aqui."}
+                          </span>
+                        ) : rootCheck[item.id] === "loading" ? (
+                          <span role="status" className="basis-full text-[11px] font-medium text-lifeone-ink-3">
+                            Verificando ações
                           </span>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleItemAction(item)}
-                            className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg border border-lifeone-hairline px-2 py-1 text-[11px] font-semibold text-lifeone-blue hover:border-lifeone-blue"
-                          >
-                            {item.label}
-                          </button>
+                          <>
+                            {rootCheck[item.id] === "error" && (
+                              <span role="alert" className="basis-full text-[11px] font-medium text-[#B54708]">
+                                Não foi possível verificar as ações.
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleItemAction(item)}
+                              className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg border border-lifeone-hairline px-2 py-1 text-[11px] font-semibold text-lifeone-blue hover:border-lifeone-blue"
+                            >
+                              {rootCheck[item.id] === "error" ? "Tentar novamente" : item.label}
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>

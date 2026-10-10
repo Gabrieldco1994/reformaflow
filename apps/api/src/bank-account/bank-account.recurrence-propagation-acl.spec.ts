@@ -28,7 +28,9 @@ import { BankAccountService } from "./bank-account.service";
  *  4. OWNER segue irrestrito no tenant;
  *  5. dois projetos CASA, só o segundo acessível → a recorrência nasce no
  *     ACESSÍVEL (a seleção é escopada, não "o primeiro do tenant" com guarda
- *     depois).
+ *     depois);
+ *  6. entre os AUTORIZADOS vale o primeiro CRIADO (`createdAt` asc, `id` asc
+ *     como desempate) — nunca a ordem física/de índice do banco.
  */
 
 const setup = new PrismaClient();
@@ -39,6 +41,13 @@ const PESSOAL = "sec481-recurrence-pessoal";
 /** Primeiro CASA criado no tenant — é o que o código vulnerável escolhia. */
 const CASA_FIRST = "sec481-recurrence-casa-first";
 const CASA_ALLOWED = "sec481-recurrence-casa-allowed";
+/** Terceiro CASA, autorizado, criado DEPOIS de CASA_ALLOWED e com id MENOR. */
+const CASA_THIRD = "sec481-recurrence-casa-0-third";
+/** Par com o MESMO createdAt: o desempate é o menor id literal. */
+const CASA_TIE_A = "sec481-recurrence-casa-tie-a";
+const CASA_TIE_B = "sec481-recurrence-casa-tie-b";
+const CARRO_FIRST = "sec481-recurrence-carro-first";
+const CARRO_SECOND = "sec481-recurrence-carro-0-second";
 const CARRO_HIDDEN = "sec481-recurrence-carro-hidden";
 const ACCOUNT_ID = "sec481-recurrence-account";
 const BANK_LAST4 = "4811";
@@ -48,6 +57,14 @@ const FIXED_CLOCK = new Date("2026-08-19T15:00:00.000Z");
 /** Data do lançamento ENEL no extrato (OFX sempre gera meia-noite UTC). */
 const TX_DATE = new Date("2026-07-10T00:00:00.000Z");
 const SEEDED_AT = new Date("2026-05-01T12:00:00.000Z");
+/**
+ * Datas de criação de projeto FIXAS e distintas: a escolha do destino é "o
+ * primeiro CRIADO dentre os AUTORIZADOS", então a fixture não pode depender do
+ * relógio do banco nem da ordem física/de índice das linhas.
+ */
+const PROJECT_CREATED_1 = new Date("2026-01-01T10:00:00.000Z");
+const PROJECT_CREATED_2 = new Date("2026-02-01T10:00:00.000Z");
+const PROJECT_CREATED_3 = new Date("2026-03-01T10:00:00.000Z");
 const UTILITY_MERCHANT = "ENEL SP";
 const UTILITY_CENTS = 12_345;
 const VEHICLE_TAX_MERCHANT = "IPVA 2026 DETRAN";
@@ -164,9 +181,23 @@ function utilityStatement(fitId = "SEC481-ENEL"): Buffer {
   );
 }
 
-async function createCasaProject(id: string, name: string): Promise<void> {
+async function createCasaProject(
+  id: string,
+  name: string,
+  createdAt: Date,
+): Promise<void> {
   await setup.project.create({
-    data: { id, tenantId: TENANT, type: "CASA", name },
+    data: { id, tenantId: TENANT, type: "CASA", name, createdAt },
+  });
+}
+
+async function createCarroProject(
+  id: string,
+  name: string,
+  createdAt: Date,
+): Promise<void> {
+  await setup.project.create({
+    data: { id, tenantId: TENANT, type: "CARRO", name, createdAt },
   });
 }
 
@@ -334,7 +365,7 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
   });
 
   it("propaga a recorrência para o projeto CASA acessível quando o requisitante tem o módulo recurringBills", async () => {
-    await createCasaProject(CASA_ALLOWED, "Casa acessível");
+    await createCasaProject(CASA_ALLOWED, "Casa acessível", PROJECT_CREATED_1);
 
     const result = await commit(authorizedRequester);
 
@@ -362,7 +393,11 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
   });
 
   it("não escreve nada quando o único projeto CASA do tenant está fora da ACL do requisitante", async () => {
-    await createCasaProject(CASA_FIRST, "Casa fora da ACL SENTINELA");
+    await createCasaProject(
+      CASA_FIRST,
+      "Casa fora da ACL SENTINELA",
+      PROJECT_CREATED_1,
+    );
     await seedExistingBill(CASA_FIRST);
     const before = await foreignFinancialSnapshot();
 
@@ -378,10 +413,15 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
   it.each(unrelatedModuleRequesters)(
     "não escreve nada quando o requisitante alcança o projeto CASA só por um módulo não relacionado (%s)",
     async (_lens, requester) => {
-      await createCasaProject(CASA_FIRST, "Casa alcançada por maintenance");
+      await createCasaProject(
+        CASA_FIRST,
+        "Casa alcançada por maintenance",
+        PROJECT_CREATED_1,
+      );
       await createCasaProject(
         CASA_ALLOWED,
         "Casa também alcançada por maintenance",
+        PROJECT_CREATED_2,
       );
       await seedExistingBill(CASA_ALLOWED);
       const before = await foreignFinancialSnapshot();
@@ -396,8 +436,14 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
 
   it("OWNER mantém o comportamento irrestrito no tenant", async () => {
     // O OWNER não tem escopo: cai no primeiro CASA do tenant, como sempre.
-    await createCasaProject(CASA_FIRST, "Casa primeira do tenant");
-    await createCasaProject(CASA_ALLOWED, "Casa seguinte");
+    // Inserção em ordem INVERSA à de criação: o segundo criado entra primeiro
+    // no banco (e tem id menor), então só `createdAt` explica a escolha.
+    await createCasaProject(CASA_ALLOWED, "Casa seguinte", PROJECT_CREATED_2);
+    await createCasaProject(
+      CASA_FIRST,
+      "Casa primeira do tenant",
+      PROJECT_CREATED_1,
+    );
 
     const result = await commit(ownerRequester);
 
@@ -416,8 +462,12 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
   });
 
   it("escolhe o projeto CASA ACESSÍVEL, não o primeiro do tenant, quando existem dois", async () => {
-    await createCasaProject(CASA_FIRST, "Casa fora da ACL SENTINELA");
-    await createCasaProject(CASA_ALLOWED, "Casa acessível");
+    await createCasaProject(
+      CASA_FIRST,
+      "Casa fora da ACL SENTINELA",
+      PROJECT_CREATED_1,
+    );
+    await createCasaProject(CASA_ALLOWED, "Casa acessível", PROJECT_CREATED_2);
 
     const result = await commit(authorizedRequester);
 
@@ -433,15 +483,12 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
   });
 
   it("escopa CASA e CARRO de forma independente: IPVA em projeto CARRO fora da ACL não escreve", async () => {
-    await createCasaProject(CASA_ALLOWED, "Casa acessível");
-    await setup.project.create({
-      data: {
-        id: CARRO_HIDDEN,
-        tenantId: TENANT,
-        type: "CARRO",
-        name: "Carro fora da ACL SENTINELA",
-      },
-    });
+    await createCasaProject(CASA_ALLOWED, "Casa acessível", PROJECT_CREATED_1);
+    await createCarroProject(
+      CARRO_HIDDEN,
+      "Carro fora da ACL SENTINELA",
+      PROJECT_CREATED_1,
+    );
 
     const result = await commit(
       authorizedRequester,
@@ -464,5 +511,101 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
         categoria: "LUZ",
       }),
     ]);
+  });
+
+  it("entre vários CASA AUTORIZADOS escolhe o primeiro CRIADO, mesmo inserido depois e com id maior", async () => {
+    // CASA_FIRST (o mais antigo) está FORA da ACL; entre os dois autorizados o
+    // criado primeiro é CASA_ALLOWED, embora CASA_THIRD seja inserido antes.
+    await createCasaProject(CASA_THIRD, "Casa autorizada 3", PROJECT_CREATED_3);
+    await createCasaProject(
+      CASA_ALLOWED,
+      "Casa autorizada 2",
+      PROJECT_CREATED_2,
+    );
+    await createCasaProject(
+      CASA_FIRST,
+      "Casa fora da ACL SENTINELA",
+      PROJECT_CREATED_1,
+    );
+
+    const result = await commit({
+      ...authorizedRequester,
+      allowedProjects: [PESSOAL, CASA_ALLOWED, CASA_THIRD],
+    });
+
+    expect(result.recurrencesCreated).toBe(1);
+    expect(await recurringBills()).toEqual([
+      expect.objectContaining({ projectId: CASA_ALLOWED }),
+    ]);
+  });
+
+  it("com o mesmo createdAt desempata pelo menor id literal", async () => {
+    // B é inserido antes de A; ambos nascem no mesmo instante.
+    await createCasaProject(CASA_TIE_B, "Casa empate B", PROJECT_CREATED_1);
+    await createCasaProject(CASA_TIE_A, "Casa empate A", PROJECT_CREATED_1);
+
+    const result = await commit(ownerRequester);
+
+    expect(result.recurrencesCreated).toBe(1);
+    expect(await recurringBills()).toEqual([
+      expect.objectContaining({ projectId: CASA_TIE_A }),
+    ]);
+  });
+
+  it("aplica a mesma regra do primeiro criado ao projeto CARRO (IPVA)", async () => {
+    await createCarroProject(CARRO_SECOND, "Carro seguinte", PROJECT_CREATED_2);
+    await createCarroProject(CARRO_FIRST, "Carro primeiro", PROJECT_CREATED_1);
+
+    const result = await commit(
+      ownerRequester,
+      bankOfx(
+        ofxTransaction("20260710", 80_000, VEHICLE_TAX_MERCHANT, "SEC481-IPVA"),
+      ),
+    );
+
+    expect(result.recurrencesCreated).toBe(1);
+    expect(await recurringBills()).toEqual([
+      expect.objectContaining({ projectId: CARRO_FIRST }),
+    ]);
+  });
+  it("pina a ordem EXPLÍCITA (createdAt asc, id asc) nas duas seleções de destino, com ACL preservada no where", async () => {
+    // O empate por `id` não é observável no SQLite: com `createdAt` igual o plano
+    // atual varre o índice (tenant_id, id) e devolve o menor id "de graça". Por
+    // isso o desempate explícito é travado pelo ARGUMENTO da consulta, que é o
+    // contrato — e nenhuma fixture consegue distinguir a versão sem `id`.
+    await createCasaProject(CASA_ALLOWED, "Casa acessível", PROJECT_CREATED_1);
+    await createCarroProject(CARRO_FIRST, "Carro", PROJECT_CREATED_1);
+    const spy = jest.spyOn(prisma.project, "findFirst");
+    try {
+      const result = await commit(
+        ownerRequester,
+        bankOfx(
+          ofxTransaction(
+            "20260710",
+            UTILITY_CENTS,
+            UTILITY_MERCHANT,
+            "QA-ORD-1",
+          ),
+          ofxTransaction("20260710", 80_000, VEHICLE_TAX_MERCHANT, "QA-ORD-2"),
+        ),
+      );
+      expect(result.recurrencesCreated).toBe(2);
+      const destinations = spy.mock.calls
+        .map(([args]) => args as any)
+        .filter(
+          (args) =>
+            args?.where?.type === "CASA" || args?.where?.type === "CARRO",
+        );
+      expect(destinations.map((args) => args.where.type).sort()).toEqual([
+        "CARRO",
+        "CASA",
+      ]);
+      for (const args of destinations) {
+        expect(args.orderBy).toEqual([{ createdAt: "asc" }, { id: "asc" }]);
+        expect(args.where).toMatchObject({ tenantId: TENANT, deletedAt: null });
+      }
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

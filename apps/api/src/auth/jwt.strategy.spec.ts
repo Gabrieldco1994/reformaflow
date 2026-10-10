@@ -347,3 +347,80 @@ describe('JwtStrategy.validate — allowedModules/allowedProjectTypes corrompido
     },
   );
 });
+
+describe('JwtStrategy — authClaims (verified sv/exp for the import boundary)', () => {
+  let prisma: any;
+  let strategy: JwtStrategy;
+
+  const userRow = (sessionVersion: number) => ({
+    id: 'u1',
+    tenantId: 't1',
+    username: 'x',
+    name: 'X',
+    role: 'USER',
+    deletedAt: null,
+    isGuest: false,
+    sessionVersion,
+    allowedModules: '[]',
+    allowedProjects: '[]',
+    allowedProjectTypes: '[]',
+    tenant: { id: 't1', deletedAt: null, expiresAt: null },
+  });
+
+  beforeEach(() => {
+    prisma = {
+      user: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
+    };
+    strategy = new JwtStrategy(prisma);
+  });
+
+  it('carries the PRESENTED sv and exp, not the current database version', async () => {
+    prisma.user.findUnique.mockResolvedValue(userRow(3));
+    const result = await strategy.validate({
+      sub: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      role: 'USER',
+      sv: 3,
+      exp: 1_900_000_000,
+    });
+    expect(result.authClaims).toEqual({
+      sessionVersion: 3,
+      expiresAtEpochSeconds: 1_900_000_000,
+    });
+  });
+
+  it('a legacy token without sv is version 0 globally; the validation semantics are unchanged', async () => {
+    prisma.user.findUnique.mockResolvedValue(userRow(0));
+    const result = await strategy.validate({
+      sub: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      role: 'USER',
+    });
+    expect(result.authClaims.sessionVersion).toBe(0);
+    prisma.user.findUnique.mockResolvedValue(userRow(1));
+    await expect(
+      strategy.validate({ sub: 'u1', tenantId: 't1', username: 'x', role: 'USER' }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['not a number', 'soon' as unknown as number],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('exp %s becomes null (refused only by the import boundary, legacy routes keep validating)', async (_label, exp) => {
+    prisma.user.findUnique.mockResolvedValue(userRow(0));
+    const result = await strategy.validate({
+      sub: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      role: 'USER',
+      sv: 0,
+      exp,
+    });
+    expect(result.authClaims.expiresAtEpochSeconds).toBeNull();
+    expect(result.id).toBe('u1');
+  });
+});

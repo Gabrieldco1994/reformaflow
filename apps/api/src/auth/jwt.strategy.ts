@@ -12,6 +12,16 @@ export interface JwtPayload {
   username: string;
   role: 'ADMIN' | 'USER';
   sv?: number; // sessionVersion — ausente em tokens antigos (tratados como versão 0)
+  exp?: number; // epoch seconds; ausente em tokens sem expiração (só o import a recusa)
+}
+
+/**
+ * Claims verificadas do JWT apresentado, para quem precisa compará-las depois (import de
+ * sessões). Interno ao `request.user`: NUNCA devolvido por /auth/me nem por resposta pública.
+ */
+export interface JwtAuthClaims {
+  sessionVersion: number;
+  expiresAtEpochSeconds: number | null;
 }
 
 const cookieExtractor = (req: Request): string | null => {
@@ -104,6 +114,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       allowedProjects,
       allowedProjectTypes,
       isGuest: user.isGuest,
+      authClaims: {
+        sessionVersion: payload.sv ?? 0,
+        expiresAtEpochSeconds:
+          typeof payload.exp === 'number' && Number.isFinite(payload.exp)
+            ? payload.exp
+            : null,
+      } satisfies JwtAuthClaims,
     };
   }
 }

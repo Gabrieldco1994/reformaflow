@@ -9,7 +9,7 @@ import type { Eixo } from './EixoToggle';
 import { Card } from './ui';
 import { fmtMoney } from './format';
 import { colorForCategoria } from './derive';
-import { spendTree, type SpendTreeOrigin, type SpendTreeStatusMode } from './spend-tree';
+import { sharePct, spendTree, type SpendTreeOrigin, type SpendTreeStatusMode } from './spend-tree';
 
 interface BankAccountDTO {
   id: string;
@@ -52,8 +52,9 @@ function posOf(index: number, count: number): 'first' | 'last' | 'middle' | 'sin
   return 'middle';
 }
 
-function pct(part: number, total: number): number {
-  return total > 0 ? Math.round((part / total) * 100) : 0;
+function pctLabel(part: number, total: number): string {
+  const p = sharePct(part, total);
+  return p === null ? '' : `${p}%`;
 }
 
 export default function ArvoreGastos({
@@ -245,7 +246,7 @@ export default function ArvoreGastos({
                           </span>
                           <span className="mt-0.5 flex items-baseline justify-between gap-2 pl-5">
                             <span className="text-[10px] text-[var(--ck-muted)]">
-                              ••{o.last4} · {pct(o.total, tree.total)}%
+                              ••{o.last4}{pctLabel(o.total, tree.total) && ` · ${pctLabel(o.total, tree.total)}`}
                               {!isOpen && o.tipos.length > 0 && (
                                 <span className="ml-1 text-[var(--ck-accent)]">· {o.tipos.length} tipos</span>
                               )}
@@ -275,7 +276,9 @@ export default function ArvoreGastos({
                                   </span>
                                   <span className="shrink-0 font-geist tabular-nums text-xs text-[var(--ck-muted)]">
                                     {fmtMoney(t.valor)}
-                                    <span className="ml-1 text-[10px]">({pct(t.valor, o.total)}%)</span>
+                                    {pctLabel(t.valor, o.total) && (
+                                      <span className="ml-1 text-[10px]">({pctLabel(t.valor, o.total)})</span>
+                                    )}
                                   </span>
                                 </div>
                               </div>

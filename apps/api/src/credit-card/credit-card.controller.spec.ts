@@ -54,9 +54,11 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     );
     expect(service.commitImport).toHaveBeenCalled();
     const args = service.commitImport.mock.calls[0];
-    expect(args[args.length - 3]).toEqual(decisions);
-    expect(args[args.length - 2]).toBe('u1');
-    expect(args[args.length - 1]).toEqual({ id: 'u1' });
+    // decisions, createdByUserId, requester, selectedExternalIds (trailing, opcional)
+    expect(args[8]).toEqual(decisions);
+    expect(args[9]).toBe('u1');
+    expect(args[10]).toEqual({ id: 'u1' });
+    expect(args[11]).toBeUndefined();
   });
 
   it('decisões ausente → repassa undefined', async () => {
@@ -68,7 +70,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     );
     expect(service.commitImport).toHaveBeenCalled();
     const args = service.commitImport.mock.calls[0];
-    expect(args[args.length - 3]).toBeUndefined();
+    expect(args[8]).toBeUndefined();
   });
 
   it('decisões JSON inválido → BadRequestException', async () => {
@@ -82,7 +84,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('decisões JSON não-array → trata como undefined (não lança)', async () => {
+  it('decisões JSON não-array → repassa cru; o service responde 400 INVALID_DECISION', async () => {
     await controller.importStatement(
       't1', { id: 'u1' }, 'p1', 'card1',
       [fakeFile],
@@ -91,7 +93,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     );
     expect(service.commitImport).toHaveBeenCalled();
     const args = service.commitImport.mock.calls[0];
-    expect(args[args.length - 3]).toBeUndefined();
+    expect(args[8]).toEqual({ externalId: 'X', action: 'skip' });
   });
 
   it('modo preview ignora decisions', async () => {

@@ -3,6 +3,7 @@ import {
   UploadedFiles, UseInterceptors, BadRequestException,
 } from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { CARD_IMPORT_INVALID_DECISION, CARD_IMPORT_INVALID_SELECTION } from '@reformaflow/domain';
 import { CreditCardService } from './credit-card.service';
 import {
   CreateCreditCardDto,
@@ -144,7 +145,7 @@ export class CreditCardController {
     @Param('id') cardId: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Query() query: ImportStatementQueryDto,
-    @Body() body: { decisions?: string } | undefined,
+    @Body() body: { decisions?: string; selectedExternalIds?: string } | undefined,
   ) {
     assertRateioRequester(requester);
     const list = (files ?? []).slice(0, 5);
@@ -155,13 +156,22 @@ export class CreditCardController {
     const fileName = list[0].originalname;
     const source = (query.source ?? 'AUTO') as any;
     // decisions vêm via multipart field 'decisions' como JSON-string
-    let decisions: import('./credit-card.service').ImportDecision[] | undefined;
+    // O service valida a forma (400 INVALID_DECISION); aqui só o JSON.
+    let decisions: unknown;
     if (body?.decisions) {
       try {
-        const parsed = JSON.parse(body.decisions);
-        if (Array.isArray(parsed)) decisions = parsed;
+        decisions = JSON.parse(body.decisions);
       } catch {
-        throw new BadRequestException({ message: 'campo "decisions" deve ser JSON array' });
+        throw new BadRequestException({ code: CARD_IMPORT_INVALID_DECISION, message: 'campo "decisions" deve ser JSON array' });
+      }
+    }
+    // Seleção da tentativa (só commit): ausente = legado; presente e ilegível = 400.
+    let selectedExternalIds: unknown;
+    if (body?.selectedExternalIds !== undefined && (query.mode ?? 'preview') === 'commit') {
+      try {
+        selectedExternalIds = JSON.parse(body.selectedExternalIds);
+      } catch {
+        throw new BadRequestException({ code: CARD_IMPORT_INVALID_SELECTION, message: 'campo "selectedExternalIds" deve ser JSON array' });
       }
     }
     try {
@@ -179,6 +189,7 @@ export class CreditCardController {
           decisions,
           requester.id,
           requester,
+          selectedExternalIds,
         );
       }
       return await this.service.previewImport(

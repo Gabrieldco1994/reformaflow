@@ -72,6 +72,7 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       rateioAllocation: {
+        findFirst: jest.fn().mockResolvedValue(null),
         count: jest.fn().mockImplementation(({ where }: any) => {
           if (where?.sourceExpenseId) return Promise.resolve(opts.rateioCount ?? 0);
           if (where?.targetExpenseId) return Promise.resolve(opts.rateioTargetCount ?? 0);
@@ -189,7 +190,7 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
     prisma._settlements.set('tgt|0', { targetExpenseId: 'tgt', sourceExpenseId: 'mA', parcelaIndex: 0, plannedStatus: 'PLANEJADO', realValor: 11000, tenantId: 't1' });
     // findMany por sourceExpenseId usado por unsettleBySource
     prisma.crossProjectSettlement.findMany = jest.fn().mockResolvedValue([
-      { targetExpenseId: 'tgt', sourceExpenseId: 'mA', parcelaIndex: 0, plannedStatus: 'PLANEJADO', realValor: 11000 },
+      { tenantId: 't1', mode: 'LEGACY_REPLACEMENT', reversedAt: null, targetExpenseId: 'tgt', sourceExpenseId: 'mA', parcelaIndex: 0, plannedStatus: 'PLANEJADO', realValor: 11000 },
     ]);
 
     await service.unsettleBySource(prisma, { tenantId: 't1', sourceExpenseId: 'mA' }, TEST_OWNER_REQUESTER);

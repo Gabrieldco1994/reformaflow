@@ -29,12 +29,166 @@
 14. **I5:** fallback por competência nunca pode sobrescrever `caixa.hoje` reconciliado quando `temSaldoInicial=true`. ⚠️ não blindado por teste dedicado com codinome I5.
 15. **Regra de domicílio das contas fixas:** tudo que debita da conta bancária pessoal se lança como despesa (recorrente ou avulsa) no projeto **PESSOAL**. Projetos CASA/CARRO guardam manutenção, lembretes e despesas do bem — `recurringBills` de CASA/CARRO NÃO entram no caixa consolidado. Espelho automático entre CASA/CARRO → PESSOAL é explicitamente **deferido** (decisão de produto, não implementar sem nova deliberação).
 
+### Finalidade de crédito importado de cartão (#704)
+
+A finalidade associa um crédito negativo já importado e PAGO ao custo de outro
+projeto autorizado. Não procura nem exige a compra original. A identidade do
+cartão vem da importação original, nunca de uma escolha por `last4`.
+
+- A fonte mantém todos os campos financeiros, identidades, datas e CFEs,
+  inclusive gerações excluídas e timestamps. Apenas seu vínculo e sua revisão
+  de finalidade mudam.
+- O servidor cria uma única despesa negativa própria, integral, PAGA, com um CFE
+  negativo e um `RateioAllocation.isRefundCredit=true`. O alvo não recebe
+  identidade de cartão, conta, importação, recorrência ou liquidação.
+- `dataCompra` e a data histórica do CFE são preservadas separadamente.
+  Não há Receipt, BudgetAllocation, InvoiceAdjustment ou nova liquidação.
+- A marca de propriedade nunca é inferida pelo sinal. A migração deixa
+  alocações históricas com `isRefundCredit=false` e despesas com
+  `refundPurposeRevision=0`; snapshots e undo do rateio positivo não mudam.
+
+| Escopo financeiro autorizado | Crédito contabilizado |
+|---|---|
+| Conta, Carteira, cartão e fatura | Somente a fonte; o alvo nunca é um movimento bancário/Carteira |
+| Consumo/DRE/orçamento somente PESSOAL da fonte | Fonte uma vez, mesmo vinculada |
+| Custo/DRE/orçamento somente destino | Alvo uma vez |
+| Consolidado com ambos | Alvo uma vez |
+| Consolidado somente fonte | Fonte uma vez, sem revelar o destino oculto |
+
+Categorias negativas ou com estorno maior que gasto mantêm seu saldo líquido
+negativo. Essa seleção é específica da finalidade marcada e não redefine o
+rateio positivo. Origem paga no destino continua subordinada à ACL da origem.
+
+A finalidade não cria nem reescreve agenda documentada (#701): valores
+negativos continuam legítimos em agendas, a fonte preserva sua agenda byte a
+byte e o alvo próprio nunca recebe agenda. Só são recusadas as origens fora
+do contrato acima (pagamento parcelado/série, conta bancária, financiamento
+parcial ou liquidação registrados, trilha de fatura).
+
+#### Escrita dedicada e concorrência
+
+`POST /projects/:projectId/expenses/:id/refund-purpose` aceita somente:
+
+- Prévia: `{ mode: "preview", targetProjectId, roomId: null | string }`.
+- Aplicação: os mesmos campos com `mode: "apply"`, mais `expectedRevision`
+  inteiro não negativo e `expectedFingerprint` SHA-256 hexadecimal minúsculo.
+
+O fingerprint compromete fonte, todos os CFEs, importação/cartão, pais,
+permissões atuais, grafo e intenção derivada. Revisão sozinha não valida uma
+prévia. Aplicação reserva o escritor SQLite antes das releituras autoritativas.
+Retry exige a geração seguinte, o grafo próprio completo e o mesmo fingerprint
+reconstruído sem esconder relações adicionais; não escreve novamente.
+
+`DELETE` no mesmo caminho aceita apenas `{ expectedRevision }`, correspondente
+à geração aplicada. Exclui logicamente alvo e CFE próprios, remove a alocação,
+limpa o vínculo e avança a revisão. Retry imediato é idempotente; uma aplicação
+antiga depois do undo não ressuscita o alvo.
+A autorização sobre o alvo próprio é resolvida antes da comparação de revisão:
+quem não enxerga o alvo recebe o mesmo 404 não revelador para qualquer revisão
+ímpar, exata ou não, e só quem o enxerga distingue o 409 de estado divergente.
+
+Excluir a fonte ou desfazer sua importação executa a mesma limpeza atomicamente,
+inclusive para fonte já excluída logicamente. Excluir o alvo diretamente, apagar
+projeto/cartão participante, mudar identidade do cartão, editar finanças,
+reclassificar em lote, regenerar CFEs ou usar rateio/vínculo/quitação comuns
+exige primeiro desfazer a finalidade. Metadados descritivos podem ser
+sincronizados entre participantes sob a ACL existente, sem regenerar CFEs.
+
+Payload inválido resulta em 400; recurso indisponível ou não autorizado, 404
+não revelador; estado divergente ou contenção reconhecida, 409, sem escrita
+parcial. O cliente não deve renovar os guardas e reaplicar silenciosamente.
+Os campos internos de propriedade/revisão não entram na serialização genérica
+nem alteram o payload redigido de `GET :id/rateio`. Créditos negativos não
+anunciam os verbos ordinários de ratear, vincular ou pagar.
+
+Nas leituras HTTP ordinárias de despesas (lista, detalhe e listas
+cross-project), créditos negativos recebem `canDelete: boolean`, somente de
+saída. O valor deriva da pré-validação somente leitura dos guards reais de
+exclusão e das permissões atuais: alvo próprio protegido recebe `false`; fonte
+cujo cleanup é permitido recebe `true`. Não é evidência de propriedade nem
+autorização persistida. DELETE reautoriza dentro da transação, sem aceitar esse
+campo como entrada. Despesas positivas mantêm o comportamento anterior, sem
+exigir o campo; clientes falham fechado para negativos sem a capacidade.
+`GET :id/rateio` não recebe `canDelete` nem qualquer mudança de payload.
+
 ## Referência de implementação
 
 - Backend: `apps/api/src/monthly-overview/monthly-overview.service.ts` (`computeCaixaConta`, `getCaixaConta`, `getOverview`).
 - DTO/conta: `apps/api/src/bank-account/dto/bank-account.dto.ts`, `apps/api/src/bank-account/bank-account.service.ts`.
 - Frontend: `apps/web/src/app/projects/[projectId]/monthly/_cockpit/derive.ts`, `.../_cockpit/CockpitTop.tsx`, `.../monthly/_types.ts`.
 - Testes que blindam contrato: `apps/api/src/monthly-overview/caixa-conta.spec.ts`, `apps/api/src/monthly-overview/get-caixa-conta.spec.ts`, `apps/web/src/app/projects/[projectId]/monthly/_cockpit/derive.projecao.test.ts`.
+- Finalidade #704: `apps/api/src/expense/refund-purpose.service.ts`,
+  `refund-purpose-scope.ts`, `refund-purpose-privacy.interceptor.ts`; tipos wire
+  em `apps/api/src/expense/refund-purpose.types.ts`.
+- Testes #704: `expense.refund-purpose.spec.ts`,
+  `expense.refund-purpose.lifecycle.spec.ts` (PrismaService real e HTTP via
+  Playwright), `expense.refund-purpose.interplay.spec.ts` (restore CARD/BANK,
+  financiamento parcial, agenda documentada e leituras anuais),
+  `monthly-overview.refund-purpose.spec.ts` e
+  `prisma/migrations-refund-purpose-upgrade.spec.ts` (upgrade legado e backup).
+  Validação local não é evidência de merge, frontend integrado ou deploy.
+
+### Gate funcional de leitura de finalidade
+
+`apps/api/src/expense/refund-purpose-reader.gatespec.ts` exercita
+`GET :id/refund-purpose` no `AppModule` real (`APP_GUARD`/`APP_INTERCEPTOR` como
+registrados, `JwtAuthGuard` e `JwtStrategy` reais, JWT via cabeçalho de
+autorização HTTP, sem cookies, sobre HTTP em 127.0.0.1): 25 testes. Não é jornada de UI/cookie. O nome `.gatespec.ts` é
+deliberado: o Jest padrão (`.*\.spec\.ts$`) não o executa e o `nest build`
+(`tsconfig.build.json`) o exclui da compilação; o `tsc` do CI continua a
+tipá-lo. Rode-o só com a receita abaixo (salve como script). `API_DIR`, `OUT` e `UP` são caminhos absolutos; `TZV` é `UTC` ou
+`America/Sao_Paulo`. `OUT` e `UP` são irmãos disjuntos e ainda inexistentes, com
+o pai de `OUT` já existente (ex.: `UP=/tmp/g-up`, `OUT=/tmp/g-out`; `OUT` dentro
+de `UP` é recusado):
+
+```sh
+set -u
+: "${API_DIR:?}" "${TZV:?}" "${OUT:?}" "${UP:?}"
+for p in "$API_DIR" "$OUT" "$UP"; do
+  case $p in /*) ;; *) echo "caminho não absoluto: $p" >&2; exit 2 ;; esac
+done
+[ -d "$(dirname "$OUT")" ] || { echo 'diretório pai de OUT precisa existir antes do upload temporário' >&2; exit 2; }
+JEST="$API_DIR/../../node_modules/.bin/jest"
+[ -x "$JEST" ] || { echo "jest local ausente (sem npx)" >&2; exit 2; }
+[ ! -e "$OUT" ] && [ ! -e "$UP" ] || { echo "OUT/UP já existem" >&2; exit 2; }
+umask 077
+UP_OWN=
+trap '[ -z "$UP_OWN" ] || rm -rf -- "$UP_OWN"' EXIT
+mkdir "$UP" && UP_OWN=$(cd "$UP" && pwd -P) || exit 2
+mkdir "$OUT" && mkdir "$OUT/observed" || exit 2
+cd "$API_DIR" || exit 2
+env -i PATH="$PATH" HOME="$HOME" TZ="$TZV" JWT_SECRET=qa-gate704-test-only-secret \
+  NODE_ENV=test UPLOADS_DIR="$UP_OWN" P704_GATE_EVIDENCE_DIR="$OUT/observed" \
+  "$JEST" --runInBand --testRegex 'refund-purpose-reader\.gatespec\.ts$' \
+  --json --outputFile="$OUT/run.json" >"$OUT/stdout.log" 2>"$OUT/stderr.log"
+RC=$?
+echo "$RC" >"$OUT/exit.code"
+exit "$RC"
+```
+
+O spec exige o `JWT_SECRET` literal acima e `NODE_ENV=test` (falha de
+precondição se diferirem). Repita com `TZV=UTC` e `TZV=America/Sao_Paulo`.
+Confira `exit.code` = 0 e o
+`run.json` (`numTotalTests` 25, `numPassedTests` 25, `numPendingTests` 0,
+`numRuntimeErrorTestSuites` 0); um filtro (`-t`) não é `skip` e muda a contagem.
+Precisa de `prisma/test.db` migrado (`npm run test:db:prepare`); o próprio spec
+carrega `scripts/test-db-env.cjs`, cuja guarda recusa a URL do `dev.db` real; a
+evidência é o teste `[lsof]` e o `DATABASE_URL` de worker verificados na
+execução, não uma garantia universal contra qualquer instrumento alterado.
+
+Limites:
+- Validado em macOS com Node 24; Linux não foi avaliado (não é afirmação de incompatibilidade).
+- O tripwire de egresso instrumenta só `fetch`, `https.request/get` e
+  `tls.connect`, além de `net.Socket#connect` e `dns.lookup` para hosts não
+  loopback.
+  `dgram`, `dns.resolve*` e `child_process` NÃO são instrumentados, e imports do
+  framework carregados antes do hook não são cobertos. Ele injeta falha de
+  aplicação; não prova que o engine Prisma não abre rede e STDIO não é SQL.
+- O prazo de 60 s do setup/teardown do `AppModule` é um limite finito, não SLA
+  nem orçamento de desempenho. Uma execução excedeu o limite padrão de 5 s;
+  cache frio é hipótese, a causa não foi medida.
+- Não cobre T1/T2/T3 (barreira, tempo, query log), `main.ts`, `cookieParser`,
+  `ValidationPipe` nem provider externo.
 
 ## Apêndice histórico
 

@@ -157,6 +157,19 @@ describe('FinancialItemDetail', () => {
     });
   });
 
+  describe('outros chamadores: semântica anterior', () => {
+    it('sem contexto de apresentação, mesmo um crédito de cartão mantém "Status" e "Finalidade", sem ajuda de fatura', () => {
+      mockWidth(375);
+      render(<FinancialItemDetail item={makeItem({ amountCents: -12_345_678, status: 'PLANEJADO', purposeLabel: 'Outros' })} onClose={() => {}} />);
+      const terms = Array.from(document.querySelectorAll('dt')).map((el) => el.textContent);
+      expect(terms).toContain('Status');
+      expect(terms).toContain('Finalidade');
+      expect(terms).not.toContain('Situação na fatura');
+      expect(terms).not.toContain('Categoria');
+      expect(document.body.textContent).not.toMatch(/quitação da fatura/i);
+    });
+  });
+
   describe('mutation testing: sheet/drawer conditional', () => {
     it('swapping condition would fail — sheet at 375 asserts absence of drawer', () => {
       mockWidth(375);

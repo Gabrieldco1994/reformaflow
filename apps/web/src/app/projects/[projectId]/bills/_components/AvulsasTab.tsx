@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
+import { toast } from 'sonner';
 import { ExpenseTypeLabels, getExpenseTypesForProject, isSinglePaymentForm, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ import { formatCurrency } from '@/lib/utils';
 import { AvulsasView } from './AvulsasView';
 import { getAvulsaDisplay, type AvulsaRow } from '../_display';
 import { DocumentedSchedule } from '../../expenses/_components/DocumentedSchedule';
+import { canDeleteExpense, isExpenseCredit } from '../../expenses/_lib/credit-policy';
 
 type Expense = AvulsaRow;
 
@@ -97,6 +99,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
   const editingExpense = all.find((expense) => expense.id === draft.id);
   const editingDisplay = editingExpense ? getAvulsaDisplay(editingExpense, projectType) : null;
   const hasActiveFunding = !!editingExpense?.installmentSettlements?.some((summary) => summary.paidCents > 0);
+  const credit = isExpenseCredit(editingExpense);
 
   // Aplica filtro de mês olhando dataPagamento ou dataInicioParcela.
   const filtered = useMemo(() => {
@@ -115,9 +118,10 @@ export function AvulsasTab({ projectId, projectType }: Props) {
   const createMutation = useMutation({
     mutationFn: async (d: DraftForm) => {
       const original = all.find((expense) => expense.id === d.id);
-      if (original?.schedule || original?.installmentSettlements?.some((summary) => summary.paidCents > 0)) {
+      if (original?.schedule || isExpenseCredit(original) || original?.installmentSettlements?.some((summary) => summary.paidCents > 0)) {
         return api.patch(`/projects/${projectId}/expenses/${d.id}`, {
-          tipoDespesa: d.tipoDespesa,
+          // Crédito assinado nunca altera categoria por aqui (só título/fornecedor).
+          ...(!isExpenseCredit(original) ? { tipoDespesa: d.tipoDespesa } : {}),
           titulo: d.titulo || null,
           fornecedor: d.fornecedor || null,
         });
@@ -154,8 +158,17 @@ export function AvulsasTab({ projectId, projectType }: Props) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/projects/${projectId}/expenses/${id}`),
+    mutationFn: (id: string) => {
+      const expense = all.find((item) => item.id === id);
+      if (expense && !canDeleteExpense(expense)) throw new Error('Exclusão indisponível para este lançamento.');
+      return api.delete(`/projects/${projectId}/expenses/${id}`);
+    },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses', projectId, 'bills-avulsas'] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao excluir despesa: ${error.message}`);
+      // A capacidade (`canDelete`) pode ter mudado no servidor: releia a lista.
       queryClient.invalidateQueries({ queryKey: ['expenses', projectId, 'bills-avulsas'] });
     },
   });
@@ -265,6 +278,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
             name="tipoDespesa"
             options={tipoOptions}
             value={draft.tipoDespesa}
+            disabled={credit}
             onChange={(e) => setDraft({ ...draft, tipoDespesa: e.target.value })}
           />
           <Input
@@ -296,7 +310,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
             </p>
           )}
           {editingExpense?.schedule ? <DocumentedSchedule expense={editingExpense} /> : (
-          <fieldset disabled={hasActiveFunding} className="space-y-3">
+          <fieldset disabled={hasActiveFunding || credit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Input
               label="Valor (R$)"

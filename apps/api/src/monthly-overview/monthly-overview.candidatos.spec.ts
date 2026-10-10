@@ -20,6 +20,7 @@ const makeSaida = (overrides: Partial<{
   realizado: boolean;
   tipoDespesa: string | null;
   projetoOrigem: { id: string; name: string; type: string } | null;
+  expenseIsCredit: unknown;
 }>) => ({
   id: null,
   foreignExpenseId: null,
@@ -194,5 +195,84 @@ describe('buildRunwayCandidatos', () => {
     expect(ids).not.toContain('neutro-1');
     expect(ids).not.toContain('neutro-2');
     expect(ids).toContain('real-1'); // despesa real sem tipoDespesa passa
+  });
+});
+
+describe('buildRunwayCandidatos — expenseIsCredit (#704 read contract)', () => {
+  const serie = makeSerie([
+    { mes: '2026-07', saldoProjetado: 10_000 },
+    { mes: '2026-08', saldoProjetado: 5_000 },
+    { mes: '2026-09', saldoProjetado: -5_000 },
+  ]);
+  const months = ['2026-07', '2026-08', '2026-09'];
+  const run = (views: Array<Array<ReturnType<typeof makeSaida>>>) =>
+    buildRunwayCandidatos(serie, views.map((saidas) => ({ saidas })), months, '2026-07');
+
+  it('root positive + negative window occurrence stays false; root negative + positive occurrence is true', () => {
+    const result = run([
+      [
+        makeSaida({ id: 'pos-root', descricao: 'Root +', valor: -200_00, data: '2026-07-10T00:00:00.000Z', expenseIsCredit: false }),
+        makeSaida({ id: 'neg-root', descricao: 'Root -', valor: 200_00, data: '2026-07-11T00:00:00.000Z', expenseIsCredit: true }),
+      ],
+      [],
+      [],
+    ]);
+    expect(result).toEqual([
+      { expenseId: 'neg-root', descricao: 'Root -', valor: 200_00, data: '2026-07-11T00:00:00.000Z', projetoOrigem: null, expenseIsCredit: true },
+      { expenseId: 'pos-root', descricao: 'Root +', valor: -200_00, data: '2026-07-10T00:00:00.000Z', projetoOrigem: null, expenseIsCredit: false },
+    ]);
+  });
+
+  it('never infers the flag from the accumulated value; ordinary candidates keep their shape (no key)', () => {
+    const result = run([
+      [
+        makeSaida({ id: 'plain', descricao: 'Plain', valor: -50_00 }),
+        makeSaida({ id: 'other', descricao: 'Other', valor: 70_00 }),
+      ],
+      [],
+      [],
+    ]);
+    expect(result).toEqual([
+      { expenseId: 'other', descricao: 'Other', valor: 70_00, data: '2026-08-15T00:00:00.000Z', projetoOrigem: null },
+      { expenseId: 'plain', descricao: 'Plain', valor: -50_00, data: '2026-08-15T00:00:00.000Z', projetoOrigem: null },
+    ]);
+    expect(result.every((row) => !('expenseIsCredit' in row))).toBe(true);
+  });
+
+  it('keeps the flag across months of the same expense and ignores views that carry none', () => {
+    const result = run([
+      [makeSaida({ id: 'e1', valor: 100_00, data: '2026-07-20T00:00:00.000Z', expenseIsCredit: true })],
+      [makeSaida({ id: 'e1', valor: 100_00, data: '2026-08-20T00:00:00.000Z' })],
+      [makeSaida({ id: 'e1', valor: 100_00, data: '2026-09-20T00:00:00.000Z', expenseIsCredit: true })],
+    ]);
+    expect(result).toEqual([
+      { expenseId: 'e1', descricao: 'Gasto', valor: 300_00, data: '2026-07-20T00:00:00.000Z', projetoOrigem: null, expenseIsCredit: true },
+    ]);
+  });
+
+  it('conflicting labels for the same expense across views drop the flag (no arbitrary last-wins); selection is unchanged', () => {
+    const result = run([
+      [makeSaida({ id: 'e1', valor: 100_00, expenseIsCredit: true }), makeSaida({ id: 'e2', valor: 50_00, expenseIsCredit: false })],
+      [makeSaida({ id: 'e1', valor: 100_00, expenseIsCredit: false }), makeSaida({ id: 'e2', valor: 50_00, expenseIsCredit: true })],
+      [],
+    ]);
+    expect(result).toEqual([
+      { expenseId: 'e1', descricao: 'Gasto', valor: 200_00, data: '2026-08-15T00:00:00.000Z', projetoOrigem: null },
+      { expenseId: 'e2', descricao: 'Gasto', valor: 100_00, data: '2026-08-15T00:00:00.000Z', projetoOrigem: null },
+    ]);
+  });
+
+  it('a conflict is sticky regardless of view order and ignores non-boolean labels', () => {
+    const base = [
+      makeSaida({ id: 'e1', valor: 10_00, expenseIsCredit: true }),
+      makeSaida({ id: 'e1', valor: 10_00, expenseIsCredit: false }),
+      makeSaida({ id: 'e1', valor: 10_00, expenseIsCredit: true }),
+    ];
+    for (const order of [base, [...base].reverse()]) {
+      const [row] = run([[order[0]], [order[1]], [order[2]]]);
+      expect('expenseIsCredit' in row).toBe(false);
+    }
+    const [text] = run([[makeSaida({ id: 'e2', valor: 10_00, expenseIsCredit: 'true' })], [], []]);
+    expect('expenseIsCredit' in text).toBe(false);
   });
 });

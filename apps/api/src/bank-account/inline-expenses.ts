@@ -89,15 +89,22 @@ export function canUseInlineProject(requester: RateioRequester, project: { id: s
     userCanAccessProjectModule(requester.role, requester.allowedProjectTypes, requester.allowedModules ?? [], project.type, module);
 }
 
-export async function assertInlineProject(
-  tx: Prisma.TransactionClient, tenantId: string, id: string, requester: RateioRequester, module = EXPENSE_MODULE,
-) {
-  const project = await tx.project.findFirst({ where: { id, tenantId, deletedAt: null } });
+/** Decision over an already-read project; the caller owns the tenant/`deletedAt` scope of the read. */
+export function resolveInlineProject<P extends { id: string; type: string }>(
+  project: P | null | undefined, requester: RateioRequester, module = EXPENSE_MODULE,
+): P {
   if (!project || !canUseInlineProject(requester, project, module) ||
       (module === EXPENSE_MODULE && !hasFeature(project.type as ProjectType, 'expenses'))) {
     throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
   }
   return project;
+}
+
+export async function assertInlineProject(
+  tx: Prisma.TransactionClient, tenantId: string, id: string, requester: RateioRequester, module = EXPENSE_MODULE,
+) {
+  const project = await tx.project.findFirst({ where: { id, tenantId, deletedAt: null } });
+  return resolveInlineProject(project, requester, module);
 }
 
 export async function assertInlineAccount(

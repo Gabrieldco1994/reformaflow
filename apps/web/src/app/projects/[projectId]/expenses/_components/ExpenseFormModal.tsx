@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { tipoLabel } from '@/lib/expense-options';
 import { VinculosFields } from './VinculosFields';
 import { DadosDespesaFields } from './DadosDespesaFields';
 import { FormaPagamentoFields } from './FormaPagamentoFields';
+import { isExpenseCredit } from '../_lib/credit-policy';
 import { DocumentedSchedule } from './DocumentedSchedule';
 import { RateioDetalheSection } from './RateioDetalheSection';
 import { useRateioDetalhe } from '../_hooks/useRateioDetalhe';
@@ -16,6 +17,7 @@ import type { Expense } from '@/types';
 import { ParcelaFundingForm, SETTLEMENT_LABELS } from './ParcelaFundingForm';
 import { formatCurrency } from '@/lib/utils';
 import { installmentLabel } from '../_lib/grouping-by-month';
+import { RefundPurposeDialog } from './RefundPurposeDialog';
 
 interface ExpenseOption {
   value: string;
@@ -87,6 +89,8 @@ interface ExpenseFormModalProps {
   linkedExpenseDraft?: LinkedExpenseDraft;
   /** Abre o modal "Ratear compra" para a despesa em edição (apenas fonte PESSOAL). */
   onRatear?: () => void;
+  /** Screen project to refresh after a purpose write; enables the credit's "Finalidade do crédito" entry. */
+  refundPurposeAnchorProjectId?: string;
 }
 
 export function ExpenseFormModal({
@@ -126,7 +130,19 @@ export function ExpenseFormModal({
   error,
   linkedExpenseDraft,
   onRatear,
+  refundPurposeAnchorProjectId,
 }: ExpenseFormModalProps) {
+  const [purposeOpen, setPurposeOpen] = useState(false);
+  const purposeEntryRef = useRef<HTMLButtonElement>(null);
+  const purposeWasOpen = useRef(false);
+  useEffect(() => {
+    if (!open) setPurposeOpen(false);
+  }, [open]);
+  useEffect(() => {
+    // The purpose dialog is a sibling of this modal, so the draft is never reset; focus goes back to its entry.
+    if (purposeWasOpen.current && !purposeOpen) purposeEntryRef.current?.focus();
+    purposeWasOpen.current = purposeOpen;
+  }, [purposeOpen]);
   const [showAdvanced, setShowAdvanced] = useState(
     Boolean(editing?.cardLast4 || editing?.bankLast4 || editing?.linkedExpenseId || editing?.link || editing?.imageUrl),
   );
@@ -151,19 +167,34 @@ export function ExpenseFormModal({
     enabled: Boolean(sourceExpenseId),
   });
   const isRateioSource = Boolean(rateioQuery.data?.rateado);
-  const canUseExistingDebit = !!editing && !isRateioSource && !editing.linkedExpenseId &&
+  const credit = isExpenseCredit(editing);
+  const canUseExistingDebit = !!editing && !credit && !isRateioSource && !editing.linkedExpenseId &&
     (editing.sourceAvailableCents !== undefined ||
       (!!editing.bankLast4 && !editing.cardLast4 && editing.status === 'PAGO' && !editing.recorrente));
 
+  const purposeEntry = credit && !!editing && !!refundPurposeAnchorProjectId;
+
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
       closeDisabled={fundingPending}
-      trapFocus
+      // Two active focus traps would fight over Tab: while the purpose dialog is on top, only it traps.
+      trapFocus={!purposeOpen}
       title={editing ? 'Editar Despesa' : formStatus === 'PLANEJADO' ? 'Planejar Despesa' : 'Nova Despesa (Paga)'}
     >
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form onSubmit={onSubmit} className="space-y-4 [&_input]:min-h-11 [&_select]:min-h-11">
+        {credit && (
+          <p className="text-sm text-darc-velvet/70">
+            Crédito: só título, fornecedor, link e imagem podem ser editados.
+          </p>
+        )}
+        {purposeEntry && (
+          <Button ref={purposeEntryRef} type="button" variant="secondary" className="min-h-11" onClick={() => setPurposeOpen(true)}>
+            Finalidade do crédito
+          </Button>
+        )}
         {editing?.installmentSettlements?.map((summary) => {
           const parcela = installmentLabel(editing, summary.parcelaIndex);
           return (
@@ -208,6 +239,7 @@ export function ExpenseFormModal({
         {editing?.schedule ? (
           <DocumentedSchedule expense={editing} />
         ) : (
+          <fieldset disabled={credit} className="min-w-0 space-y-4 border-0 p-0">
           <FormaPagamentoFields
             formaPagamento={formaPagamento}
             setFormaPagamento={setFormaPagamento}
@@ -221,6 +253,7 @@ export function ExpenseFormModal({
             setRecorrente={setRecorrente}
             valorTotalCents={valorTotal}
           />
+          </fieldset>
         )}
 
         {canUseExistingDebit && editing && (
@@ -248,7 +281,7 @@ export function ExpenseFormModal({
               placeholder="Cole a URL direta da imagem do produto"
               defaultValue={editing?.imageUrl ?? ''}
             />
-            {!editing?.schedule && (
+            {!editing?.schedule && !credit && (
               <VinculosFields
                 projectId={projectId}
                 value={formVinculos}
@@ -272,7 +305,7 @@ export function ExpenseFormModal({
           </p>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          {editing && !editing.schedule && onRatear && (
+          {editing && !editing.schedule && !credit && onRatear && (
             <Button type="button" variant="ghost" onClick={onRatear} className="mr-auto" disabled={fundingPending}>
               Ratear compra
             </Button>
@@ -284,5 +317,15 @@ export function ExpenseFormModal({
         </div>
       </form>
     </Modal>
+    {purposeEntry && editing && refundPurposeAnchorProjectId && (
+      <RefundPurposeDialog
+        open={open && purposeOpen}
+        onClose={() => setPurposeOpen(false)}
+        anchorProjectId={refundPurposeAnchorProjectId}
+        ownerProjectId={projectId}
+        expenseId={editing.id}
+      />
+    )}
+    </>
   );
 }

@@ -22,6 +22,8 @@ import { tipoLabel } from '@/lib/expense-options';
 import { getExpenseIcon, getReceiptIcon } from '@/lib/expense-icons';
 import { invoiceActionAllowed } from '../_lib';
 import { foreignParcelaActionAllowed } from '../../expenses/_lib/quitarParcelaCross';
+import { rootIdentity } from '../../expenses/_lib/credit-policy';
+import type { RootState } from '../../expenses/_hooks/useExpenseRoot';
 import type {
   AccountViewEntrada,
   AccountViewMovimentacao,
@@ -78,6 +80,9 @@ export function MovimentacaoRow({
   expanded = false,
   onToggleExpand,
   onShowDetail,
+  expenseDeleteAllowed,
+  rootState,
+  onRequestRoot,
 }: {
   item: AccountViewMovimentacao;
   originLabel: (cardLast4: string | null, bankLast4: string | null) => string | null;
@@ -105,10 +110,28 @@ export function MovimentacaoRow({
   onToggleExpand?: () => void;
   /** Abre o detalhe do item (sheet mobile / drawer desktop). */
   onShowDetail?: (item: AccountViewMovimentacao) => void;
+  /** Capability from the ordinary expense read (not the invoice actions array). */
+  expenseDeleteAllowed?: boolean;
+  /** On-demand resolution of the ROOT expense (only used when the server flag does not prove it). */
+  rootState?: RootState;
+  onRequestRoot?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const isEntrada = item.kind === 'entrada';
   const isInvoiceRow = item.kind === 'saida' && item.isInvoice;
+  const isSaidaLancamento = item.kind === 'saida' && !item.isInvoice;
+  // O sinal da OCORRÊNCIA (parcela/CFE) só afeta a exibição do valor; a política
+  // (crédito) segue a identidade do ROOT: flag do servidor ou detalhe real.
+  const negativeOccurrence = isSaidaLancamento && item.valor < 0;
+  const identity = isSaidaLancamento ? rootIdentity(item.expenseIsCredit, rootState?.expense) : 'not-credit';
+  const credit = identity === 'credit';
+  // Crédito ou raiz ainda não provada: sem pagar/ratear/vincular/confirmar. `not-credit`
+  // NÃO concede nada: as regras do P01 (editavel, cronograma, funding) continuam valendo.
+  const restricted = identity !== 'not-credit';
+  const needsRoot = isSaidaLancamento && item.expenseIsCredit !== false;
+  const requestRoot = () => {
+    if (needsRoot) onRequestRoot?.();
+  };
   const canExpand = isInvoiceRow && expandable && !!onToggleExpand;
 
   const titulo =
@@ -162,15 +185,17 @@ export function MovimentacaoRow({
       : realizado
         ? 'Paga'
         : 'A pagar';
-  const status = isEntrada
-    ? realizado
-      ? { txt: 'Recebido', cls: 'text-[#1E924A]' }
-      : { txt: 'Previsto', cls: 'text-[#B5803A]' }
-    : invoiceStatusText === 'Parcial'
-      ? { txt: 'Parcial', cls: 'text-[#B5803A]' }
-      : realizado
-        ? { txt: 'Paga', cls: 'text-[#1E924A]' }
-        : { txt: 'A pagar', cls: 'text-[#B5803A]' };
+  const status = credit
+    ? { txt: 'Crédito', cls: 'text-[#1E924A]' }
+    : isEntrada
+      ? realizado
+        ? { txt: 'Recebido', cls: 'text-[#1E924A]' }
+        : { txt: 'Previsto', cls: 'text-[#B5803A]' }
+      : invoiceStatusText === 'Parcial'
+        ? { txt: 'Parcial', cls: 'text-[#B5803A]' }
+        : realizado
+          ? { txt: 'Paga', cls: 'text-[#1E924A]' }
+          : { txt: 'A pagar', cls: 'text-[#B5803A]' };
 
   // Linha "saída" com edição/exclusão habilitadas no backend (item.editavel).
   const isSaidaEditavelBase = item.kind === 'saida' && item.editavel && !item.isInvoice;
@@ -182,11 +207,12 @@ export function MovimentacaoRow({
   // PAGO/PLANEJADO essas linhas.
   const belongsToForeignProject =
     item.kind === 'saida' && item.foreignExpenseId != null && item.projetoOrigem != null;
-  const canToggle = isSaidaEditavelBase && !belongsToForeignProject;
+  const canToggle = !restricted && isSaidaEditavelBase && !belongsToForeignProject;
   const canEditInvoicePayment =
     item.kind === 'saida' && item.isInvoice && item.editavel && !!item.id;
   // Parcela cross-project ainda PENDENTE: precisa ser QUITADA (gera espelho + concilia).
   const isPendingForeignParcela =
+    !restricted &&
     item.kind === 'saida' &&
     !item.isInvoice &&
     !item.realizado &&
@@ -219,13 +245,13 @@ export function MovimentacaoRow({
     item.kind === 'saida' && belongsToForeignProject ? (item.projetoOrigem?.id ?? undefined) : undefined;
   // Compra PESSOAL "solta" (não fatura, editável, sem vínculo cross) → pode ratear/vincular.
   const canCrossLink =
-    item.kind === 'saida' && !item.isInvoice && item.editavel && !!item.id && item.projetoOrigem == null;
+    !restricted && item.kind === 'saida' && !item.isInvoice && item.editavel && !!item.id && item.projetoOrigem == null;
   const projOrigem =
     item.kind === 'saida' && item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL'
       ? item.projetoOrigem
       : null;
   const suggestionLabel =
-    item.kind === 'saida' && !item.isInvoice && item.tipoDespesa === 'OUTROS' && item.suggestionTipoDespesa
+    !restricted && item.kind === 'saida' && !item.isInvoice && item.tipoDespesa === 'OUTROS' && item.suggestionTipoDespesa
       ? `${tipoLabel(item.suggestionTipoDespesa)}?`
       : null;
 
@@ -261,7 +287,10 @@ export function MovimentacaoRow({
     if (invoiceActionAllowed(item, 'undo', Boolean(item.realizado && onUndoPayment)))
       actions.push({ key: 'desfazer', label: 'Desfazer pagamento', Icon: RotateCcw, onClick: () => onUndoPayment!(card) });
   }
-  if (canEdit)
+  // Crédito exclui só com `canDelete === true` do detalhe real; raiz não provada não exclui.
+  const deleteAllowed =
+    expenseDeleteAllowed === true || (identity === 'not-credit' && expenseDeleteAllowed !== false);
+  if (canEdit && deleteAllowed)
     actions.push({
       key: 'delete',
       label: isEntrada ? 'Excluir recebimento' : 'Excluir',
@@ -365,9 +394,34 @@ export function MovimentacaoRow({
     </button>
   );
 
+  // Fora do cluster de valor/status/ações: o estado aparece ao pointer-enter/foco/primeiro toque
+  // e não pode mover nem cobrir o alvo que o usuário acabou de tocar (faixa própria abaixo da linha).
+  const verification =
+    isSaidaLancamento && rootState?.status === 'loading' ? (
+      <p role="status" className="px-2.5 pb-2 text-[11px] text-lifeone-ink-3 md:px-4 md:pb-3">
+        Verificando ações
+      </p>
+    ) : isSaidaLancamento && rootState?.status === 'error' ? (
+      <p
+        role="alert"
+        className="flex flex-wrap items-center gap-x-2 px-2.5 text-[11px] text-[#B54708] md:px-4"
+      >
+        Não foi possível verificar as ações.
+        <button
+          type="button"
+          onClick={rootState.retry}
+          className="inline-flex min-h-11 items-center px-1 font-semibold underline"
+        >
+          Tentar novamente
+        </button>
+      </p>
+    ) : null;
+
   return (
     <div
       data-testid="movimentacao-row"
+      onPointerEnter={requestRoot}
+      onFocusCapture={requestRoot}
       className="rounded-xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card md:rounded-2xl"
     >
       <div className="flex items-start gap-2.5 px-2.5 py-2 md:items-center md:gap-3 md:px-4 md:py-3">
@@ -475,7 +529,7 @@ export function MovimentacaoRow({
               isEntrada ? 'text-[#1E924A]' : 'text-lifeone-ink'
             }`}
           >
-            {isEntrada ? '+' : '−'} {formatCurrency(item.valor / 100)}
+            {negativeOccurrence ? '' : isEntrada ? '+' : '−'} {formatCurrency(item.valor / 100)}
           </span>
           {statusControl}
         </div>
@@ -491,7 +545,7 @@ export function MovimentacaoRow({
                   aria-label={a.label}
                   title={a.label}
                   onClick={a.onClick}
-                  className={`rounded-lg p-2 transition-colors ${
+                  className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg p-2 transition-colors ${
                     a.danger
                       ? 'text-lifeone-ink-4 hover:bg-[#FCEBE9] hover:text-[#D92D20]'
                       : 'text-lifeone-ink-4 hover:bg-[#E6EFFE] hover:text-lifeone-blue'
@@ -501,17 +555,24 @@ export function MovimentacaoRow({
                 </button>
               ))}
             </div>
+            {/* Alvo de toque 44×44 (piso do projeto) sem mudar a grade: a margem
+                horizontal negativa (-4px por lado) cancela os +8px de largura
+                sobre o antigo 36px, e a altura já é dominada pelo avatar de 44px. */}
             <button
               type="button"
               aria-label="Mais ações"
-              onClick={() => setMenuOpen(true)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lifeone-ink-4 transition-colors hover:bg-lifeone-sidebar hover:text-lifeone-ink-2 md:hidden"
+              onClick={() => {
+                requestRoot();
+                setMenuOpen(true);
+              }}
+              className="-mx-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-lifeone-ink-4 transition-colors hover:bg-lifeone-sidebar hover:text-lifeone-ink-2 md:hidden"
             >
               <MoreHorizontal className="h-5 w-5" />
             </button>
           </>
         )}
       </div>
+      {verification}
 
       {menuOpen && (
         <Modal open={menuOpen} onClose={() => setMenuOpen(false)} title={titulo} variant="sheet" size="sm">

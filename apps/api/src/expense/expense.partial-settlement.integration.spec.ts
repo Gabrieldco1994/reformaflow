@@ -7,6 +7,7 @@ import { DashboardService } from "../dashboard/dashboard.service";
 import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.service";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
 import { PaidOriginsService } from "./paid-origins.service";
+import { RefundPurposeService } from "./refund-purpose.service";
 import { ExpenseController } from "./expense.controller";
 import { Test } from "@nestjs/testing";
 import { Reflector } from "@nestjs/core";
@@ -153,6 +154,7 @@ describe("Pendencia partial-funding HTTP contract", () => {
         ExpenseService,
         ConciliacaoService,
         PaidOriginsService,
+        RefundPurposeService,
         PendenciaService,
         MonthlyOverviewService,
         MerchantClassifierService,
@@ -168,7 +170,7 @@ describe("Pendencia partial-funding HTTP contract", () => {
       new JwtAuthGuard(reflector),
       new RolesGuard(reflector),
       new ModulesGuard(reflector, prisma),
-      new ProjectAccessGuard(prisma),
+      new ProjectAccessGuard(prisma, reflector),
     );
     app.useGlobalPipes(
       new ValidationPipe({
@@ -2161,6 +2163,7 @@ it("routes additive POST and individual DELETE through real HTTP JWT/module/proj
       ExpenseService,
       ConciliacaoService,
       PaidOriginsService,
+      RefundPurposeService,
       JwtStrategy,
       { provide: PrismaService, useValue: prisma },
     ],
@@ -2171,7 +2174,7 @@ it("routes additive POST and individual DELETE through real HTTP JWT/module/proj
     new JwtAuthGuard(reflector),
     new RolesGuard(reflector),
     new ModulesGuard(reflector, prisma),
-    new ProjectAccessGuard(prisma),
+    new ProjectAccessGuard(prisma, reflector),
   );
   app.useGlobalPipes(
     new ValidationPipe({

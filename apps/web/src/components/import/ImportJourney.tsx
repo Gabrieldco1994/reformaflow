@@ -29,7 +29,11 @@ export type ReviewStatus =
   | "duplicate"
   | "forced"
   | "linked"
-  | "newTarget";
+  | "newTarget"
+  | "reviewPending"
+  | "reviewConfirmed"
+  | "blocked"
+  | "retry";
 const STATUS_LABELS: Record<ReviewStatus, string> = {
   ready: "Pronto para importar",
   pending: "Possível duplicata · não será importado",
@@ -38,14 +42,36 @@ const STATUS_LABELS: Record<ReviewStatus, string> = {
   forced: "Possível duplicata · importar mesmo assim",
   linked: "Associar existente",
   newTarget: "Novo destino · rascunho",
+  reviewPending: "Possível mesma compra · decida antes de importar",
+  reviewConfirmed: "Outra compra · será importada",
+  blocked: "Bloqueada · não pode ser importada",
+  retry: "Com erro · revise os dados ou tente novamente",
 };
 
 export function reviewStatus(
-  row: { duplicate?: boolean; ignored?: boolean; possibleDuplicate?: unknown },
-  decision?: { action?: string; newTarget?: unknown },
+  row: {
+    duplicate?: boolean;
+    ignored?: boolean;
+    possibleDuplicate?: unknown;
+    /** Só o cartão (#714) envia `review`; sem ele nada muda para os outros modais. */
+    review?: { reason?: string; fingerprint?: string | null } | null;
+  },
+  decision?: {
+    action?: string;
+    newTarget?: unknown;
+    reviewFingerprint?: string;
+  },
 ): ReviewStatus {
   if (row.duplicate) return "duplicate";
   if (row.ignored || decision?.action === "skip") return "excluded";
+  if (row.review) {
+    if (row.review.reason === "BLOCKED_IDENTITY") return "blocked";
+    return decision?.action === "import" &&
+      !!row.review.fingerprint &&
+      decision.reviewFingerprint === row.review.fingerprint
+      ? "reviewConfirmed"
+      : "reviewPending";
+  }
   if (row.possibleDuplicate && decision?.action !== "import") return "pending";
   if (row.possibleDuplicate) return "forced";
   if (decision?.newTarget) return "newTarget";
@@ -60,8 +86,15 @@ export function matchesReviewFilter(
   return (
     filter === "all" ||
     (filter === "pending"
-      ? status === "pending" || hasWarning
-      : status === "excluded" || status === "duplicate" || status === "pending")
+      ? status === "pending" ||
+        status === "reviewPending" ||
+        status === "retry" ||
+        hasWarning
+      : status === "excluded" ||
+        status === "duplicate" ||
+        status === "pending" ||
+        status === "reviewPending" ||
+        status === "blocked")
   );
 }
 

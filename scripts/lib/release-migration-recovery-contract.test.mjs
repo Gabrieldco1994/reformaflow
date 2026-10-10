@@ -196,6 +196,18 @@ test("Fly relies on Docker CMD for app and adds no process override, health rout
   const exec = entrypoint.indexOf("exec node apps/api/dist/main.js");
   assert.ok(migrate >= 0, "entrypoint must run prisma migrate deploy");
   assert.ok(exec > migrate, "entrypoint must migrate before exec node");
+  assert.equal(
+    entrypoint.match(
+      /npx prisma migrate deploy --schema=prisma\/schema\.prisma/g,
+    )?.length,
+    1,
+    "production entrypoint must migrate exactly once before API boot",
+  );
+  assert.doesNotMatch(
+    entrypoint,
+    /(?:prisma\s+db\s+push|prisma\s+migrate\s+reset|--force-reset|test(?:-worker-\d+)?\.db|TEST_DATABASE_URL|prepare-test-db)/i,
+    "production entrypoint must not use schema-reset or disposable-test shortcuts",
+  );
   assert.match(
     dockerfile,
     /exec node apps\/api\/dist\/main\.js/,

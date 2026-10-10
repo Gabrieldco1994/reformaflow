@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
+import { canonical } from "../common/canonical";
 import { Prisma } from "@prisma/client";
 import {
   buildInstallments,
@@ -13,7 +14,6 @@ import {
 } from "@reformaflow/domain";
 import { INCLUDE_SOFT_DELETED, PrismaService } from "../prisma/prisma.service";
 import { RateioRequester } from "../expense/rateio.types";
-import { canonical } from "../common/canonical";
 import {
   ACL_NOT_FOUND_MESSAGE,
   isFullAccessRole,

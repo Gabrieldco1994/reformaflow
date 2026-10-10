@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ServeStaticModule } from '@nestjs/serve-static';
-import { join, isAbsolute } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -45,14 +44,13 @@ import { FinancingModule } from './financing/financing.module';
 import { VehicleDocumentModule } from './vehicle-document/vehicle-document.module';
 import { PurchasePlannerModule } from './purchase-planner/purchase-planner.module';
 import { JourneysModule } from './journeys/journeys.module';
+import { ImportSessionModule } from './imports/import-session/import-session.module';
 import { ActivityLogInterceptor } from './common/interceptors/activity-log.interceptor';
 import { FinancialScheduleResponseInterceptor } from './common/interceptors/financial-schedule-response.interceptor';
+import { RefundPurposePrivacyInterceptor } from './expense/refund-purpose-privacy.interceptor';
+import { resolveUploadsRoots } from './common/uploads-roots';
 
-const UPLOADS_DIR = (() => {
-  const raw = process.env['UPLOADS_DIR'];
-  if (!raw) return join(process.cwd(), 'uploads');
-  return isAbsolute(raw) ? raw : join(process.cwd(), raw);
-})();
+const UPLOADS_DIR = resolveUploadsRoots(process.env, process.cwd()).publicDir;
 
 @Module({
   imports: [
@@ -99,11 +97,16 @@ const UPLOADS_DIR = (() => {
     VehicleDocumentModule,
     PurchasePlannerModule,
     JourneysModule,
+    ImportSessionModule,
   ],
   providers: [
     {
       provide: APP_INTERCEPTOR,
       useClass: FinancialScheduleResponseInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RefundPurposePrivacyInterceptor,
     },
     {
       provide: APP_INTERCEPTOR,

@@ -11,6 +11,11 @@ const entries = [
 ];
 
 describe('MobileCashFlowList — rolling é fluxo, não saldo', () => {
+  it('preserves a negative credit without adding a second minus sign', () => {
+    render(<MobileCashFlowList entries={[{ ...entries[1], valor: -40_000, categoria: 'Crédito' }] as any} />);
+    expect(screen.getByText('-R$ 400,00')).toBeInTheDocument();
+    expect(screen.getByText('Crédito')).toBeInTheDocument();
+  });
   it('rotula o rolling por-linha como "fluxo" (casa com o desktop)', () => {
     render(<MobileCashFlowList entries={entries as any} />);
     expect(screen.getAllByText(/^fluxo/i).length).toBeGreaterThan(0);

@@ -1,3 +1,4 @@
+import { findManyOver, matchesWhere } from '../test-utils/prisma-where';
 import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { BadRequestException } from '@nestjs/common';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
@@ -61,6 +62,7 @@ function makeHarness() {
     ['external-1', expense('external-1', 'other-1')],
   ]);
   const allocations = TARGET_IDS.map((targetExpenseId, index) => ({
+    id: `alloc-${targetExpenseId}`,
     tenantId: TENANT_ID,
     sourceExpenseId: SOURCE_ID,
     targetExpenseId,
@@ -88,35 +90,7 @@ function makeHarness() {
       },
     };
   };
-  const matchesExpenseWhere = (row: ExpenseRow, where: any) => {
-    if (where.tenantId !== undefined && row.tenantId !== where.tenantId) return false;
-    if (where.deletedAt !== undefined && row.deletedAt !== where.deletedAt) return false;
-    if (typeof where.id === 'string' && row.id !== where.id) return false;
-    if (Array.isArray(where.id?.in) && !where.id.in.includes(row.id)) return false;
-    if (
-      typeof where.linkedExpenseId === 'string' &&
-      row.linkedExpenseId !== where.linkedExpenseId
-    ) {
-      return false;
-    }
-    if (
-      Array.isArray(where.OR) &&
-      !where.OR.some((clause: any) => {
-        if (typeof clause.id === 'string') return row.id === clause.id;
-        if (Array.isArray(clause.id?.in)) return clause.id.in.includes(row.id);
-        if (typeof clause.linkedExpenseId === 'string') {
-          return row.linkedExpenseId === clause.linkedExpenseId;
-        }
-        if (Array.isArray(clause.linkedExpenseId?.in)) {
-          return clause.linkedExpenseId.in.includes(row.linkedExpenseId);
-        }
-        return false;
-      })
-    ) {
-      return false;
-    }
-    return true;
-  };
+  const matchesExpenseWhere = (row: ExpenseRow, where: any) => matchesWhere(row, where);
 
   const prisma: any = {
     project: {
@@ -126,6 +100,14 @@ function makeHarness() {
         type: where.id === 'pessoal-1' ? 'PESSOAL' : 'REFORMA',
         deletedAt: null,
       })),
+      findMany: jest.fn(async ({ where }: any) =>
+        (where.id.in as string[]).map((id) => ({
+          id,
+          tenantId: TENANT_ID,
+          type: id === 'pessoal-1' ? 'PESSOAL' : 'REFORMA',
+          deletedAt: null,
+        })),
+      ),
     },
     expense: {
       findFirst: jest.fn(async ({ where }: any) => rows.get(where.id) ?? null),
@@ -159,6 +141,7 @@ function makeHarness() {
     },
     rateioAllocation: {
       findFirst: jest.fn(async ({ where }: any) => {
+        if (where.isRefundCredit === true) return null;
         if (where.OR) {
           return (
             allocations.find(
@@ -180,22 +163,7 @@ function makeHarness() {
           ) ?? null
         );
       }),
-      findMany: jest.fn(async ({ where }: any) => {
-        if (where.OR) {
-          return allocations.filter(
-            (row) =>
-              row.tenantId === where.tenantId &&
-              (row.sourceExpenseId === where.OR[0].sourceExpenseId ||
-                row.targetExpenseId === where.OR[1].targetExpenseId),
-          );
-        }
-        return allocations.filter(
-          (row) =>
-            row.tenantId === where.tenantId &&
-            (where.sourceExpenseId === undefined ||
-              row.sourceExpenseId === where.sourceExpenseId),
-        );
-      }),
+      findMany: jest.fn(findManyOver(() => allocations)),
       findUnique: jest.fn(async ({ where }: any) =>
         allocations.find((row) => row.targetExpenseId === where.targetExpenseId) ?? null,
       ),

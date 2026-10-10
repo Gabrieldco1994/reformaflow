@@ -80,7 +80,9 @@ describe('BudgetAllocationService.calculateAvailableBudget', () => {
           tenantId,
           deletedAt: null,
           settledByExpenseId: null,
-          linkedExpenseId: null,
+          OR: expect.arrayContaining([{ linkedExpenseId: null }, {
+            rateioAsSource: expect.objectContaining({ some: { tenantId, isRefundCredit: true } }),
+          }]),
         }),
       }),
     );

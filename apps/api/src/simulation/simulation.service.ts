@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { refundPurposeScope } from '../expense/refund-purpose-scope';
 import {
   ExpenseTypeLabels,
   LaborCategoryLabels,
@@ -94,7 +95,8 @@ export class SimulationService {
             where: { projectId, tenantId, deletedAt: null, linkedReceiptId: null },
           }),
       this.prisma.expense.findMany({
-        where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null },
+        where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null,
+          ...refundPurposeScope(tenantId, [projectId], false) },
         include: { room: true },
       }),
       this.prisma.cashFlowEntry.findMany({
@@ -104,7 +106,7 @@ export class SimulationService {
           deletedAt: null,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, linkedExpenseId: null } },
+            { expense: { deletedAt: null, ...refundPurposeScope(tenantId, [projectId]) } },
           ],
           AND: [
             {

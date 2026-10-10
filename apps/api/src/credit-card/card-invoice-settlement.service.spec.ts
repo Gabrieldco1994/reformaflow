@@ -43,6 +43,7 @@ function makePrisma(seed: {
 
   const prisma = {
     _expenses: expenses,
+    rateioAllocation: { findFirst: jest.fn().mockResolvedValue(null) },
     _entries: entries,
     expense: {
       findMany: jest.fn(({ where }: any) => Promise.resolve(

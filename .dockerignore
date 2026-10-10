@@ -22,3 +22,17 @@ apps/web/.next
 .github
 .copilot
 .DS_Store
+**/.env
+**/.env.*
+!**/.env.example
+**/*.db
+**/*.db-*
+**/*.db.*
+**/*.sqlite*
+uploads
+**/uploads
+.claude/worktrees
+.agents
+apps/api/native/build
+**/*.tar
+**/*.tar.gz

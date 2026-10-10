@@ -13,6 +13,7 @@ import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutati
 import { getExpenseOptions } from '../../expenses/_types';
 import { centsToReaisInput, currencyInputToNumber } from '@/lib/currency-input';
 import { expenseMetadataFromForm } from '../../expenses/_lib/expense-metadata';
+import { expenseUpdatePayload, isExpenseCredit } from '../../expenses/_lib/credit-policy';
 
 const EMPTY_VINCULOS: ExpenseFormVinculos = {
   creditCardId: '',
@@ -164,7 +165,7 @@ export function DespesaModal({
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<ExpenseFormData> }) =>
-      api.patch(`/projects/${effectiveProjectId}/expenses/${id}`, data),
+      api.patch(`/projects/${effectiveProjectId}/expenses/${id}`, expenseUpdatePayload(editing, data)),
     onSuccess: () => {
       toast.success('Despesa atualizada');
       invalidate();
@@ -270,7 +271,7 @@ export function DespesaModal({
     // Quando o usuário escolheu uma PARCELA específica do alvo, a conciliação
     // (Fase 6) cuida de setar o vínculo + liquidar a parcela — então não enviamos
     // linkedExpenseId no payload (evita set duplicado/simples). Espelha ExpensesView.
-    const useConciliacao = !!linkedId && parcelaIdx != null;
+    const useConciliacao = !isExpenseCredit(editing) && !!linkedId && parcelaIdx != null;
     data.linkedExpenseId = useConciliacao ? null : linkedId;
 
     const afterSave = (sourceId?: string) => {
@@ -331,6 +332,7 @@ export function DespesaModal({
         formVinculos={formVinculos}
         setFormVinculos={setFormVinculos}
         projectId={effectiveProjectId}
+        refundPurposeAnchorProjectId={projectId}
         showRooms={false}
         tipoDespesaOptions={tipoOptions}
         roomOptions={[]}

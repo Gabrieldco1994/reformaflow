@@ -6,7 +6,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.typecheck.json --noEmit && vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },

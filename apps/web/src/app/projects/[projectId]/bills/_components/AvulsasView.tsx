@@ -3,6 +3,7 @@
 import type { ProjectType } from '@reformaflow/domain';
 import { Edit2, Trash2 } from 'lucide-react';
 import { getAvulsaDisplay, type AvulsaRow } from '../_display';
+import { canDeleteExpense } from '../../expenses/_lib/credit-policy';
 
 interface AvulsasViewProps {
   expenses: AvulsaRow[];
@@ -77,6 +78,7 @@ export function AvulsasView({
                     >
                       <Edit2 className="h-4 w-4" />
                     </button>
+                    {canDeleteExpense(row.source) && (
                     <button
                       type="button"
                       onClick={() => onDelete(row.source.id)}
@@ -87,6 +89,7 @@ export function AvulsasView({
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -132,6 +135,7 @@ export function AvulsasView({
                 >
                   Editar
                 </button>
+                {canDeleteExpense(row.source) && (
                 <button
                   type="button"
                   onClick={() => onDelete(row.source.id)}
@@ -141,6 +145,7 @@ export function AvulsasView({
                 >
                   Excluir
                 </button>
+                )}
               </div>
             </div>
           </article>

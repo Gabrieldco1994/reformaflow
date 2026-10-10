@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
+import { SystemAgentAdmissionClock } from './agent-admission-clock';
 import { AgentDailyQuotaGuard } from './agent-daily-quota.guard';
 
 function ctx(req: any): ExecutionContext {
@@ -22,7 +23,7 @@ describe('AgentDailyQuotaGuard', () => {
         create: jest.fn(),
       },
     };
-    guard = new AgentDailyQuotaGuard(prisma);
+    guard = new AgentDailyQuotaGuard(prisma, new SystemAgentAdmissionClock());
   });
 
   it('bloqueia sem tenant no usuário autenticado', async () => {

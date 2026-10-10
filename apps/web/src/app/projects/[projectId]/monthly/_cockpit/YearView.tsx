@@ -9,7 +9,7 @@ import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import type { CardInvoicesYearlyResponse } from '../../conta/_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney } from './format';
-import { deriveYear, colorForCategoria, categoriasDoAno, gastoMedioMensal, type CategoriaBarra } from './derive';
+import { deriveYear, categoriasDoAno, categoriaBarrasDoAno, gastoMedioMensal, type CategoriaBarra } from './derive';
 import CategoriasBarras from './CategoriasBarras';
 import CategoriaDespesasModal from './CategoriaDespesasModal';
 import ArvoreGastos from './ArvoreGastos';
@@ -64,15 +64,7 @@ export default function YearView({
   const categoriasAno = useMemo<CategoriaBarra[]>(() => {
     // TODAS as categorias com valor no ano (o backend truncava top-6/mês; aqui
     // agrega das entries sem truncar). Seção larga com colunas comporta a lista.
-    const full = categoriasDoAno(yearEntries, year, catStatusMode);
-    const max = full.reduce((mx, c) => Math.max(mx, c.valor), 0);
-    return full.map((c, i) => ({
-      categoria: c.categoria,
-      valor: c.valor,
-      cor: colorForCategoria(c.categoria, i),
-      pct: max > 0 ? c.valor / max : 0,
-      media: c.media,
-    }));
+    return categoriaBarrasDoAno(categoriasDoAno(yearEntries, year, catStatusMode));
   }, [yearEntries, year, catStatusMode]);
 
   const gastoMensal = useMemo(() => gastoMedioMensal(yearEntries, year), [yearEntries, year]);

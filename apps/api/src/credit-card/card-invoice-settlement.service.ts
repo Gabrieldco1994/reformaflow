@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertNoRefundPurpose } from '../expense/refund-purpose.service';
 import { parseManualInvoiceKey } from '../common/manual-invoice-key';
 import { parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
 import {
@@ -530,6 +531,7 @@ export class CardInvoiceSettlementService {
     assertRateioRequester(requester);
     let revertedParcelas = 0;
     for (const purchase of prepared.purchases) {
+      await assertNoRefundPurpose(tx, purchase.expense.tenantId, [purchase.expense.id]);
       for (const entry of purchase.entries) {
         await tx.cashFlowEntry.update({
           where: { id: entry.id },
@@ -734,6 +736,8 @@ export class CardInvoiceSettlementService {
     const flippedEntries: FlippedEntry[] = [];
     for (const purchase of prepared.purchases) {
       const flippedForPurchase: EntryRow[] = [];
+      if (purchase.entries.some(entry => entry.status !== 'PAGO'))
+        await assertNoRefundPurpose(tx, purchase.expense.tenantId, [purchase.expense.id]);
       for (const entry of purchase.entries) {
         // Defensivo: `prepare*` já filtra PLANEJADO, mas nunca re-flipar um PAGO
         // (não seria uma transição real → não entra na trilha).

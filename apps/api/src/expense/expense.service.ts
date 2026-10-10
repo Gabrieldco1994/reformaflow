@@ -1,54 +1,135 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-import { PrismaService } from '../prisma/prisma.service';
-import { AdditiveSettlementCommand, ExpenseType } from '@reformaflow/domain';
-import { ADDITIVE, applyParcelaFunding, undoParcelaFunding, guardActiveFunding, enrichFunding } from '../conciliacao/additive-settlement';
-import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
-import { CreateExpenseDto } from './dto/create-expense.dto';
-import { UpdateExpenseDto } from './dto/update-expense.dto';
-import { buildStoredExpenseInstallments, parseStoredExpenseSchedule, toPublicExpenseSchedule } from './documented-schedule';
-import { StoredProjectionScheduleV1 } from './documented-schedule.types';
-import { resolveInstallmentIndex } from '@reformaflow/domain';
-import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
-import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, normalizeInstallmentDateOverrides, parseInstallmentDateOnlyUtc, parseInstallmentDateOverrides, setInstallmentDateOverride, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
-import { RatearMixedDto } from './dto/ratear-mixed.dto';
-import { createRateioTargets } from './create-rateio-targets';
-import { Expense, Prisma } from '@prisma/client';
-import { fastClassify } from '../bank-account/bank-account.service';
-import { currentInlineRequester } from '../bank-account/inline-expenses';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  ConflictException,
+  UnauthorizedException,
+} from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import {
+  assertNoRefundPurpose,
+  cleanupRefundPurpose,
+  rethrowRefundWriteConflict,
+} from "./refund-purpose.service";
+import {
+  decideRemoval,
+  ExpenseRemovalPlan,
+  loadRemovalFacts,
+  removalNeedsActor,
+} from "./removal-decision";
+import {
+  assertDeletionProvenance,
+  assertLinkedRowsAllowed,
+  evaluateRateioParticipation,
+  evaluateSettlementParticipation,
+  RATEIO_PARTICIPANT_MUTATION_MESSAGE,
+  RateioParticipation,
+  RELATED_EXPENSE_NOT_FOUND_MESSAGE,
+  RemovalContext,
+  REFUND_UNLINK_FIRST,
+  requesterCanSeeProject,
+} from "./removal-context";
+import {
+  assertInlineProject,
+  currentInlineRequester,
+} from "../bank-account/inline-expenses";
+import { ExpenseDeleteCapability } from "./refund-purpose.types";
+import { PrismaService } from "../prisma/prisma.service";
+import {
+  AdditiveSettlementCommand,
+  ExpenseType,
+  ExpenseStatus,
+  ImportSessionPlannedCreateV1,
+  parseExpenseSchedule,
+} from "@reformaflow/domain";
+import {
+  ADDITIVE,
+  applyParcelaFunding,
+  undoParcelaFunding,
+  guardActiveFunding,
+  enrichFunding,
+} from "../conciliacao/additive-settlement";
+import {
+  ConciliacaoService,
+  RateioItem,
+  SettleParcelaInput,
+} from "../conciliacao/conciliacao.service";
+import { CreateExpenseDto } from "./dto/create-expense.dto";
+import { UpdateExpenseDto } from "./dto/update-expense.dto";
+import {
+  buildStoredExpenseInstallments,
+  parseScheduleEvidenceInput,
+  parseStoredExpenseSchedule,
+  toPublicExpenseSchedule,
+} from "./documented-schedule";
+import {
+  ASSISTED_CARD,
+  ASSISTANCE_BASIS,
+  REFERENCE_CHECK,
+  ScheduleEvidenceInput,
+  StoredAssistedSourceScheduleV2,
+  StoredProjectionScheduleV1,
+} from "./documented-schedule.types";
+import { resolveInstallmentIndex } from "@reformaflow/domain";
+import { CreateRecorrenteDto } from "./dto/create-recorrente.dto";
+import {
+  ExpenseTypeLabels,
+  LaborCategoryLabels,
+  buildInstallments,
+  buildRecurrenceDates,
+  isRecurrenceFrequency,
+  isSinglePaymentForm,
+  isNeutralExpenseType,
+  hasFeature,
+  normalizeInstallmentDateOverrides,
+  parseInstallmentDateOnlyUtc,
+  parseInstallmentDateOverrides,
+  setInstallmentDateOverride,
+  PaymentForm,
+  ProjectType,
+  type RecurrenceFrequency,
+} from "@reformaflow/domain";
+import { RatearMixedDto } from "./dto/ratear-mixed.dto";
+import { createRateioTargets } from "./create-rateio-targets";
+import { Expense, Prisma } from "@prisma/client";
+import { fastClassify } from "../bank-account/bank-account.service";
 import {
   assertRateioRequester,
   RateioDetalhe,
   RateioRequester,
-} from './rateio.types';
+} from "./rateio.types";
 import {
   isFullAccessRole,
-  userCanAccessProject,
-  userCanAccessProjectModule,
   resolveAccessibleProjectScope,
   EXPENSE_MODULE,
-} from '../common/access-rules';
-import { MANUAL_INVOICE_KEY_VERSION } from '../common/manual-invoice-key';
+  CREDIT_CARD_MODULE,
+  ACL_NOT_FOUND_MESSAGE,
+  projectTypeHasModule,
+} from "../common/access-rules";
+import { MANUAL_INVOICE_KEY_VERSION } from "../common/manual-invoice-key";
 import {
   countActivePurchaseTrail,
   findExpensesWithActivePurchaseTrail,
   IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE,
-} from '../common/imported-invoice-trail';
+} from "../common/imported-invoice-trail";
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
-type RateioParticipation = 'source' | 'target' | null;
-
-const RATEIO_PARTICIPANT_MUTATION_MESSAGE =
-  'Esta despesa participa de um rateio. Altere valores, status, cronograma, recorrência ou vínculos pelo fluxo dedicado do rateio.';
-const RATEIO_TARGET_DELETE_MESSAGE =
-  'Esta despesa é alvo de rateio. Desfaça o rateio na compra fonte antes de removê-la.';
-const SETTLEMENT_PARTICIPANT_MUTATION_MESSAGE =
-  'Esta despesa participa de uma conciliação cross-project por parcela. Altere valores, status, cronograma ou vínculos pelo fluxo dedicado: Cartões/Contas → cartão ou conta → Vincular → Desvincular.';
-const SETTLEMENT_TARGET_DELETE_MESSAGE =
-  'Esta despesa é alvo de conciliação por parcela. Desvincule a fonte antes de removê-la: Cartões/Contas → cartão ou conta → Vincular → Desvincular.';
-const RELATED_EXPENSE_NOT_FOUND_MESSAGE = 'Despesa relacionada não encontrada';
-
+type PlannedCardSourceInput = Pick<
+  ImportSessionPlannedCreateV1,
+  | "titulo"
+  | "fornecedor"
+  | "tipoDespesa"
+  | "categoriaMaoDeObra"
+  | "dataCompra"
+  | "totalCents"
+  | "schedule"
+> & {
+  cardId: string;
+  evidence: ScheduleEvidenceInput;
+  reason: string;
+};
 export interface UpdateInstallmentDateResult {
   id: string;
   parcela: number;
@@ -199,6 +280,9 @@ export class ExpenseService {
           db, tenantId, currentProjectId, dto.linkedExpenseId, requester,
           'Despesa vinculada não encontrada neste tenant', previousTargetId,
         );
+        // Refund-purpose guard only AFTER the ACL resolved the target: a 409 for
+        // an id the requester cannot see would confirm a hidden marked refund.
+        await assertNoRefundPurpose(db, tenantId, [dto.linkedExpenseId]);
         out.linkedExpenseId = dto.linkedExpenseId;
       }
     }
@@ -265,28 +349,185 @@ export class ExpenseService {
     tx?: Prisma.TransactionClient,
     requester?: RateioRequester,
   ): Promise<ExpenseWithRoom> {
+    return this.createCore(
+      tenantId,
+      projectId,
+      dto,
+      createdByUserId,
+      tx,
+      requester,
+    );
+  }
+
+  /** Internal only: the caller owns the transaction; no session or import is minted here. */
+  async createPlannedCardPurchaseInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    ownerProjectId: string,
+    input: PlannedCardSourceInput,
+    createdByUserId: string,
+    requester: RateioRequester,
+  ): Promise<ExpenseWithRoom> {
+    assertRateioRequester(requester);
+    const actor = await currentInlineRequester(tx, tenantId, requester);
+    if (createdByUserId !== actor.id)
+      throw new UnauthorizedException("Sessão inválida");
+    await assertInlineProject(tx, tenantId, ownerProjectId, actor);
+    const project = await assertInlineProject(
+      tx,
+      tenantId,
+      ownerProjectId,
+      actor,
+      CREDIT_CARD_MODULE,
+    );
+    if (!projectTypeHasModule(project.type, CREDIT_CARD_MODULE)) {
+      throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    }
+    const card = await tx.creditCard.findFirst({
+      where: {
+        id: input.cardId,
+        tenantId,
+        projectId: ownerProjectId,
+        deletedAt: null,
+      },
+    });
+    if (!card) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+
+    const schedule = parseExpenseSchedule(input.schedule);
+    if (
+      !Number.isSafeInteger(input.totalCents) ||
+      input.totalCents <= 0 ||
+      schedule.occurrences.reduce(
+        (sum, occurrence) => sum + occurrence.valor,
+        0,
+      ) !== input.totalCents
+    ) {
+      throw new BadRequestException(
+        "Valor total incompatível com o cronograma documentado",
+      );
+    }
+    if (!parseInstallmentDateOnlyUtc(input.dataCompra)) {
+      throw new BadRequestException("Data de compra inválida");
+    }
+    const id = randomUUID();
+    const recordedAt = new Date().toISOString();
+    const evidence = {
+      ...parseScheduleEvidenceInput(input.evidence),
+      actorUserId: actor.id,
+      recordedAt,
+    };
+    const stored: StoredAssistedSourceScheduleV2 = {
+      version: 2,
+      kind: "source",
+      tenantId,
+      sourceExpenseId: id,
+      sourceProjectId: ownerProjectId,
+      cardId: card.id,
+      recordedByUserId: actor.id,
+      recordedAt,
+      provenance: {
+        kind: ASSISTED_CARD,
+        basis: ASSISTANCE_BASIS.NONE,
+        originalImportId: null,
+        originalExternalId: null,
+        referenceCheck: REFERENCE_CHECK.NONE,
+        evidence,
+        reason: input.reason,
+      },
+      occurrences: schedule.occurrences.map((occurrence) => ({
+        ...occurrence,
+        amountEvidence: evidence,
+        cycleEvidence: occurrence.invoiceDueMonth === null ? null : evidence,
+      })),
+      projections: [],
+      lastOperation: null,
+    };
+    const documentedSchedule = JSON.stringify(stored);
+    parseStoredExpenseSchedule(documentedSchedule);
+    const first = schedule.occurrences[0]!;
+    const single = schedule.occurrences.length === 1;
+    return this.createCore(
+      tenantId,
+      ownerProjectId,
+      {
+        titulo: input.titulo,
+        fornecedor: input.fornecedor ?? undefined,
+        tipoDespesa: input.tipoDespesa,
+        categoriaMaoDeObra: input.categoriaMaoDeObra ?? undefined,
+        valor: input.totalCents / 100,
+        quantidade: 1,
+        formaPagamento: single ? PaymentForm.A_VISTA : PaymentForm.PARCELADO,
+        quantidadeParcela: single ? undefined : schedule.occurrences.length,
+        dataPagamento: single ? first.data : undefined,
+        dataInicioParcela: single ? undefined : first.data,
+        dataCompra: input.dataCompra,
+        status: ExpenseStatus.PLANEJADO,
+        creditCardId: card.id,
+      },
+      createdByUserId,
+      tx,
+      actor,
+      { id, documentedSchedule, valorCents: input.totalCents },
+    );
+  }
+
+  private async createCore(
+    tenantId: string,
+    projectId: string,
+    dto: CreateExpenseDto,
+    createdByUserId: string | null,
+    tx?: Prisma.TransactionClient,
+    requester?: RateioRequester,
+    plannedSource?: {
+      id: string;
+      documentedSchedule: string;
+      valorCents: number;
+    },
+  ): Promise<ExpenseWithRoom> {
     if (
       dto.linkedExpenseId !== undefined ||
       dto.settlesInvoiceCardId !== undefined
     ) {
       assertRateioRequester(requester);
     }
-    if ((dto.settlesInvoiceCardId !== undefined || dto.linkedExpenseId !== undefined) && !tx) {
+    if (
+      (dto.settlesInvoiceCardId !== undefined ||
+        dto.linkedExpenseId !== undefined) &&
+      !tx
+    ) {
       return this.prisma.$transaction((transaction) =>
-        this.create(tenantId, projectId, dto, createdByUserId, transaction, requester),
+        this.create(
+          tenantId,
+          projectId,
+          dto,
+          createdByUserId,
+          transaction,
+          requester,
+        ),
       );
     }
     const db = tx ?? this.prisma;
     if (dto.linkedExpenseId !== undefined) {
       assertRateioRequester(requester);
-      requester = await this.linkedMutationRequester(db, tenantId, projectId, requester);
+      requester = await this.linkedMutationRequester(
+        db,
+        tenantId,
+        projectId,
+        requester,
+      );
     }
     await this.validateProject(tenantId, projectId, db);
 
-    const valorCents = Math.round(dto.valor * 100);
+    const valorCents = plannedSource?.valorCents ?? Math.round(dto.valor * 100);
     const valorTotal = valorCents * dto.quantidade;
 
-    const links = await this.resolveLinks(tenantId, projectId, dto, db, requester);
+    const links = await this.resolveLinks(
+      tenantId,
+      projectId,
+      dto,
+      db,
+      requester,
+    );
 
     // B1a (#448): a sala é SEMPRE do próprio projeto (mesmo `:projectId` já
     // autorizado pelo `ProjectAccessGuard`) — não é cross-project, então basta
@@ -294,11 +535,16 @@ export class ExpenseService {
     await this.validateRoomOwnership(db, dto.roomId, projectId);
 
     // Determine origin: 'import' if has card/bank link, else 'none'
-    const origin =
-      links.cardLast4 || links.bankLast4 ? 'import' : 'none';
+    const origin = links.cardLast4 || links.bankLast4 ? "import" : "none";
 
     const expense = await db.expense.create({
       data: {
+        ...(plannedSource
+          ? {
+              id: plannedSource.id,
+              documentedSchedule: plannedSource.documentedSchedule,
+            }
+          : {}),
         projectId,
         tenantId,
         createdByUserId,
@@ -315,11 +561,15 @@ export class ExpenseService {
         formaPagamento: dto.formaPagamento,
         dataPagamento: dto.dataPagamento ? new Date(dto.dataPagamento) : null,
         quantidadeParcela: dto.quantidadeParcela,
-        dataInicioParcela: dto.dataInicioParcela ? new Date(dto.dataInicioParcela) : null,
+        dataInicioParcela: dto.dataInicioParcela
+          ? new Date(dto.dataInicioParcela)
+          : null,
         dataCompra: dto.dataCompra ? new Date(dto.dataCompra) : null,
         status: dto.status,
         recorrente: dto.recorrente ?? false,
-        recorrenciaFim: dto.recorrenciaFim ? new Date(dto.recorrenciaFim) : null,
+        recorrenciaFim: dto.recorrenciaFim
+          ? new Date(dto.recorrenciaFim)
+          : null,
         recurrenceKey: dto.recurrenceKey ?? null,
         cardLast4: links.cardLast4 ?? undefined,
         bankLast4: links.bankLast4 ?? undefined,
@@ -570,6 +820,71 @@ export class ExpenseService {
     };
   }
 
+  async withDeleteCapabilities<T extends Expense>(
+    tenantId: string,
+    items: T[],
+    requester: RateioRequester,
+  ): Promise<Array<T & ExpenseDeleteCapability>> {
+    assertRateioRequester(requester);
+    const negative = items.filter((row) => row.valorTotal < 0);
+    if (!negative.length) return items;
+    return this.prisma.$transaction(async (tx) => {
+      const actor = await currentInlineRequester(tx, tenantId, requester);
+      const ids = negative.map((row) => row.id);
+      // Rows are re-read here, inside this tx: a list object can be stale.
+      const ctx = new RemovalContext(tenantId);
+      await loadRemovalFacts(tx, ctx, ids);
+      ctx.setActor(actor);
+      const protectedTargets = new Set(
+        ctx
+          .allocationsOf(ids)
+          .filter((row) => row.isRefundCredit)
+          .map((row) => row.targetExpenseId),
+      );
+      const capabilities = new Map<string, boolean>();
+      for (const listed of negative) {
+        const expense = ctx.liveExpense(listed.id);
+        let canDelete = false;
+        if (
+          expense &&
+          listed.tenantId === tenantId &&
+          !listed.deletedAt &&
+          this.canRequesterSeeProject(
+            actor,
+            ctx.liveProject(expense.projectId),
+            EXPENSE_MODULE,
+          ) &&
+          !protectedTargets.has(expense.id)
+        ) {
+          try {
+            decideRemoval(ctx, {
+              projectId: expense.projectId,
+              id: expense.id,
+              requester: actor,
+            });
+            canDelete = true;
+          } catch (error) {
+            if (
+              !(
+                error instanceof NotFoundException ||
+                error instanceof ForbiddenException ||
+                error instanceof ConflictException ||
+                error instanceof BadRequestException
+              )
+            )
+              throw error;
+          }
+        }
+        capabilities.set(listed.id, canDelete);
+      }
+      return items.map((row) =>
+        row.valorTotal < 0
+          ? { ...row, canDelete: capabilities.get(row.id) === true }
+          : row,
+      );
+    });
+  }
+
   async findPlanned(tenantId: string, projectId: string, requester?: RateioRequester) {
     await this.validateProject(tenantId, projectId);
 
@@ -689,6 +1004,7 @@ export class ExpenseService {
         'Despesa alvo não encontrada', source.linkedExpenseId,
       );
       // Same-target retries remain idempotent; all guard reads share the writer's snapshot.
+      await assertNoRefundPurpose(tx, tenantId, [id, targetExpenseId]);
       if (source.linkedExpenseId !== targetExpenseId) {
         await this.guardRateioParticipation(tenantId, id, false, false, tx);
         await this.guardSettlementParticipation(tenantId, id, false, true, tx);
@@ -936,6 +1252,16 @@ export class ExpenseService {
    * importação (tabela B: B3/B4/B5/B6/B9). Defesa em profundidade: filtra por
    * `tenantId` (Scar #498). Lê o estado do ledger DENTRO da tx do caller.
    */
+  private assertDeletionProvenance(
+    existing: {
+      settlesInvoiceKey: string | null;
+      invoiceUndoState?: string | null;
+    },
+    hasActivePurchaseTrail: boolean,
+  ): void {
+    assertDeletionProvenance(existing, hasActivePurchaseTrail);
+  }
+
   private async guardImportedInvoiceTrail(
     db: ExpenseDb,
     tenantId: string,
@@ -973,6 +1299,10 @@ export class ExpenseService {
       tenantId,
       existing.id,
     );
+    if (opts.isRemove) {
+      this.assertDeletionProvenance(existing, activeAsPurchase > 0);
+      return;
+    }
     const state = existing.invoiceUndoState ?? null;
     const settledPayment = state === 'PROCESSED_SETTLED';
     // #569 B5/B9 — a PROVENIÊNCIA durável do pagamento é o próprio carimbo
@@ -1009,19 +1339,6 @@ export class ExpenseService {
         throw new ConflictException(
           'Este é um pagamento de fatura registrado no cockpit. Desfaça o ' +
             'pagamento na fatura antes de alterá-lo ou removê-lo.',
-        );
-      }
-      return;
-    }
-
-    // B5 — remoção da COMPRA liquidada OU do PAGAMENTO carimbado (qualquer
-    // estado do carimbo). O undo do lote deleta via `updateMany` direto (não passa
-    // por aqui); esta porta genérica exige "desfaça a importação primeiro".
-    if (opts.isRemove) {
-      if (activeAsPurchase > 0 || stampedPayment) {
-        throw new ConflictException(
-          'Esta despesa foi liquidada por um pagamento de fatura importado. ' +
-            'Desfaça a importação primeiro.',
         );
       }
       return;
@@ -1081,16 +1398,9 @@ export class ExpenseService {
         tenantId,
         OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }],
       },
-      select: { sourceExpenseId: true, targetExpenseId: true },
+      select: { sourceExpenseId: true, targetExpenseId: true, isRefundCredit: true },
     });
-    const isSource = rows.some((row) => row.sourceExpenseId === expenseId);
-    const isTarget = rows.some((row) => row.targetExpenseId === expenseId);
-    if ((isSource && !allowSource) || (isTarget && !allowTarget)) {
-      throw new BadRequestException(
-        isTarget && allowSource ? RATEIO_TARGET_DELETE_MESSAGE : RATEIO_PARTICIPANT_MUTATION_MESSAGE,
-      );
-    }
-    return isSource ? 'source' : isTarget ? 'target' : null;
+    return evaluateRateioParticipation(rows, expenseId, allowSource, allowTarget);
   }
 
   /**
@@ -1114,19 +1424,7 @@ export class ExpenseService {
       },
       select: { sourceExpenseId: true, targetExpenseId: true, mode: true },
     });
-    if ((!allowSource || !allowTarget) && rows.some(row => row.mode === ADDITIVE)) {
-      throw new ConflictException('Desfaça os aportes antes de alterar os dados financeiros.');
-    }
-    const isSource = rows.some((row) => row.sourceExpenseId === expenseId);
-    const isTarget = rows.some((row) => row.targetExpenseId === expenseId);
-    if ((isSource && !allowSource) || (isTarget && !allowTarget)) {
-      throw new BadRequestException(
-        isTarget && allowSource
-          ? SETTLEMENT_TARGET_DELETE_MESSAGE
-          : SETTLEMENT_PARTICIPANT_MUTATION_MESSAGE,
-      );
-    }
-    return isSource ? 'source' : isTarget ? 'target' : null;
+    return evaluateSettlementParticipation(rows, expenseId, allowSource, allowTarget);
   }
 
   /**
@@ -1149,17 +1447,7 @@ export class ExpenseService {
     project: { id: string; type: string } | null | undefined,
     requiredModule: string,
   ): boolean {
-    if (!requester || !project) return false;
-    return (
-      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
-      userCanAccessProjectModule(
-        requester.role,
-        requester.allowedProjectTypes,
-        requester.allowedModules ?? [],
-        project.type,
-        requiredModule,
-      )
-    );
+    return requesterCanSeeProject(requester, project, requiredModule);
   }
 
   private async assertCanMutateLinkedRows(
@@ -1185,12 +1473,6 @@ export class ExpenseService {
         },
       },
     });
-    if (
-      expense.linkedExpenseId &&
-      !direct.some((row) => row.id === expense.linkedExpenseId)
-    ) {
-      throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
-    }
     const directIds = direct.map((row) => row.id);
     const related = await db.expense.findMany({
       where: {
@@ -1204,16 +1486,7 @@ export class ExpenseService {
         },
       },
     });
-    for (const row of related) {
-      if (
-        !row.project ||
-        row.project.tenantId !== tenantId ||
-        row.project.deletedAt !== null ||
-        !this.canRequesterSeeProject(requester, row.project, EXPENSE_MODULE)
-      ) {
-        throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
-      }
-    }
+    assertLinkedRowsAllowed(tenantId, expense, direct, related, requester);
   }
 
   /**
@@ -1752,20 +2025,19 @@ export class ExpenseService {
       const CHUNK = 50;
       for (let i = 0; i < updates.length; i += CHUNK) {
         const chunk = updates.slice(i, i + CHUNK);
-        await this.prisma.$transaction([
-          ...chunk.map((u) =>
-            this.prisma.expense.update({
+        await this.prisma.$transaction(async tx => {
+          await assertNoRefundPurpose(tx, tenantId, chunk.map(row => row.id));
+          for (const u of chunk) {
+            await tx.expense.update({
               where: { id: u.id },
               data: { tipoDespesa: u.to },
-            }),
-          ),
-          ...chunk.map((u) =>
-            this.prisma.cashFlowEntry.updateMany({
+            });
+            await tx.cashFlowEntry.updateMany({
               where: { expenseId: u.id, deletedAt: null },
               data: { categoria: u.to },
-            }),
-          ),
-        ]);
+            });
+          }
+        }).catch(rethrowRefundWriteConflict);
       }
     }
 
@@ -1795,7 +2067,7 @@ export class ExpenseService {
     if (!tx) {
       return this.prisma.$transaction((transaction) =>
         this.update(tenantId, projectId, id, dto, requester, transaction),
-      );
+      ).catch(rethrowRefundWriteConflict);
     }
     const db = tx ?? this.prisma;
     if (dto.linkedExpenseId !== undefined) {
@@ -1812,6 +2084,12 @@ export class ExpenseService {
     // Validate supplied room ownership even when a full form resends its current ID.
     await this.validateRoomOwnership(db, dto.roomId, projectId);
     dto = this.changedExpenseFields(existing, dto);
+    const refund = await db.rateioAllocation.findFirst({ where: {
+      tenantId, isRefundCredit: true, OR: [{ sourceExpenseId: id }, { targetExpenseId: id }],
+    } });
+    if (refund && Object.keys(dto).some(key => !['titulo', 'fornecedor', 'link', 'imageUrl'].includes(key))) {
+      throw new ConflictException(REFUND_UNLINK_FIRST);
+    }
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : existing.valor;
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;
     const valorTotal = dto.valor !== undefined || dto.quantidade !== undefined
@@ -2007,6 +2285,12 @@ export class ExpenseService {
       },
       include: { room: true },
     });
+    if (refund) {
+      await db.expense.update({
+        where: { id: refund.sourceExpenseId === id ? refund.targetExpenseId : refund.sourceExpenseId },
+        data: { titulo: dto.titulo, fornecedor: dto.fornecedor, link: dto.link, imageUrl: dto.imageUrl },
+      });
+    }
 
     // #569 (degrau, §2b/#1) — `regenerateCashFlow` soft-deleta+recria as
     // `CashFlowEntry` com ids novos; rodar num PATCH puramente descritivo
@@ -2060,6 +2344,7 @@ export class ExpenseService {
         include: { room: true },
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
+      await assertNoRefundPurpose(tx, tenantId, [id]);
       // #569 (degrau, §2c) — mover a data de uma parcela regenera o caixa; se a
       // parcela (ou a de um alvo de rateio / par vinculado) tem linha de ledger
       // ATIVA, isso orfanaria a trilha. Bloqueia antes de qualquer escrita.
@@ -2689,165 +2974,102 @@ export class ExpenseService {
     });
   }
 
+  /** Loads the removal facts for one id (same tx), then runs the shared pure decision. */
+  private async prepareRemoval(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    projectId: string,
+    id: string,
+    requester: RateioRequester,
+  ): Promise<ExpenseRemovalPlan> {
+    assertRateioRequester(
+      requester,
+      new NotFoundException('Despesa não encontrada'),
+    );
+    const ctx = new RemovalContext(tenantId);
+    await loadRemovalFacts(tx, ctx, [id], { projectIds: [projectId] });
+    if (removalNeedsActor(ctx, [id])) await ctx.captureActor(tx, requester);
+    return decideRemoval(ctx, { projectId, id, requester });
+  }
+
   async remove(
     tenantId: string,
     projectId: string,
     id: string,
     requester: RateioRequester,
   ) {
-    assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
-    return this.prisma.$transaction(async (tx) => {
-      await this.validateProject(tenantId, projectId, tx);
-      const expense = await tx.expense.findFirst({
-        where: { id, projectId, tenantId, deletedAt: null },
-      });
-      if (!expense) throw new NotFoundException('Despesa não encontrada');
-      await this.assertCanMutateLinkedRows(tx, tenantId, expense, requester);
-      // #569 (degrau) — B5: DELETE de compra liquidada ou pagamento carimbado.
-      await this.guardImportedInvoiceTrail(tx, tenantId, expense, { isRemove: true });
-
-      const rateioParticipation = await this.guardRateioParticipation(
-        tenantId,
-        id,
-        true,
-        false,
-        tx,
-      );
-      if (rateioParticipation === 'source') {
-        await this.conciliacao.unratearSource(
+    assertRateioRequester(
+      requester,
+      new NotFoundException('Despesa não encontrada'),
+    );
+    return this.prisma
+      .$transaction(async (tx) => {
+        const plan = await this.prepareRemoval(
           tx,
-          { tenantId, sourceExpenseId: id },
+          tenantId,
+          projectId,
+          id,
           requester,
         );
+        if (plan.mode === 'refund')
+          await cleanupRefundPurpose(tx, tenantId, id, requester);
+        if (plan.mode === 'rateio') {
+          await this.conciliacao.unratearSource(
+            tx,
+            { tenantId, sourceExpenseId: id },
+            requester,
+          );
+          const now = new Date();
+          await tx.expense.updateMany({
+            where: { tenantId, linkedExpenseId: id, deletedAt: null },
+            data: { linkedExpenseId: null },
+          });
+          await tx.cashFlowEntry.updateMany({
+            where: { expenseId: id, deletedAt: null },
+            data: { deletedAt: now },
+          });
+          const deleted = await tx.expense.updateMany({
+            where: { id, tenantId, deletedAt: null },
+            data: { deletedAt: now, linkedExpenseId: null },
+          });
+          if (deleted.count !== 1)
+            throw new NotFoundException('Despesa não encontrada');
+          return { deleted: true, count: 1 };
+        }
+        if (plan.mode === 'settlement') {
+          await this.conciliacao.unsettleBySource(
+            tx,
+            { tenantId, sourceExpenseId: id },
+            requester,
+          );
+          await tx.expense.updateMany({
+            where: { tenantId, linkedExpenseId: id, deletedAt: null },
+            data: { linkedExpenseId: null },
+          });
+          return { deleted: true, count: 1 };
+        }
+        const idArr = plan.ids;
         const now = new Date();
-        // Mesma limpeza do caminho legado (linha ~1727): qualquer despesa não
-        // relacionada ao rateio que aponte para esta fonte via `linkedExpenseId`
-        // (vínculo cross-project comum) não pode ficar órfã apontando para uma
-        // despesa soft-deletada.
         await tx.expense.updateMany({
-          where: { tenantId, linkedExpenseId: id, deletedAt: null },
+          where: {
+            tenantId,
+            linkedExpenseId: { in: idArr },
+            id: { notIn: idArr },
+            deletedAt: null,
+          },
           data: { linkedExpenseId: null },
         });
         await tx.cashFlowEntry.updateMany({
-          where: { expenseId: id, deletedAt: null },
+          where: { expenseId: { in: idArr }, deletedAt: null },
           data: { deletedAt: now },
         });
-        const deleted = await tx.expense.updateMany({
-          where: { id, tenantId, deletedAt: null },
-          data: { deletedAt: now, linkedExpenseId: null },
-        });
-        if (deleted.count !== 1) throw new NotFoundException('Despesa não encontrada');
-        return { deleted: true, count: 1 };
-      }
-
-      const settlementParticipation = await this.guardSettlementParticipation(
-        tenantId,
-        id,
-        true,
-        false,
-        tx,
-      );
-      if (settlementParticipation === 'source') {
-        await this.conciliacao.unsettleBySource(
-          tx,
-          { tenantId, sourceExpenseId: id },
-          requester,
-        );
-        // `unsettleBySource` já soft-deleta a própria source (via `softDeleteMirror`
-        // interno) — não soft-deletar de novo aqui, só limpar vínculos órfãos de
-        // entrada, espelhando a limpeza do ramo de rateio acima.
         await tx.expense.updateMany({
-          where: { tenantId, linkedExpenseId: id, deletedAt: null },
-          data: { linkedExpenseId: null },
+          where: { tenantId, id: { in: idArr }, deletedAt: null },
+          data: { deletedAt: now },
         });
-        return { deleted: true, count: 1 };
-      }
-
-      // Legado 1:1: par simples é removido junto; conciliações continuam isoladas.
-      const ids = new Set<string>([id]);
-      const involvedInSettlement = async (expenseId: string): Promise<boolean> =>
-        (await tx.crossProjectSettlement.count({
-          where: {
-            tenantId,
-            reversedAt: null,
-            OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }],
-          },
-        })) > 0;
-
-      // Cascade não pode arrastar um participante ativo de rateio (fonte ou
-      // alvo de outro rateio não relacionado): um vínculo comum apontando para
-      // dentro/fora de um rateio não pode apagar o rateio por tabela.
-      // `guardRateioParticipation` com os dois lados permitidos só consulta
-      // (nunca lança).
-      const isRateioParticipant = async (expenseId: string): Promise<boolean> =>
-        (await this.guardRateioParticipation(tenantId, expenseId, true, true, tx)) !== null;
-
-      if (!(await involvedInSettlement(id))) {
-        if (expense.linkedExpenseId) {
-          const target = await tx.expense.findFirst({
-            where: { id: expense.linkedExpenseId, tenantId, deletedAt: null },
-            select: { id: true },
-          });
-          if (
-            target &&
-            !(await involvedInSettlement(target.id)) &&
-            !(await isRateioParticipant(target.id))
-          ) {
-            ids.add(target.id);
-          }
-        }
-        const mirrors = await tx.expense.findMany({
-          where: { tenantId, linkedExpenseId: id, deletedAt: null },
-          select: { id: true },
-        });
-        for (const mirror of mirrors) {
-          if (
-            !(await involvedInSettlement(mirror.id)) &&
-            !(await isRateioParticipant(mirror.id))
-          ) {
-            ids.add(mirror.id);
-          }
-        }
-      }
-
-      const idArr = [...ids];
-      // #569 (degrau, §2c) — o cascade soft-deleta as CashFlowEntry de CADA id;
-      // um espelho/par vinculado com trilha ATIVA não pode ser arrastado.
-      for (const cascadeId of idArr) {
-        if (cascadeId === id) continue; // já checado acima
-        const cascadeExpense = await tx.expense.findUnique({
-          where: { id: cascadeId },
-          select: {
-            id: true, invoiceUndoState: true, cardLast4: true, settlesInvoiceKey: true,
-            documentedSchedule: true,
-          },
-        });
-        if (cascadeExpense) {
-          await this.guardImportedInvoiceTrail(tx, tenantId, cascadeExpense, {
-            isRemove: true,
-          });
-        }
-      }
-      const now = new Date();
-      await tx.expense.updateMany({
-        where: {
-          tenantId,
-          linkedExpenseId: { in: idArr },
-          id: { notIn: idArr },
-          deletedAt: null,
-        },
-        data: { linkedExpenseId: null },
-      });
-      await tx.cashFlowEntry.updateMany({
-        where: { expenseId: { in: idArr }, deletedAt: null },
-        data: { deletedAt: now },
-      });
-      await tx.expense.updateMany({
-        where: { tenantId, id: { in: idArr }, deletedAt: null },
-        data: { deletedAt: now },
-      });
-      return { deleted: true, count: idArr.length };
-    });
+        return { deleted: true, count: idArr.length };
+      })
+      .catch(rethrowRefundWriteConflict);
   }
 
   private async regenerateCashFlow(

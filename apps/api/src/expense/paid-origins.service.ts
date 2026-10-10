@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ADDITIVE, fundingAccount } from '../conciliacao/additive-settlement';
 import { PrismaService } from '../prisma/prisma.service';
+import { refundPurposeScope } from './refund-purpose-scope';
 import { resolveAccessibleProjectScope } from '../common/access-rules';
 import { buildPaidOrigins } from './paid-origins.builder';
 import {
@@ -51,7 +52,7 @@ export class PaidOriginsService {
       }),
       this.prisma.rateioAllocation.findMany({
         where: { tenantId, target: { projectId, tenantId, deletedAt: null } },
-        select: { targetExpenseId: true, sourceExpenseId: true },
+        select: { targetExpenseId: true, sourceExpenseId: true, isRefundCredit: true },
       }),
       resolveAccessibleProjectScope(
         this.prisma,
@@ -62,7 +63,7 @@ export class PaidOriginsService {
         allowedModules,
       ),
       this.prisma.expense.findMany({
-        where: { projectId, tenantId, deletedAt: null },
+        where: { projectId, tenantId, deletedAt: null, ...refundPurposeScope(tenantId, [projectId], false) },
         select: { id: true },
       }),
     ]);
@@ -125,6 +126,11 @@ export class PaidOriginsService {
         invalidSources.add(row.id);
       }
     }
+    const refundSourceIds = new Set(rateioRows.filter(row => row.isRefundCredit).map(row => row.sourceExpenseId));
+    const refundImportIds = sourceRows.filter(row => refundSourceIds.has(row.id)).flatMap(row => row.importId ? [row.importId] : []);
+    const refundImports = refundImportIds.length ? await this.prisma.creditCardStatementImport.findMany({
+      where: { tenantId, id: { in: refundImportIds }, deletedAt: null }, select: { id: true, cardId: true },
+    }) : [];
     const sources: PaidOriginSourceRow[] = sourceRows.filter(row => !invalidSources.has(row.id)).map(
       (row: {
         id: string;
@@ -132,6 +138,7 @@ export class PaidOriginsService {
         cardLast4: string | null;
         bankLast4: string | null;
         accountId: string | null;
+        importId?: string | null;
         project: { id: string; name: string; type: string };
       }) => ({
         id: row.id,
@@ -141,6 +148,7 @@ export class PaidOriginsService {
         cardLast4: row.cardLast4,
         bankLast4: explicitAccounts.get(row.id)?.last4 ?? row.bankLast4,
         accountId: explicitAccounts.get(row.id)?.id ?? row.accountId,
+        ...(refundSourceIds.has(row.id) ? { cardId: refundImports.find(batch => batch.id === row.importId)?.cardId ?? null } : {}),
       }),
     );
 

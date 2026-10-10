@@ -31,6 +31,7 @@ import { ProjectService } from "../project/project.service";
 import { ExpenseController } from "./expense.controller";
 import { ExpenseService } from "./expense.service";
 import { PaidOriginsService } from "./paid-origins.service";
+import { RefundPurposeService } from "./refund-purpose.service";
 
 const TENANT = "qa702-adversarial";
 const FOREIGN_TENANT = `${TENANT}-foreign`;
@@ -181,6 +182,7 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
       ],
       providers: [
         JwtStrategy,
+        RefundPurposeService,
         { provide: PrismaService, useValue: prisma },
         { provide: ExpenseService, useValue: expenses },
         { provide: BankAccountService, useValue: bank },
@@ -198,7 +200,7 @@ describe("#702 additive funding adversarial contract (real Prisma and HTTP)", ()
       new JwtAuthGuard(reflector),
       new RolesGuard(reflector),
       new ModulesGuard(reflector, prisma),
-      new ProjectAccessGuard(prisma),
+      new ProjectAccessGuard(prisma, reflector),
     );
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, transform: true }),

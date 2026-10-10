@@ -1036,6 +1036,13 @@ it('retains the final CARD companion barrier for a NEW documentary-cycle import 
     actor.id,
     actor,
   );
-  expect(result).toMatchObject({ inserted: 0, settled: 0, skipped: 1 });
+  // Same full count, other per-installment cents: no longer an opaque skip, a
+  // REVIEW item. Still no write of any kind.
+  expect(result).toMatchObject({
+    inserted: 0,
+    settled: 0,
+    skipped: 0,
+    reviewRequired: [expect.objectContaining({ reason: 'REVIEW_REQUIRED' })],
+  });
   expect(await snapshot()).toEqual(before);
 });

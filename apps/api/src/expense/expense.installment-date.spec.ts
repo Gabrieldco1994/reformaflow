@@ -339,7 +339,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
 
   it("bloqueia alvo de rateio com orientação acionável", async () => {
     const { service, tx } = makeHarness();
-    tx.rateioAllocation.findFirst.mockResolvedValueOnce({
+    tx.rateioAllocation.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
       sourceExpenseId: "source-1",
       targetExpenseId: "expense-1",
     });

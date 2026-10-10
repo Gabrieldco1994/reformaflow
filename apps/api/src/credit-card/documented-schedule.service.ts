@@ -9,6 +9,7 @@ import { CashFlowEntry, Expense, Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import {
   ExpenseScheduleOccurrence,
+  addMonthsToMonthKey,
   buildInstallments,
   caixaMonthForCardPurchase,
   isInvoiceDueMonth,
@@ -50,6 +51,7 @@ import {
   ASSISTANCE_BASIS,
   REFERENCE_CHECK,
   EVIDENCE_KIND,
+  DERIVED_SEQUENTIAL,
 } from '../expense/documented-schedule.types';
 
 export interface AssistedDocumentedScheduleScope {
@@ -73,6 +75,10 @@ interface Change {
   }>;
   mirrorCorrection?: MirrorCorrection;
 }
+interface DependentDisposition {
+  cashFlowEntryId: string;
+  action: 'keep' | 'rederive';
+}
 type CorrectionRequest = (
   | { mode: 'preview'; changes: Change[] }
   | {
@@ -81,11 +87,15 @@ type CorrectionRequest = (
       expectedFingerprint: string;
       changes: Change[];
     }
-) & { assistance?: ScheduleAssistance };
+) & {
+  assistance?: ScheduleAssistance;
+  dependentDispositions?: DependentDisposition[];
+};
 type Tx = Prisma.TransactionClient;
 const INT_MAX = 2_147_483_647;
 const AUDIT_ACTION = 'expenses.documented-schedule';
 const UNSELECTED_MIRROR_DRIFT = 'UNSELECTED_MIRROR_DRIFT';
+const DERIVED_DEPENDENTS_UNRESOLVED = 'DERIVED_DEPENDENTS_UNRESOLVED';
 const missing = () => new NotFoundException(ACL_NOT_FOUND_MESSAGE);
 const conflict = () =>
   new ConflictException(
@@ -126,6 +136,7 @@ function request(body: unknown, assisted: boolean): CorrectionRequest {
       ...(body.mode === 'preview'
         ? ['mode', 'changes']
         : ['mode', 'changes', 'requestId', 'expectedFingerprint']),
+      'dependentDispositions',
       ...(assisted ? ['assistance'] : []),
     ]) ||
     !Array.isArray(body.changes) ||
@@ -223,8 +234,34 @@ function request(body: unknown, assisted: boolean): CorrectionRequest {
     new Set(changes.map((item) => item.cashFlowEntryId)).size !== changes.length
   )
     throw invalid();
-  if (body.mode === 'preview')
-    return { mode: 'preview', changes, ...(assistance ? { assistance } : {}) };
+  let dependentDispositions: DependentDisposition[] | undefined;
+  if ('dependentDispositions' in body) {
+    const list = body.dependentDispositions;
+    if (!Array.isArray(list) || !list.length) throw invalid();
+    dependentDispositions = list
+      .map((item: unknown): DependentDisposition => {
+        if (
+          !object(item) ||
+          !keys(item, ['cashFlowEntryId', 'action']) ||
+          Object.keys(item).length !== 2 ||
+          !text(item.cashFlowEntryId) ||
+          (item.action !== 'keep' && item.action !== 'rederive')
+        )
+          throw invalid();
+        return { cashFlowEntryId: item.cashFlowEntryId, action: item.action };
+      })
+      .sort((a, b) => (a.cashFlowEntryId < b.cashFlowEntryId ? -1 : 1));
+    if (
+      new Set(dependentDispositions.map((item) => item.cashFlowEntryId))
+        .size !== dependentDispositions.length
+    )
+      throw invalid();
+  }
+  const extra = {
+    ...(assistance ? { assistance } : {}),
+    ...(dependentDispositions ? { dependentDispositions } : {}),
+  };
+  if (body.mode === 'preview') return { mode: 'preview', changes, ...extra };
   if (
     !text(body.requestId) ||
     body.requestId.length > 200 ||
@@ -237,7 +274,7 @@ function request(body: unknown, assisted: boolean): CorrectionRequest {
     requestId: body.requestId,
     expectedFingerprint: body.expectedFingerprint,
     changes,
-    ...(assistance ? { assistance } : {}),
+    ...extra,
   };
 }
 
@@ -693,8 +730,14 @@ export class DocumentedScheduleService {
           )
             throw conflict();
           const payloadHash = hash(
-            dto.assistance
-              ? { changes: dto.changes, assistance: dto.assistance }
+            dto.assistance || dto.dependentDispositions
+              ? {
+                  changes: dto.changes,
+                  ...(dto.assistance ? { assistance: dto.assistance } : {}),
+                  ...(dto.dependentDispositions
+                    ? { dependentDispositions: dto.dependentDispositions }
+                    : {}),
+                }
               : dto.changes,
           );
           const state = () => ({
@@ -723,6 +766,9 @@ export class DocumentedScheduleService {
             actor,
             changes: dto.changes,
             ...(dto.assistance ? { assistance: dto.assistance } : {}),
+            ...(dto.dependentDispositions
+              ? { dependentDispositions: dto.dependentDispositions }
+              : {}),
             ...(attesters.size ? { attesters: [...attesters.values()] } : {}),
           });
           if (dto.mode === 'apply' && dto.expectedFingerprint !== fingerprint)
@@ -884,15 +930,14 @@ export class DocumentedScheduleService {
                 unselectedOccurrenceIndices.push(index);
               else throw conflict();
           }
+          const isMutable = (row: CashFlowEntry) =>
+            row.status === 'PLANEJADO' &&
+            !claims.some(
+              (claim) =>
+                claim.deletedAt === null && claim.cashFlowEntryId === row.id,
+            );
           const assertMutable = (row: CashFlowEntry) => {
-            if (
-              row.status !== 'PLANEJADO' ||
-              claims.some(
-                (claim) =>
-                  claim.deletedAt === null && claim.cashFlowEntryId === row.id,
-              )
-            )
-              throw conflict();
+            if (!isMutable(row)) throw conflict();
           };
           for (const index of indices.keys()) assertMutable(sourceRows[index]);
           const requiresAllocationBreakdown =
@@ -967,6 +1012,79 @@ export class DocumentedScheduleService {
               unselectedOccurrenceIndices,
             };
           }
+          // Occurrences still derived from a re-documented anchor. One that this
+          // request corrects itself, or that already carries its own document
+          // or attestation, is independent and never listed.
+          const stale: Array<{
+            cashFlowEntryId: string;
+            index: number;
+            anchorIndex: number;
+            anchorMonth: string;
+            parcela: string | null;
+            current: string;
+            candidate: string;
+            rederivable: boolean;
+          }> = [];
+          if (stored?.kind === 'source') {
+            for (const item of stored.occurrences) {
+              const proof = item.cycleEvidence;
+              if (proof?.evidenceKind !== DERIVED_SEQUENTIAL) continue;
+              const anchor = indices.get(proof.derivedFrom.index);
+              // The contract is about ALTERING the live anchor month, not about
+              // the field being present: restating it (or a snapshot older than
+              // an earlier KEEP) must not charge the dependents again.
+              if (
+                !anchor?.invoiceDueMonth ||
+                anchor.invoiceDueMonth ===
+                  sourceRows[proof.derivedFrom.index].invoiceDueMonth ||
+                indices.get(item.index)?.invoiceDueMonth !== undefined
+              )
+                continue;
+              const candidate = addMonthsToMonthKey(
+                anchor.invoiceDueMonth,
+                item.index - proof.derivedFrom.index,
+              );
+              const row = sourceRows[item.index];
+              if (candidate === row.invoiceDueMonth) continue;
+              stale.push({
+                cashFlowEntryId: row.id,
+                index: item.index,
+                anchorIndex: proof.derivedFrom.index,
+                anchorMonth: anchor.invoiceDueMonth,
+                parcela: row.parcela,
+                current: row.invoiceDueMonth!,
+                candidate,
+                rederivable: participants.every((expense) =>
+                  isMutable(rows.get(expense.id)![item.index]),
+                ),
+              });
+            }
+          }
+          const dispositions = new Map(
+            (dto.dependentDispositions ?? []).map((item) => [
+              item.cashFlowEntryId,
+              item.action,
+            ]),
+          );
+          if (
+            [...dispositions.keys()].some(
+              (id) => !stale.some((item) => item.cashFlowEntryId === id),
+            )
+          )
+            throw invalid();
+          const rederived = stale.filter(
+            (item) => dispositions.get(item.cashFlowEntryId) === 'rederive',
+          );
+          for (const item of rederived) {
+            for (const expense of participants)
+              assertMutable(rows.get(expense.id)![item.index]);
+            for (const expense of participants)
+              next.get(expense.id)![item.index].invoiceDueMonth =
+                item.candidate;
+          }
+          const unresolved = stale.filter(
+            (item) => !dispositions.has(item.cashFlowEntryId),
+          );
           const totals = new Map(
             participants.map((expense) => {
               const total = next
@@ -1002,7 +1120,10 @@ export class DocumentedScheduleService {
             })),
             affectedCycles: [
               ...new Set(
-                [...indices.keys()].flatMap((index) =>
+                [
+                  ...indices.keys(),
+                  ...rederived.map((item) => item.index),
+                ].flatMap((index) =>
                   [sourceRows[index], next.get(source.id)![index]].map((row) =>
                     caixaMonthForCardPurchase(
                       row.data,
@@ -1015,7 +1136,34 @@ export class DocumentedScheduleService {
               ),
             ].sort(),
           };
-          if (dto.mode === 'preview') return response;
+          const staleDerivedDependents = stale.map((item) => ({
+            cashFlowEntryId: item.cashFlowEntryId,
+            parcela: item.parcela,
+            current: item.current,
+            candidate: item.candidate,
+            rederivable: item.rederivable,
+          }));
+          if (unresolved.length) {
+            if (dto.mode === 'apply')
+              throw new ConflictException({
+                statusCode: 409,
+                code: DERIVED_DEPENDENTS_UNRESOLVED,
+                message:
+                  'Parcelas derivadas do ciclo alterado exigem disposição explícita (keep ou rederive).',
+                staleDerivedDependents,
+              });
+            return {
+              ...response,
+              applicable: false,
+              reason: DERIVED_DEPENDENTS_UNRESOLVED,
+              staleDerivedDependents,
+            };
+          }
+          if (dto.mode === 'preview')
+            return {
+              ...response,
+              ...(stale.length ? { staleDerivedDependents } : {}),
+            };
           const auditAction = `${AUDIT_ACTION}:${source.id}:${dto.requestId}`;
           if (
             await tx.userActivityLog.count({
@@ -1080,6 +1228,7 @@ export class DocumentedScheduleService {
                 stored?.kind === 'source'
                   ? stored.occurrences[item.index]
                   : undefined;
+              const redone = rederived.find((row) => row.index === item.index);
               return {
                 ...item,
                 amountEvidence:
@@ -1089,7 +1238,18 @@ export class DocumentedScheduleService {
                 cycleEvidence:
                   change?.invoiceDueMonth !== undefined
                     ? proof
-                    : (old?.cycleEvidence ?? null),
+                    : redone
+                      ? {
+                          evidenceKind: DERIVED_SEQUENTIAL,
+                          derivedFrom: {
+                            index: redone.anchorIndex,
+                            invoiceDueMonth: redone.anchorMonth,
+                          },
+                          offset: redone.index - redone.anchorIndex,
+                          actorUserId: actor.id,
+                          recordedAt: now.toISOString(),
+                        }
+                      : (old?.cycleEvidence ?? null),
               };
             }),
             projections: participants.slice(1).map((target) => {
@@ -1236,7 +1396,12 @@ export class DocumentedScheduleService {
               action: auditAction,
             },
           });
-          return { ...response, applied: true, alreadyApplied: false };
+          return {
+            ...response,
+            ...(stale.length ? { staleDerivedDependents } : {}),
+            applied: true,
+            alreadyApplied: false,
+          };
         },
         { timeout: 15_000 },
       );

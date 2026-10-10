@@ -1,0 +1,36 @@
+@font-face {
+  font-family: "Geist";
+  src: url("../../../../node_modules/geist/dist/fonts/geist-sans/Geist-Variable.woff2")
+    format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+:root {
+  --font-geist-sans: "Geist";
+  --font-sans: system-ui;
+}
+.harness {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.harness > * + * {
+  margin-top: 16px;
+}
+.harness-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.harness-controls label,
+.harness-open {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.harness output {
+  display: block;
+  overflow-wrap: anywhere;
+}

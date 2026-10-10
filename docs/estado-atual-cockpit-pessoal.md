@@ -34,6 +34,16 @@ um gate. Não entrega a sessão ou o importador conversacional da Maria.
 Ver [contrato do candidato](visao-conta-faturas.md#cronograma-documentado--candidato-p01)
 e [manual, §4.2](manual-do-aplicativo.md#42-visão-conta-conta--apenas-pessoal).
 
+**Entrada produtiva CSV da Maria — contrato aprovado em 2026-10-09, NÃO
+ENTREGUE/ATIVO:** o primeiro rollout aceita somente CSV de fatura de cartão,
+com `IMPORT_SESSION_INTAKE_MODE=off|csv` e padrão `off`. OFX, PDF, XLS, XLSX e
+imagens permanecem indisponíveis. Histórico, resultado e recuperação não são
+desligados junto com novas entradas; consentimento documental e confirmação
+financeira continuam separados. Aprovação, parsers e testes não comprovam
+merge do runtime, deploy ou QA de release. Ver
+[contrato da Maria](maria-ia.md#primeiro-rollout-produtivo-entrada-csv-de-fatura)
+e [runbook](../DEPLOY.md#release-da-entrada-csv-da-maria).
+
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
 
 O [SDD do Centro Financeiro](plano-centro-financeiro-sdd.md) está **aprovado como planejamento**,

@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, CrossProjectSettlement, RateioAllocation } from '@prisma/client';
 import {
   buildInstallments,
   isSinglePaymentForm,
@@ -10,16 +10,24 @@ import {
   applyParcelaOverrides,
 } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertNoRefundPurpose, cleanupRefundPurpose, REFUND_UNLINK_FIRST } from '../expense/refund-purpose.service';
+import {
+  assertAuthorizedTargets,
+  assertCanReverseSourcesFrom,
+  evaluateUnratearSource,
+  evaluateUnsettleBySource,
+  loadReverseClaimFacts,
+  loadReverseTargetFacts,
+  RemovalContext,
+  requesterCanSeeProject,
+} from '../expense/removal-context';
 import {
   assertRateioRequester,
   RateioRequester,
 } from '../expense/rateio.types';
 import {
   ACL_NOT_FOUND_MESSAGE,
-  EXPENSE_MODULE,
   RECEIPT_MODULE,
-  userCanAccessProject,
-  userCanAccessProjectModule,
 } from '../common/access-rules';
 import {
   IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE,
@@ -87,17 +95,7 @@ export class ConciliacaoService {
     project: { id: string; type: string } | null | undefined,
     requiredModule: string,
   ): boolean {
-    if (!requester || !project) return false;
-    return (
-      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
-      userCanAccessProjectModule(
-        requester.role,
-        requester.allowedProjectTypes,
-        requester.allowedModules ?? [],
-        project.type,
-        requiredModule,
-      )
-    );
+    return requesterCanSeeProject(requester, project, requiredModule);
   }
 
   private async authorizedTargets(
@@ -143,19 +141,7 @@ export class ConciliacaoService {
               },
             });
     const byId = new Map(targets.map((target) => [target.id, target]));
-    for (const id of ids) {
-      const target = byId.get(id);
-      if (
-        !target ||
-        target.tenantId !== tenantId ||
-        !target.project ||
-        target.project.tenantId !== tenantId ||
-        target.project.deletedAt !== null ||
-        !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)
-      ) {
-        throw error(id);
-      }
-    }
+    assertAuthorizedTargets(tenantId, ids, byId, requester, error);
     return byId;
   }
 
@@ -226,38 +212,9 @@ export class ConciliacaoService {
     assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
     const sourceExpenseIds = [...new Set(params.sourceExpenseIds)];
     if (sourceExpenseIds.length === 0) return;
-    const [sources, rateios, settlements] = await Promise.all([
-      tx.expense.findMany({
-        where: {
-          id: { in: sourceExpenseIds },
-          tenantId: params.tenantId,
-          deletedAt: null,
-        },
-        select: { linkedExpenseId: true },
-      }),
-      tx.rateioAllocation.findMany({
-        where: { tenantId: params.tenantId, sourceExpenseId: { in: sourceExpenseIds } },
-        select: { targetExpenseId: true },
-      }),
-      tx.crossProjectSettlement.findMany({
-        where: { tenantId: params.tenantId, sourceExpenseId: { in: sourceExpenseIds }, reversedAt: null },
-        select: { targetExpenseId: true },
-      }),
-    ]);
-    await this.authorizedTargets(
-      tx,
-      params.tenantId,
-      [
-        ...sources.flatMap((row) =>
-          row.linkedExpenseId ? [row.linkedExpenseId] : [],
-        ),
-        ...rateios.map((row) => row.targetExpenseId),
-        ...settlements.map((row) => row.targetExpenseId),
-      ],
-      requester,
-      () => new NotFoundException(ACL_NOT_FOUND_MESSAGE),
-      true,
-    );
+    const ctx = new RemovalContext(params.tenantId);
+    await loadReverseTargetFacts(tx, ctx, sourceExpenseIds);
+    assertCanReverseSourcesFrom(ctx, sourceExpenseIds, requester);
   }
 
   /**
@@ -296,12 +253,16 @@ export class ConciliacaoService {
   ): Promise<void> {
     assertRateioRequester(requester);
     const { tenantId, sourceExpenseId, targetExpenseId, realValor } = input;
+    await assertNoRefundPurpose(tx, tenantId, [sourceExpenseId]);
 
     const targets = await this.assertCanSettleTargets(
       tx,
       { tenantId, targetExpenseIds: [targetExpenseId] },
       requester,
     );
+    // The target id comes from the request: guard it only once the ACL resolved
+    // it, so a hidden marked refund answers like a non-existent target.
+    await assertNoRefundPurpose(tx, tenantId, [targetExpenseId]);
     const target = targets.get(targetExpenseId)!;
 
     const source = await tx.expense.findFirst({
@@ -471,6 +432,7 @@ export class ConciliacaoService {
     });
     if (!target) return;
 
+    await assertNoRefundPurpose(tx, target.tenantId, [targetExpenseId]);
     const activeAdditive = await tx.crossProjectSettlement.findMany({
       where: { tenantId: target.tenantId, targetExpenseId, mode: ADDITIVE, reversedAt: null },
     });
@@ -546,44 +508,32 @@ export class ConciliacaoService {
   }
 
   /**
-   * Desfaz TODAS as liquidações originadas por uma fonte, restaurando o planejado
-   * dos alvos (snapshot) e limpando o vínculo (`linkedExpenseId`) da fonte.
+   * Pré-valida a reversão de todas as liquidações da fonte, sem escritas.
    */
+  async prepareUnsettleBySource(
+    tx: Tx,
+    params: { tenantId: string; sourceExpenseId: string },
+    requester: RateioRequester,
+  ): Promise<CrossProjectSettlement[]> {
+    assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
+    const ctx = new RemovalContext(params.tenantId);
+    await loadReverseClaimFacts(tx, ctx, [params.sourceExpenseId]);
+    return evaluateUnsettleBySource(
+      ctx,
+      params.sourceExpenseId,
+      requester,
+      LEGACY_REPLACEMENT,
+    );
+  }
+
   async unsettleBySource(
     tx: Tx,
     params: { tenantId: string; sourceExpenseId: string },
     requester: RateioRequester,
   ): Promise<{ targets: string[] }> {
-    assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
-    const { tenantId, sourceExpenseId } = params;
-    await guardActiveFunding(tx, tenantId, [sourceExpenseId]);
-    await this.assertCanReverseSources(
-      tx,
-      { tenantId, sourceExpenseIds: [sourceExpenseId] },
-      requester,
-    );
-    const rows = await tx.crossProjectSettlement.findMany({
-      where: { tenantId, sourceExpenseId, mode: LEGACY_REPLACEMENT },
-    });
+    const rows = await this.prepareUnsettleBySource(tx, params, requester);
     if (rows.length === 0) return { targets: [] };
-
-    // #569 (degrau, SIBLING do rateio) — CORE de reversão de settlement (chamado
-    // por `reverseSourceLinks` ⇐ `desconciliar`/desfazer importação). O loop
-    // abaixo chama `regenerateTargetCashflow`, que soft-deleta+recria TODAS as
-    // `CashFlowEntry` de cada ALVO — órfãozando uma parcela IRMÃ já reivindicada
-    // por um `commitImport` real (`imported_invoice_liquidations.cash_flow_entry_id`
-    // ATIVO). Protege a FONTE e TODOS os alvos, DENTRO da tx (fecha o TOCTOU com um
-    // `commitImport` concorrente), APÓS a ACL (`assertCanReverseSources` acima) e
-    // ANTES da primeira escrita: 409 com zero efeitos. Reversões limpas seguem.
-    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
-      tx,
-      tenantId,
-      [sourceExpenseId, ...rows.map((r) => r.targetExpenseId)],
-    );
-    if (claimedParticipants.size > 0) {
-      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
-    }
-
+    const { tenantId, sourceExpenseId } = params;
     const byTarget = new Map<string, typeof rows>();
     for (const r of rows) {
       const arr = byTarget.get(r.targetExpenseId) ?? [];
@@ -651,6 +601,10 @@ export class ConciliacaoService {
       include: { room: true },
     });
     if (!target) return;
+    const alloc = await tx.rateioAllocation.findFirst({
+      where: { tenantId: target.tenantId, targetExpenseId },
+    });
+    if (alloc?.isRefundCredit) throw new ConflictException(REFUND_UNLINK_FIRST);
 
     await tx.cashFlowEntry.updateMany({
       where: { expenseId: targetExpenseId, deletedAt: null },
@@ -659,9 +613,6 @@ export class ConciliacaoService {
 
     if (isNeutralExpenseType(target.tipoDespesa)) return;
 
-    const alloc = await tx.rateioAllocation.findFirst({
-      where: { tenantId: target.tenantId, targetExpenseId },
-    });
     if (!alloc) return; // sem rateio: o caller deve usar a regeneração planejada
 
     const source = await tx.expense.findFirst({
@@ -732,6 +683,7 @@ export class ConciliacaoService {
   ): Promise<{ targets: string[] }> {
     assertRateioRequester(requester);
     const { tenantId, sourceExpenseId, allocations } = input;
+    await assertNoRefundPurpose(tx, tenantId, [sourceExpenseId, ...allocations.map(row => row.targetExpenseId)]);
 
     const source = await tx.expense.findFirst({
       where: { id: sourceExpenseId, tenantId, deletedAt: null },
@@ -942,45 +894,27 @@ export class ConciliacaoService {
   }
 
   /**
-   * Desfaz o rateio de uma fonte: restaura status/paidParcelas dos alvos
-   * (snapshot), regenera o caixa PLANEJADO de cada alvo e limpa o espelho da
-   * fonte. Reversível e seguro quando não há rateio (no-op).
+   * Pré-valida a reversão do rateio sem restaurar snapshots ou regenerar caixa.
    */
+  async prepareUnratearSource(
+    tx: Tx,
+    params: { tenantId: string; sourceExpenseId: string },
+    requester: RateioRequester,
+  ): Promise<RateioAllocation[]> {
+    assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
+    const ctx = new RemovalContext(params.tenantId);
+    await loadReverseClaimFacts(tx, ctx, [params.sourceExpenseId]);
+    return evaluateUnratearSource(ctx, params.sourceExpenseId, requester);
+  }
+
   async unratearSource(
     tx: Tx,
     params: { tenantId: string; sourceExpenseId: string },
     requester: RateioRequester,
   ): Promise<{ targets: string[] }> {
-    assertRateioRequester(requester, new NotFoundException(ACL_NOT_FOUND_MESSAGE));
-    const { tenantId, sourceExpenseId } = params;
-    await this.assertCanReverseSources(
-      tx,
-      { tenantId, sourceExpenseIds: [sourceExpenseId] },
-      requester,
-    );
-    const rows = await tx.rateioAllocation.findMany({ where: { tenantId, sourceExpenseId } });
+    const rows = await this.prepareUnratearSource(tx, params, requester);
     if (rows.length === 0) return { targets: [] };
-
-    // #569 (degrau) — CORE de reversão de rateio: reabre o status dos alvos e
-    // chama `regenerateTargetCashflow`, que soft-deleta+recria as `CashFlowEntry`
-    // do alvo. Se, DEPOIS do rateio, uma importação real liquidou a parcela de um
-    // participante, essa regeneração órfãozaria `imported_invoice_liquidations.
-    // cash_flow_entry_id` ATIVO. Protege o CONJUNTO EFETIVAMENTE mutado (fonte —
-    // `linkedExpenseId` — e todos os alvos), lido DENTRO da tx (fecha o TOCTOU com
-    // um `commitImport` concorrente), APÓS a ACL (`assertCanReverseSources` acima,
-    // que nega participante oculto antes de tocar o ledger) e ANTES da primeira
-    // escrita: 409 com zero efeitos. Como é o core, cobre `desratear`,
-    // `reverseSourceLinks` e o cleanup do `ratearSource` sem espalhar guardas nos
-    // callers. Reversões legítimas (sem claim) seguem normalmente.
-    const claimedParticipants = await findExpensesWithActivePurchaseTrail(
-      tx,
-      tenantId,
-      [sourceExpenseId, ...rows.map((r) => r.targetExpenseId)],
-    );
-    if (claimedParticipants.size > 0) {
-      throw new ConflictException(IMPORTED_INVOICE_TRAIL_CONFLICT_MESSAGE);
-    }
-
+    const { tenantId, sourceExpenseId } = params;
     const targets: string[] = [];
     for (const r of rows) {
       const target = await tx.expense.findFirst({
@@ -1058,6 +992,14 @@ export class ConciliacaoService {
       where: { tenantId, sourceExpenseId },
     });
     if (rateioCount > 0) {
+      const deletedSource = await tx.expense.findFirst({
+        where: { tenantId, id: sourceExpenseId, deletedAt: { not: null } },
+        select: { deletedAt: true },
+      });
+      if (deletedSource?.deletedAt) {
+        const targets = await cleanupRefundPurpose(tx, tenantId, sourceExpenseId, requester);
+        if (targets) return { mode: 'rateio', targets };
+      }
       const { targets } = await this.unratearSource(
         tx,
         { tenantId, sourceExpenseId },

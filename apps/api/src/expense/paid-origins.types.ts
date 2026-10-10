@@ -82,6 +82,8 @@ export interface PaidOriginSourceRow {
   cardLast4: string | null;
   bankLast4: string | null;
   accountId: string | null;
+  /** Marked refund provenance: explicit original import card, never last4 guessing. */
+  cardId?: string | null;
 }
 
 export interface PaidOriginCardRow {

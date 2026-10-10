@@ -21,6 +21,7 @@ import {
 import { useVoiceExpense } from './_hooks/useVoiceExpense';
 import { useExpenseFilters } from './_hooks/useExpenseFilters';
 import { useExpenseMutations, invalidateImportQueries } from './_hooks/useExpenseMutations';
+import { documentedScheduleIds, isDocumentedScheduleExpense } from './_lib/documented-schedule-policy';
 import { ExpenseKpiCards } from './_components/ExpenseKpiCards';
 import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
@@ -79,6 +80,7 @@ import type { ExpenseQueryState } from './_lib/expense-query-state';
 import { centsToReais, reaisToCents } from './_lib/money';
 import { buildPaidOriginIndex } from './_lib/paid-origin-label';
 import { useRateioTargetsBySource } from './_hooks/useRateioDetalhe';
+import { isExpenseCredit } from './_lib/credit-policy';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 const todayBrtIsoDate = () =>
@@ -497,10 +499,25 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     [projectType, displayPersonal, filteredExpenses, generalSortDir],
   );
   // IDs visíveis na lista ativa (para "selecionar tudo" no bulk de data).
+  // Cronograma documentado (#701) não entra em operações em massa: o servidor
+  // responde 409 a data/status/exclusão, então a seleção (inclusive "Selecionar
+  // tudo") só cobre lançamentos que a política de visão admite.
   const bulkVisibleIds = useMemo(() => {
     const base = projectType === 'PESSOAL' ? displayPersonal : filteredExpenses;
-    return new Set(base.map((e) => e.id));
+    return new Set(
+      base.filter((e) => !isExpenseCredit(e) && !isDocumentedScheduleExpense(e)).map((e) => e.id),
+    );
   }, [projectType, displayPersonal, filteredExpenses]);
+  // Um refetch pode revelar um documentado já selecionado (estado defasado):
+  // remove-o da seleção para que ele não seja enviado ao lote.
+  useEffect(() => {
+    const blocked = documentedScheduleIds(allExpensesPersonal);
+    if (blocked.size === 0) return;
+    setBulkSelectedIds((prev) => {
+      if (![...prev].some((id) => blocked.has(id))) return prev;
+      return new Set([...prev].filter((id) => !blocked.has(id)));
+    });
+  }, [allExpensesPersonal]);
   const bulkAllSelected = bulkVisibleIds.size > 0 && bulkSelectedIds.size === bulkVisibleIds.size;
   // Fonte do "Vincular em massa" (só PESSOAL): despesas selecionadas + elegíveis
   // (sem vínculo prévio, não-neutras) — reusa o mesmo mecanismo de seleção do bulk de data.
@@ -817,7 +834,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     // Quando o usuário escolheu uma PARCELA específica do alvo, a conciliação
     // (Fase 6) cuida de setar o vínculo + liquidar a parcela — então não enviamos
     // linkedExpenseId no payload (evita set duplicado/simples).
-    const useConciliacao = !!linkedId && parcelaIdx != null;
+    const useConciliacao = !isExpenseCredit(editing) && !!linkedId && parcelaIdx != null;
     data.linkedExpenseId = useConciliacao ? null : linkedId;
 
     const afterSave = (sourceId?: string) => {

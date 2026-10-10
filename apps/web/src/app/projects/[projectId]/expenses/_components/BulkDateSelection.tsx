@@ -35,9 +35,11 @@ export function useBulkDate(): BulkDateCtx | null {
  * Checkbox de seleção exibido por cada linha de despesa. Renderiza nada quando
  * não há provider ativo ou quando o modo de seleção está desligado.
  */
-export function BulkCheckbox({ id }: { id: string }) {
+export function BulkCheckbox({ id, blocked = false }: { id: string; blocked?: boolean }) {
   const ctx = useBulkDate();
-  if (!ctx || !ctx.selectMode) return null;
+  // `blocked`: linha que a política de visão não admite em operações em massa
+  // (cronograma documentado — #701). Sem checkbox, não há como selecioná-la.
+  if (!ctx || !ctx.selectMode || blocked) return null;
   const checked = ctx.selectedIds.has(id);
   return (
     <button

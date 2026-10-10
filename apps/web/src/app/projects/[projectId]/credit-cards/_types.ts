@@ -3,6 +3,11 @@ import type {
   ImportClassificationStatus,
 } from "@/components/import/ImportClassificationNotice";
 import type { PossibleDuplicateInfo } from "@/components/import/PossibleDuplicateNotice";
+import type {
+  CardImportCommitReview,
+  CardImportPreviewIgnored,
+  CardImportPreviewReview,
+} from "@reformaflow/domain";
 
 export type {
   CategoriaFonte,
@@ -46,7 +51,9 @@ export interface CrossProjectMatch {
   installmentTotal?: number | null;
 }
 
-export interface PreviewTx {
+export interface PreviewTx
+  extends Partial<CardImportPreviewReview>,
+    Partial<CardImportPreviewIgnored> {
   externalId: string;
   date: string;
   merchant: string;
@@ -81,7 +88,8 @@ export interface PreviewResult {
   classificationStatus?: ImportClassificationStatus;
 }
 
-export interface CommitResult {
+/** Campos de REVIEW/seleção (#714) opcionais: um servidor sem eles nunca autoriza nada. */
+export interface CommitResult extends Partial<CardImportCommitReview> {
   postCommitWarnings?: Array<{ code: string; message: string }>;
   source: string;
   periodLabel: string;

@@ -1,7 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { assertNoRefundPurpose, cleanupRefundPurpose, reserveRefundWriter, rethrowRefundWriteConflict, REFUND_UNLINK_FIRST } from '../expense/refund-purpose.service';
+import { currentInlineRequester } from '../bank-account/inline-expenses';
 import { PrismaService } from '../prisma/prisma.service';
-import { ExpenseTypeLabels, NEUTRAL_EXPENSE_TYPES, buildInstallments, caixaMonthForCardPurchase, isSinglePaymentForm } from '@reformaflow/domain';
+import { ExpenseTypeLabels, NEUTRAL_EXPENSE_TYPES, addMonthsToMonthKey, buildInstallments, caixaMonthForCardPurchase, isSinglePaymentForm, CARD_IMPORT_INVALID_DECISION, CARD_IMPORT_IGNORED_REASON, CARD_IMPORT_INVALID_SELECTION, CARD_IMPORT_LINE_OUTCOME, CARD_IMPORT_REVIEW_REASON, CARD_IMPORT_SELECTED_ROWS_CHANGED, isCardImportReviewFingerprint, type CardImportIgnoredReason, type CardImportLineResult, type CardImportReviewDecision, type CardImportReviewItem, type CardImportSkippedItem } from '@reformaflow/domain';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffers, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
@@ -51,10 +53,10 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = {
 
 import { categorize } from './categorizer';
 import { buildStoredExpenseInstallments, parseDocumentaryCycle, parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
-import { DocumentaryCycle, StoredSourceScheduleV1 } from '../expense/documented-schedule.types';
-import { buildSeriesKey, CARD_PURCHASE_INSPECTION, inspectCardPurchaseCompanions } from './card-purchase-identity';
+import { DERIVED_SEQUENTIAL, DocumentaryCycle, StoredSourceScheduleV1 } from '../expense/documented-schedule.types';
+import { buildSeriesKey, classifyCardImport, excludableSibling, occurrenceGroups, reviewFingerprint as reviewFingerprintOf, reviewItem, siblingPredicate, type OccurrenceGroups, type ReviewLine } from './card-purchase-identity';
+import { CARD_IMPORT_LINE_CLASSIFICATION, classifyCardImportLine } from './card-import-line-policy';
 
-const INVOICE_PAYMENT_LINE_PATTERN = /PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PGTO\s+FAT|FATURA\s+PAG/i;
 const CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS = 2_147_483_647;
 
 /**
@@ -70,11 +72,109 @@ function localHeuristicCategory(merchant: string): string | null {
   return PESSOAL_CATEGORY_MAP[cat] ?? null;
 }
 
+/** Resultado de criar (ou não) uma linha: `review`/`blocked` significam ZERO escrita. */
+type CreateFromTransactionResult =
+  | { inserted: boolean; settled: boolean; expenseId?: string; review?: undefined; blocked?: undefined; ignored?: undefined }
+  | { inserted: false; settled: false; expenseId?: undefined; review: CardImportReviewItem; blocked?: undefined; ignored?: undefined }
+  | { inserted: false; settled: false; expenseId?: undefined; review?: undefined; blocked: true; ignored?: undefined }
+  // Política determinística (pagamento de fatura não é compra): terminal, sem escrita, nunca reexecutada.
+  | { inserted: false; settled: false; expenseId?: undefined; review?: undefined; blocked?: undefined; ignored: true };
+
+const BLOCKED_RESULT: CreateFromTransactionResult = { inserted: false, settled: false, blocked: true };
+const IGNORED_RESULT: CreateFromTransactionResult = { inserted: false, settled: false, ignored: true };
+// Sentinela interna: a série tem mais de uma raiz candidata; só a classificação pode responder.
+const SERIES_AMBIGUOUS = 'SERIES_AMBIGUOUS' as const;
+const reviewResult = (review: CardImportReviewItem): CreateFromTransactionResult => ({
+  inserted: false,
+  settled: false,
+  review,
+});
+
+/**
+ * Forma de parcelamento e identidade de compra de UMA linha. Fonte única de
+ * `create` e `preview`: a impressão digital da revisão só bate se os dois lados
+ * calcularem exatamente o mesmo.
+ */
+function importPurchaseOf(
+  cardId: string,
+  projectId: string,
+  tx: NormalizedTx,
+  invoiceDueMonth: string | undefined,
+  documentaryCycle: DocumentaryCycle | undefined,
+) {
+  const total = tx.installmentTotal && tx.installmentTotal > 1 ? tx.installmentTotal : 1;
+  const current = tx.installmentCurrent && tx.installmentCurrent >= 1 ? tx.installmentCurrent : 1;
+  const seriesKey = total > 1 ? buildSeriesKey(cardId, tx.merchant, tx.amountCents, total) : null;
+  const purchase = {
+    cardId, projectId, merchant: tx.merchant, total, seriesKey,
+    externalId: tx.externalId, dedupeKeyStrong: tx.dedupeKeyStrong ?? null,
+  };
+  const reviewLine: ReviewLine = {
+    externalId: tx.externalId,
+    cardId,
+    projectId,
+    seriesKey,
+    merchant: tx.merchant,
+    amountCents: tx.amountCents,
+    total,
+    current,
+    date: tx.date,
+    invoiceDueMonth: invoiceDueMonth ?? null,
+    documentaryCycle: documentaryCycle ?? null,
+  };
+  return { total, current, seriesKey, purchase, reviewLine };
+}
+
+const IMPORT_DECISION_ACTIONS: ReadonlySet<string> = new Set(['create', 'skip', 'link', 'import']);
+const MISSING_IDS_SAMPLE = 50;
+
+function invalidDecision(message: string): BadRequestException {
+  return new BadRequestException({ code: CARD_IMPORT_INVALID_DECISION, message });
+}
+
+/** Valida a forma das decisões ANTES de qualquer efeito (400 INVALID_DECISION). */
+function validateImportDecisions(decisions: unknown): ImportDecision[] {
+  if (decisions === undefined || decisions === null) return [];
+  if (!Array.isArray(decisions)) throw invalidDecision('decisions deve ser uma lista');
+  const seen = new Set<string>();
+  for (const item of decisions as unknown[]) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw invalidDecision('cada decisão deve ser um objeto');
+    const d = item as Record<string, unknown>;
+    if (typeof d.externalId !== 'string' || d.externalId === '') throw invalidDecision('externalId da decisão é obrigatório');
+    if (seen.has(d.externalId)) throw invalidDecision('externalId repetido nas decisões');
+    seen.add(d.externalId);
+    if (d.action !== undefined && (typeof d.action !== 'string' || !IMPORT_DECISION_ACTIONS.has(d.action))) {
+      throw invalidDecision('action da decisão inválida');
+    }
+    if (d.reviewFingerprint !== undefined) {
+      if (d.action !== 'import') throw invalidDecision('reviewFingerprint só vale com action "import"');
+      if (!isCardImportReviewFingerprint(d.reviewFingerprint)) throw invalidDecision('reviewFingerprint inválido');
+    }
+  }
+  return decisions as ImportDecision[];
+}
+
+/** Valida a forma de `selectedExternalIds` (400 INVALID_SELECTION); `undefined` = legado. */
+function validateSelectedExternalIds(selected: unknown): Set<string> | undefined {
+  if (selected === undefined) return undefined;
+  const invalid = (message: string) => new BadRequestException({ code: CARD_IMPORT_INVALID_SELECTION, message });
+  if (!Array.isArray(selected) || selected.length === 0) throw invalid('selectedExternalIds deve ser uma lista não vazia');
+  const ids = new Set<string>();
+  for (const id of selected as unknown[]) {
+    if (typeof id !== 'string' || id === '') throw invalid('selectedExternalIds só aceita textos não vazios');
+    if (ids.has(id)) throw invalid('selectedExternalIds tem itens repetidos');
+    ids.add(id);
+  }
+  return ids;
+}
+
 export interface ImportDecision {
   externalId: string;
   // 'import' (#659) força uma linha marcada `possibleDuplicate` (Tier B) a ser criada.
   action?: 'create' | 'skip' | 'link' | 'import';
   linkToExpenseId?: string;        // quando action='link'
+  /** Só com action='import': prende a escolha ao estado revisado (ver CardImportReviewItem). */
+  reviewFingerprint?: CardImportReviewDecision['reviewFingerprint'];
   overrides?: {
     titulo?: string;
     valorCents?: number;
@@ -289,6 +389,14 @@ export class CreditCardService {
       if (!data.nickname) delete data.nickname;
     }
     await this.prisma.$transaction(async (tx) => {
+      if (['last4', 'institution', 'brand', 'closingDay', 'dueDay'].some(key => key in dto)) {
+        await reserveRefundWriter(tx, tenantId);
+        const current = await tx.creditCard.findFirst({ where: { id, tenantId, projectId, deletedAt: null } });
+        if (!current) throw new NotFoundException('Cartão não encontrado');
+        const identityKeys = ['last4', 'institution', 'brand', 'closingDay', 'dueDay'] as const;
+        if (identityKeys.some(key => dto[key] !== undefined && dto[key] !== current[key]))
+          await this.assertNoCardRefund(tx, tenantId, id);
+      }
       if (dto.last4 !== undefined) {
         await this.assertNoDuplicateCard(tx, tenantId, projectId, dto.last4, id);
       }
@@ -299,8 +407,21 @@ export class CreditCardService {
 
   async deleteCard(tenantId: string, projectId: string, id: string) {
     await this.findCard(tenantId, projectId, id);
-    await this.prisma.creditCard.delete({ where: { id } });
+    await this.prisma.$transaction(async tx => {
+      await reserveRefundWriter(tx, tenantId);
+      await this.assertNoCardRefund(tx, tenantId, id);
+      await tx.creditCard.delete({ where: { id } });
+    });
     return { ok: true };
+  }
+
+  private async assertNoCardRefund(tx: Prisma.TransactionClient, tenantId: string, cardId: string) {
+    const batches = await tx.creditCardStatementImport.findMany({
+      where: { tenantId, cardId, deletedAt: { not: undefined } }, select: { id: true },
+    });
+    if (await tx.rateioAllocation.findFirst({ where: {
+      tenantId, isRefundCredit: true, source: { tenantId, importId: { in: batches.map(row => row.id) } },
+    } })) throw new ConflictException(REFUND_UNLINK_FIRST);
   }
 
   // ─── Imports ─────────────────────────────────────────────
@@ -461,20 +582,33 @@ export class CreditCardService {
       };
     };
 
-    const preview = parsed.transactions.map((tx) => {
+    // Todas as linhas lidas, antes de qualquer seleção: define quem é irmã de quem.
+    const occurrences = occurrenceGroups(parsed.transactions);
+    const preview = [];
+    for (const tx of parsed.transactions) {
       const strong = dedupe.strongDuplicates.has(tx.externalId);
       const possibleDuplicate = dedupe.possibleDuplicates.get(tx.externalId);
+      // Mesmo padrão e merchant ORIGINAL do commit; independe do Tier B; forte vence.
+      const ignored: CardImportIgnoredReason | null =
+        !strong &&
+        classifyCardImportLine({ documentaryText: tx.merchant }) ===
+          CARD_IMPORT_LINE_CLASSIFICATION.IGNORE_INVOICE_PAYMENT
+          ? CARD_IMPORT_IGNORED_REASON.INVOICE_PAYMENT
+          : null;
+      const review = strong ? null : await this.previewReview(card.id, projectId, tenantId, tx, parsed.invoiceDueMonth, occurrences);
       const { dedupeKeyStrong: _dks, dedupeKeyNatural: _dkn, ...txPublic } = tx;
-      return {
+      preview.push({
         ...txPublic,
         date: tx.date.toISOString().slice(0, 10),
         duplicate: strong,
         possibleDuplicate,
-        willImport: !strong && !possibleDuplicate,
+        review,
+        ignored,
+        willImport: !strong && !possibleDuplicate && !review && !ignored,
         ...classifyTx(tx),
         crossProjectMatches: findMatches(tx),
-      };
-    });
+      });
+    }
 
     const futureInstallments = (parsed.futureInstallments ?? []).map((tx) => ({
       ...tx,
@@ -497,6 +631,37 @@ export class CreditCardService {
     };
   }
 
+  /**
+   * Revisão que o commit exigiria para esta linha, só sobre o estado persistido
+   * (o lote ainda não escreveu nada). `null` = nada a decidir OU a identidade
+   * idêntica de série, que o commit reaproveita/decide sozinho.
+   */
+  private async previewReview(
+    cardId: string,
+    projectId: string,
+    tenantId: string,
+    tx: NormalizedTx,
+    invoiceDueMonth: string | undefined,
+    occurrences: OccurrenceGroups,
+  ): Promise<CardImportReviewItem | null> {
+    if (
+      !Number.isSafeInteger(tx.amountCents) ||
+      tx.amountCents <= 0 ||
+      tx.amountCents > CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS ||
+      classifyCardImportLine({ documentaryText: tx.merchant }) ===
+        CARD_IMPORT_LINE_CLASSIFICATION.IGNORE_INVOICE_PAYMENT
+    ) {
+      return null;
+    }
+    const { purchase, reviewLine } = importPurchaseOf(cardId, projectId, tx, invoiceDueMonth, undefined);
+    const admission = await classifyCardImport(this.prisma, tenantId, purchase, siblingPredicate(occurrences, reviewLine));
+    if (admission.kind === 'REVIEW') return reviewItem(reviewLine, CARD_IMPORT_REVIEW_REASON.REQUIRED, admission);
+    if (admission.kind === 'BLOCKED' && !admission.sameSeries) {
+      return reviewItem(reviewLine, CARD_IMPORT_REVIEW_REASON.BLOCKED, null);
+    }
+    return null;
+  }
+
   async commitImport(
     tenantId: string,
     projectId: string,
@@ -506,11 +671,15 @@ export class CreditCardService {
     source: SourceHint,
     periodLabelOverride: string | undefined,
     password: string | undefined,
-    decisions: ImportDecision[] | undefined,
+    decisionsInput: unknown,
     createdByUserId: string | null,
     requester: RateioRequester,
+    selectedExternalIds?: unknown,
   ) {
     assertRateioRequester(requester);
+    // Forma inválida => 400 antes de qualquer leitura/efeito. Sem fallback.
+    const decisions = validateImportDecisions(decisionsInput);
+    const selected = validateSelectedExternalIds(selectedExternalIds);
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
@@ -519,6 +688,26 @@ export class CreditCardService {
       projectId,
       fileContentHash: fileContentHash(buffers),
     });
+    // Seleção da tentativa: confere pertencimento ANTES de dedupe, ACL de alvo e
+    // importRecord — um ID que sumiu do documento não tem efeito nenhum (409).
+    if (selected) {
+      const parsedIds = new Set(parsed.transactions.map((t) => t.externalId));
+      const missing = [...selected].filter((id) => !parsedIds.has(id));
+      if (missing.length > 0) {
+        // Corpo do contrato fechado: exatamente estas chaves, sem prosa.
+        throw new ConflictException({
+          code: CARD_IMPORT_SELECTED_ROWS_CHANGED,
+          missingCount: missing.length,
+          missingExternalIds: missing.slice(0, MISSING_IDS_SAMPLE),
+        });
+      }
+    }
+    // Linhas fora da seleção saem da rodada: sem dedupe, reuso, vínculo, carimbo,
+    // Tier B ou revisão, e as decisões delas são ignoradas.
+    const inRound = parsed.transactions.filter((t) => !selected || selected.has(t.externalId));
+    // A irmandade vale para o documento inteiro, não só para as linhas desta rodada.
+    const occurrences = occurrenceGroups(parsed.transactions);
+    const notSelected = parsed.transactions.length - inRound.length;
     // `invoiceDueMonth` vem lido do próprio arquivo (linha "Vencimento") e tem
     // precedência sobre `periodLabel`, que é um palpite pela densidade das datas
     // dos lançamentos — palpite que erra em toda fatura Itaú, porque ela lista a
@@ -528,21 +717,17 @@ export class CreditCardService {
 
     // Index decisions por externalId
     const decisionByExt = new Map<string, ImportDecision>();
-    for (const d of decisions ?? []) {
-      if (d?.externalId) decisionByExt.set(d.externalId, d);
-    }
+    for (const d of decisions) decisionByExt.set(d.externalId, d);
     // (#659) linhas Tier B que o usuário escolheu criar mesmo assim.
     const forcedImport = new Set(
-      (decisions ?? [])
-        .filter((d) => d?.action === 'import' && d.externalId)
-        .map((d) => d.externalId),
+      decisions.filter((d) => d.action === 'import').map((d) => d.externalId),
     );
 
     const dedupe = await findDedupeMatches(
       this.prisma,
       tenantId,
       projectId,
-      keysFromTransactions(parsed.transactions),
+      keysFromTransactions(inRound),
     );
     const existingIds = dedupe.strongDuplicates;
 
@@ -551,7 +736,7 @@ export class CreditCardService {
 
     // Filtra transações: pula as que tem decision=skip, já existentes (strong) ou
     // possível-duplicata Tier B não forçada.
-    const toProcess = parsed.transactions.filter((t) => {
+    const toProcess = inRound.filter((t) => {
       const d = decisionByExt.get(t.externalId);
       if (d?.action === 'skip') return false;
       if (existingIds.has(t.externalId)) return false;
@@ -583,7 +768,8 @@ export class CreditCardService {
       );
     }
     // manter em sincronia com bank-account.service.ts (commitImport: userSkipped / duplicatedItems / duplicated)
-    const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
+    // Conta linhas REAIS da rodada: id fantasma em `decisions` não vira skip.
+    const userSkipped = inRound.filter((t) => decisionByExt.get(t.externalId)?.action === 'skip' && !existingIds.has(t.externalId)).length;
     // `duplicated` NÃO subtrai TODAS as decisions `skip`: uma linha que é
     // duplicata-contra-histórico (`existingIds.has`) E veio marcada `skip` já
     // saiu de `toProcess` pelas duas condições — subtraí-la de novo por
@@ -591,13 +777,13 @@ export class CreditCardService {
     // (`total !== inserted + duplicated + skipped`). Só o skip de linha NOVA
     // (`userSkipped`) é balde à parte. (#568 M6a)
     const duplicated =
-      parsed.transactions.length -
+      inRound.length -
       toProcess.length -
       userSkipped -
       possibleDuplicates.length;
     // Lista auditável do que foi ignorado como duplicata (linhas, não só a contagem).
     // manter em sincronia com bank-account.service.ts (commitImport: userSkipped / duplicatedItems / duplicated)
-    const duplicatedItems = parsed.transactions
+    const duplicatedItems = inRound
       .filter((t) => {
         const d = decisionByExt.get(t.externalId);
         if (d?.action === 'skip' && !existingIds.has(t.externalId)) return false; // skip do usuário em linha nova, contado à parte
@@ -633,6 +819,12 @@ export class CreditCardService {
     // (#659) corrida cross-canal: o pré-check passou nos dois lados e o índice
     // único parcial de `dedupe_key_strong` pegou o 2º INSERT.
     let raceDuplicated = 0;
+    const reviewRequired: CardImportReviewItem[] = [];
+    const skippedItems: CardImportSkippedItem[] = [];
+    // Desfecho por linha, preenchido pelo mesmo laço que alimenta os contadores.
+    const outcomes = new Map<string, { outcome: CardImportLineResult['outcome']; linked?: true }>();
+    const setOutcome = (externalId: string, outcome: CardImportLineResult['outcome'], linkedRow?: true) =>
+      outcomes.set(externalId, linkedRow ? { outcome, linked: true } : { outcome });
     // AC#7 (#582): overrides explícitos de linhas efetivamente criadas — viram
     // regra MANUAL tenant-scoped depois do loop (fora de qualquer tx).
     const learnEntries: Array<{ merchant: string; expenseType: string }> = [];
@@ -649,11 +841,17 @@ export class CreditCardService {
       // só do P2002. Confere expenses + receipts.
       if (await strongDupExists(this.prisma, tenantId, projectId, tx)) {
         raceDuplicated++;
+        setOutcome(tx.externalId, CARD_IMPORT_LINE_OUTCOME.DUPLICATED);
         continue;
       }
       try {
-        if (INVOICE_PAYMENT_LINE_PATTERN.test(tx.merchant)) {
-          throw new BadRequestException('pagamento-fatura-ignorado');
+        if (
+          classifyCardImportLine({ documentaryText: tx.merchant }) ===
+          CARD_IMPORT_LINE_CLASSIFICATION.IGNORE_INVOICE_PAYMENT
+        ) {
+          skipped++;
+          setOutcome(tx.externalId, CARD_IMPORT_LINE_OUTCOME.SKIPPED);
+          continue;
         }
         const documentaryCycle = d?.overrides?.documentaryCycle === undefined
           ? undefined : parseDocumentaryCycle(d.overrides.documentaryCycle);
@@ -678,11 +876,34 @@ export class CreditCardService {
             db, tenantId, projectId, card, adjustedTx, importRecord.id,
             d?.overrides?.category, createdByUserId ?? requester.id ?? null,
             parsed.invoiceDueMonth, documentaryCycle,
+            d?.action === 'import' ? d.reviewFingerprint : undefined,
+            occurrences,
           ), duplicate: false };
         });
-        if (result.duplicate) raceDuplicated++;
+        if (result.duplicate) {
+          raceDuplicated++;
+          setOutcome(tx.externalId, CARD_IMPORT_LINE_OUTCOME.DUPLICATED);
+          continue;
+        }
+        if (result.review) {
+          reviewRequired.push(result.review);
+          setOutcome(tx.externalId, CARD_IMPORT_LINE_OUTCOME.REVIEW_REQUIRED);
+          continue;
+        }
+        if (result.ignored) {
+          skipped++;
+          setOutcome(tx.externalId, CARD_IMPORT_LINE_OUTCOME.SKIPPED);
+          continue;
+        }
+        if (result.blocked) {
+          skipped++;
+          skippedItems.push({ externalId: tx.externalId, reason: CARD_IMPORT_REVIEW_REASON.BLOCKED });
+          setOutcome(tx.externalId, CARD_IMPORT_LINE_OUTCOME.BLOCKED);
+          continue;
+        }
         if (result.settled) settled++;
         if (result.inserted) inserted++;
+        setOutcome(tx.externalId, result.settled ? CARD_IMPORT_LINE_OUTCOME.REUSED : CARD_IMPORT_LINE_OUTCOME.CREATED);
 
         const catOverride = d?.overrides?.category;
         if (
@@ -705,6 +926,7 @@ export class CreditCardService {
               realValor: adjustedTx.amountCents,
             }, requester);
             linked++;
+            setOutcome(tx.externalId, result.settled ? CARD_IMPORT_LINE_OUTCOME.REUSED : CARD_IMPORT_LINE_OUTCOME.CREATED, true);
           } catch (linkErr) {
             console.warn(`[credit-card-import] link failed for ${tx.externalId.slice(0, 8)}:`, (linkErr as Error).message);
           }
@@ -712,9 +934,11 @@ export class CreditCardService {
       } catch (err) {
         if (isDedupeStrongUniqueViolation(err)) {
           raceDuplicated++;
+          setOutcome(tx.externalId, CARD_IMPORT_LINE_OUTCOME.DUPLICATED);
           continue;
         }
         skipped++;
+        setOutcome(tx.externalId, CARD_IMPORT_LINE_OUTCOME.ERROR);
         console.warn(`[credit-card-import] tx skipped (${tx.externalId.slice(0, 8)}):`, (err as Error).message);
       }
     }
@@ -725,15 +949,31 @@ export class CreditCardService {
       failed: rulesLearnFailed,
     } = await this.merchantClassifier.learnFromImportOverrides(learnEntries, tenantId);
 
+    const possibleIds = new Set(possibleDuplicates.map((pd) => pd.externalId));
+    const lineResults: CardImportLineResult[] = parsed.transactions.map((t) => {
+      const done = outcomes.get(t.externalId);
+      if (done) return { externalId: t.externalId, ...done };
+      let outcome: CardImportLineResult['outcome'];
+      if (selected && !selected.has(t.externalId)) outcome = CARD_IMPORT_LINE_OUTCOME.NOT_SELECTED;
+      else if (existingIds.has(t.externalId)) outcome = CARD_IMPORT_LINE_OUTCOME.DUPLICATED;
+      else if (decisionByExt.get(t.externalId)?.action === 'skip') outcome = CARD_IMPORT_LINE_OUTCOME.SKIPPED;
+      else if (possibleIds.has(t.externalId)) outcome = CARD_IMPORT_LINE_OUTCOME.POSSIBLE_DUPLICATE;
+      else outcome = CARD_IMPORT_LINE_OUTCOME.ERROR;
+      return { externalId: t.externalId, outcome };
+    });
+
     await this.prisma.creditCardStatementImport.update({
       where: { id: importRecord.id },
       data: {
         inserted,
-        skipped: skipped + userSkipped,
+        // `skipped` do registro (sem DDL) também guarda o que ficou pendente/fora da rodada.
+        skipped: skipped + userSkipped + reviewRequired.length + notSelected,
         duplicated: duplicated + settled + raceDuplicated,
         message: [
-          settled > 0 ? `${settled} parcela(s) liquidada(s)` : null,
+          settled > 0 ? `${settled} parcela(s) já existente(s) reaproveitada(s), sem pagamento` : null,
           linked > 0 ? `${linked} vinculada(s) a planejado` : null,
+          reviewRequired.length > 0 ? `${reviewRequired.length} compra(s) aguardando revisão` : null,
+          notSelected > 0 ? `${notSelected} não selecionada(s)` : null,
         ].filter(Boolean).join(' · ') || null,
       },
     });
@@ -750,6 +990,10 @@ export class CreditCardService {
       possibleDuplicates,
       settled,
       skipped: skipped + userSkipped,
+      reviewRequired,
+      skippedItems,
+      notSelected,
+      lineResults,
       linked,
       rulesLearned,
       rulesSkippedNoMapping,
@@ -909,7 +1153,7 @@ export class CreditCardService {
     assertRateioRequester(requester, new NotFoundException('Importação não encontrada'));
     const card = await this.findCard(tenantId, projectId, cardId);
     const importRecord = await this.prisma.creditCardStatementImport.findFirst({
-      where: { id: importId, tenantId, cardId: card.id },
+      where: { id: importId, tenantId, cardId: card.id, deletedAt: { not: undefined } },
     });
     if (!importRecord) throw new NotFoundException('Importação não encontrada');
     if (importRecord.deletedAt) {
@@ -917,15 +1161,17 @@ export class CreditCardService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      await reserveRefundWriter(tx, tenantId);
       const locked = await tx.$executeRaw`
         UPDATE credit_cards SET id = id WHERE id = ${card.id}
           AND tenant_id = ${tenantId} AND project_id = ${projectId} AND deleted_at IS NULL
       `;
       if (locked !== 1) throw new NotFoundException('Cartão não encontrado');
       const currentImport = await tx.creditCardStatementImport.findFirst({
-        where: { id: importId, tenantId, cardId: card.id, deletedAt: null },
+        where: { id: importId, tenantId, cardId: card.id, deletedAt: { not: undefined } },
       });
       if (!currentImport) throw new ConflictException('Importação indisponível');
+      if (currentImport.deletedAt) return { alreadyUndone: true, removedExpenses: 0, revertedSettlements: 0, unstamped: 0 };
       const created = await tx.expense.findMany({
         where: { tenantId, importId, deletedAt: null, createdAt: { gte: currentImport.createdAt } },
         select: { id: true },
@@ -936,6 +1182,13 @@ export class CreditCardService {
       });
       const createdIds = created.map((e) => e.id);
       const now = new Date();
+      const refundEdges = await tx.rateioAllocation.findMany({ where: {
+        tenantId, isRefundCredit: true, source: { tenantId, importId },
+      } });
+      if (refundEdges.length) {
+        const actor = await currentInlineRequester(tx, tenantId, requester);
+        for (const edge of refundEdges) await cleanupRefundPurpose(tx, tenantId, edge.sourceExpenseId, actor);
+      }
 
       await this.conciliacao.assertCanReverseSources(
         tx,
@@ -959,7 +1212,7 @@ export class CreditCardService {
 
       // 2) Reverte vínculos cross-project de cada fonte (restaura o alvo e apaga
       //    CrossProjectSettlement/RateioAllocation — sem órfão).
-      let revertedSettlements = 0;
+      let revertedSettlements = refundEdges.length;
       for (const id of createdIds) {
         const res = await this.conciliacao.reverseSourceLinks(
           tx,
@@ -977,10 +1230,10 @@ export class CreditCardService {
       // 4) Soft-delete do registro de importação.
       await tx.creditCardStatementImport.update({ where: { id: importId }, data: { deletedAt: now } });
 
-      return { removedExpenses: createdIds.length, revertedSettlements, unstamped: adopted.length };
-    });
+      return { alreadyUndone: false, removedExpenses: createdIds.length, revertedSettlements, unstamped: adopted.length };
+    }).catch(rethrowRefundWriteConflict);
 
-    return { ok: true, alreadyUndone: false, ...result };
+    return { ok: true, ...result };
   }
 
   // ─── Links cross-project ─────────────────────────────────
@@ -1173,6 +1426,7 @@ export class CreditCardService {
     if (!source) throw new NotFoundException('Despesa não encontrada');
 
     await this.prisma.$transaction(async (tx) => {
+      await assertNoRefundPurpose(tx, tenantId, [cardExpenseId]);
       await this.conciliacao.reverseSourceLinks(
         tx,
         { tenantId, sourceExpenseId: source.id },
@@ -1223,6 +1477,59 @@ export class CreditCardService {
     return set;
   }
 
+  /**
+   * DEDUP de série parcelada: se já existe uma Expense DESTA série (mesma
+   * seriesKey) com a ocorrência `current/total`, a reimportação não cria
+   * duplicata nem marca a parcela como PAGA. Apenas vincula externalId/importId
+   * se faltarem. Devolve `null` quando não há o que reaproveitar.
+   */
+  private async reuseExistingSeries(
+    db: Prisma.TransactionClient,
+    tenantId: string,
+    projectId: string,
+    card: { last4: string },
+    tx: NormalizedTx,
+    importId: string,
+    seriesKey: string,
+    current: number,
+    total: number,
+    isSibling: ((externalId: string) => boolean) | undefined,
+    purchase: { seriesKey: string | null; externalId: string | null; dedupeKeyStrong: string | null },
+    documentaryCycle?: DocumentaryCycle,
+  ): Promise<CreateFromTransactionResult | typeof SERIES_AMBIGUOUS | null> {
+    const roots = await db.expense.findMany({
+      // cardLast4 evita colisão entre cartões diferentes do mesmo tenant
+      where: { tenantId, projectId, seriesKey, cardLast4: card.last4, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, externalId: true, dedupeKeyStrong: true, deletedAt: true, seriesKey: true },
+    });
+    // Raiz criada por OUTRA linha do mesmo documento e ocorrência não é desta linha.
+    const candidates = roots.filter((row) => !excludableSibling(row, purchase, isSibling));
+    // Duas ou mais raízes candidatas: escolher a primeira seria arbitrário. Nada é escrito aqui.
+    if (candidates.length >= 2) return SERIES_AMBIGUOUS;
+    const existing = candidates[0];
+    if (!existing) return null;
+    const anyEntry = await db.cashFlowEntry.findFirst({
+      where: {
+        tenantId,
+        projectId,
+        expenseId: existing.id,
+        parcela: `${current}/${total}`,
+        deletedAt: null,
+      },
+    });
+    if (!anyEntry) return null;
+    if (documentaryCycle) throw new ConflictException('A ocorrência existente exige correção documental assistida');
+    // Parcela desta série já existe — dedup. Preserva rastreabilidade.
+    if (!existing.externalId) {
+      await db.expense.update({
+        where: { id: existing.id },
+        data: { externalId: tx.externalId, importId, ...dedupeColumns(tx) },
+      });
+    }
+    return { inserted: false, settled: true, expenseId: existing.id };
+  }
+
   private async createExpenseFromTransaction(
     db: Prisma.TransactionClient,
     tenantId: string,
@@ -1234,7 +1541,9 @@ export class CreditCardService {
     createdByUserId: string | null = null,
     invoiceDueMonth?: string,
     documentaryCycle?: DocumentaryCycle,
-  ): Promise<{ inserted: boolean; settled: boolean; expenseId?: string }> {
+    reviewFingerprint?: string,
+    occurrences?: OccurrenceGroups,
+  ): Promise<CreateFromTransactionResult> {
     if (!Number.isSafeInteger(tx.amountCents) || Math.abs(tx.amountCents) > CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS || tx.amountCents === 0) {
       throw new BadRequestException('Valor de importação inválido');
     }
@@ -1243,9 +1552,11 @@ export class CreditCardService {
       // Pagamento da fatura ANTERIOR aparece nas faturas Itaú como linha negativa
       // ("PAGAMENTO EFETUADO", "Pagamento PIX"). Esses NÃO viram lançamento — a
       // própria liquidação da fatura é o que paga. Filtramos por texto.
-      if (INVOICE_PAYMENT_LINE_PATTERN.test(tx.merchant)) {
-        throw new Error('pagamento-fatura-ignorado');
-      }
+      if (
+        classifyCardImportLine({ documentaryText: tx.merchant }) ===
+        CARD_IMPORT_LINE_CLASSIFICATION.IGNORE_INVOICE_PAYMENT
+      )
+        return IGNORED_RESULT;
       // Estorno/crédito real (refund, desconto, ajuste). Cria Expense com valor
       // NEGATIVO para abater do total da fatura — soma corretamente no cashflow.
       const manualExpenseType =
@@ -1301,8 +1612,8 @@ export class CreditCardService {
       categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId);
     const expenseType =
       categoryOverride || manualExpenseType || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
-    const total = tx.installmentTotal && tx.installmentTotal > 1 ? tx.installmentTotal : 1;
-    const current = tx.installmentCurrent && tx.installmentCurrent >= 1 ? tx.installmentCurrent : 1;
+    const { total, current, seriesKey, purchase, reviewLine } =
+      importPurchaseOf(card.id, projectId, tx, invoiceDueMonth, documentaryCycle);
     const remainingAfterCurrent = Math.max(0, total - current);
     // Parcelas que ESTA despesa representa: da atual até a última. As anteriores
     // já foram cobradas em faturas passadas e (se importadas) já existem — contar
@@ -1332,7 +1643,6 @@ export class CreditCardService {
     // SERIES KEY: identifica de forma estável uma compra parcelada
     // (cartão + merchant normalizado + valor da parcela + total). Permite casar
     // parcelas futuras mesmo que a data varie entre faturas.
-    const seriesKey = total > 1 ? buildSeriesKey(card.id, tx.merchant, tx.amountCents, total) : null;
 
     // 1) DEDUP de série parcelada: se já existe uma Expense desta série (criada
     //    a partir de uma fatura anterior, com todas as parcelas geradas como
@@ -1340,41 +1650,32 @@ export class CreditCardService {
     //    marca a parcela como PAGA. No modelo de caixa real, quem liquida a
     //    parcela é o PAGAMENTO da fatura no extrato bancário (settleCardInvoice),
     //    não o reimport. Apenas vinculamos o externalId/importId se faltarem.
-    if (seriesKey) {
-      const existing = await db.expense.findFirst({
-        // cardLast4 evita colisão entre cartões diferentes do mesmo tenant
-        // (mesma merchant + valor + total em 2 cartões diferentes não casam)
-        where: { tenantId, projectId, seriesKey, cardLast4: card.last4, deletedAt: null },
-        orderBy: { createdAt: 'asc' },
-      });
-      if (existing) {
-        const anyEntry = await db.cashFlowEntry.findFirst({
-          where: {
-            tenantId,
-            projectId,
-            expenseId: existing.id,
-            parcela: `${current}/${total}`,
-            deletedAt: null,
-          },
-        });
-        if (anyEntry) {
-          if (documentaryCycle) throw new ConflictException('A ocorrência existente exige correção documental assistida');
-          // Parcela desta série já existe — dedup. Preserva rastreabilidade.
-          if (!existing.externalId) {
-            await db.expense.update({
-              where: { id: existing.id },
-              data: { externalId: tx.externalId, importId, ...dedupeColumns(tx) },
-            });
-          }
-          return { inserted: false, settled: true, expenseId: existing.id };
-        }
+    // A decisão de REVISÃO é avaliada ANTES de qualquer reuso/carimbo de série:
+    // uma decisão vencida (ou negada) não pode ter efeito nenhum sobre o estado.
+    // O mesmo predicado de irmandade vale para reuso, classificação e fingerprint (e a prévia).
+    const isSibling = occurrences ? siblingPredicate(occurrences, reviewLine) : undefined;
+    if (reviewFingerprint) {
+      const admission = await classifyCardImport(db, tenantId, purchase, isSibling);
+      if (admission.kind === 'BLOCKED' && !admission.sameSeries) return BLOCKED_RESULT;
+      if (admission.kind === 'BLOCKED') return reviewResult(reviewItem(reviewLine, CARD_IMPORT_REVIEW_REASON.STALE, null));
+      if (admission.kind === 'CLEAR') return reviewResult(reviewItem(reviewLine, CARD_IMPORT_REVIEW_REASON.STALE, null));
+      if (reviewFingerprintOf(reviewLine, admission.roots) !== reviewFingerprint) {
+        return reviewResult(reviewItem(reviewLine, CARD_IMPORT_REVIEW_REASON.STALE, admission));
+      }
+    } else {
+      const reused = seriesKey
+        ? await this.reuseExistingSeries(db, tenantId, projectId, card, tx, importId, seriesKey, current, total, isSibling, purchase, documentaryCycle)
+        : null;
+      if (reused && reused !== SERIES_AMBIGUOUS) return reused;
+      const admission = await classifyCardImport(db, tenantId, purchase, isSibling);
+      // Série ambígua (>=2 raízes candidatas) só pode virar REVISÃO; se o classificador
+      // discordar, nunca cria: bloqueia.
+      if (reused === SERIES_AMBIGUOUS && admission.kind !== 'REVIEW') return BLOCKED_RESULT;
+      if (admission.kind === 'BLOCKED') return BLOCKED_RESULT;
+      if (admission.kind === 'REVIEW') {
+        return reviewResult(reviewItem(reviewLine, CARD_IMPORT_REVIEW_REASON.REQUIRED, admission));
       }
     }
-
-    await inspectCardPurchaseCompanions(db, tenantId, {
-      cardId: card.id, projectId, merchant: tx.merchant, total, seriesKey,
-      externalId: tx.externalId, dedupeKeyStrong: tx.dedupeKeyStrong ?? null,
-    }, CARD_PURCHASE_INSPECTION.IMPORT);
 
     // 2) Caminho normal: cria Expense + cashFlowEntries — TODAS as parcelas
     //    PLANEJADO. No modelo de caixa real, uma compra de cartão só vira PAGA
@@ -1444,6 +1745,11 @@ export class CreditCardService {
           data: futureDate,
           status: 'PLANEJADO',
           parcela: `${current + i}/${total}`,
+          // O ciclo documental do documento é o mês da parcela atual; cada
+          // futura avança um mês por posição, não pelo número impresso.
+          invoiceDueMonth: documentaryCycle
+            ? addMonthsToMonthKey(documentaryCycle.invoiceDueMonth, i)
+            : undefined,
         },
       });
     }
@@ -1475,7 +1781,15 @@ export class CreditCardService {
       occurrences: entries.map((entry, index) => ({
         index, parcela: entry.parcela, valor: entry.valor, data: entry.data.toISOString().slice(0, 10),
         invoiceDueMonth: entry.invoiceDueMonth, amountEvidence: null,
-        cycleEvidence: index === 0 ? { ...cycle.evidence, actorUserId, recordedAt } : null,
+        cycleEvidence: index === 0
+          ? { ...cycle.evidence, actorUserId, recordedAt }
+          : {
+              evidenceKind: DERIVED_SEQUENTIAL,
+              derivedFrom: { index: 0, invoiceDueMonth: cycle.invoiceDueMonth },
+              offset: index,
+              actorUserId,
+              recordedAt,
+            },
       })),
     };
     const raw = JSON.stringify(stored);

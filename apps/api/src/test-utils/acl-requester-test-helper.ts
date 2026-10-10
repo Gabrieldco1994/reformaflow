@@ -10,8 +10,14 @@ export const TEST_OWNER_REQUESTER: RateioRequester = {
 function matchesScopedWhere(row: any, where: any): boolean {
   if (!row) return false;
   if (where?.tenantId !== undefined && row.tenantId !== where.tenantId) return false;
-  if (where?.deletedAt !== undefined && (row.deletedAt ?? null) !== where.deletedAt) {
-    return false;
+  if (where?.deletedAt !== undefined) {
+    const deletedAt = row.deletedAt ?? null;
+    const cond = where.deletedAt;
+    const isOperator = cond !== null && typeof cond === 'object' && !(cond instanceof Date);
+    // `INCLUDE_SOFT_DELETED` is `{ not: undefined }`: live and deleted rows both match.
+    if (isOperator ? cond.not !== undefined && deletedAt === cond.not : deletedAt !== cond) {
+      return false;
+    }
   }
   if (typeof where?.id === 'string' && row.id !== where.id) return false;
   if (Array.isArray(where?.id?.in) && !where.id.in.includes(row.id)) return false;
@@ -60,14 +66,34 @@ export function installAclProjectMocks(prisma: any): any {
   const originalFindFirst = expense.findFirst.bind(expense);
   const originalFindMany = expense.findMany?.bind(expense);
 
+  // Projects a fixture materializes inline on its expense rows, for the bulk
+  // `project.findMany` the removal loader issues after reading the expenses.
+  const seenProjects = new Map<string, any>();
+  const remember = (row: any) => {
+    if (row?.project) seenProjects.set(row.project.id, row.project);
+  };
+  if (typeof prisma.project?.findMany !== 'function') {
+    prisma.project = {
+      ...(prisma.project ?? {}),
+      findMany: jest.fn(async ({ where }: any) =>
+        ((where?.id?.in ?? []) as string[]).flatMap((id) => {
+          const project = seenProjects.get(id);
+          return project ? [project] : [];
+        }),
+      ),
+    };
+  }
+
   expense.findFirst = jest.fn(async (args: any) => {
     const row = await originalFindFirst(args);
+    remember(row);
     if (!matchesScopedWhere(row, args?.where)) return null;
     return includeStoredProject(prisma, row, args);
   });
 
   expense.findMany = jest.fn(async (args: any) => {
     const fromDelegate = originalFindMany ? ((await originalFindMany(args)) ?? []) : [];
+    fromDelegate.forEach(remember);
     const rows = fromDelegate.filter((row: any) => matchesScopedWhere(row, args?.where));
     const ids: string[] = [
       ...(args?.where?.id?.in ?? []),
@@ -86,7 +112,10 @@ export function installAclProjectMocks(prisma: any): any {
           deletedAt: args?.where?.deletedAt,
         },
       });
-      if (matchesScopedWhere(row, { ...args?.where, id })) rows.push(row);
+      if (matchesScopedWhere(row, { ...args?.where, id })) {
+        remember(row);
+        rows.push(row);
+      }
     }
     return Promise.all(rows.map((row: any) => includeStoredProject(prisma, row, args)));
   });

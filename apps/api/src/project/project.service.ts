@@ -2,9 +2,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { guardFundingProject } from '../conciliacao/additive-settlement';
+import { Prisma } from '@prisma/client';
+import { reserveRefundWriter, REFUND_UNLINK_FIRST } from '../expense/refund-purpose.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { defaultRooms } from '@reformaflow/domain';
@@ -166,9 +169,13 @@ export class ProjectService {
   async update(tenantId: string, id: string, dto: UpdateProjectDto) {
     await this.findByIdInternal(tenantId, id);
     return this.prisma.$transaction(async tx => {
+      if (dto.type) await reserveRefundWriter(tx, tenantId);
       const current = await tx.project.findFirst({ where: { id, tenantId, deletedAt: null } });
       if (!current) throw new NotFoundException('Projeto não encontrado');
-      if (dto.type && dto.type !== current.type) await guardFundingProject(tx, tenantId, id);
+      if (dto.type && dto.type !== current.type) {
+        await guardFundingProject(tx, tenantId, id);
+        await this.assertNoRefundProject(tx, tenantId, id);
+      }
       return tx.project.update({
         where: { id },
         data: {
@@ -200,9 +207,18 @@ export class ProjectService {
   async remove(tenantId: string, id: string) {
     await this.findByIdInternal(tenantId, id);
     await this.prisma.$transaction(async tx => {
+      await reserveRefundWriter(tx, tenantId);
       await guardFundingProject(tx, tenantId, id);
+      await this.assertNoRefundProject(tx, tenantId, id);
       await tx.project.delete({ where: { id } });
     });
     return { deleted: true };
+  }
+
+  private async assertNoRefundProject(tx: Prisma.TransactionClient, tenantId: string, projectId: string) {
+    if (await tx.rateioAllocation.findFirst({ where: {
+      tenantId, isRefundCredit: true,
+      OR: [{ source: { tenantId, projectId } }, { target: { tenantId, projectId } }],
+    } })) throw new ConflictException(REFUND_UNLINK_FIRST);
   }
 }

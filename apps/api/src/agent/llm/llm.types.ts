@@ -1,4 +1,4 @@
-export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
+export type ChatRole = "system" | "user" | "assistant" | "tool";
 
 export interface ToolCall {
   id: string;
@@ -30,12 +30,74 @@ export interface LlmChatResult {
   toolCalls: ToolCall[];
 }
 
+/**
+ * Opt-in interno de decodificação, ainda sem consumidor no AgentService.
+ * Não concede autoridade/admissão e nunca é serializado para o modelo.
+ * Ausente preserva o contrato genérico, inclusive chamadas com dois argumentos.
+ */
+export type LlmCallOptions =
+  | { readonly responseContract: "IMPORT_CHAT_V1" }
+  | {
+      readonly responseContract: "IMPORT_INTERPRETATION_V1";
+      readonly requiredToolName: "submit_import_interpretation";
+    };
+
+export function validateLlmCallOptions(
+  options: unknown,
+): asserts options is LlmCallOptions | undefined {
+  if (options === undefined) return;
+  if (options === null || typeof options !== "object" || Array.isArray(options))
+    throw new TypeError("Invalid LLM call options");
+  if (!("responseContract" in options))
+    throw new TypeError("Invalid LLM call options");
+  if (
+    options.responseContract === "IMPORT_CHAT_V1" &&
+    Reflect.ownKeys(options).length === 1
+  )
+    return;
+  if (
+    options.responseContract !== "IMPORT_INTERPRETATION_V1" ||
+    Reflect.ownKeys(options).length !== 2 ||
+    !Object.prototype.hasOwnProperty.call(options, "requiredToolName") ||
+    !("requiredToolName" in options) ||
+    options.requiredToolName !== "submit_import_interpretation"
+  ) {
+    throw new TypeError("Invalid LLM call options");
+  }
+}
+
+export type LlmResponseContractReason =
+  | "INVALID_RESPONSE"
+  | "INVALID_TOOL_CALL"
+  | "MISSING_TOOL_NAME"
+  | "INVALID_TOOL_ARGUMENTS"
+  | "ARGUMENTS_NOT_OBJECT";
+
+/**
+ * Falha terminal de forma do resultado completo, sem retry/repair/fallback.
+ * Não carrega payload, nome de tool, status upstream ou causa JSON; a fronteira
+ * contextual futura é responsável pela tradução pública, não este provider.
+ */
+export class LlmResponseContractError extends Error {
+  constructor(
+    readonly reason: LlmResponseContractReason,
+    readonly callIndex: number | null = null,
+  ) {
+    super("Invalid LLM response contract");
+    this.name = "LlmResponseContractError";
+  }
+}
+
 export interface LlmProvider {
   /** Identificação do backend para logs/diagnóstico. */
   readonly id: string;
   /** Retorna true se o provider está configurado (ex.: chave/baseUrl presentes). */
   isConfigured(): boolean;
-  chat(messages: ChatMessage[], tools: ToolDef[]): Promise<LlmChatResult>;
+  chat(
+    messages: ChatMessage[],
+    tools: ToolDef[],
+    options?: LlmCallOptions,
+  ): Promise<LlmChatResult>;
 }
 
-export const LLM_PROVIDER = Symbol('LLM_PROVIDER');
+export const LLM_PROVIDER = Symbol("LLM_PROVIDER");

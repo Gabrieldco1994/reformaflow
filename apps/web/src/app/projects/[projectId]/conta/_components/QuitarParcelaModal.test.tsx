@@ -128,6 +128,7 @@ describe("QuitarParcelaModal #706", () => {
       foreignExpenseId: "target",
       parcelaIndex: 1,
       projetoOrigem: { id: "obra", name: "Obra", type: "REFORMA" },
+      expenseIsCredit: false, // positive root (server signal); P01 capability still gates
     };
     const data: AccountViewResponse = {
       mesSelecionado: "2026-09",

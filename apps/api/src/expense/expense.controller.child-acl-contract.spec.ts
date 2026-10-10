@@ -24,6 +24,8 @@
  * `expense.find-cross-project-acl.spec.ts`.
  */
 import { ExpenseController } from "./expense.controller";
+import { RefundPurposeService } from "./refund-purpose.service";
+import { PrismaService } from "../prisma/prisma.service";
 
 const REQUESTER = {
   id: "u1",
@@ -44,6 +46,7 @@ function buildController(serviceOverrides: Record<string, jest.Mock>) {
     remove: jest.fn().mockResolvedValue({ ok: true }),
     createRecorrente: jest.fn().mockResolvedValue({ ok: true }),
     findCrossProject: jest.fn().mockResolvedValue([]),
+    withDeleteCapabilities: jest.fn().mockImplementation(async (_tenantId, items) => items),
     updateInstallmentDate: jest.fn().mockResolvedValue({ ok: true }),
     ...serviceOverrides,
   };
@@ -52,6 +55,7 @@ function buildController(serviceOverrides: Record<string, jest.Mock>) {
     controller: new ExpenseController(
       service as any,
       paidOriginsService as any,
+      new RefundPurposeService(new PrismaService()),
     ),
     service,
   };

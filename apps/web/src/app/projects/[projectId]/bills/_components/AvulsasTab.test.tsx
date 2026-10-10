@@ -62,14 +62,17 @@ describe('AvulsasTab — preservação de quantidade na edição (issue #369)', 
     vi.useRealTimers();
   });
 
-  it('#701 edits only metadata of documented expenses, including credits', async () => {
+  const creditSchedule = {
+    version: 1 as const,
+    occurrences: [{ index: 0, parcela: null, valor: -248, data: '2026-07-10', invoiceDueMonth: null }],
+  };
+
+  it('#701 edits only metadata of documented expenses', async () => {
     apiMock.get.mockResolvedValue({
       items: [makeExpense({
-        valor: -248,
-        valorTotal: -248,
         schedule: {
           version: 1,
-          occurrences: [{ index: 0, parcela: null, valor: -248, data: '2026-07-10', invoiceDueMonth: null }],
+          occurrences: [{ index: 0, parcela: null, valor: 30_000, data: '2026-07-10', invoiceDueMonth: null }],
         },
       })],
       total: 1,
@@ -82,6 +85,61 @@ describe('AvulsasTab — preservação de quantidade na edição (issue #369)', 
       '/projects/p1/expenses/exp-1',
       { tipoDespesa: 'MANUTENCAO', titulo: 'Conserto telhado', fornecedor: 'Zé Pedreiro' },
     ));
+  });
+
+  it.each([
+    ['plain credit', {}, false],
+    ['credit that also carries a documented schedule (contract overlap; the 4-field credit rule prevails and the schedule stays visible)', { schedule: creditSchedule }, true],
+  ])('#704 %s edits only titulo/fornecedor', async (_label, extra, scheduleVisible) => {
+    apiMock.get.mockResolvedValue({
+      items: [makeExpense({ valor: -248, valorTotal: -248, quantidade: 1, canDelete: false, ...extra })],
+      total: 1,
+    });
+    renderTab();
+    await screen.findAllByText('Conserto telhado');
+    fireEvent.click(screen.getAllByRole('button', { name: /editar/i })[0]);
+    await screen.findByText('Editar despesa avulsa');
+    if (scheduleVisible) expect(screen.getByText('Cronograma documentado')).toBeInTheDocument();
+    for (const name of ['valor', 'status', 'formaPagamento']) {
+      const control = document.querySelector(`[name="${name}"]`);
+      if (control) expect(control).toBeDisabled();
+    }
+    fireEvent.click(screen.getByRole('button', { name: /salvar/i }));
+    await waitFor(() => expect(apiMock.patch).toHaveBeenCalledOnce());
+    expect(apiMock.patch).toHaveBeenCalledWith('/projects/p1/expenses/exp-1', {
+      titulo: 'Conserto telhado',
+      fornecedor: 'Zé Pedreiro',
+    });
+  });
+
+  it.each([
+    { valorTotal: -248, canDelete: undefined, shown: false },
+    { valorTotal: -248, canDelete: false, shown: false },
+    { valorTotal: -248, canDelete: true, shown: true },
+    { valorTotal: 248, canDelete: undefined, shown: true },
+    { valorTotal: 248, canDelete: false, shown: false },
+  ])('#704 Excluir honors valorTotal=$valorTotal canDelete=$canDelete', async ({ valorTotal, canDelete, shown }) => {
+    apiMock.get.mockResolvedValue({ items: [makeExpense({ valor: valorTotal, valorTotal, quantidade: 1, canDelete })], total: 1 });
+    renderTab();
+    await screen.findAllByText('Conserto telhado');
+    expect(screen.queryAllByRole('button', { name: 'Excluir' }).length > 0).toBe(shown);
+  });
+
+  it('#704 a rejected delete refetches the list and drops the stale Excluir', async () => {
+    let granted = true;
+    apiMock.get.mockImplementation(async () => ({
+      items: [makeExpense({ valor: -248, valorTotal: -248, quantidade: 1, canDelete: granted })],
+      total: 1,
+    }));
+    apiMock.delete.mockRejectedValueOnce(new Error('Exclusão não autorizada agora.'));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderTab();
+    await screen.findAllByText('Conserto telhado');
+    const excluir = screen.getAllByRole('button', { name: 'Excluir' })[0];
+    granted = false;
+    fireEvent.click(excluir);
+    await waitFor(() => expect(screen.queryAllByRole('button', { name: 'Excluir' })).toHaveLength(0));
+    expect(apiMock.delete).toHaveBeenCalledTimes(1);
   });
 
   it('PATCH preserva quantidade=3 ao editar despesa avulsa, em vez de forçar 1', async () => {

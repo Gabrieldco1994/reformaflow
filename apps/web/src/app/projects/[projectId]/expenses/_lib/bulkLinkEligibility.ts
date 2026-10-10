@@ -7,5 +7,5 @@ import type { Expense } from '@/types';
  * (não fazem sentido rateadas/vinculadas a outro projeto).
  */
 export function selectEligibleForBulkLink(expenses: Expense[]): Expense[] {
-  return expenses.filter((e) => !e.linkedExpenseId && !isNeutralExpenseType(e.tipoDespesa));
+  return expenses.filter((e) => e.valorTotal > 0 && !e.linkedExpenseId && !isNeutralExpenseType(e.tipoDespesa));
 }

@@ -439,7 +439,8 @@ describe("CARD historical restore #700 (real Prisma middleware)", () => {
       const result = await importCompanion("100.01", "4/5");
       expect(result).toMatchObject({
         inserted: 0,
-        skipped: 1,
+        skipped: 0,
+        reviewRequired: [expect.objectContaining({ reason: "REVIEW_REQUIRED" })],
         duplicated: 0,
         settled: 0,
       });
@@ -1191,7 +1192,7 @@ describe("CARD historical restore #700 (real Prisma middleware)", () => {
       new JwtAuthGuard(reflector),
       new RolesGuard(reflector),
       new ModulesGuard(reflector, prisma),
-      new ProjectAccessGuard(prisma),
+      new ProjectAccessGuard(prisma, reflector),
     );
     await app.listen(0, "127.0.0.1");
     const http = await playwrightRequest.newContext({

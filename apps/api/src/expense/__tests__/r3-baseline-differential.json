@@ -1,0 +1,1527 @@
+{
+  "_source": "Outputs of qa-r3-differential run against the PRE-refactor tree ad851b49 (per-source prepareRemoval), real PrismaService + SQLite. Never regenerate from the code under test.",
+  "capsSingle": {
+    "add-active-foreign-tenant-row": true,
+    "add-active-source": false,
+    "add-active-source-limited": false,
+    "add-active-source-target-soft-deleted": false,
+    "add-active-target": false,
+    "add-active-target-source-soft-deleted": false,
+    "add-reversed-plus-active-source": false,
+    "add-reversed-source": true,
+    "add-reversed-target": true,
+    "claim-foreign-tenant-ledger-plain": true,
+    "claim-soft-deleted-ledger-plain": true,
+    "documented-schedule-with-linked-live-target": false,
+    "invoice-undo-and-schedule": false,
+    "legacy-active-foreign-tenant-row": true,
+    "legacy-active-plus-add-active-source": false,
+    "legacy-active-plus-add-reversed-source": true,
+    "legacy-active-source": true,
+    "legacy-active-target-also-add-active": true,
+    "legacy-active-target-also-add-reversed": true,
+    "legacy-reversed-plus-add-active-source": false,
+    "legacy-reversed-source": true,
+    "legacy-reversed-target": true,
+    "linked-cycle-pair": true,
+    "linked-self": true,
+    "linked-target-add-active": true,
+    "linked-target-add-reversed": true,
+    "linked-target-legacy-active": true,
+    "linked-target-negative-claimed": false,
+    "manual-key-with-mirror": false,
+    "mirror-add-active": true,
+    "mirror-add-reversed": true,
+    "mirror-has-documented-schedule": false,
+    "mirror-has-invoice-key": false,
+    "mirror-is-rateio-source": true,
+    "mirror-legacy-reversed": true,
+    "mirror-other-tenant": true,
+    "mirror-soft-deleted-in-add-active": true,
+    "mirror-soft-deleted-rateio-source": true,
+    "mirror-soft-deleted-with-documented-schedule": true,
+    "mirror-soft-deleted-with-invoice-key": true,
+    "neg-in-soft-deleted-project": false,
+    "neg-with-add-active-and-ledger-claim": false,
+    "purpose-source-as-settlement-source-add-active": false,
+    "purpose-source-as-settlement-source-add-reversed": false,
+    "purpose-source-claim-foreign-tenant-ledger": true,
+    "purpose-source-claim-soft-deleted-ledger": false,
+    "purpose-source-foreign-tenant-allocation": true,
+    "purpose-source-incoming-mirror": false,
+    "purpose-target-add-active": false,
+    "purpose-target-add-active-limited": false,
+    "purpose-target-add-reversed": false,
+    "purpose-target-legacy-active": false,
+    "purpose-target-legacy-reversed": false,
+    "purpose-target-protected-limited": false,
+    "purpose-target-protected-source-soft-deleted": false,
+    "purpose-target-soft-deleted": false,
+    "rateio-source-foreign-tenant-alloc": true,
+    "rateio-source-refund-flag-plain": false,
+    "rateio-source-target-add-active": true,
+    "rateio-source-target-add-reversed": true,
+    "rateio-target-refund-flag-plain": false,
+    "reform-project-negative-limited": false,
+    "reform-project-negative-owner": true
+  },
+  "deletes": {
+    "add-active-foreign-tenant-row": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["subject>t:ADDITIVE:act:x"]
+    },
+    "add-active-source": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a os aportes antes de alterar os dados financeiros.",
+        "status": 409
+      },
+      "sett": ["subject>t:ADDITIVE:act:t"]
+    },
+    "add-active-source-limited": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a os aportes antes de alterar os dados financeiros.",
+        "status": 409
+      },
+      "sett": ["subject>t:ADDITIVE:act:t"]
+    },
+    "add-active-source-target-soft-deleted": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a os aportes antes de alterar os dados financeiros.",
+        "status": 409
+      },
+      "sett": ["subject>t:ADDITIVE:act:t"]
+    },
+    "add-active-target": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "s": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a os aportes antes de alterar os dados financeiros.",
+        "status": 409
+      },
+      "sett": ["s>subject:ADDITIVE:act:t"]
+    },
+    "add-active-target-source-soft-deleted": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "s": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a os aportes antes de alterar os dados financeiros.",
+        "status": 409
+      },
+      "sett": ["s>subject:ADDITIVE:act:t"]
+    },
+    "add-reversed-plus-active-source": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t1": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "t2": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a os aportes antes de alterar os dados financeiros.",
+        "status": 409
+      },
+      "sett": ["subject>t1:ADDITIVE:rev:t", "subject>t2:ADDITIVE:act:t"]
+    },
+    "add-reversed-source": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["subject>t:ADDITIVE:rev:t"]
+    },
+    "add-reversed-target": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "s": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["s>subject:ADDITIVE:rev:t"]
+    },
+    "claim-foreign-tenant-ledger-plain": {
+      "alloc": [],
+      "cfe": {
+        "subject": "d-1000PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "claim-soft-deleted-ledger-plain": {
+      "alloc": [],
+      "cfe": {
+        "subject": "d-1000PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "documented-schedule-with-linked-live-target": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": {
+        "message": "Cronograma documentado exige corre\u00e7\u00e3o assistida",
+        "status": 409
+      },
+      "sett": []
+    },
+    "invoice-undo-and-schedule": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Cronograma documentado exige corre\u00e7\u00e3o assistida",
+        "status": 409
+      },
+      "sett": []
+    },
+    "legacy-active-foreign-tenant-row": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["subject>t:LEGACY_REPLACEMENT:act:x"]
+    },
+    "legacy-active-plus-add-active-source": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t1": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "t2": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a os aportes antes de alterar os dados financeiros.",
+        "status": 409
+      },
+      "sett": [
+        "subject>t1:ADDITIVE:act:t",
+        "subject>t2:LEGACY_REPLACEMENT:act:t"
+      ]
+    },
+    "legacy-active-plus-add-reversed-source": {
+      "alloc": [],
+      "cfe": {
+        "t2": "l5000PLANEJADO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t1": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "t2": {
+          "deleted": false,
+          "linked": null,
+          "status": "PLANEJADO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["subject>t1:ADDITIVE:rev:t"]
+    },
+    "legacy-active-source": {
+      "alloc": [],
+      "cfe": {
+        "t": "l5000PLANEJADO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PLANEJADO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "legacy-active-target-also-add-active": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PLANEJADO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["?>t:ADDITIVE:act:t"]
+    },
+    "legacy-active-target-also-add-reversed": {
+      "alloc": [],
+      "cfe": {
+        "t": "l5000PLANEJADO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PLANEJADO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["?>t:ADDITIVE:rev:t"]
+    },
+    "legacy-reversed-plus-add-active-source": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t1": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "t2": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a os aportes antes de alterar os dados financeiros.",
+        "status": 409
+      },
+      "sett": [
+        "subject>t1:LEGACY_REPLACEMENT:rev:t",
+        "subject>t2:ADDITIVE:act:t"
+      ]
+    },
+    "legacy-reversed-source": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["subject>t:LEGACY_REPLACEMENT:rev:t"]
+    },
+    "legacy-reversed-target": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "s": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["s>subject:LEGACY_REPLACEMENT:rev:t"]
+    },
+    "linked-cycle-pair": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "b": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": "b",
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "linked-self": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "linked-target-add-active": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["?>t:ADDITIVE:act:t"]
+    },
+    "linked-target-add-reversed": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["?>t:ADDITIVE:rev:t"]
+    },
+    "linked-target-legacy-active": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["?>t:LEGACY_REPLACEMENT:act:t"]
+    },
+    "linked-target-negative-claimed": {
+      "alloc": [],
+      "cfe": {
+        "t": "l-1000PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Esta despesa foi liquidada por um pagamento de fatura importado. Desfa\u00e7a a importa\u00e7\u00e3o primeiro.",
+        "status": 409
+      },
+      "sett": []
+    },
+    "manual-key-with-mirror": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": false,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Este \u00e9 um pagamento de fatura registrado no cockpit. Desfa\u00e7a o pagamento na fatura antes de alter\u00e1-lo ou remov\u00ea-lo.",
+        "status": 409
+      },
+      "sett": []
+    },
+    "mirror-add-active": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["m>?:ADDITIVE:act:t"]
+    },
+    "mirror-add-reversed": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["m>?:ADDITIVE:rev:t"]
+    },
+    "mirror-has-documented-schedule": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": false,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Cronograma documentado exige corre\u00e7\u00e3o assistida",
+        "status": 409
+      },
+      "sett": []
+    },
+    "mirror-has-invoice-key": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": false,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Este \u00e9 um pagamento de fatura registrado no cockpit. Desfa\u00e7a o pagamento na fatura antes de alter\u00e1-lo ou remov\u00ea-lo.",
+        "status": 409
+      },
+      "sett": []
+    },
+    "mirror-is-rateio-source": {
+      "alloc": ["m>?:t:false"],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "mirror-legacy-reversed": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["m>?:LEGACY_REPLACEMENT:rev:t"]
+    },
+    "mirror-other-tenant": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": false,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "mirror-soft-deleted-in-add-active": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["m>?:ADDITIVE:act:t"]
+    },
+    "mirror-soft-deleted-rateio-source": {
+      "alloc": ["m>?:t:false"],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "mirror-soft-deleted-with-documented-schedule": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "mirror-soft-deleted-with-invoice-key": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "m": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "neg-in-soft-deleted-project": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Projeto n\u00e3o encontrado",
+        "status": 404
+      },
+      "sett": []
+    },
+    "neg-with-add-active-and-ledger-claim": {
+      "alloc": [],
+      "cfe": {
+        "subject": "l-1000PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Esta despesa foi liquidada por um pagamento de fatura importado. Desfa\u00e7a a importa\u00e7\u00e3o primeiro.",
+        "status": 409
+      },
+      "sett": ["subject>?:LEGACY_REPLACEMENT:act:t"]
+    },
+    "purpose-source-as-settlement-source-add-active": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": ["subject>?:ADDITIVE:act:t"]
+    },
+    "purpose-source-as-settlement-source-add-reversed": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": ["subject>?:ADDITIVE:rev:t"]
+    },
+    "purpose-source-claim-foreign-tenant-ledger": {
+      "alloc": [],
+      "cfe": {
+        "subject": "d-12345PAGO;",
+        "t": "d-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "purpose-source-claim-soft-deleted-ledger": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": []
+    },
+    "purpose-source-foreign-tenant-allocation": {
+      "alloc": ["subject>?:x:false"],
+      "cfe": {
+        "subject": "d-12345PAGO;",
+        "t": "d-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "purpose-source-incoming-mirror": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "m": {
+          "deleted": false,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": []
+    },
+    "purpose-target-add-active": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": ["?>t:ADDITIVE:act:t"]
+    },
+    "purpose-target-add-active-limited": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Despesa relacionada n\u00e3o encontrada",
+        "status": 404
+      },
+      "sett": ["?>t:ADDITIVE:act:t"]
+    },
+    "purpose-target-add-reversed": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": ["?>t:ADDITIVE:rev:t"]
+    },
+    "purpose-target-legacy-active": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": ["?>t:LEGACY_REPLACEMENT:act:t"]
+    },
+    "purpose-target-legacy-reversed": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": ["?>t:LEGACY_REPLACEMENT:rev:t"]
+    },
+    "purpose-target-protected-limited": {
+      "alloc": ["s>subject:t:true"],
+      "cfe": {
+        "s": "l-12345PAGO;",
+        "subject": "l-12345PAGO;"
+      },
+      "expenses": {
+        "s": {
+          "deleted": false,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Despesa relacionada n\u00e3o encontrada",
+        "status": 404
+      },
+      "sett": []
+    },
+    "purpose-target-protected-source-soft-deleted": {
+      "alloc": ["s>subject:t:true"],
+      "cfe": {
+        "s": "l-12345PAGO;",
+        "subject": "l-12345PAGO;"
+      },
+      "expenses": {
+        "s": {
+          "deleted": true,
+          "linked": "subject",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a a finalidade do cr\u00e9dito antes de alterar este v\u00ednculo.",
+        "status": 409
+      },
+      "sett": []
+    },
+    "purpose-target-soft-deleted": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {
+        "subject": "l-12345PAGO;",
+        "t": "l-12345PAGO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": "t",
+          "status": "PAGO",
+          "valorTotal": -12345
+        },
+        "t": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -12345
+        }
+      },
+      "outcome": {
+        "message": "Despesa relacionada n\u00e3o encontrada",
+        "status": 404
+      },
+      "sett": []
+    },
+    "rateio-source-foreign-tenant-alloc": {
+      "alloc": ["subject>?:x:false"],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "rateio-source-refund-flag-plain": {
+      "alloc": ["subject>t:t:true"],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": {
+        "message": "Dados do cr\u00e9dito alterados ou incompat\u00edveis. Confira os dados e fa\u00e7a uma nova pr\u00e9via.",
+        "status": 409
+      },
+      "sett": []
+    },
+    "rateio-source-target-add-active": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PLANEJADO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["?>t:ADDITIVE:act:t"]
+    },
+    "rateio-source-target-add-reversed": {
+      "alloc": [],
+      "cfe": {
+        "t": "l5000PLANEJADO;"
+      },
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        },
+        "t": {
+          "deleted": false,
+          "linked": null,
+          "status": "PLANEJADO",
+          "valorTotal": 5000
+        }
+      },
+      "outcome": "ok",
+      "sett": ["?>t:ADDITIVE:rev:t"]
+    },
+    "rateio-target-refund-flag-plain": {
+      "alloc": ["s>subject:t:true"],
+      "cfe": {},
+      "expenses": {
+        "s": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 5000
+        },
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Desfa\u00e7a a finalidade do cr\u00e9dito antes de alterar este v\u00ednculo.",
+        "status": 409
+      },
+      "sett": []
+    },
+    "reform-project-negative-limited": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": false,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": {
+        "message": "Despesa relacionada n\u00e3o encontrada",
+        "status": 404
+      },
+      "sett": []
+    },
+    "reform-project-negative-owner": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": -1000
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    },
+    "zero-value-row": {
+      "alloc": [],
+      "cfe": {},
+      "expenses": {
+        "subject": {
+          "deleted": true,
+          "linked": null,
+          "status": "PAGO",
+          "valorTotal": 0
+        }
+      },
+      "outcome": "ok",
+      "sett": []
+    }
+  },
+  "staleBaseline": {
+    "stale-became-positive": {
+      "caps": true,
+      "del": "ok"
+    },
+    "stale-gained-additive-funding": {
+      "caps": false,
+      "del": 409
+    },
+    "stale-gained-claim": {
+      "caps": false,
+      "del": 409
+    },
+    "stale-gained-documented-schedule": {
+      "caps": true,
+      "del": 409
+    },
+    "stale-gained-invoice-key": {
+      "caps": true,
+      "del": 409
+    },
+    "stale-gained-link-to-hidden": {
+      "caps": true,
+      "del": 404
+    },
+    "stale-gained-link-to-soft-deleted": {
+      "caps": true,
+      "del": 404
+    },
+    "stale-hard-deleted": {
+      "caps": true,
+      "del": 404
+    },
+    "stale-linked-cleared": {
+      "caps": true,
+      "del": "ok"
+    },
+    "stale-project-moved-to-hidden": {
+      "caps": true,
+      "del": 404
+    },
+    "stale-soft-deleted-after-read": {
+      "caps": true,
+      "del": 404
+    },
+    "stale-tenant-moved": {
+      "caps": true,
+      "del": 404
+    }
+  }
+}

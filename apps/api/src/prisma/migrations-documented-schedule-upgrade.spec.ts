@@ -221,6 +221,20 @@ it('adds nullable columns to the same legacy DB without changing money, snapshot
       }).trim(),
     ).toBe('ok');
 
+    // Runtime segment: the current Prisma client also reads columns added by
+    // later migrations. The upgrade assertions above stay scoped to this one
+    // migration; only the service run below sees the migrations that follow it.
+    await db.$disconnect();
+    for (const name of readdirSync(join(root, 'prisma/migrations')).sort()) {
+      if (/^\d/.test(name) && name > migration) {
+        cpSync(join(root, 'prisma/migrations', name), join(migrations, name), {
+          recursive: true,
+        });
+      }
+    }
+    deploy();
+    await db.$connect();
+
     const service = new DocumentedScheduleService(db);
     const scope = {
       tenantId: 'schedule-upgrade-tenant',

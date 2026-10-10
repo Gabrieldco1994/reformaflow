@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { withRefundPurposeScope } from "../expense/refund-purpose-scope";
 import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.service";
 import { financialExpenseFilter } from "../expense/documented-schedule";
 import {
@@ -232,7 +233,7 @@ export class TenantFinancialService {
           ...resourceFilter.where,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, ...expenseFilter } },
+            { expense: { deletedAt: null, ...withRefundPurposeScope(expenseFilter, tenantId, lenses.expenses) } },
           ],
           AND: [
             {
@@ -340,7 +341,7 @@ export class TenantFinancialService {
           ...resourceFilter.where,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, ...expenseFilter } },
+            { expense: { deletedAt: null, ...withRefundPurposeScope(expenseFilter, tenantId, expenseIds) } },
           ],
           AND: [
             {
@@ -425,7 +426,7 @@ export class TenantFinancialService {
           ...resourceFilter.where,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, ...expenseFilter } },
+            { expense: { deletedAt: null, ...withRefundPurposeScope(expenseFilter, tenantId, lenses.expenses) } },
           ],
           AND: [
             {
@@ -521,7 +522,7 @@ export class TenantFinancialService {
         tenantId,
         deletedAt: null,
         settledByExpenseId: null,
-        ...expenseFilter,
+        ...withRefundPurposeScope(expenseFilter, tenantId, lenses.expenses),
         ...this.scopeWhere(lenses.expenses),
       },
       select: { tipoDespesa: true, valorTotal: true },
@@ -564,7 +565,7 @@ export class TenantFinancialService {
         ...resourceFilter.where,
         OR: [
           { expenseId: null },
-          { expense: { deletedAt: null, ...expenseFilter } },
+          { expense: { deletedAt: null, ...withRefundPurposeScope(expenseFilter, tenantId, lenses.expenses) } },
         ],
         AND: [
           {
@@ -621,7 +622,7 @@ export class TenantFinancialService {
         deletedAt: null,
         fornecedor: { not: null },
         settledByExpenseId: null,
-        ...expenseFilter,
+        ...withRefundPurposeScope(expenseFilter, tenantId, lenses.expenses),
         ...this.scopeWhere(lenses.expenses),
       },
       select: {

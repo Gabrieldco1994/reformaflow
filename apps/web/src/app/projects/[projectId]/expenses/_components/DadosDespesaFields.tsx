@@ -5,6 +5,7 @@ import { CATEGORIA_MAO_DE_OBRA_OPTIONS } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
 import { maskReaisInput } from '../_lib/money';
 import type { Expense } from '@/types';
+import { isExpenseCredit } from '../_lib/credit-policy';
 
 interface ExpenseOption {
   value: string;
@@ -70,12 +71,16 @@ export function DadosDespesaFields({
   tipoSuggestedByAi,
 }: DadosDespesaFieldsProps) {
   const roomControlled = roomIdValue !== undefined && onRoomIdChange !== undefined;
+  // Crédito assinado edita só metadados; documented schedule (#701) trava só valor/quantidade.
+  const credit = isExpenseCredit(editing);
+  const amountLocked = credit || !!editing?.schedule;
   return (
     <>
       <div className="relative">
         <Select
           label="Tipo da Despesa"
           name="tipoDespesa"
+          disabled={credit}
           options={tipoDespesaOptions}
           required
           value={tipoDespesa}
@@ -92,6 +97,7 @@ export function DadosDespesaFields({
         <Select
           label="Categoria Mão de Obra"
           name="categoriaMaoDeObra"
+          disabled={credit}
           options={CATEGORIA_MAO_DE_OBRA_OPTIONS}
           value={categoriaMaoDeObra}
           onChange={(e) => setCategoriaMaoDeObra(e.target.value)}
@@ -103,6 +109,7 @@ export function DadosDespesaFields({
           <Select
             label="Ambiente"
             name="roomId"
+            disabled={credit}
             options={roomOptions}
             value={roomIdValue}
             onChange={(e) => onRoomIdChange?.(e.target.value)}
@@ -111,6 +118,7 @@ export function DadosDespesaFields({
           <Select
             label="Ambiente"
             name="roomId"
+            disabled={credit}
             options={roomOptions}
             defaultValue={editing?.roomId ?? ''}
           />
@@ -123,8 +131,8 @@ export function DadosDespesaFields({
           type="text"
           inputMode="numeric"
           required
-          disabled={!!editing?.schedule}
-          value={valor}
+          disabled={amountLocked}
+          value={credit ? formatCurrency(editing!.valor / 100) : valor}
           onChange={(e) => setValor(maskReaisInput(e.target.value))}
         />
         <Input
@@ -133,14 +141,14 @@ export function DadosDespesaFields({
           type="number"
           min="1"
           required
-          disabled={!!editing?.schedule}
+          disabled={amountLocked}
           value={quantidade}
           onChange={(e) => setQuantidade(e.target.value)}
         />
       </div>
 
       <div className="text-sm text-gray-600">
-        Valor Total: <span className="font-semibold whitespace-nowrap">{formatCurrency(editing?.schedule ? editing.valorTotal / 100 : valorTotal)}</span>
+        Valor Total: <span className="font-semibold whitespace-nowrap">{formatCurrency(amountLocked ? editing!.valorTotal / 100 : valorTotal)}</span>
       </div>
 
       <Input label="Título da Despesa" name="titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} />

@@ -10,6 +10,7 @@ import {
   serializeFinancialScheduleResponse,
   toPublicExpenseSchedule,
 } from './documented-schedule';
+import type { ScheduleEvidence } from './documented-schedule.types';
 import {
   projectionSchedule,
   sourceSchedule,
@@ -230,7 +231,7 @@ describe('documented schedule privacy boundary', () => {
     expect(JSON.stringify(parseStoredExpenseSchedule(raw))).not.toContain(
       'evidenceKind',
     );
-    const oldProof = original.occurrences[0].cycleEvidence!;
+    const oldProof = original.occurrences[0].cycleEvidence as ScheduleEvidence;
     const document = { ...oldProof, evidenceKind: 'document' };
     const attestation = {
       ...oldProof,

@@ -12,6 +12,8 @@ import type { PreviewTx, CrossProjectMatch } from "../_types";
 import type { ImportDecision, TxState } from "./ImportStatementModal";
 import { CategoriaFonteChip } from "@/components/import/ImportClassificationNotice";
 import { PossibleDuplicateNotice } from "@/components/import/PossibleDuplicateNotice";
+import { ReviewCandidatesNotice } from "./ReviewCandidatesNotice";
+import { hasReviewConsent } from "../_lib/import-review";
 
 const PESSOAL_CATEGORIES = [
   { value: "MORADIA", label: "Moradia" },
@@ -47,10 +49,14 @@ export function PreviewTxRow({
   onChange,
   onClearDecision,
 }: RowProps) {
+  // Pagamento da própria fatura: só a razão, sem nenhum controle de ação.
+  if (tx.ignored) return <IgnoredPaymentNote tx={tx} />;
   const isSkipped = state.decision?.action === "skip";
   const isLinked = state.decision?.action === "link";
   const isForcedImport = state.decision?.action === "import";
   const possibleDuplicate = tx.possibleDuplicate ?? null;
+  const review = tx.review ?? null;
+  const reviewConsented = hasReviewConsent(review, state.decision);
   const matches = tx.crossProjectMatches ?? [];
   const valorCents = state.decision?.overrides?.valorCents ?? tx.amountCents;
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
@@ -66,11 +72,29 @@ export function PreviewTxRow({
   function setOverride(
     patch: Partial<NonNullable<ImportDecision["overrides"]>>,
   ) {
+    const overrides = { ...(state.decision?.overrides ?? {}), ...patch };
+    // Título/valor mudam o que o usuário julgou: o consentimento de REVIEW
+    // (ligado ao fingerprint que ele viu) não sobrevive. Categoria não entra
+    // na identidade da compra.
+    if (review && ("titulo" in patch || "valorCents" in patch)) {
+      const keepsSkip = state.decision?.action === "skip";
+      onChange({
+        decision: {
+          externalId: tx.externalId,
+          ...(keepsSkip ? { action: "skip" as const } : {}),
+          overrides,
+        },
+      });
+      return;
+    }
     onChange({
       decision: {
-        ...(state.decision ?? { externalId: tx.externalId, action: "create" }),
+        ...(state.decision ?? {
+          externalId: tx.externalId,
+          ...(review ? {} : { action: "create" as const }),
+        }),
         externalId: tx.externalId,
-        overrides: { ...(state.decision?.overrides ?? {}), ...patch },
+        overrides,
       },
     });
   }
@@ -78,13 +102,20 @@ export function PreviewTxRow({
   function setAction(
     action: "skip" | "link" | "create" | "import",
     linkToExpenseId?: string,
+    reviewFingerprint?: string,
   ) {
+    // Só `import` com o fingerprint visto carrega o consentimento de REVIEW;
+    // skip/create/link o descartam em vez de herdá-lo do spread.
+    const { reviewFingerprint: _stale, ...rest } = state.decision ?? {
+      externalId: tx.externalId,
+    };
     onChange({
       decision: {
-        ...(state.decision ?? { externalId: tx.externalId }),
+        ...rest,
         externalId: tx.externalId,
         action,
         linkToExpenseId,
+        ...(action === "import" && reviewFingerprint ? { reviewFingerprint } : {}),
       },
     });
   }
@@ -109,7 +140,9 @@ export function PreviewTxRow({
       ? "bg-green-50"
       : tx.duplicate
         ? "bg-yellow-50 text-gray-500"
-        : possibleDuplicate && !isForcedImport
+        : review && !reviewConsented
+          ? "bg-orange-50"
+          : possibleDuplicate && !isForcedImport
           ? "bg-orange-50"
           : "";
 
@@ -214,10 +247,22 @@ export function PreviewTxRow({
         />
       )}
 
+      {review && !isSkipped && (
+        <ReviewCandidatesNotice
+          review={review}
+          consented={reviewConsented}
+          onToggle={(next) =>
+            next && review.fingerprint
+              ? setAction("import", undefined, review.fingerprint)
+              : clearImportOptIn()
+          }
+        />
+      )}
+
       {/* Tier B (#659): vincular NÃO é resolução válida — o commit descarta a
           linha antes de processar `link` (só `action:'import'` a cria). A
           superfície de vínculo cross-project fica só para linhas normais. */}
-      {matches.length > 0 && !isSkipped && !possibleDuplicate && (
+      {matches.length > 0 && !isSkipped && !possibleDuplicate && !review && (
         <div className="mt-2 pl-3 border-l-2 border-blue-300 space-y-1">
           <div className="text-xs text-blue-700 font-medium">
             📌 Encontrado em outro(s) projeto(s):
@@ -298,6 +343,23 @@ function MatchChip({
           <Link2 className="w-3 h-3" /> Vincular como pago
         </button>
       )}
+    </div>
+  );
+}
+
+function IgnoredPaymentNote({ tx }: { tx: PreviewTx }) {
+  return (
+    <div className="border-b p-3 min-w-0 bg-gray-50 text-sm">
+      <div className="font-medium break-words">{tx.merchant}</div>
+      <div className="mt-1 flex items-center justify-between gap-3 text-xs text-gray-600">
+        <span>{formatDateBR(tx.date)}</span>
+        <span className="font-mono whitespace-nowrap">
+          {formatCurrency(tx.amountCents / 100)}
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-gray-700">
+        Pagamento de fatura — não é compra, não será importado
+      </p>
     </div>
   );
 }

@@ -40,7 +40,7 @@ function MobileCashFlowListImpl({ entries }: Props) {
                 {label}
               </span>
               <span
-                className={`text-sm font-bold tabular-nums ${
+                className={`whitespace-nowrap text-sm font-bold tabular-nums ${
                   monthBalance >= 0 ? 'text-darc-velvet' : 'text-darc-red'
                 }`}
               >
@@ -85,7 +85,7 @@ function MobileCashFlowListImpl({ entries }: Props) {
                             isReceita ? 'text-darc-raspberry' : 'text-darc-red'
                           }`}
                         >
-                          {isReceita ? '+' : '−'} {formatCurrency(entry.valor / 100)}
+                          {entry.valor < 0 ? '' : isReceita ? '+' : '−'} {formatCurrency(entry.valor / 100)}
                         </p>
                         <p className="text-[10px] text-darc-velvet/50 tabular-nums mt-0.5">
                           fluxo {formatCurrency(entry.rollingBalance / 100)}

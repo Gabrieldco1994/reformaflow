@@ -19,6 +19,12 @@ import { effectiveDate } from '../_lib/grouping-by-month';
 import { centsToReais, maskReaisInput, reaisToCents } from '../_lib/money';
 import { formatPaidOriginLabel, pickOriginsForOccurrence } from '../_lib/paid-origin-label';
 import { BulkCheckbox } from './BulkDateSelection';
+import { canDeleteExpense, isExpenseCredit } from '../_lib/credit-policy';
+import {
+  DOCUMENTED_SCHEDULE_ACTION_TITLE,
+  DOCUMENTED_SCHEDULE_DELETE_TITLE,
+  isDocumentedScheduleExpense,
+} from '../_lib/documented-schedule-policy';
 
 interface Props {
   grouped: GrupoDespesaPorMes[];
@@ -202,8 +208,10 @@ function MonthlyExpenseViewImpl({
             {!collapsed && (
               <div className="divide-y divide-darc-linen border-t border-darc-linen">
                 {g.items.map((e) => {
+                  const credit = isExpenseCredit(e);
                   const isEditing = editingId === e.occKey;
                   const isCopying = copyingId === e.occKey;
+                  const isDocumented = isDocumentedScheduleExpense(e);
                   const dateStr = e.occDate || effectiveDate(e) || '';
                   const isInstallmentOccurrence = !isSinglePaymentForm(
                     e.formaPagamento,
@@ -216,6 +224,8 @@ function MonthlyExpenseViewImpl({
                   return (
                     <div
                       key={e.occKey}
+                      role="group"
+                      aria-label={e.titulo || tipoLabel(e.tipoDespesa)}
                       className="px-4 py-2.5 hover:bg-darc-cream/30 transition-colors group"
                     >
                       {isCopying ? (
@@ -336,7 +346,7 @@ function MonthlyExpenseViewImpl({
                         </div>
                       ) : (
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <BulkCheckbox id={e.id} />
+                          {!credit && <BulkCheckbox id={e.id} blocked={isDocumented} />}
                           <div className="flex-shrink-0 w-12 text-center">
                             {dateStr ? (
                               <p className="text-sm font-semibold text-darc-velvet tabular-nums">
@@ -352,9 +362,12 @@ function MonthlyExpenseViewImpl({
                               {e.titulo || tipoLabel(e.tipoDespesa)}
                             </p>
                             <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                              {credit ? (
+                                <span className="text-[11px] text-emerald-700">Crédito</span>
+                              ) : (
                               <button
                                 type="button"
-                                disabled={e.settlementManaged}
+                                disabled={e.settlementManaged || isDocumented}
                                 onClick={(ev) => {
                                   ev.stopPropagation();
                                   const newStatus = e.status === 'PAGO' ? 'PLANEJADO' : 'PAGO';
@@ -364,12 +377,16 @@ function MonthlyExpenseViewImpl({
                                     onToggleStatus(e.id, newStatus);
                                   }
                                 }}
-                                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-all hover:scale-105 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
                                 style={{
                                   backgroundColor: e.status === 'PAGO' ? 'rgb(209 250 229)' : 'rgb(254 243 199)',
                                   color: e.status === 'PAGO' ? 'rgb(22 101 52)' : 'rgb(146 64 14)',
                                 }}
-                                title="Clique para alternar entre Planejado e Pago"
+                                title={
+                                  isDocumented
+                                    ? DOCUMENTED_SCHEDULE_ACTION_TITLE
+                                    : 'Clique para alternar entre Planejado e Pago'
+                                }
                               >
                                 {e.status === 'PAGO' ? (
                                   <>
@@ -383,8 +400,9 @@ function MonthlyExpenseViewImpl({
                                   </>
                                 )}
                               </button>
+                              )}
                               {e.tipoDespesa && (
-                                onChangeTipo && tipoEditingId === e.occKey ? (
+                                !credit && onChangeTipo && tipoEditingId === e.occKey ? (
                                   <select
                                     autoFocus
                                     value={e.tipoDespesa}
@@ -404,6 +422,7 @@ function MonthlyExpenseViewImpl({
                                 ) : (
                                   <button
                                     type="button"
+                                    disabled={credit}
                                     onClick={(ev) => {
                                       ev.stopPropagation();
                                       if (onChangeTipo) setTipoEditingId(e.occKey);
@@ -439,6 +458,8 @@ function MonthlyExpenseViewImpl({
                           </p>
 
                           <div className="flex items-center gap-0.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                            {!credit && (
+                              <>
                             <button
                               type="button"
                               onClick={() => {
@@ -471,6 +492,8 @@ function MonthlyExpenseViewImpl({
                             >
                               <Pencil className="w-3.5 h-3.5 text-darc-velvet/70" />
                             </button>
+                              </>
+                            )}
                             <button
                               type="button"
                               onClick={() => openEdit(e)}
@@ -480,14 +503,18 @@ function MonthlyExpenseViewImpl({
                             >
                               <Pencil className="w-3.5 h-3.5 text-darc-velvet/40" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(e.id)}
-                              aria-label="Excluir"
-                              className="p-1.5 rounded-full hover:bg-darc-red-bright/10"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 text-darc-red" />
-                            </button>
+                            {canDeleteExpense(e) && (
+                              <button
+                                type="button"
+                                onClick={() => onDelete(e.id)}
+                                aria-label="Excluir"
+                                disabled={isDocumented}
+                                title={isDocumented ? DOCUMENTED_SCHEDULE_DELETE_TITLE : undefined}
+                                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full hover:bg-darc-red-bright/10 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-darc-red" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}

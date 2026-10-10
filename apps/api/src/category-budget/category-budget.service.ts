@@ -8,6 +8,7 @@ import {
 } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildStoredExpenseInstallments } from '../expense/documented-schedule';
+import { refundPurposeScope } from '../expense/refund-purpose-scope';
 import { UpsertCategoryBudgetDto } from './dto/category-budget.dto';
 
 export interface CategoryBudgetProgress {
@@ -110,6 +111,7 @@ export class CategoryBudgetService {
         deletedAt: null,
         settledByExpenseId: null,
         tipoDespesa: { in: Array.from(resolvedBudgets.keys()) },
+        ...refundPurposeScope(tenantId, [projectId], false),
       },
       select: {
         id: true,

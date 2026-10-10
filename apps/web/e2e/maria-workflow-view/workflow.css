@@ -1,0 +1,23 @@
+.workflow-harness {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 12px;
+}
+.workflow-harness header {
+  margin-bottom: 16px;
+}
+.workflow-host {
+  min-width: 0;
+}
+.workflow-narrow {
+  display: grid;
+  grid-template-columns: 320px 280px;
+  gap: 16px;
+}
+.workflow-narrow header {
+  grid-column: 1 / -1;
+}
+.workflow-sidebar {
+  border-left: 1px solid var(--darc-linen);
+  padding: 16px;
+}

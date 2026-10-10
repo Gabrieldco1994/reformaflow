@@ -1,6 +1,7 @@
 import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConciliacaoService } from './conciliacao.service';
+import { findManyOver } from '../test-utils/prisma-where';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   installAclProjectMocks,
@@ -73,6 +74,19 @@ describe('ConciliacaoService', () => {
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockImplementation(({ where }: any) => {
           if (where.mode === 'ADDITIVE') return Promise.resolve([]);
+          // Bulk read of the removal context: every settlement touching the given ids.
+          if (where.OR) {
+            return Promise.resolve(
+              (opts.sourceRows ?? []).map((row) => ({
+                id: `${row.targetExpenseId}|${row.parcelaIndex}`,
+                tenantId: 't1',
+                mode: 'LEGACY_REPLACEMENT',
+                sourceExpenseId: 'src',
+                reversedAt: null,
+                ...row,
+              })),
+            );
+          }
           if (where.sourceExpenseId && !where.targetExpenseId) {
             return Promise.resolve(opts.sourceRows ?? []);
           }
@@ -81,6 +95,7 @@ describe('ConciliacaoService', () => {
         }),
       },
       rateioAllocation: {
+        findFirst: jest.fn().mockResolvedValue(null),
         count: jest.fn().mockResolvedValue(0),
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -265,11 +280,7 @@ describe('ConciliacaoService', () => {
           findUnique: jest.fn().mockImplementation(({ where }: any) =>
             Promise.resolve(allocStore.get(where.targetExpenseId) ?? null),
           ),
-          findMany: jest.fn().mockImplementation(({ where }: any) =>
-            Promise.resolve(
-              Array.from(allocStore.values()).filter((a) => a.sourceExpenseId === where.sourceExpenseId),
-            ),
-          ),
+          findMany: jest.fn(findManyOver(() => Array.from(allocStore.values()))),
           upsert: jest.fn().mockImplementation(({ where, create, update }: any) => {
             const cur = allocStore.get(where.targetExpenseId);
             if (cur) Object.assign(cur, update);

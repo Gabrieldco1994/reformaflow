@@ -56,6 +56,7 @@ function makePrismaMock() {
       findMany: jest.fn().mockResolvedValue([]),
     },
     rateioAllocation: {
+      findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn().mockResolvedValue(0),
     },
     receipt: { findMany: jest.fn().mockResolvedValue([]) },

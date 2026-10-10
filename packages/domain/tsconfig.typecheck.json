@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "incremental": false,
+    "paths": {
+      "@reformaflow/domain": ["./src/index.ts"]
+    }
+  },
+  "include": [
+    "__tests__/import-conversation.typecheck.ts",
+    "__tests__/import-session.guided-review.typecheck.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

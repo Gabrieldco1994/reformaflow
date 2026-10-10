@@ -235,6 +235,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     searchParams.toString() ||
     (typeof window !== "undefined" ? window.location.search : "");
   const resolvedProjectType = project.type as ProjectType;
+  const isMariaRoute = pathname === `${basePath}/maria`;
+  const showFinancialWidget = !isMariaRoute;
   const { primary, secondary } = getMobilePrimary(project.type, visibleNav);
   const hasMoreSheet = secondary.length > 0 || isAdmin || Boolean(user?.name);
   /**
@@ -293,7 +295,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
 
         <main
-          className={`minimal-main flex-1 overflow-y-auto p-4 pb-24 md:p-6 md:pb-6 ${open ? 'lg:pr-[408px]' : ''}`}
+          className={`minimal-main flex-1 overflow-y-auto p-4 pb-24 md:p-6 md:pb-6 ${open && showFinancialWidget ? 'lg:pr-[408px]' : ''}`}
         >
           {children}
         </main>
@@ -320,9 +322,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Copiloto Financeiro (desktop). No mobile a rota /maria assume esse papel. */}
-      <div className="hidden lg:block">
-        <FinancialAgentWidget />
-      </div>
+      {showFinancialWidget && (
+        <div className="hidden lg:block">
+          <FinancialAgentWidget />
+        </div>
+      )}
     </ProjectProvider>
   );
 }

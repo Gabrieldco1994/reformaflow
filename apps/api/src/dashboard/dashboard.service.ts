@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { financialMirrorIds } from '../expense/documented-schedule';
+import { hiddenRefundSourceClause, refundPurposeScope } from '../expense/refund-purpose-scope';
 import {
   ExpenseTypeLabels,
   LaborCategoryLabels,
@@ -53,12 +54,20 @@ export class DashboardService {
         },
       }),
       this.prisma.expense.findMany({
-        where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null },
+        where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null,
+          ...refundPurposeScope(tenantId, [projectId], false) },
         include: { room: true },
       }),
     ]);
 
     const mirrors = financialMirrorIds(expenses);
+    // #704 — crédito de estorno cuja finalidade aponta para projeto fora deste
+    // lens é a única representação visível: nunca é espelho.
+    const hiddenRefunds = await this.prisma.expense.findMany({
+      where: { projectId, tenantId, deletedAt: null, ...hiddenRefundSourceClause(tenantId, [projectId]) },
+      select: { id: true },
+    });
+    for (const refund of hiddenRefunds) mirrors.delete(refund.id);
     const cashFlowEntries = allCashFlowEntries.filter((entry) => !entry.expenseId || !mirrors.has(entry.expenseId));
 
     // Calculate budget received (if using budget allocations)

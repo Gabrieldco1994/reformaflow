@@ -18,6 +18,7 @@ function makePrismaMock() {
   };
 
   prisma.__tx = tx;
+  Object.assign(tx.project, { update: prisma.project.update });
   return prisma;
 }
 

@@ -1,7 +1,13 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiResponseError } from "@/lib/api";
+import {
+  CARD_IMPORT_LINE_OUTCOME,
+  CARD_IMPORT_SELECTED_ROWS_CHANGED,
+  type CardImportLineOutcome,
+  type CardImportReviewItem,
+} from "@reformaflow/domain";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 import {
   Upload,
@@ -20,6 +26,15 @@ import type {
   PreviewTx,
 } from "../_types";
 import { PreviewTxRow } from "./PreviewTxRow";
+import { AttemptsHistory, PendingSummary } from "./ImportAttemptsPanel";
+import {
+  SELECTED_ROWS_CHANGED_COPY,
+  hasReviewConsent,
+  isBlockedReview,
+  isFinalOutcome,
+  isLineResultList,
+  type ImportAttempt,
+} from "../_lib/import-review";
 import { ImportClassificationNotice } from "@/components/import/ImportClassificationNotice";
 import { tipoLabel } from "@/lib/expense-options";
 import {
@@ -51,6 +66,8 @@ export interface ImportDecision {
   // 'import' (#659) força uma linha marcada `possibleDuplicate` (Tier B) a ser criada.
   action?: "create" | "skip" | "link" | "import";
   linkToExpenseId?: string;
+  /** #714: consentimento de REVIEW, válido só com `action:'import'` e o fingerprint que o usuário viu. */
+  reviewFingerprint?: string;
   overrides?: {
     titulo?: string;
     valorCents?: number;
@@ -60,6 +77,16 @@ export interface ImportDecision {
 
 export interface TxState {
   decision?: ImportDecision;
+}
+
+function isSelectedRowsChanged(error: unknown) {
+  return (
+    error instanceof ApiResponseError &&
+    error.status === 409 &&
+    typeof error.body === "object" &&
+    error.body !== null &&
+    (error.body as { code?: unknown }).code === CARD_IMPORT_SELECTED_ROWS_CHANGED
+  );
 }
 
 export default function ImportStatementModal({
@@ -83,11 +110,38 @@ export default function ImportStatementModal({
   // decisão" voltar à sugestão automática em vez de apagar tudo (issue #572).
   const [autoTxStates, setAutoTxStates] = useState<Record<string, TxState>>({});
   const [showFuture, setShowFuture] = useState(false);
+  // #714: resumos por tentativa (nunca somados) e estado por linha vindo de `lineResults`.
+  const [attempts, setAttempts] = useState<ImportAttempt[]>([]);
+  const [lineStates, setLineStates] = useState<
+    Record<string, { outcome: CardImportLineOutcome; linked?: true }>
+  >({});
+  const [reviewOverrides, setReviewOverrides] = useState<
+    Record<string, CardImportReviewItem>
+  >({});
+  const [staleDocument, setStaleDocument] = useState(false);
 
   const isPdf = files.some(
     (f) =>
       f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf",
   );
+
+  const lines = useMemo(
+    () =>
+      (preview?.preview ?? []).map((tx) =>
+        reviewOverrides[tx.externalId]
+          ? { ...tx, review: reviewOverrides[tx.externalId] }
+          : tx,
+      ),
+    [preview, reviewOverrides],
+  );
+  const finalIds = (id: string) => isFinalOutcome(lineStates[id]?.outcome);
+
+  function resetLineWork() {
+    setTxStates({});
+    setAutoTxStates({});
+    setLineStates({});
+    setReviewOverrides({});
+  }
 
   function buildUrl(mode: "preview" | "commit") {
     const params = new URLSearchParams({ source, mode });
@@ -109,8 +163,7 @@ export default function ImportStatementModal({
     setError(null);
     setLoading(true);
     setPreview(null);
-    setTxStates({});
-    setAutoTxStates({});
+    resetLineWork();
     try {
       const fd = new FormData();
       for (const f of files) fd.append("files", f);
@@ -123,7 +176,8 @@ export default function ImportStatementModal({
         // Tier B (#659): nunca auto-vincular uma linha que o servidor marcou
         // como possível duplicata — auto-link cria + quita planejado, e fazer
         // isso em silêncio numa linha talvez-já-existente é o risco de dobra.
-        if (tx.duplicate || tx.possibleDuplicate) continue;
+        // Pagamento de fatura (`ignored`) nunca é auto-vinculado nem importado.
+        if (tx.duplicate || tx.ignored || tx.possibleDuplicate || tx.review) continue;
         const matches = tx.crossProjectMatches ?? [];
         if (matches.length === 1 && Math.abs(matches[0].deltaCents) < 100) {
           auto[tx.externalId] = {
@@ -164,32 +218,173 @@ export default function ImportStatementModal({
       flow.stage !== "summary"
     )
       return;
+    const selection = buildSelection();
+    if (selection.ids.length === 0) return;
     flow.sending.current = true;
     setLoading(true);
     setError(null);
+    setStaleDocument(false);
     try {
-      const decisions: ImportDecision[] = Object.values(txStates)
-        .map((s) => s.decision)
-        .filter(
-          (d): d is ImportDecision => !!d && (!!d.action || !!d.overrides),
-        );
       const fd = new FormData();
       for (const f of files) fd.append("files", f);
-      fd.append("decisions", JSON.stringify(decisions));
+      fd.append("decisions", JSON.stringify(selection.decisions));
+      // Toda tentativa diz explicitamente o que o usuário confirmou; o
+      // servidor não completa a seleção por conta própria.
+      fd.append("selectedExternalIds", JSON.stringify(selection.ids));
       const res = await api.upload<CommitResult>(buildUrl("commit"), fd);
-      if (!isStatementCommitResult(res) || !isImportCount(res.settled)) {
+      if (
+        !isStatementCommitResult(res) ||
+        !isImportCount(res.settled) ||
+        (res.lineResults !== undefined && !isLineResultList(res.lineResults))
+      ) {
         throw new Error(UNKNOWN_IMPORT_RESULT);
       }
+      absorbCommit(res);
       setCommitResult(res);
       flow.setStage("result");
     } catch (e) {
-      const rejected = importWasRejected(e);
-      flow.setUncertain(!rejected);
-      setError(importFailureMessage(e));
+      if (isSelectedRowsChanged(e)) {
+        // 409 com zero efeitos: exige nova prévia manual, sem reextrair sozinho.
+        flow.setUncertain(false);
+        setStaleDocument(true);
+        setError(SELECTED_ROWS_CHANGED_COPY);
+      } else {
+        const rejected = importWasRejected(e);
+        flow.setUncertain(!rejected);
+        setError(importFailureMessage(e));
+      }
     } finally {
       flow.sending.current = false;
       setLoading(false);
     }
+  }
+
+  /** Só entra na tentativa o que está pronto ou foi confirmado/excluído de forma explícita. */
+  function buildSelection() {
+    const ids: string[] = [];
+    for (const tx of lines) {
+      // `ignored` antes do Tier B: a marca de "importar mesmo assim" não o resgata.
+      if (tx.duplicate || tx.ignored || finalIds(tx.externalId)) continue;
+      const d = txStates[tx.externalId]?.decision;
+      const skipped = d?.action === "skip";
+      const ok = tx.review
+        ? skipped ||
+          (!isBlockedReview(tx.review) && hasReviewConsent(tx.review, d))
+        : tx.possibleDuplicate
+          ? skipped || d?.action === "import"
+          : true;
+      if (ok) ids.push(tx.externalId);
+    }
+    const chosen = new Set(ids);
+    const decisions = Object.values(txStates)
+      .map((s) => s.decision)
+      .filter(
+        (d): d is ImportDecision =>
+          !!d && chosen.has(d.externalId) && (!!d.action || !!d.overrides),
+      );
+    return { ids, decisions };
+  }
+
+  function absorbCommit(res: CommitResult) {
+    const results = isLineResultList(res.lineResults) ? res.lineResults : [];
+    const byId = new Map(lines.map((tx) => [tx.externalId, tx]));
+    setLineStates((prev) => {
+      const next = { ...prev };
+      for (const r of results) {
+        const cur = next[r.externalId];
+        if (isFinalOutcome(cur?.outcome)) continue;
+        if (r.outcome === CARD_IMPORT_LINE_OUTCOME.NOT_SELECTED && cur) continue;
+        next[r.externalId] = {
+          outcome: r.outcome,
+          ...(r.linked ? { linked: true as const } : {}),
+        };
+      }
+      return next;
+    });
+    const items = res.reviewRequired ?? [];
+    if (items.length > 0) {
+      // O consentimento é validado contra o fingerprint atual (`hasReviewConsent`):
+      // o aceite dado a outro fingerprint deixa de valer sem precisar apagá-lo.
+      setReviewOverrides((prev) => ({
+        ...prev,
+        ...Object.fromEntries(items.map((i) => [i.externalId, i])),
+      }));
+    }
+    setAttempts((prev) => [
+      ...prev,
+      {
+        number: prev.length + 1,
+        importId: res.importId,
+        periodLabel: res.periodLabel,
+        inserted: res.inserted,
+        settled: res.settled,
+        duplicated: res.duplicated,
+        skipped: res.skipped ?? 0,
+        linked: res.linked ?? 0,
+        notSelected: res.notSelected ?? 0,
+        lines: results
+          .filter((r) => r.outcome !== CARD_IMPORT_LINE_OUTCOME.NOT_SELECTED)
+          .map((r) => {
+            const tx = byId.get(r.externalId);
+            const o = txStates[r.externalId]?.decision?.overrides;
+            return {
+              externalId: r.externalId,
+              title: o?.titulo ?? tx?.merchant ?? r.externalId,
+              amountCents: o?.valorCents ?? tx?.amountCents ?? 0,
+              outcome: r.outcome,
+              ...(r.linked ? { linked: true as const } : {}),
+            };
+          }),
+      },
+    ]);
+  }
+
+  // Pendência = linha que ainda não teve desfecho final e que o usuário pode
+  // resolver; bloqueada não entra (nenhuma decisão a libera). Sem `lineResults`
+  // não há como saber o que ficou pendente, então nada é oferecido.
+  const knowsLines = attempts.some((a) => a.lines.length > 0);
+  const pendingLines = useMemo(
+    () =>
+      knowsLines
+        ? lines.filter(
+            (tx) =>
+              !tx.duplicate &&
+              !tx.ignored &&
+              !isFinalOutcome(lineStates[tx.externalId]?.outcome) &&
+              !isBlockedReview(tx.review),
+          )
+        : [],
+    [knowsLines, lines, lineStates],
+  );
+  const toPendingLine = (tx: PreviewTx) => {
+    const o = txStates[tx.externalId]?.decision?.overrides;
+    return {
+      externalId: tx.externalId,
+      title: o?.titulo ?? tx.merchant,
+      amountCents: o?.valorCents ?? tx.amountCents,
+      outcome:
+        lineStates[tx.externalId]?.outcome ?? CARD_IMPORT_LINE_OUTCOME.NOT_SELECTED,
+    };
+  };
+  const blockedLines = knowsLines
+    ? lines.filter(
+        (tx) => !tx.duplicate && !tx.ignored && isBlockedReview(tx.review),
+      )
+    : [];
+
+  function reviewPendingLines() {
+    setCommitResult(null);
+    setError(null);
+    flow.setFilter("pending");
+    flow.setStage("review");
+  }
+
+  function newPreview() {
+    setPreview(null);
+    resetLineWork();
+    setStaleDocument(false);
+    setError(null);
+    flow.setStage("file");
   }
 
   function updateTx(externalId: string, patch: Partial<TxState>) {
@@ -197,24 +392,33 @@ export default function ImportStatementModal({
   }
 
   const counts = useMemo(() => {
-    if (!preview)
-      return {
-        willCreate: 0,
-        willLink: 0,
-        willSkip: 0,
-        possibleDup: 0,
-        totalCents: 0,
-      };
     let willCreate = 0,
       willLink = 0,
       willSkip = 0,
       possibleDup = 0,
+      reviewPending = 0,
+      blocked = 0,
+      ignoredPayments = 0,
       totalCents = 0;
-    for (const tx of preview.preview) {
+    for (const tx of lines) {
       const d = txStates[tx.externalId]?.decision;
-      if (tx.duplicate) continue;
+      if (tx.duplicate || finalIds(tx.externalId)) continue;
+      // Antes de review/Tier B: pagamento fica fora de novas, soma e pendências.
+      if (tx.ignored) {
+        ignoredPayments++;
+        continue;
+      }
       if (d?.action === "skip") {
         willSkip++;
+        continue;
+      }
+      if (tx.review) {
+        if (isBlockedReview(tx.review)) blocked++;
+        else if (!hasReviewConsent(tx.review, d)) reviewPending++;
+        else {
+          willCreate++;
+          totalCents += d?.overrides?.valorCents ?? tx.amountCents;
+        }
         continue;
       }
       // Tier B (#659): só "importar mesmo assim" (`action:'import'`) cria a
@@ -228,30 +432,76 @@ export default function ImportStatementModal({
       else willCreate++;
       totalCents += d?.overrides?.valorCents ?? tx.amountCents;
     }
-    return { willCreate, willLink, willSkip, possibleDup, totalCents };
-  }, [preview, txStates]);
+    return {
+      willCreate,
+      willLink,
+      willSkip,
+      possibleDup,
+      reviewPending,
+      blocked,
+      ignoredPayments,
+      totalCents,
+    };
+  }, [lines, txStates, lineStates]);
+  // Só quando nada é selecionável nem está pendente; independe de haver só pagamentos.
+  const noPurchasesToImport =
+    counts.ignoredPayments > 0 &&
+    counts.willCreate + counts.willLink === 0 &&
+    counts.reviewPending === 0 &&
+    counts.possibleDup === 0;
 
-  const editingTx = preview?.preview.find(
+  const visibleLines = lines.filter((tx) => !finalIds(tx.externalId));
+  const statusOf = (tx: PreviewTx) =>
+    lineStates[tx.externalId]?.outcome === CARD_IMPORT_LINE_OUTCOME.ERROR
+      ? ("retry" as const)
+      : reviewStatus(
+          { ...tx, ignored: !!tx.ignored },
+          txStates[tx.externalId]?.decision,
+        );
+  const editingTx = lines.find(
     (tx) => tx.externalId === flow.editor?.id,
   );
-  const close = () => flow.requestClose(!!preview, onClose);
+  // Tentativa anterior já gravou efeitos: fechar precisa atualizar a lista.
+  const hadEffects = attempts.some((a) => a.inserted + a.settled > 0);
+  const close = () =>
+    flow.requestClose(!!preview, hadEffects ? onCommitted : onClose);
   const footer = commitResult ? (
     <ImportFooter>
-      <Button onClick={onCommitted}>Concluir</Button>
+      {pendingLines.length > 0 ? (
+        <>
+          <Button variant="secondary" onClick={onCommitted}>
+            Concluir mesmo assim
+          </Button>
+          <Button onClick={reviewPendingLines}>
+            Revisar pendências ({pendingLines.length})
+          </Button>
+        </>
+      ) : (
+        <Button onClick={onCommitted}>Concluir</Button>
+      )}
     </ImportFooter>
   ) : editingTx && flow.editor ? (
     <ImportFooter>
-      <Button variant="secondary" onClick={flow.cancelEditor}>
-        Cancelar edição
-      </Button>
-      <Button
-        onClick={() => {
-          updateTx(editingTx.externalId, flow.editor!.draft);
-          flow.finishEditor();
-        }}
-      >
-        Aplicar à revisão
-      </Button>
+      {editingTx.ignored ? (
+        // Pagamento não tem nada a aplicar: só volta à lista.
+        <Button variant="secondary" onClick={flow.cancelEditor}>
+          Voltar à revisão
+        </Button>
+      ) : (
+        <>
+          <Button variant="secondary" onClick={flow.cancelEditor}>
+            Cancelar edição
+          </Button>
+          <Button
+            onClick={() => {
+              updateTx(editingTx.externalId, flow.editor!.draft);
+              flow.finishEditor();
+            }}
+          >
+            Aplicar à revisão
+          </Button>
+        </>
+      )}
     </ImportFooter>
   ) : preview && flow.stage !== "file" ? (
     <ImportFooter>
@@ -319,9 +569,20 @@ export default function ImportStatementModal({
             : IMPORT_STEPS[flow.stage]}
         </h3>
         {commitResult ? (
-          <CommittedView result={commitResult} />
+          <>
+            <CommittedView
+              result={commitResult}
+              partial={pendingLines.length > 0}
+            />
+            <PendingSummary
+              pending={pendingLines.map(toPendingLine)}
+              blocked={blockedLines.map(toPendingLine)}
+            />
+            <AttemptsHistory attempts={attempts} />
+          </>
         ) : (
           <>
+            <AttemptsHistory attempts={attempts} />
             {flow.stage === "file" && (
               <UploadStep
                 files={files}
@@ -330,8 +591,7 @@ export default function ImportStatementModal({
                   setPreview(null);
                   setNeedsPassword(false);
                   setPassword("");
-                  setTxStates({});
-                  setAutoTxStates({});
+                  resetLineWork();
                 }}
                 source={source}
                 setSource={setSource}
@@ -354,6 +614,11 @@ export default function ImportStatementModal({
                 <span>{error}</span>
               </div>
             )}
+            {staleDocument && (
+              <Button className="mt-2" onClick={newPreview}>
+                Gerar nova prévia
+              </Button>
+            )}
 
             <p role="status" aria-live="polite" className="sr-only">
               {loading
@@ -374,14 +639,16 @@ export default function ImportStatementModal({
                     flow.updateDraft(autoTxStates[editingTx.externalId] ?? {})
                   }
                 />
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    flow.updateDraft(autoTxStates[editingTx.externalId] ?? {})
-                  }
-                >
-                  Restaurar dados originais e sugestões
-                </Button>
+                {!editingTx.ignored && (
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      flow.updateDraft(autoTxStates[editingTx.externalId] ?? {})
+                    }
+                  >
+                    Restaurar dados originais e sugestões
+                  </Button>
+                )}
               </>
             ) : (
               preview &&
@@ -392,12 +659,21 @@ export default function ImportStatementModal({
                   />
                   <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-3 text-sm">
                     <div>
-                      <strong>{preview.total}</strong> transações · total{" "}
+                      <strong>{preview.total}</strong> transações no arquivo
+                      · <strong>{counts.willCreate + counts.willLink}</strong>{" "}
+                      selecionada(s) ·{" "}
+                      {counts.ignoredPayments > 0 && (
+                        <>
+                          <strong>{counts.ignoredPayments}</strong> pagamento(s)
+                          de fatura ignorado(s) ·{" "}
+                        </>
+                      )}
+                      <strong>{preview.duplicated}</strong> já existentes ·
+                      Total do arquivo{" "}
                       <strong>
                         {formatCurrency((preview.totalAmountCents ?? 0) / 100)}
                       </strong>{" "}
-                      ·<strong> {preview.duplicated}</strong> já existentes ·
-                      formato detectado: <strong>{preview.source}</strong>
+                      · formato detectado: <strong>{preview.source}</strong>
                     </div>
                     <div className="mt-1 text-xs text-blue-700">
                       Após confirmar: <strong>{counts.willCreate}</strong> novas
@@ -409,26 +685,37 @@ export default function ImportStatementModal({
                           duplicata(s) ·
                         </>
                       )}
+                      {counts.reviewPending > 0 && (
+                        <>
+                          <strong> {counts.reviewPending}</strong> aguardando
+                          decisão ·
+                        </>
+                      )}
+                      {counts.blocked > 0 && (
+                        <>
+                          <strong> {counts.blocked}</strong> bloqueada(s) ·
+                        </>
+                      )}
                       soma:{" "}
                       <strong>{formatCurrency(counts.totalCents / 100)}</strong>
                     </div>
+                    {noPurchasesToImport && (
+                      <p className="mt-1 text-sm text-blue-900">
+                        Não há compras a importar nesta revisão.
+                      </p>
+                    )}
                   </div>
 
                   {flow.stage === "review" ? (
                     <>
                       <ImportFilters
-                        statuses={preview.preview.map((tx) =>
-                          reviewStatus(tx, txStates[tx.externalId]?.decision),
-                        )}
+                        statuses={visibleLines.map(statusOf)}
                         value={flow.filter}
                         onChange={flow.setFilter}
                       />
-                      {preview.preview
+                      {visibleLines
                         .filter((tx) =>
-                          matchesReviewFilter(
-                            reviewStatus(tx, txStates[tx.externalId]?.decision),
-                            flow.filter,
-                          ),
+                          matchesReviewFilter(statusOf(tx), flow.filter),
                         )
                         .map((tx) => {
                           const state = txStates[tx.externalId] ?? {};
@@ -458,7 +745,7 @@ export default function ImportStatementModal({
                                     "OUTROS",
                                 )
                               }
-                              status={reviewStatus(tx, decision)}
+                              status={statusOf(tx)}
                               onEdit={() =>
                                 flow.openEditor(tx.externalId, state)
                               }
@@ -637,31 +924,37 @@ function FutureInstallmentsSection({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const total = items.reduce((s, t) => s + t.amountCents, 0);
+  // Fato do arquivo: sem identidade da compra-mãe, portanto sem soma nem promessa.
   return (
-    <div className="mt-3 border border-amber-200 bg-amber-50 rounded-lg">
+    <div
+      role="group"
+      aria-label="Parcelas futuras informadas na fatura"
+      className="mt-3 border border-amber-200 bg-amber-50 rounded-lg"
+    >
       <button
         onClick={onToggle}
-        className="w-full px-3 py-2 flex items-center gap-2 text-sm"
+        aria-expanded={expanded}
+        className="w-full px-3 py-2 min-h-11 flex items-center gap-2 text-sm text-left"
       >
         {expanded ? (
-          <ChevronDown className="w-4 h-4" />
+          <ChevronDown className="w-4 h-4 shrink-0" />
         ) : (
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className="w-4 h-4 shrink-0" />
         )}
         <span className="font-medium text-amber-900">
-          {items.length} parcela(s) futura(s) — {formatCurrency(total / 100)}
-        </span>
-        <span className="text-xs text-amber-700">
-          (entrarão como PLANEJADO no fluxo de caixa)
+          Parcelas futuras informadas na fatura ({items.length})
         </span>
       </button>
+      <p className="px-3 pb-2 text-xs text-amber-800">
+        Informação do arquivo: esta lista não é o cronograma nem o total desta
+        tentativa. Apenas as compras confirmadas serão processadas.
+      </p>
       {expanded && (
         <div className="border-t border-amber-200 text-xs">
           {items.map((t) => (
             <div
               key={t.externalId}
-              className="px-3 py-1.5 flex justify-between border-b border-amber-100 last:border-0"
+              className="px-3 py-1.5 flex justify-between gap-3 border-b border-amber-100 last:border-0"
             >
               <span>
                 {t.merchant}
@@ -680,12 +973,24 @@ function FutureInstallmentsSection({
   );
 }
 
-function CommittedView({ result }: { result: CommitResult }) {
+function CommittedView({
+  result,
+  partial,
+}: {
+  result: CommitResult;
+  partial: boolean;
+}) {
   return (
     <div className="text-center py-8">
       <ImportWarnings warnings={result.postCommitWarnings} />
-      <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-      <h3 className="text-xl font-semibold mb-2">Importação concluída</h3>
+      {partial ? (
+        <AlertCircle className="w-16 h-16 text-amber-500 mx-auto mb-4" />
+      ) : (
+        <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+      )}
+      <h3 className="text-xl font-semibold mb-2">
+        {partial ? "Importação parcial" : "Importação concluída"}
+      </h3>
       <div className="text-gray-700 space-y-1">
         <p>
           <strong>{result.inserted}</strong> novas transações
@@ -728,8 +1033,7 @@ function CommittedView({ result }: { result: CommitResult }) {
           </p>
         )}
         <p>
-          <strong>{result.settled}</strong> parcelas planejadas marcadas como
-          pagas
+          <strong>{result.settled}</strong> reaproveitada(s), sem pagamento
         </p>
         {!!result.linked && (
           <p>

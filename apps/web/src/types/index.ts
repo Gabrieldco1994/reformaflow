@@ -90,6 +90,8 @@ export interface ReceiptFormData {
 // Expenses
 export interface Expense {
   id: string;
+  /** HTTP output only. Negative credits require an explicit deletion capability. */
+  canDelete?: boolean;
   projectId?: string;
   tipoDespesa: string;
   categoriaMaoDeObra?: string;

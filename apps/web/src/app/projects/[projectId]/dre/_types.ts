@@ -81,6 +81,8 @@ export interface RunwayCandidato {
   /** ISO string da ocorrência mais próxima. */
   data: string;
   projetoOrigem: { id: string; name: string; type: string } | null;
+  /** Root signal when the API provides it (no producer yet); NOT a permission. */
+  expenseIsCredit?: boolean;
 }
 
 /** Deep-dive: despesas de um mês quebradas por origem de pagamento. */

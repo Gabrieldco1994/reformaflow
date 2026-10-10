@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isHiddenRefundSource, refundPurposeSourceSelect, refundPurposeAccountScope } from '../expense/refund-purpose-scope';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import { ADDITIVE, fundingSummaries } from '../conciliacao/additive-settlement';
 import { financialMirrorIds, parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
@@ -122,6 +123,7 @@ const INVOICE_TIPO = 'PAGAMENTO_FATURA_CARTAO';
 
 interface ActionEntry {
   tipo: string;
+  valor: number;
   status: string;
   id: string;
   expenseId: string | null;
@@ -141,6 +143,7 @@ function deriveEntryActions(
 ): Array<{ actionId: string }> {
   if (espelho) return [];
   if (e.expense?.documentedSchedule != null) return [{ actionId: 'edit' }];
+  if (e.tipo === 'DESPESA' && e.valor < 0) return [{ actionId: 'edit' }];
 
   const isDespesa = e.tipo === 'DESPESA';
   const isRecebimento = e.tipo === 'RECEBIMENTO';
@@ -404,12 +407,14 @@ export class MonthlyOverviewService {
         expense: {
           select: {
             linkedExpenseId: true,
+            valorTotal: true,
             documentedSchedule: true,
             cardLast4: true,
             bankLast4: true,
             tipoDespesa: true,
             titulo: true,
             fornecedor: true,
+            rateioAsSource: refundPurposeSourceSelect,
           },
         },
         receipt: {
@@ -431,7 +436,8 @@ export class MonthlyOverviewService {
     const mirrorIds = financialMirrorIds([...new Map(entries.flatMap((entry) =>
       entry.expenseId && entry.expense ? [[entry.expenseId, { ...entry.expense, id: entry.expenseId }] as const] : [],
     )).values()]);
-    const isEspelho = (e: (typeof entries)[number]) => !!e.expenseId && mirrorIds.has(e.expenseId);
+    const isEspelho = (e: (typeof entries)[number]) =>
+      !!e.expenseId && mirrorIds.has(e.expenseId) && !isHiddenRefundSource(e.expense, projectIds);
 
     // Adapta para o helper do domain (acrescenta projectOrigin e label de categoria).
     // Linhas mês-a-mês são consolidadas → excluem espelhos (o alvo do projeto é o canônico),
@@ -494,6 +500,9 @@ export class MonthlyOverviewService {
       cardLast4: projectionIds.has(e.id) ? null : e.expense?.cardLast4 ?? null,
       bankLast4: projectionIds.has(e.id) ? null : e.expense?.bankLast4 ?? null,
       isEspelho: isEspelho(e),
+      // Sinal autoritativo de crédito: só o Expense.valorTotal (nunca o valor do
+      // CFE/ocorrência). Ausente quando a entry não tem Expense (ex.: recebimento).
+      ...(e.expense ? { expenseIsCredit: e.expense.valorTotal < 0 } : {}),
       ...(projectionIds.has(e.id) ? { isSettlementProjection: true as const } : {}),
       expenseId: e.expenseId ?? null,
       // ── V1 card fields (issue #452) ──────────────────────────────
@@ -653,7 +662,7 @@ export class MonthlyOverviewService {
         // participants must be limited to the anchor PESSOAL plus authorized
         // non-PESSOAL projects — a second/hidden PESSOAL or an out-of-scope
         // project can never feed this project's foreign/rateio computations.
-        where: { tenantId, projectId: { in: hub.hubProjectIds }, deletedAt: null },
+        where: { tenantId, projectId: { in: hub.hubProjectIds }, deletedAt: null, ...refundPurposeAccountScope(tenantId) },
         select: {
           id: true,
           projectId: true,
@@ -719,6 +728,7 @@ export class MonthlyOverviewService {
               cardLast4: true,
               bankLast4: true,
               linkedExpenseId: true,
+              valorTotal: true,
             },
           },
           receipt: {
@@ -1251,6 +1261,7 @@ export class MonthlyOverviewService {
           cardLast4,
           bankLast4: null as string | null,
           tipoDespesa: entry.expense!.tipoDespesa,
+          expenseIsCredit: entry.expense!.valorTotal < 0,
           isInvoice: false,
           editavel: true,
           dueMonth,
@@ -1536,6 +1547,7 @@ export class MonthlyOverviewService {
       ) +
       sumBy(foreignPendingItems, (item) => item.valor);
 
+    const creditByExpenseId = new Map(allExpenses.map((expense) => [expense.id, expense.valorTotal < 0] as const));
     const documentedExpenseIds = new Set(allExpenses.filter((expense) => expense.documentedSchedule != null).map((expense) => expense.id));
     const saidas: Array<any> = [
       ...selectedInvoices.map((invoice) => {
@@ -1675,8 +1687,12 @@ export class MonthlyOverviewService {
       ...foreignPendingItems,
     ].map((item) => {
       const expenseId = (item.foreignExpenseId ?? item.id)?.split('#')[0];
+      // Sinal de crédito da Expense de origem (root negativo com ocorrência
+      // positiva inclusive). Só emite quando a Expense existe no escopo lido.
+      const credit = !item.isInvoice && expenseId ? creditByExpenseId.get(expenseId) : undefined;
+      const flagged = credit === undefined ? item : { ...item, expenseIsCredit: credit };
       return documentedExpenseIds.has(expenseId)
-        ? { ...item, financialEditable: false } : item;
+        ? { ...flagged, financialEditable: false } : flagged;
     }).sort((a, b) => b.data.localeCompare(a.data));
 
     // Recalculate saiuMes and faltaPagarMes to include all saidas (including carteira)
@@ -2046,6 +2062,7 @@ export class MonthlyOverviewService {
               bankLast4: true,
               linkedExpenseId: true,
               documentedSchedule: true,
+              rateioAsSource: refundPurposeSourceSelect,
             },
           },
           receipt: {
@@ -2083,7 +2100,7 @@ export class MonthlyOverviewService {
 
     const normalized: DreLine[] = [];
     for (const entry of entries) {
-      if (entry.expense?.linkedExpenseId) continue;
+      if (entry.expense?.linkedExpenseId && !isHiddenRefundSource(entry.expense, projectIds)) continue;
       const documented = parseStoredExpenseSchedule(entry.expense?.documentedSchedule);
       if (documented?.kind === 'source' && documented.projections.length) continue;
 
@@ -3233,7 +3250,7 @@ export class MonthlyOverviewService {
         },
       }),
       this.prisma.expense.findMany({
-        where: { tenantId, projectId, deletedAt: null },
+        where: { tenantId, projectId, deletedAt: null, ...refundPurposeAccountScope(tenantId) },
         select: {
           id: true,
           titulo: true,
@@ -4871,6 +4888,12 @@ export interface RunwayCandidato {
   /** ISO string da ocorrência mais próxima (para referência de timing). */
   data: string;
   projetoOrigem: { id: string; name: string; type: string } | null;
+  /**
+   * `Expense.valorTotal < 0` da despesa dona, copiado das saídas (nunca inferido
+   * do `valor` acumulado). Ausente quando não há Expense, quando nenhuma saída
+   * o traz ou quando as views discordam. Não é finalidade, posse nem permissão.
+   */
+  expenseIsCredit?: boolean;
 }
 
 /**
@@ -4901,6 +4924,9 @@ export function buildRunwayCandidatos(
 
   // Acumula por expenseId: valor total da janela + data mais próxima.
   const byId = new Map<string, { descricao: string; valor: number; data: string; projetoOrigem: RunwayCandidato['projetoOrigem'] }>();
+  // Rótulos por despesa. As views vêm de getAccountView separados (sem snapshot
+  // único): rótulos contraditórios do MESMO expense descartam o flag, sem eleger um.
+  const creditLabels = new Map<string, Set<boolean>>();
 
   for (let i = 0; i < months.length; i++) {
     const mes = months[i];
@@ -4918,6 +4944,12 @@ export function buildRunwayCandidatos(
 
       const id: string | null = item.foreignExpenseId ?? item.id;
       if (!id) continue;
+
+      if (typeof item.expenseIsCredit === 'boolean') {
+        const labels = creditLabels.get(id) ?? new Set<boolean>();
+        labels.add(item.expenseIsCredit);
+        creditLabels.set(id, labels);
+      }
 
       const existing = byId.get(id);
       if (existing) {
@@ -4937,5 +4969,12 @@ export function buildRunwayCandidatos(
   return Array.from(byId.entries())
     .sort((a, b) => b[1].valor - a[1].valor)
     .slice(0, 5)
-    .map(([expenseId, v]) => ({ expenseId, ...v }));
+    .map(([expenseId, v]) => {
+      const labels = creditLabels.get(expenseId);
+      return {
+        expenseId,
+        ...v,
+        ...(labels?.size === 1 ? { expenseIsCredit: [...labels][0] } : {}),
+      };
+    });
 }

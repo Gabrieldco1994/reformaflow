@@ -7,12 +7,38 @@ import { PrismaClient } from '@prisma/client';
 export const INCLUDE_SOFT_DELETED = { not: undefined } as const;
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
   constructor() {
     super();
 
     // Models that don't have deletedAt field
-    const modelsWithoutSoftDelete = new Set(['SimulationValue', 'Simulation', 'FloorPlanRoom', 'RoomImage', 'FloorPlanMarker', 'CarInfo', 'MerchantCategory', 'CrossProjectSettlement', 'RateioAllocation', 'PlantDiagnosisLog', 'Feedback', 'UserActivityLog', 'PricePoint', 'JourneyTrigger', 'JourneyStep', 'JourneyCompletion']);
+    const modelsWithoutSoftDelete = new Set([
+      'SimulationValue',
+      'Simulation',
+      'FloorPlanRoom',
+      'RoomImage',
+      'FloorPlanMarker',
+      'CarInfo',
+      'MerchantCategory',
+      'CrossProjectSettlement',
+      'RateioAllocation',
+      'PlantDiagnosisLog',
+      'Feedback',
+      'UserActivityLog',
+      'PricePoint',
+      'JourneyTrigger',
+      'JourneyStep',
+      'JourneyCompletion',
+      'ImportSession',
+      'ImportArtifact',
+      'ImportSessionArtifact',
+      'ImportObservation',
+      'InvoiceReconciliationSource',
+      'InvoiceReplayOperation',
+    ]);
 
     // Middleware de soft delete: intercepta queries para filtrar deletedAt = null
     this.$use(async (params, next) => {

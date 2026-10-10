@@ -36,6 +36,25 @@ não verificados.** Não representa a entrega da importação conversacional.
   agenda pública. A edição descritiva preserva as ocorrências; alterações
   financeiras protegidas pelo serviço retornam conflito e exigem correção
   assistida, em vez de regenerar silenciosamente o cronograma.
+- Numa importação **nova** com ciclo documental (`documentaryCycle`), as
+  parcelas futuras geradas herdam o ciclo: a futura `i` vai para o mês do
+  documento **mais `i` meses**, contando pela posição na agenda e não pelo
+  número impresso (uma linha `2/3` na posição 0 com fatura de novembro gera
+  `3/3` em dezembro, mantendo data, valor, rótulo e status). Sem o ciclo, a
+  importação é a de antes; agendas já gravadas não são reescritas.
+- A prova interna dessa derivação é privada (`derived-sequential`, em
+  `cycleEvidence`): guarda a âncora, o deslocamento e a autoria do servidor, e
+  nunca um hash de documento nem entrada do cliente. Um leitor anterior a ela
+  rejeita a agenda; por isso, depois da primeira gravação com a marca, reverter
+  só o *writer* não autoriza reverter o *parser*.
+- Na correção assistida, mudar o mês de uma âncora lista em
+  `staleDerivedDependents` (`current`, `candidate`, `rederivable`) as parcelas
+  que ainda derivam dela. Cada uma exige `dependentDispositions` explícita por
+  id — `keep` (mantém mês e prova antigos) ou `rederive` (só `PLANEJADO`, sem
+  trilha de fatura, com prova nova do servidor). Sem disposição para todas: 409
+  `DERIVED_DEPENDENTS_UNRESOLVED`, sem efeito algum. A parcela que a mesma
+  correção já altera, ou que já tem documento ou atestado próprio, é
+  independente e não entra na lista. Valor, data, status e ids nunca mudam.
 - P01 não oferece um novo editor assistido na UI nem sessões sucessoras,
   upload conversacional ou confirmação de lotes pela Maria. Esses fluxos
   continuam no [plano de importação](experiencia-importacao.md).
@@ -91,6 +110,47 @@ Comportamento de edição no [manual, §4.2](manual-do-aplicativo.md#42-visão-c
 - Testes que blindam contrato: `apps/api/src/monthly-overview/monthly-overview.account-view.spec.ts`, `apps/api/src/monthly-overview/caixa-conta.spec.ts`.
 
 ## Apêndice histórico
+
+### Replay #703 — checkpoint S0 local e inativo
+
+O checkpoint S0 adiciona somente `InvoiceReconciliationSource`,
+`InvoiceReplayOperation` e `InvoiceFundingAllocation`, com 17 relações inversas
+nos dez modelos existentes que referenciam. Preserva os modelos de importação,
+a finalidade de crédito e todos os campos financeiros existentes. Não ativa
+produtor, endpoint, guard, remoção, restore, settlement, overview ou interface;
+não representa entrega de #703, M1, merge ou implantação.
+
+A migration `20260929030000_invoice_replay` sucede a 71ª,
+`20260929020000_refund_purpose`. Seu SQL é byte-idêntico ao
+`20260923230000_invoice_replay` do commit
+`01507a0b81a5ba87b2a7846bdf86616f24d11faf` (SHA-256
+`75dd7d99223b188ee73e57697709eda1a86fe56808ebc323383ef8cb2d92b0e9`):
+três tabelas, 12 índices explícitos, 22 FKs e 13 CHECKs, sem backfill.
+Somente Source/Operation entram na exceção de soft delete do PrismaService;
+FundingAllocation mantém `deletedAt` e a coerência com a operação de reversão.
+
+O gate em
+[`migrations-invoice-replay-upgrade.spec.ts`](../apps/api/src/prisma/migrations-invoice-replay-upgrade.spec.ts)
+aplica 71→72 em SQLite descartável com fixture não vazia nas 12 tabelas
+referenciadas. Compara todas as linhas/colunas/objetos antigos e o ledger
+separadamente; exercita CHECKs, UNIQUE, FK com enforcement observado na conexão
+da escrita, deploy/no-op, drift dos três modelos e PrismaService real dentro e
+fora de transação. A fixture histórica de refund-purpose continua em 71;
+os pins do template corrente e do finance-center passam a 72.
+
+Em U6, o CLI Prisma 5.22 com somente as 71 pastas antigas, contra o banco
+descartável já em 72, retornou exit 0 e `No pending migrations to apply.`,
+preservando ledger e schema. Isso não autoriza rollback financeiro: o schema
+aditivo deve ser preservado; depois de qualquer produtor ativo, ou quando esse
+histórico for desconhecido, não se pode inferir segurança de tabelas vazias.
+O drift é verificado por `migrate diff --from-migrations ... --to-schema-datamodel
+... --shadow-database-url file:<descartável> --script`: nenhum objeto replay
+pode aparecer; diferenças legadas de CHECKs/índices parciais não são apagadas.
+
+Para reter a prova local, `INVOICE_REPLAY_EVIDENCE_DIR` pode apontar para um
+diretório privado existente. O spec cria um subdiretório único, backups
+consistentes 71/72, snapshots e saídas literais, com arquivos `0600`.
+Os artefatos não entram no repositório.
 
 ## 1. Conceitos
 

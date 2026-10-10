@@ -20,10 +20,13 @@ model Tenant {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  users    User[]
-  projects Project[]
+  users            User[]
+  projects         Project[]
   agentDailyQuotas AgentDailyQuota[]
-  demoSeeds DemoSeed[]
+  demoSeeds        DemoSeed[]
+  invoiceReconciliationSources InvoiceReconciliationSource[] @relation("ReplaySourceTenant")
+  invoiceReplayOperations InvoiceReplayOperation[] @relation("ReplayOperationTenant")
+  invoiceFundingAllocations InvoiceFundingAllocation[] @relation("ReplayAllocationTenant")
 
   @@map("tenants")
 }
@@ -49,9 +52,12 @@ model User {
   updatedAt           DateTime  @updatedAt @map("updated_at")
   deletedAt           DateTime? @map("deleted_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  importSessions ImportSession[]
+  invoiceReplayOperations InvoiceReplayOperation[] @relation("ReplayOperationActor")
 
   @@unique([tenantId, username])
+  @@unique([tenantId, id])
   @@map("users")
 }
 
@@ -71,16 +77,16 @@ model AgentDailyQuota {
 }
 
 model DemoSeed {
-  id               String    @id @default(cuid())
-  tenantId         String    @unique @map("tenant_id")
-  version          Int
-  status           String
+  id                String    @id @default(cuid())
+  tenantId          String    @unique @map("tenant_id")
+  version           Int
+  status            String
   personalProjectId String?   @map("personal_project_id")
   reformaProjectId  String?   @map("reforma_project_id")
-  errorMessage     String?   @map("error_message")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  deletedAt        DateTime? @map("deleted_at")
+  errorMessage      String?   @map("error_message")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -88,20 +94,20 @@ model DemoSeed {
 }
 
 model Project {
-  id          String    @id @default(cuid())
-  tenantId    String    @map("tenant_id")
-  createdByUserId String? @map("created_by_user_id")
-  type        String    @default("REFORMA") // REFORMA | COMPRA | CASA | CARRO | PESSOAL
-  name        String
-  description String?
-  startDate   DateTime? @map("start_date")
-  endDate     DateTime? @map("end_date")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
-  onboardedAt DateTime? @map("onboarded_at") // null = onboarding pendente (1º acesso ainda não guiado)
+  id              String    @id @default(cuid())
+  tenantId        String    @map("tenant_id")
+  createdByUserId String?   @map("created_by_user_id")
+  type            String    @default("REFORMA") // REFORMA | COMPRA | CASA | CARRO | PESSOAL
+  name            String
+  description     String?
+  startDate       DateTime? @map("start_date")
+  endDate         DateTime? @map("end_date")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+  onboardedAt     DateTime? @map("onboarded_at") // null = onboarding pendente (1º acesso ainda não guiado)
 
-  tenant                  Tenant             @relation(fields: [tenantId], references: [id])
+  tenant                  Tenant              @relation(fields: [tenantId], references: [id])
   rooms                   Room[]
   receipts                Receipt[]
   expenses                Expense[]
@@ -120,8 +126,8 @@ model Project {
   scheduleHolidays        ScheduleHoliday[]
   creditCards             CreditCard[]
   bankAccounts            BankAccount[]
-  budgetAllocationsSource BudgetAllocation[] @relation("SourceAllocations")
-  budgetAllocationsTarget BudgetAllocation[] @relation("TargetAllocations")
+  budgetAllocationsSource BudgetAllocation[]  @relation("SourceAllocations")
+  budgetAllocationsTarget BudgetAllocation[]  @relation("TargetAllocations")
   categoryBudgets         CategoryBudget[]
   pendencias              Pendencia[]
   plants                  Plant[]
@@ -129,7 +135,13 @@ model Project {
   priceMonitorItems       PriceMonitorItem[]
   financing               Financing?
   purchaseScenarios       PurchaseScenario[]
+  invoiceReconciliationSources InvoiceReconciliationSource[] @relation("ReplaySourceOwner")
+  invoiceReplayOperations InvoiceReplayOperation[] @relation("ReplayOperationOwner")
 
+  importSessions  ImportSession[]
+  importArtifacts ImportArtifact[]
+
+  @@unique([tenantId, id])
   @@map("projects")
 }
 
@@ -176,33 +188,35 @@ model Room {
 // ─── Recebimentos ───────────────────────────────────────────
 
 model Receipt {
-  id              String    @id @default(cuid())
-  projectId       String    @map("project_id")
-  tenantId        String    @map("tenant_id")
-  valor           Int // centavos
-  data            DateTime
-  tipo            String // PAGAMENTO | BONUS | VENDA_ACAO | ORCAMENTO_INICIAL | RENDIMENTO | TRANSFERENCIA | OUTROS
-  status          String    @default("PREVISTO") // PREVISTO | EM_CAIXA
-  descricao       String? // texto livre (descrição do crédito do extrato)
-  importId        String?   @map("import_id") // ref BankStatementImport — opcional
-  externalId      String?   @map("external_id") // hash idempotente da transação importada
-  bankLast4       String?   @map("bank_last4") // últimos 4 da conta bancária de origem
-  accountId       String?   @map("account_id") // FK BankAccount: origem da importação ou vínculo retroativo (null = sem vínculo)
-  origin          String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
-  linkedReceiptId String?   @map("linked_receipt_id") // quando importado do extrato é vinculado a recebimento planejado de outro projeto (evita dupla contagem)
-  dedupeKeyStrong  String?  @map("dedupe_key_strong") // #659 — dedupe cross-origin: FITID ou hash de bytes do arquivo. UNIQUE PARCIAL (WHERE NOT NULL) definido à mão na migration; NÃO adicionar @@unique aqui (geraria unique total)
-  dedupeKeyNatural String?  @map("dedupe_key_natural") // #659 — chave natural seed-free (tenant,project,date,amount,merchant,ordinal). Sem unique: linhas Tier B legitimamente compartilham
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
+  id               String    @id @default(cuid())
+  projectId        String    @map("project_id")
+  tenantId         String    @map("tenant_id")
+  valor            Int // centavos
+  data             DateTime
+  tipo             String // PAGAMENTO | BONUS | VENDA_ACAO | ORCAMENTO_INICIAL | RENDIMENTO | TRANSFERENCIA | OUTROS
+  status           String    @default("PREVISTO") // PREVISTO | EM_CAIXA
+  descricao        String? // texto livre (descrição do crédito do extrato)
+  importId         String?   @map("import_id") // ref BankStatementImport — opcional
+  externalId       String?   @map("external_id") // hash idempotente da transação importada
+  bankLast4        String?   @map("bank_last4") // últimos 4 da conta bancária de origem
+  accountId        String?   @map("account_id") // FK BankAccount: origem da importação ou vínculo retroativo (null = sem vínculo)
+  origin           String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
+  linkedReceiptId  String?   @map("linked_receipt_id") // quando importado do extrato é vinculado a recebimento planejado de outro projeto (evita dupla contagem)
+  dedupeKeyStrong  String?   @map("dedupe_key_strong") // #659 — dedupe cross-origin: FITID ou hash de bytes do arquivo. UNIQUE PARCIAL (WHERE NOT NULL) definido à mão na migration; NÃO adicionar @@unique aqui (geraria unique total)
+  dedupeKeyNatural String?   @map("dedupe_key_natural") // #659 — chave natural seed-free (tenant,project,date,amount,merchant,ordinal). Sem unique: linhas Tier B legitimamente compartilham
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
 
-  project           Project            @relation(fields: [projectId], references: [id])
-  bankAccount       BankAccount?       @relation("ReceiptBankAccount", fields: [accountId], references: [id])
-  cashFlow          CashFlowEntry[]
-  budgetAllocations BudgetAllocation[]
+  project            Project             @relation(fields: [projectId], references: [id])
+  bankAccount        BankAccount?        @relation("ReceiptBankAccount", fields: [accountId], references: [id])
+  cashFlow           CashFlowEntry[]
+  budgetAllocations  BudgetAllocation[]
+  importObservations ImportObservation[] @relation("ImportObservationReceipt")
 
-  @@index([projectId, externalId])
   @@unique([tenantId, projectId, externalId])
+  @@unique([tenantId, projectId, id])
+  @@index([projectId, externalId])
   @@index([linkedReceiptId])
   @@index([accountId])
   @@index([dedupeKeyNatural])
@@ -212,70 +226,75 @@ model Receipt {
 // ─── Despesas ───────────────────────────────────────────────
 
 model Expense {
-  id                 String    @id @default(cuid())
-  projectId          String    @map("project_id")
-  tenantId           String    @map("tenant_id")
-  createdByUserId    String?   @map("created_by_user_id")
-  tipoDespesa        String    @map("tipo_despesa") // MATERIAL_CONSTRUCAO | ELETRODOMESTICO | REVESTIMENTO | ILUMINACAO | MARMORE | VIDRACARIA_SERRALHERIA | METAL_CERAMICA | MARCENARIA | MAO_DE_OBRA
-  categoriaMaoDeObra String?   @map("categoria_mao_de_obra") // EMPREITEIRO | INSTALADOR_PISO | INSTALADOR_MARMORE | PINTOR | ELETRICISTA | VIDRACEIRO | SERRALHEIRO | MARCENEIRO
-  roomId             String?   @map("room_id") // ambiente da casa (opcional)
-  valor              Int // valor unitário em centavos
-  quantidade         Int       @default(1)
-  valorTotal         Int       @map("valor_total") // calculado server-side: valor * quantidade
-  titulo             String?
-  fornecedor         String?
-  link               String?
-  imageUrl           String?   @map("image_url") // URL direta da imagem do produto (override manual)
-  formaPagamento     String    @map("forma_pagamento") // A_VISTA | PARCELADO | QUINZENAL
-  dataPagamento      DateTime? @map("data_pagamento") // quando A_VISTA
-  quantidadeParcela  Int?      @map("quantidade_parcela") // quando PARCELADO ou QUINZENAL
-  dataInicioParcela  DateTime? @map("data_inicio_parcela") // quando PARCELADO ou QUINZENAL
-  dataCompra         DateTime? @map("data_compra") // COMPETÊNCIA: data real da compra (independe do vencimento/parcela). Usada pelo eixo "Gastos Controle". NÃO afeta a Conta Real (eixo caixa), que deriva o vencimento à parte.
-  status             String    @default("PLANEJADO") // PLANEJADO | PAGO
-  recorrente         Boolean   @default(false) // despesa fixa mensal (ocorrência virtual, não gera linhas)
-  recorrenciaFim     DateTime? @map("recorrencia_fim") // último mês da recorrência (null = sem fim)
-  paidParcelas       String?   @map("paid_parcelas") // JSON array de índices 0-based de parcelas pagas (PARCELADO/QUINZENAL). null = nenhuma parcial
-  installmentDateOverrides String? @map("installment_date_overrides") // JSON objeto índice 0-based -> YYYY-MM-DD
-  documentedSchedule String? @map("documented_schedule")
-  plannedExpenseId   String?   @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
-  settledByExpenseId String?   @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga
-  importId           String?   @map("import_id") // id da importação de fatura (CreditCardStatementImport) — opcional
-  externalId         String?   @map("external_id") // hash idempotente da transação importada
-  recurrenceKey      String?   @map("recurrence_key") // série recorrente EXPLÍCITA (criada pelo toggle) — identidade de fato, não heurística
-  seriesKey          String?   @map("series_key") // identifica compra parcelada (cardId|merchantNorm|amountPerInstall|total) — para casar parcelas futuras
-  cardLast4          String?   @map("card_last4") // últimos 4 do cartão de origem (denormalizado)
-  bankLast4          String?   @map("bank_last4") // últimos 4 da conta bancária de origem
-  accountId          String?   @map("account_id") // FK BankAccount: origem da importação ou vínculo. null quando origin='none' (despesa sem conta)
-  origin             String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
-  linkedExpenseId    String?   @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
-  settlesInvoiceKey  String?   @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
-  dedupeKeyStrong    String?   @map("dedupe_key_strong") // #659 — dedupe cross-origin: FITID ou hash de bytes do arquivo. UNIQUE PARCIAL (WHERE NOT NULL) definido à mão na migration; NÃO adicionar @@unique aqui (geraria unique total)
-  dedupeKeyNatural   String?   @map("dedupe_key_natural") // #659 — chave natural seed-free (tenant,project,date,amount,merchant,ordinal). Sem unique: linhas Tier B legitimamente compartilham
-  invoiceUndoState        String?  @map("invoice_undo_state") // #569 — carimbo no PAGAMENTO_FATURA_CARTAO: NULL(legado) | PROCESSED_NONE | PROCESSED_SETTLED
-  invoiceUndoParcelaCount Int?     @map("invoice_undo_parcela_count") // #569 — N esperado de itens ativos no ledger
-  invoiceUndoDueMonth     String?  @map("invoice_undo_due_month") // #569 — YYYY-MM alvo da liquidação
-  invoiceUndoCardId       String?  @map("invoice_undo_card_id") // #569 — id ESTÁVEL do cartão; NULL quando M8 não identificou
-  invoiceUndoTrailVersion Int?     @map("invoice_undo_trail_version") // #569 — versão do protocolo do carimbo (guarda de versão)
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
-  deletedAt          DateTime? @map("deleted_at")
+  id                       String    @id @default(cuid())
+  projectId                String    @map("project_id")
+  tenantId                 String    @map("tenant_id")
+  createdByUserId          String?   @map("created_by_user_id")
+  tipoDespesa              String    @map("tipo_despesa") // MATERIAL_CONSTRUCAO | ELETRODOMESTICO | REVESTIMENTO | ILUMINACAO | MARMORE | VIDRACARIA_SERRALHERIA | METAL_CERAMICA | MARCENARIA | MAO_DE_OBRA
+  categoriaMaoDeObra       String?   @map("categoria_mao_de_obra") // EMPREITEIRO | INSTALADOR_PISO | INSTALADOR_MARMORE | PINTOR | ELETRICISTA | VIDRACEIRO | SERRALHEIRO | MARCENEIRO
+  roomId                   String?   @map("room_id") // ambiente da casa (opcional)
+  valor                    Int // valor unitário em centavos
+  quantidade               Int       @default(1)
+  valorTotal               Int       @map("valor_total") // calculado server-side: valor * quantidade
+  titulo                   String?
+  fornecedor               String?
+  link                     String?
+  imageUrl                 String?   @map("image_url") // URL direta da imagem do produto (override manual)
+  formaPagamento           String    @map("forma_pagamento") // A_VISTA | PARCELADO | QUINZENAL
+  dataPagamento            DateTime? @map("data_pagamento") // quando A_VISTA
+  quantidadeParcela        Int?      @map("quantidade_parcela") // quando PARCELADO ou QUINZENAL
+  dataInicioParcela        DateTime? @map("data_inicio_parcela") // quando PARCELADO ou QUINZENAL
+  dataCompra               DateTime? @map("data_compra") // COMPETÊNCIA: data real da compra (independe do vencimento/parcela). Usada pelo eixo "Gastos Controle". NÃO afeta a Conta Real (eixo caixa), que deriva o vencimento à parte.
+  status                   String    @default("PLANEJADO") // PLANEJADO | PAGO
+  recorrente               Boolean   @default(false) // despesa fixa mensal (ocorrência virtual, não gera linhas)
+  recorrenciaFim           DateTime? @map("recorrencia_fim") // último mês da recorrência (null = sem fim)
+  paidParcelas             String?   @map("paid_parcelas") // JSON array de índices 0-based de parcelas pagas (PARCELADO/QUINZENAL). null = nenhuma parcial
+  installmentDateOverrides String?   @map("installment_date_overrides") // JSON objeto índice 0-based -> YYYY-MM-DD
+  documentedSchedule       String?   @map("documented_schedule")
+  plannedExpenseId         String?   @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
+  settledByExpenseId       String?   @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga
+  importId                 String?   @map("import_id") // id da importação de fatura (CreditCardStatementImport) — opcional
+  externalId               String?   @map("external_id") // hash idempotente da transação importada
+  recurrenceKey            String?   @map("recurrence_key") // série recorrente EXPLÍCITA (criada pelo toggle) — identidade de fato, não heurística
+  seriesKey                String?   @map("series_key") // identifica compra parcelada (cardId|merchantNorm|amountPerInstall|total) — para casar parcelas futuras
+  cardLast4                String?   @map("card_last4") // últimos 4 do cartão de origem (denormalizado)
+  bankLast4                String?   @map("bank_last4") // últimos 4 da conta bancária de origem
+  accountId                String?   @map("account_id") // FK BankAccount: origem da importação ou vínculo. null quando origin='none' (despesa sem conta)
+  origin                   String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
+  linkedExpenseId          String?   @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
+  refundPurposeRevision    Int       @default(0) @map("refund_purpose_revision") // #704 — geração da finalidade de estorno (guarda otimista do endpoint dedicado)
+  settlesInvoiceKey        String?   @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
+  dedupeKeyStrong          String?   @map("dedupe_key_strong") // #659 — dedupe cross-origin: FITID ou hash de bytes do arquivo. UNIQUE PARCIAL (WHERE NOT NULL) definido à mão na migration; NÃO adicionar @@unique aqui (geraria unique total)
+  dedupeKeyNatural         String?   @map("dedupe_key_natural") // #659 — chave natural seed-free (tenant,project,date,amount,merchant,ordinal). Sem unique: linhas Tier B legitimamente compartilham
+  invoiceUndoState         String?   @map("invoice_undo_state") // #569 — carimbo no PAGAMENTO_FATURA_CARTAO: NULL(legado) | PROCESSED_NONE | PROCESSED_SETTLED
+  invoiceUndoParcelaCount  Int?      @map("invoice_undo_parcela_count") // #569 — N esperado de itens ativos no ledger
+  invoiceUndoDueMonth      String?   @map("invoice_undo_due_month") // #569 — YYYY-MM alvo da liquidação
+  invoiceUndoCardId        String?   @map("invoice_undo_card_id") // #569 — id ESTÁVEL do cartão; NULL quando M8 não identificou
+  invoiceUndoTrailVersion  Int?      @map("invoice_undo_trail_version") // #569 — versão do protocolo do carimbo (guarda de versão)
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  deletedAt                DateTime? @map("deleted_at")
 
-  project             Project                  @relation(fields: [projectId], references: [id])
-  room                Room?                    @relation(fields: [roomId], references: [id])
-  bankAccount         BankAccount?             @relation("ExpenseBankAccount", fields: [accountId], references: [id])
-  plannedExpense      Expense?                 @relation("ExpenseSettlement", fields: [plannedExpenseId], references: [id])
-  settledBy           Expense?                 @relation("ExpenseSettlement")
-  cashFlow            CashFlowEntry[]
-  markers             FloorPlanMarker[]
-  settlementsAsSource CrossProjectSettlement[] @relation("SettlementSource")
-  settlementsAsTarget CrossProjectSettlement[] @relation("SettlementTarget")
-  rateioAsSource      RateioAllocation[]       @relation("RateioSource")
-  rateioAsTarget      RateioAllocation[]       @relation("RateioTarget")
-  financingInstallment FinancingInstallment?
+  project                               Project                      @relation(fields: [projectId], references: [id])
+  room                                  Room?                        @relation(fields: [roomId], references: [id])
+  bankAccount                           BankAccount?                 @relation("ExpenseBankAccount", fields: [accountId], references: [id])
+  plannedExpense                        Expense?                     @relation("ExpenseSettlement", fields: [plannedExpenseId], references: [id])
+  settledBy                             Expense?                     @relation("ExpenseSettlement")
+  cashFlow                              CashFlowEntry[]
+  markers                               FloorPlanMarker[]
+  settlementsAsSource                   CrossProjectSettlement[]     @relation("SettlementSource")
+  settlementsAsTarget                   CrossProjectSettlement[]     @relation("SettlementTarget")
+  rateioAsSource                        RateioAllocation[]           @relation("RateioSource")
+  rateioAsTarget                        RateioAllocation[]           @relation("RateioTarget")
+  financingInstallment                  FinancingInstallment?
   importedInvoiceLiquidationsAsPayment  ImportedInvoiceLiquidation[] @relation("ImportedInvoiceLiquidationPayment")
   importedInvoiceLiquidationsAsPurchase ImportedInvoiceLiquidation[] @relation("ImportedInvoiceLiquidationPurchase")
+  importObservations                    ImportObservation[]          @relation("ImportObservationExpense")
+  invoiceReconciliationSources InvoiceReconciliationSource[] @relation("ReplaySourceExpense")
+  invoiceFundingAllocations InvoiceFundingAllocation[] @relation("ReplayAllocationPurchase")
 
   @@unique([tenantId, projectId, externalId])
+  @@unique([tenantId, projectId, id])
   @@index([linkedExpenseId])
   @@index([seriesKey])
   @@index([recurrenceKey])
@@ -308,9 +327,9 @@ model PriceMonitorItem {
   updatedAt           DateTime  @updatedAt @map("updated_at")
   deletedAt           DateTime? @map("deleted_at")
 
-  project Project @relation(fields: [projectId], references: [id])
+  project           Project                @relation(fields: [projectId], references: [id])
   purchasePlanItems PurchaseScenarioItem[]
-  pricePoints PricePoint[]
+  pricePoints       PricePoint[]
 
   @@index([projectId, isActive])
   @@index([tenantId, projectId, title])
@@ -361,24 +380,24 @@ model CategoryBudget {
 // uma despesa planejada em outro projeto (REFORMA/CASA/CARRO). Não-destrutivo:
 // guarda o valor real (da fatura) e o snapshot do planejado para unlink reversível.
 model CrossProjectSettlement {
-  id              String   @id @default(cuid())
-  tenantId        String   @map("tenant_id")
-  sourceExpenseId String   @map("source_expense_id") // despesa importada (PESSOAL) que liquida
-  targetExpenseId String   @map("target_expense_id") // despesa planejada (outro projeto)
-  parcelaIndex    Int      @map("parcela_index") // parcela 0-based do ALVO liquidada
-  realValor       Int      @map("real_valor") // valor real pago (centavos), da fatura
-  plannedValor    Int      @map("planned_valor") // snapshot do valor planejado da parcela (restore)
-  plannedStatus   String   @map("planned_status") // snapshot do status original do alvo (PLANEJADO/PAGO)
-  createdAt       DateTime @default(now()) @map("created_at")
-  mode            String   @default("LEGACY_REPLACEMENT")
-  requestId       String?   @map("request_id")
-  reversedAt      DateTime? @map("reversed_at")
-  reversedByUserId String?  @map("reversed_by_user_id")
-  createdByUserId String?   @map("created_by_user_id")
-  sourceCashFlowEntryId String? @map("source_cash_flow_entry_id")
-  targetPaidCashFlowEntryId String? @map("target_paid_cash_flow_entry_id")
-  targetPendingCashFlowEntryId String? @map("target_pending_cash_flow_entry_id")
-  snapshot        String?
+  id                           String    @id @default(cuid())
+  tenantId                     String    @map("tenant_id")
+  sourceExpenseId              String    @map("source_expense_id") // despesa importada (PESSOAL) que liquida
+  targetExpenseId              String    @map("target_expense_id") // despesa planejada (outro projeto)
+  parcelaIndex                 Int       @map("parcela_index") // parcela 0-based do ALVO liquidada
+  realValor                    Int       @map("real_valor") // valor real pago (centavos), da fatura
+  plannedValor                 Int       @map("planned_valor") // snapshot do valor planejado da parcela (restore)
+  plannedStatus                String    @map("planned_status") // snapshot do status original do alvo (PLANEJADO/PAGO)
+  createdAt                    DateTime  @default(now()) @map("created_at")
+  mode                         String    @default("LEGACY_REPLACEMENT")
+  requestId                    String?   @map("request_id")
+  reversedAt                   DateTime? @map("reversed_at")
+  reversedByUserId             String?   @map("reversed_by_user_id")
+  createdByUserId              String?   @map("created_by_user_id")
+  sourceCashFlowEntryId        String?   @map("source_cash_flow_entry_id")
+  targetPaidCashFlowEntryId    String?   @map("target_paid_cash_flow_entry_id")
+  targetPendingCashFlowEntryId String?   @map("target_pending_cash_flow_entry_id")
+  snapshot                     String?
 
   source Expense @relation("SettlementSource", fields: [sourceExpenseId], references: [id])
   target Expense @relation("SettlementTarget", fields: [targetExpenseId], references: [id])
@@ -398,26 +417,27 @@ model CrossProjectSettlement {
 // PLANEJADO imutável — o efetivo é o cronograma da FONTE escalado à alocação.
 // Não-destrutivo e reversível: guarda snapshot de status/paidParcelas do alvo.
 model RateioAllocation {
-  id                   String    @id @default(cuid())
-  tenantId             String    @map("tenant_id")
-  sourceExpenseId      String    @map("source_expense_id") // compra-fonte (PESSOAL)
-  targetExpenseId      String    @map("target_expense_id") // planejada (outro projeto)
-  allocation           Int // centavos alocados a este alvo
-  plannedStatus        String    @map("planned_status") // snapshot do status original do alvo
-  plannedPaid          String?   @map("planned_paid") // snapshot do paidParcelas original (JSON)
+  id                              String    @id @default(cuid())
+  tenantId                        String    @map("tenant_id")
+  sourceExpenseId                 String    @map("source_expense_id") // compra-fonte (PESSOAL)
+  targetExpenseId                 String    @map("target_expense_id") // planejada (outro projeto)
+  allocation                      Int // centavos alocados a este alvo
+  isRefundCredit                  Boolean   @default(false) @map("is_refund_credit") // #704 — marca propriedade do servidor: alocação negativa criada pela finalidade de estorno (nunca inferida pelo sinal)
+  plannedStatus                   String    @map("planned_status") // snapshot do status original do alvo
+  plannedPaid                     String?   @map("planned_paid") // snapshot do paidParcelas original (JSON)
   // Snapshot do CRONOGRAMA original do alvo (para restaurar no desfazer): quando o
   // rateio sobrescreve o alvo com o cronograma da fonte (Parcelado Nx + datas + valor
   // = alocação), estes campos guardam o estado anterior para o unratearSource restaurar.
-  plannedValor         Int?      @map("planned_valor") // valor unitário original (centavos)
-  plannedQuantidade    Int?      @map("planned_quantidade")
-  plannedValorTotal    Int?      @map("planned_valor_total")
-  plannedForma         String?   @map("planned_forma")
-  plannedQtdParcela    Int?      @map("planned_qtd_parcela")
-  plannedDataInicio    DateTime? @map("planned_data_inicio")
-  plannedDataPagamento DateTime? @map("planned_data_pagamento")
-  plannedInstallmentDateOverrides String? @map("planned_installment_date_overrides")
-  plannedDocumentedSchedule String? @map("planned_documented_schedule")
-  createdAt            DateTime  @default(now()) @map("created_at")
+  plannedValor                    Int?      @map("planned_valor") // valor unitário original (centavos)
+  plannedQuantidade               Int?      @map("planned_quantidade")
+  plannedValorTotal               Int?      @map("planned_valor_total")
+  plannedForma                    String?   @map("planned_forma")
+  plannedQtdParcela               Int?      @map("planned_qtd_parcela")
+  plannedDataInicio               DateTime? @map("planned_data_inicio")
+  plannedDataPagamento            DateTime? @map("planned_data_pagamento")
+  plannedInstallmentDateOverrides String?   @map("planned_installment_date_overrides")
+  plannedDocumentedSchedule       String?   @map("planned_documented_schedule")
+  createdAt                       DateTime  @default(now()) @map("created_at")
 
   source Expense @relation("RateioSource", fields: [sourceExpenseId], references: [id])
   target Expense @relation("RateioTarget", fields: [targetExpenseId], references: [id])
@@ -446,16 +466,19 @@ model CashFlowEntry {
   formaPagamento     String?   @map("forma_pagamento")
   status             String // PAGO | PLANEJADO | PREVISTO | EM_CAIXA
   parcela            String? // ex: "1/3", "2/3"
-  invoiceDueMonth    String? @map("invoice_due_month")
+  invoiceDueMonth    String?   @map("invoice_due_month")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
 
-  project          Project           @relation(fields: [projectId], references: [id])
-  receipt          Receipt?          @relation(fields: [receiptId], references: [id])
-  expense          Expense?          @relation(fields: [expenseId], references: [id])
-  budgetAllocation BudgetAllocation? @relation(fields: [budgetAllocationId], references: [id])
+  project                     Project                      @relation(fields: [projectId], references: [id])
+  receipt                     Receipt?                     @relation(fields: [receiptId], references: [id])
+  expense                     Expense?                     @relation(fields: [expenseId], references: [id])
+  budgetAllocation            BudgetAllocation?            @relation(fields: [budgetAllocationId], references: [id])
   importedInvoiceLiquidations ImportedInvoiceLiquidation[]
+
+  invoiceReconciliationSources InvoiceReconciliationSource[] @relation("ReplaySourceCfe")
+  invoiceFundingAllocations InvoiceFundingAllocation[] @relation("ReplayAllocationCfe")
 
   @@index([projectId, data])
   @@index([receiptId])
@@ -484,16 +507,123 @@ model ImportedInvoiceLiquidation {
   createdAt         DateTime  @default(now()) @map("created_at")
   deletedAt         DateTime? @map("deleted_at")
 
-  payment       Expense       @relation("ImportedInvoiceLiquidationPayment", fields: [paymentExpenseId], references: [id])
-  purchase      Expense       @relation("ImportedInvoiceLiquidationPurchase", fields: [purchaseExpenseId], references: [id])
-  cashFlowEntry CashFlowEntry @relation(fields: [cashFlowEntryId], references: [id])
+  payment       Expense             @relation("ImportedInvoiceLiquidationPayment", fields: [paymentExpenseId], references: [id])
+  purchase      Expense             @relation("ImportedInvoiceLiquidationPurchase", fields: [purchaseExpenseId], references: [id])
+  cashFlowEntry CashFlowEntry       @relation(fields: [cashFlowEntryId], references: [id])
   import        BankStatementImport @relation(fields: [importId], references: [id])
-  card          CreditCard    @relation(fields: [cardId], references: [id])
+  card          CreditCard          @relation(fields: [cardId], references: [id])
+  invoiceFundingAllocations InvoiceFundingAllocation[] @relation("ReplayAllocationOriginalClaim")
 
   @@index([importId])
   @@index([paymentExpenseId])
   @@index([tenantId])
   @@map("imported_invoice_liquidations")
+}
+
+model InvoiceReconciliationSource {
+  id                       String   @id @default(cuid())
+  tenantId                 String   @map("tenant_id")
+  ownerProjectId           String   @map("owner_project_id")
+  kind                     String
+  sourceExpenseId          String   @map("source_expense_id")
+  sourceIndex              Int      @map("source_index")
+  sourceCashFlowEntryId     String?  @map("source_cash_flow_entry_id")
+  bankStatementImportId    String?  @map("bank_statement_import_id")
+  cardStatementImportId    String?  @map("card_statement_import_id")
+  accountId                String?  @map("account_id")
+  originCardId             String?  @map("origin_card_id")
+  destinationCardId        String   @map("destination_card_id")
+  invoiceDueMonth          String   @map("invoice_due_month")
+  capacityCents            Int      @map("capacity_cents")
+  recordedDate             DateTime @map("recorded_date")
+  admissionMode            String   @map("admission_mode")
+  admissionOperationId     String   @map("admission_operation_id")
+  admissionReceipt         String   @map("admission_receipt")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  tenant          Tenant @relation("ReplaySourceTenant", fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  ownerProject    Project @relation("ReplaySourceOwner", fields: [ownerProjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceExpense   Expense @relation("ReplaySourceExpense", fields: [sourceExpenseId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceCashFlow  CashFlowEntry? @relation("ReplaySourceCfe", fields: [sourceCashFlowEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  bankImport      BankStatementImport? @relation("ReplaySourceBankImport", fields: [bankStatementImportId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cardImport      CreditCardStatementImport? @relation("ReplaySourceCardImport", fields: [cardStatementImportId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  account         BankAccount? @relation("ReplaySourceAccount", fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  originCard      CreditCard? @relation("ReplaySourceOriginCard", fields: [originCardId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  destinationCard CreditCard @relation("ReplaySourceDestinationCard", fields: [destinationCardId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  admission       InvoiceReplayOperation @relation("ReplaySourceAdmission", fields: [admissionOperationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  allocations     InvoiceFundingAllocation[] @relation("ReplayAllocationSource")
+
+  @@unique([tenantId, sourceExpenseId, sourceIndex], map: "invoice_reconciliation_sources_origin_key")
+  @@unique([tenantId, sourceCashFlowEntryId], map: "invoice_reconciliation_sources_cfe_key")
+  @@index([tenantId, destinationCardId, invoiceDueMonth])
+  @@index([bankStatementImportId])
+  @@index([cardStatementImportId])
+  @@map("invoice_reconciliation_sources")
+}
+
+model InvoiceReplayOperation {
+  id                    String   @id @default(cuid())
+  tenantId              String   @map("tenant_id")
+  ownerProjectId        String   @map("owner_project_id")
+  cardId                String   @map("card_id")
+  invoiceDueMonth       String   @map("invoice_due_month")
+  actorUserId           String   @map("actor_user_id")
+  protocolVersion       Int      @default(1) @map("protocol_version")
+  kind                  String
+  idempotencyKey        String   @map("idempotency_key")
+  requestHash           String   @map("request_hash")
+  previewFingerprint    String   @map("preview_fingerprint")
+  resultingFingerprint  String   @map("resulting_fingerprint")
+  receipt               String
+  publicResult          String   @map("public_result")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  tenant          Tenant @relation("ReplayOperationTenant", fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  ownerProject    Project @relation("ReplayOperationOwner", fields: [ownerProjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  card            CreditCard @relation("ReplayOperationCard", fields: [cardId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor           User @relation("ReplayOperationActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  admittedSources InvoiceReconciliationSource[] @relation("ReplaySourceAdmission")
+  allocations     InvoiceFundingAllocation[] @relation("ReplayAllocationOperation")
+  baselines       InvoiceFundingAllocation[] @relation("ReplayAllocationBaseline")
+  reversals       InvoiceFundingAllocation[] @relation("ReplayAllocationReversal")
+
+  @@unique([tenantId, actorUserId, idempotencyKey], map: "invoice_replay_operations_request_key")
+  @@index([tenantId, cardId, invoiceDueMonth, createdAt])
+  @@map("invoice_replay_operations")
+}
+
+model InvoiceFundingAllocation {
+  id                    String    @id @default(cuid())
+  tenantId              String    @map("tenant_id")
+  sourceId              String    @map("source_id")
+  operationId           String    @map("operation_id")
+  baselineOperationId   String    @map("baseline_operation_id")
+  layer                 String
+  kind                  String
+  purchaseExpenseId     String    @map("purchase_expense_id")
+  purchaseIndex         Int       @map("purchase_index")
+  cashFlowEntryId        String    @map("cash_flow_entry_id")
+  amountCents           Int       @map("amount_cents")
+  originalClaimId       String?   @map("original_claim_id")
+  reversedByOperationId String?   @map("reversed_by_operation_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  deletedAt             DateTime? @map("deleted_at")
+
+  tenant        Tenant @relation("ReplayAllocationTenant", fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  source        InvoiceReconciliationSource @relation("ReplayAllocationSource", fields: [sourceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  operation     InvoiceReplayOperation @relation("ReplayAllocationOperation", fields: [operationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  baseline      InvoiceReplayOperation @relation("ReplayAllocationBaseline", fields: [baselineOperationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  purchase      Expense @relation("ReplayAllocationPurchase", fields: [purchaseExpenseId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cashFlow      CashFlowEntry @relation("ReplayAllocationCfe", fields: [cashFlowEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  originalClaim ImportedInvoiceLiquidation? @relation("ReplayAllocationOriginalClaim", fields: [originalClaimId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversal      InvoiceReplayOperation? @relation("ReplayAllocationReversal", fields: [reversedByOperationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([operationId, sourceId, purchaseExpenseId, purchaseIndex, layer], map: "invoice_funding_allocations_operation_pair_key")
+  @@index([tenantId, sourceId, deletedAt])
+  @@index([tenantId, purchaseExpenseId, purchaseIndex, deletedAt])
+  @@index([cashFlowEntryId])
+  @@index([originalClaimId])
+  @@map("invoice_funding_allocations")
 }
 
 model Attachment {
@@ -745,14 +875,14 @@ model FinancingInstallment {
 // (applyPurchasePlan), esta tabela só persiste a entrada do usuário.
 
 model PurchaseScenario {
-  id            String    @id @default(cuid())
-  projectId     String    @map("project_id")
-  tenantId      String    @map("tenant_id")
-  nome          String
-  horizonteMeses Int      @default(6) @map("horizonte_meses") // 3 | 6 | 12 (última escolha do usuário)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  deletedAt     DateTime? @map("deleted_at")
+  id             String    @id @default(cuid())
+  projectId      String    @map("project_id")
+  tenantId       String    @map("tenant_id")
+  nome           String
+  horizonteMeses Int       @default(6) @map("horizonte_meses") // 3 | 6 | 12 (última escolha do usuário)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
 
   project Project                @relation(fields: [projectId], references: [id])
   itens   PurchaseScenarioItem[]
@@ -783,7 +913,7 @@ model PurchaseScenarioItem {
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
 
-  scenario       PurchaseScenario  @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  scenario        PurchaseScenario  @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   sourcePriceItem PriceMonitorItem? @relation(fields: [sourcePriceItemId], references: [id])
 
   @@index([tenantId, projectId, scenarioId])
@@ -808,8 +938,8 @@ model Reminder {
   updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
-  project Project @relation(fields: [projectId], references: [id])
-  plant   Plant?  @relation(fields: [plantId], references: [id])
+  project         Project          @relation(fields: [projectId], references: [id])
+  plant           Plant?           @relation(fields: [plantId], references: [id])
   vehicleDocument VehicleDocument?
 
   @@index([projectId])
@@ -994,10 +1124,15 @@ model CreditCard {
   updatedAt           DateTime  @updatedAt @map("updated_at")
   deletedAt           DateTime? @map("deleted_at")
 
-  project Project                     @relation(fields: [projectId], references: [id])
-  imports CreditCardStatementImport[]
+  project                     Project                      @relation(fields: [projectId], references: [id])
+  imports                     CreditCardStatementImport[]
   importedInvoiceLiquidations ImportedInvoiceLiquidation[]
+  importSessions              ImportSession[]
+  originatingInvoiceSources InvoiceReconciliationSource[] @relation("ReplaySourceOriginCard")
+  receivingInvoiceSources InvoiceReconciliationSource[] @relation("ReplaySourceDestinationCard")
+  invoiceReplayOperations InvoiceReplayOperation[] @relation("ReplayOperationCard")
 
+  @@unique([tenantId, projectId, id])
   @@index([projectId])
   @@index([tenantId])
   @@map("credit_cards")
@@ -1022,6 +1157,7 @@ model CreditCardStatementImport {
   deletedAt        DateTime? @map("deleted_at")
 
   card CreditCard @relation(fields: [cardId], references: [id])
+  invoiceReconciliationSources InvoiceReconciliationSource[] @relation("ReplaySourceCardImport")
 
   @@index([cardId])
   @@index([tenantId])
@@ -1029,17 +1165,17 @@ model CreditCardStatementImport {
 }
 
 model InvoiceAdjustment {
-  id          String                  @id @default(cuid())
-  projectId   String                  @map("project_id")
-  tenantId    String                  @map("tenant_id")
-  cardLast4   String                  @map("card_last4")
-  dueMonth    String                  @map("due_month")
-  amountCents Int                     @map("amount_cents")
+  id          String    @id @default(cuid())
+  projectId   String    @map("project_id")
+  tenantId    String    @map("tenant_id")
+  cardLast4   String    @map("card_last4")
+  dueMonth    String    @map("due_month")
+  amountCents Int       @map("amount_cents")
   reason      String
   note        String?
-  createdAt   DateTime                @default(now()) @map("created_at")
-  updatedAt   DateTime                @updatedAt @map("updated_at")
-  deletedAt   DateTime?               @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
 
   project Project @relation(fields: [projectId], references: [id])
 
@@ -1068,10 +1204,11 @@ model BankAccount {
   updatedAt           DateTime  @updatedAt @map("updated_at")
   deletedAt           DateTime? @map("deleted_at")
 
-  project Project               @relation(fields: [projectId], references: [id])
-  imports BankStatementImport[]
-  receipts Receipt[]            @relation("ReceiptBankAccount")
-  expenses Expense[]            @relation("ExpenseBankAccount")
+  project  Project               @relation(fields: [projectId], references: [id])
+  imports  BankStatementImport[]
+  receipts Receipt[]             @relation("ReceiptBankAccount")
+  expenses Expense[]             @relation("ExpenseBankAccount")
+  invoiceReconciliationSources InvoiceReconciliationSource[] @relation("ReplaySourceAccount")
 
   @@index([projectId])
   @@index([tenantId])
@@ -1079,26 +1216,27 @@ model BankAccount {
 }
 
 model BankStatementImport {
-  id               String    @id @default(cuid())
-  accountId        String    @map("account_id")
-  tenantId         String    @map("tenant_id")
-  periodLabel      String    @map("period_label") // ex: "2026-05" (mês de referência do extrato)
-  source           String // OFX | CSV_GENERIC | PDF
-  fileName         String?   @map("file_name")
-  fileSize         Int?      @map("file_size")
-  status           String    @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
-  inserted         Int       @default(0)
-  duplicated       Int       @default(0)
-  skipped          Int       @default(0)
-  totalAmountCents Int       @default(0) @map("total_amount_cents") // somatório de débitos (positivo)
-  message          String?
-  inlineExpenseCreations String? @map("inline_expense_creations") // server-owned, versioned creation identities and immutable post-state
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  deletedAt        DateTime? @map("deleted_at")
+  id                     String    @id @default(cuid())
+  accountId              String    @map("account_id")
+  tenantId               String    @map("tenant_id")
+  periodLabel            String    @map("period_label") // ex: "2026-05" (mês de referência do extrato)
+  source                 String // OFX | CSV_GENERIC | PDF
+  fileName               String?   @map("file_name")
+  fileSize               Int?      @map("file_size")
+  status                 String    @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
+  inserted               Int       @default(0)
+  duplicated             Int       @default(0)
+  skipped                Int       @default(0)
+  totalAmountCents       Int       @default(0) @map("total_amount_cents") // somatório de débitos (positivo)
+  message                String?
+  inlineExpenseCreations String?   @map("inline_expense_creations") // server-owned, versioned creation identities and immutable post-state
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  deletedAt              DateTime? @map("deleted_at")
 
-  account BankAccount @relation(fields: [accountId], references: [id])
+  account                     BankAccount                  @relation(fields: [accountId], references: [id])
   importedInvoiceLiquidations ImportedInvoiceLiquidation[]
+  invoiceReconciliationSources InvoiceReconciliationSource[] @relation("ReplaySourceBankImport")
 
   @@index([accountId])
   @@index([tenantId])
@@ -1164,7 +1302,6 @@ model BudgetAllocation {
   @@map("budget_allocations")
 }
 
-
 model Feedback {
   id        String   @id @default(cuid())
   tenantId  String   @map("tenant_id")
@@ -1182,7 +1319,7 @@ model UserActivityLog {
   id        String   @id @default(cuid())
   userId    String   @map("user_id")
   tenantId  String   @map("tenant_id")
-  action    String   // e.g. "expenses.create", "projects.delete"
+  action    String // e.g. "expenses.create", "projects.delete"
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([userId, createdAt(sort: Desc)])
@@ -1236,7 +1373,7 @@ model Journey {
 // SCREEN_VISIT, ACTION. `screenKey`/`actionKey` só fazem sentido para o
 // triggerType correspondente (SCREEN_VISIT/ACTION) — nulos nos outros casos.
 model JourneyTrigger {
-  id     String @id @default(cuid())
+  id        String @id @default(cuid())
   journeyId String @map("journey_id")
 
   triggerType String @map("trigger_type")
@@ -1255,9 +1392,9 @@ model JourneyTrigger {
   actionKey String? @map("action_key")
 
   device        String  @default("any") @map("device") // web | mobile | any
-  repeatPolicy   String  @default("ONCE_PER_USER") @map("repeat_policy")
-  dismissPolicy  String  @default("DISMISS_UNTIL_LOGIN") @map("dismiss_policy") // DISMISS_UNTIL_LOGIN | REOPEN_NEXT_TRIGGER
-  active         Boolean @default(true)
+  repeatPolicy  String  @default("ONCE_PER_USER") @map("repeat_policy")
+  dismissPolicy String  @default("DISMISS_UNTIL_LOGIN") @map("dismiss_policy") // DISMISS_UNTIL_LOGIN | REOPEN_NEXT_TRIGGER
+  active        Boolean @default(true)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1318,4 +1455,143 @@ model JourneyCompletion {
   @@unique([journeyId, completionKey])
   @@index([tenantId])
   @@map("journey_completions")
+}
+
+// Session lifecycle is NOT soft deletion. SQL CHECKs live in the bootstrap migration.
+// No financial data or original documents are backfilled by these coordination models.
+model ImportSession {
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  ownerUserId             String    @map("owner_user_id")
+  ownerProjectId          String    @map("owner_project_id")
+  cardId                  String    @map("card_id")
+  protocolVersion         Int       @default(1) @map("protocol_version")
+  kind                    String
+  state                   String
+  revision                Int
+  createRequestId         String    @map("create_request_id")
+  createPayloadHash       String    @map("create_payload_hash")
+  consentPolicyVersion    Int       @map("consent_policy_version")
+  consentedAt             DateTime  @map("consented_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  lastUserEditAt          DateTime  @map("last_user_edit_at")
+  // Historical deadline remains non-null; terminal DTOs project expiresAt:null.
+  expiresAt               DateTime  @map("expires_at")
+  draftJson               String    @map("draft_json")
+  searchJson              String?   @map("search_json")
+  proposalJson            String?   @map("proposal_json")
+  proposalHash            String?   @map("proposal_hash")
+  preflightHash           String?   @map("preflight_hash")
+  challengeJson           String?   @map("challenge_json")
+  prepareGeneration       Int       @default(0) @map("prepare_generation")
+  prepareLeaseJson        String?   @map("prepare_lease_json")
+  financialRequestId      String?   @map("financial_request_id")
+  confirmedRevision       Int?      @map("confirmed_revision")
+  confirmedSessionVersion Int?      @map("confirmed_session_version")
+  confirmedAt             DateTime? @map("confirmed_at")
+  receiptJson             String?   @map("receipt_json")
+  closedAt                DateTime? @map("closed_at")
+
+  ownerUser           User                    @relation(fields: [tenantId, ownerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  ownerProject        Project                 @relation(fields: [tenantId, ownerProjectId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  card                CreditCard              @relation(fields: [tenantId, ownerProjectId, cardId], references: [tenantId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
+  attachments         ImportSessionArtifact[]
+  leasedArtifacts     ImportArtifact[]        @relation("ImportArtifactLeaseSession")
+  claimedObservations ImportObservation[]     @relation("ImportObservationClaimSession")
+
+  @@unique([tenantId, ownerUserId, createRequestId])
+  @@unique([tenantId, ownerUserId, financialRequestId])
+  @@unique([tenantId, ownerProjectId, id])
+  @@index([state, expiresAt])
+  @@map("import_sessions")
+}
+
+model ImportArtifact {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  ownerProjectId      String    @map("owner_project_id")
+  documentSha256      String    @map("document_sha256")
+  verifiedBytes       Int       @map("verified_bytes")
+  detectedFormat      String    @map("detected_format")
+  state               String
+  storageKey          String?   @map("storage_key")
+  parserVersion       String?   @map("parser_version")
+  extractionJson      String?   @map("extraction_json")
+  parseGeneration     Int       @default(0) @map("parse_generation")
+  leaseSessionId      String?   @map("lease_session_id")
+  leaseSessionVersion Int?      @map("lease_session_version")
+  leaseTokenExpiresAt DateTime? @map("lease_token_expires_at")
+  leaseExpiresAt      DateTime? @map("lease_expires_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  ownerProject Project                 @relation(fields: [tenantId, ownerProjectId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  leaseSession ImportSession?          @relation("ImportArtifactLeaseSession", fields: [tenantId, ownerProjectId, leaseSessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+  references   ImportSessionArtifact[]
+  observations ImportObservation[]
+
+  @@unique([tenantId, ownerProjectId, documentSha256])
+  @@unique([tenantId, ownerProjectId, id])
+  @@map("import_artifacts")
+}
+
+model ImportSessionArtifact {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  ownerProjectId        String    @map("owner_project_id")
+  sessionId             String    @map("session_id")
+  artifactId            String?   @map("artifact_id")
+  position              Int
+  fileName              String    @map("file_name")
+  declaredMime          String    @map("declared_mime")
+  declaredBytes         Int       @map("declared_bytes")
+  state                 String
+  temporaryStorageKey   String?   @map("temporary_storage_key")
+  reservedBytes         Int       @map("reserved_bytes")
+  uploadGeneration      Int       @default(0) @map("upload_generation")
+  uploadSessionVersion  Int?      @map("upload_session_version")
+  uploadTokenExpiresAt  DateTime? @map("upload_token_expires_at")
+  uploadLeaseExpiresAt  DateTime? @map("upload_lease_expires_at")
+  verifiedAt            DateTime? @map("verified_at")
+  releasedAt            DateTime? @map("released_at")
+  temporaryPurgePending Boolean   @default(false) @map("temporary_purge_pending")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  session  ImportSession   @relation(fields: [tenantId, ownerProjectId, sessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+  artifact ImportArtifact? @relation(fields: [tenantId, ownerProjectId, artifactId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([sessionId, position])
+  @@unique([sessionId, artifactId])
+  @@index([tenantId, ownerProjectId, artifactId])
+  @@map("import_session_artifacts")
+}
+
+model ImportObservation {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  ownerProjectId     String    @map("owner_project_id")
+  artifactId         String    @map("artifact_id")
+  reference          String
+  evidenceJson       String    @map("evidence_json")
+  claimVersion       Int       @default(0) @map("claim_version")
+  canonicalProjectId String?   @map("canonical_project_id")
+  canonicalExpenseId String?   @map("canonical_expense_id")
+  canonicalReceiptId String?   @map("canonical_receipt_id")
+  canonicalIndex     Int?      @map("canonical_index")
+  claimSessionId     String?   @map("claim_session_id")
+  claimReceiptJson   String?   @map("claim_receipt_json")
+  claimedAt          DateTime? @map("claimed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  artifact         ImportArtifact @relation(fields: [tenantId, ownerProjectId, artifactId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+  canonicalExpense Expense?       @relation("ImportObservationExpense", fields: [tenantId, canonicalProjectId, canonicalExpenseId], references: [tenantId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
+  canonicalReceipt Receipt?       @relation("ImportObservationReceipt", fields: [tenantId, canonicalProjectId, canonicalReceiptId], references: [tenantId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
+  claimSession     ImportSession? @relation("ImportObservationClaimSession", fields: [tenantId, ownerProjectId, claimSessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([artifactId, reference])
+  @@index([tenantId, canonicalProjectId, canonicalExpenseId])
+  @@index([tenantId, canonicalProjectId, canonicalReceiptId])
+  @@map("import_observations")
 }

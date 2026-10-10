@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { spendTree } from './spend-tree';
+import { categoriasDoAno } from './derive';
 import type { MonthlyEntry } from '../_types';
 
 function entry(patch: Partial<MonthlyEntry>): MonthlyEntry {
@@ -21,6 +22,33 @@ function entry(patch: Partial<MonthlyEntry>): MonthlyEntry {
 }
 
 describe('spendTree', () => {
+  it('keeps signed credit-only categories and zero-net origins', () => {
+    const entries = [
+      entry({ cardLast4: '1234', categoria: 'Material', valor: 80_000 }),
+      entry({ cardLast4: '1234', categoria: 'Estorno', valor: -80_000 }),
+      entry({ cardLast4: '5678', categoria: 'Crédito', valor: -40_000 }),
+    ];
+    expect(spendTree(entries)).toEqual({
+      total: -40_000,
+      origins: [
+        {
+          kind: 'card',
+          last4: '1234',
+          total: 0,
+          tipos: [
+            { tipo: 'Material', valor: 80_000 },
+            { tipo: 'Estorno', valor: -80_000 },
+          ],
+        },
+        { kind: 'card', last4: '5678', total: -40_000, tipos: [{ tipo: 'Crédito', valor: -40_000 }] },
+      ],
+    });
+    expect(categoriasDoAno(entries, 2026)).toContainEqual({
+      categoria: 'Crédito',
+      valor: -40_000,
+      media: -3333,
+    });
+  });
   it('quebra origem → tipo de despesa, ordenado por valor desc', () => {
     const tree = spendTree([
       entry({ cardLast4: '1234', categoria: 'Moradia', valor: 300 }),

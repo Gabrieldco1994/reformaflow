@@ -1,4 +1,5 @@
 import {
+  addMonthsToMonthKey,
   ExpenseScheduleV1,
   isInvoiceDueMonth,
   parseExpenseSchedule,
@@ -7,6 +8,9 @@ import {
 } from '@reformaflow/domain';
 import {
   ScheduleEvidence,
+  DERIVED_SEQUENTIAL,
+  DerivedSequentialEvidence,
+  StoredCycleEvidence,
   ScheduleOperationReceipt,
   ScheduleProjectionRef,
   StoredExpenseSchedule,
@@ -207,6 +211,52 @@ function evidence(value: unknown): ScheduleEvidence | null {
     actorUserId: text(actorUserId),
     recordedAt: recorded,
   };
+}
+
+function derivedEvidence(
+  item: Record<string, unknown>,
+  occurrenceIndex: number,
+  invoiceDueMonth: string | null,
+): DerivedSequentialEvidence {
+  fields(item, [
+    'evidenceKind',
+    'derivedFrom',
+    'offset',
+    'actorUserId',
+    'recordedAt',
+  ]);
+  const from = record(item.derivedFrom);
+  fields(from, ['index', 'invoiceDueMonth']);
+  const fromIndex = index(from.index);
+  const offset = index(item.offset);
+  if (
+    !isInvoiceDueMonth(from.invoiceDueMonth) ||
+    fromIndex >= occurrenceIndex ||
+    offset !== occurrenceIndex - fromIndex ||
+    invoiceDueMonth !== addMonthsToMonthKey(from.invoiceDueMonth, offset)
+  )
+    return invalid();
+  return {
+    evidenceKind: DERIVED_SEQUENTIAL,
+    derivedFrom: { index: fromIndex, invoiceDueMonth: from.invoiceDueMonth },
+    offset,
+    actorUserId: text(item.actorUserId),
+    recordedAt: timestamp(item.recordedAt),
+  };
+}
+
+// The derived tag is a cycle-only proof; amount evidence keeps going through
+// `evidence`, which never learns it.
+function cycleEvidence(
+  value: unknown,
+  occurrenceIndex: number,
+  invoiceDueMonth: string | null,
+): StoredCycleEvidence | null {
+  if (value === null) return null;
+  const item = record(value);
+  if (item.evidenceKind === DERIVED_SEQUENTIAL)
+    return derivedEvidence(item, occurrenceIndex, invoiceDueMonth);
+  return evidence(item);
 }
 
 export function parseMirrorCorrection(value: unknown): MirrorCorrection {
@@ -434,13 +484,17 @@ export function parseStoredExpenseSchedule(
           'amountEvidence',
           'cycleEvidence',
         ]);
-        const cycleEvidence = evidence(privateItem.cycleEvidence);
-        if ((item.invoiceDueMonth === null) !== (cycleEvidence === null))
+        const cycle = cycleEvidence(
+          privateItem.cycleEvidence,
+          item.index,
+          item.invoiceDueMonth,
+        );
+        if ((item.invoiceDueMonth === null) !== (cycle === null))
           return invalid();
         return {
           ...item,
           amountEvidence: evidence(privateItem.amountEvidence),
-          cycleEvidence,
+          cycleEvidence: cycle,
         };
       }),
       projections: value.projections.map((item: unknown) =>

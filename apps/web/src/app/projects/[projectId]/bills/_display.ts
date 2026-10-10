@@ -75,6 +75,7 @@ export interface AvulsaRow extends Pick<Expense,
   'installmentSettlements' | 'paidParcelas' | 'installmentDateOverrides' |
   'recorrente' | 'recorrenciaFim' | 'schedule'
 > {
+  canDelete?: boolean;
   id: string;
   tipoDespesa: string;
   titulo?: string | null;

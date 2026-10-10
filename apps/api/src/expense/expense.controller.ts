@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Header,
   Post,
   Patch,
   Delete,
@@ -8,6 +9,7 @@ import {
   Param,
   Query,
   UseInterceptors,
+  SetMetadata,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ExpenseService } from './expense.service';
@@ -23,6 +25,8 @@ import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { assertRateioRequester, RateioRequester } from './rateio.types';
+import { RefundPurposeService } from './refund-purpose.service';
+import { OPAQUE_PROJECT_ACCESS } from '../common/guards/project-access.guard';
 
 @ApiTags('expenses')
 @ApiBearerAuth()
@@ -33,6 +37,7 @@ export class ExpenseController {
   constructor(
     private readonly service: ExpenseService,
     private readonly paidOriginsService: PaidOriginsService,
+    private readonly refundPurposeService: RefundPurposeService,
   ) {}
 
   @Post()
@@ -61,32 +66,35 @@ export class ExpenseController {
 
   @Get()
   @ApiOperation({ summary: 'Listar despesas do projeto (paginado)' })
-  findAll(
+  async findAll(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @CurrentUser() requester?: RateioRequester,
   ) {
-    return this.service.findAll(tenantId, projectId, {
+    assertRateioRequester(requester);
+    const result = await this.service.findAll(tenantId, projectId, {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     }, requester);
+    return { ...result, items: await this.service.withDeleteCapabilities(tenantId, result.items, requester) };
   }
 
   @Get('planned')
   @ApiOperation({ summary: 'Listar despesas planejadas (para liquidação)' })
-  findPlanned(
+  async findPlanned(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.findPlanned(tenantId, projectId, requester);
+    const items = await this.service.findPlanned(tenantId, projectId, requester);
+    return this.service.withDeleteCapabilities(tenantId, items, requester);
   }
 
   @Get('cross-project')
   @ApiOperation({ summary: 'Listar despesas de outros projetos do tenant (para vínculo)' })
-  findCrossProject(
+  async findCrossProject(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @CurrentUser() requester: RateioRequester,
@@ -96,7 +104,7 @@ export class ExpenseController {
     @Query('limit') limit?: string,
   ) {
     assertRateioRequester(requester);
-    return this.service.findCrossProject(
+    const items = await this.service.findCrossProject(
       tenantId,
       projectId,
       {
@@ -107,6 +115,7 @@ export class ExpenseController {
       },
       requester,
     );
+    return this.service.withDeleteCapabilities(tenantId, items, requester);
   }
 
   @Get('paid-origins')
@@ -129,15 +138,53 @@ export class ExpenseController {
     return this.paidOriginsService.findForProject(tenantId, projectId, requester);
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Buscar despesa por ID' })
-  findById(
+  @Get(':id/refund-purpose')
+  @SetMetadata(OPAQUE_PROJECT_ACCESS, true)
+  @Header('Cache-Control', 'private, no-store')
+  readRefundPurpose(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.findById(tenantId, projectId, id, requester);
+    return this.refundPurposeService.read(tenantId, projectId, id, requester);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Buscar despesa por ID' })
+  async findById(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
+  ) {
+    const expense = await this.service.findById(tenantId, projectId, id, requester);
+    const [result] = await this.service.withDeleteCapabilities(tenantId, [expense], requester);
+    return result;
+  }
+
+  @Post(':id/refund-purpose')
+  @SetMetadata(OPAQUE_PROJECT_ACCESS, true)
+  refundPurpose(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
+    @Body() body: unknown,
+  ) {
+    return this.refundPurposeService.execute(tenantId, projectId, id, requester, body);
+  }
+
+  @Delete(':id/refund-purpose')
+  @SetMetadata(OPAQUE_PROJECT_ACCESS, true)
+  undoRefundPurpose(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
+    @Body() body: unknown,
+  ) {
+    return this.refundPurposeService.undo(tenantId, projectId, id, requester, body);
   }
 
   @Patch(':id')

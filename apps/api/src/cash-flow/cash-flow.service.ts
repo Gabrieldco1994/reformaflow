@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { refundPurposeScope } from '../expense/refund-purpose-scope';
 import {
   calculateRollingBalance,
   calculateRollingBalanceRealizado,
@@ -17,14 +18,13 @@ export class CashFlowService {
    */
   async findAll(tenantId: string, projectId: string) {
     const project = await this.validateProject(tenantId, projectId);
-    const expenseFilter =
-      project.type === 'PESSOAL'
-        ? { deletedAt: null }
-        : { deletedAt: null, linkedExpenseId: null };
+    const expenseFilter = { deletedAt: null,
+      ...refundPurposeScope(tenantId, [projectId], project.type !== 'PESSOAL') };
 
     const entries = await this.prisma.cashFlowEntry.findMany({
       where: {
         projectId,
+        tenantId,
         deletedAt: null,
         OR: [
           { expenseId: null },

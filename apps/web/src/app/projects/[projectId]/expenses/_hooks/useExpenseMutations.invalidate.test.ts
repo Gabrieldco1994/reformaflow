@@ -19,6 +19,18 @@ describe('invalidateExpenseQueries', () => {
       queryKey: ['pendencias', 'proj-1'],
     });
   });
+
+  // #704: `canDelete` is read from the expense DETAIL query; it must be refreshed
+  // together with the lists, otherwise a credit keeps a stale Excluir.
+  it('invalida o detalhe da despesa (owner) junto com as listas', () => {
+    const invalidateQueries = vi.fn();
+    const queryClient = { invalidateQueries } as Pick<QueryClient, 'invalidateQueries'> as QueryClient;
+
+    invalidateExpenseQueries(queryClient, 'proj-1');
+
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['expense', 'proj-1'] });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['expenses', 'proj-1'] });
+  });
 });
 
 // Regressão #572: invalidação pós-importação (extrato/fatura) estava

@@ -159,6 +159,25 @@ describe("DespesaModal — preserva a origem de pagamento ao editar", () => {
     });
   });
 
+  it.each([
+    ["without a schedule", {}],
+    [
+      "with a documented schedule (metadata path wins, credit fields stay the four descriptive ones)",
+      { schedule: { version: 1, occurrences: [{ index: 0, parcela: "1/1", valor: -24_800, data: "2026-08-10", invoiceDueMonth: "2026-09" }] } },
+    ],
+  ])("#704 credit %s sends only titulo/fornecedor/link/imageUrl", async (_label, extra) => {
+    apiGet.mockResolvedValue({ ...editing, valor: -24_800, valorTotal: -24_800, linkedExpenseId: null, ...extra });
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(await screen.findByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(apiPatch).toHaveBeenCalledOnce());
+    const payload = apiPatch.mock.calls[0][1];
+    expect(Object.keys(payload).sort()).toEqual(["fornecedor", "imageUrl", "link", "titulo"]);
+    expect(payload).not.toHaveProperty("tipoDespesa");
+    expect(payload).not.toHaveProperty("valor");
+    expect(payload).not.toHaveProperty("linkedExpenseId");
+  });
+
   it("salva somente metadados sem alterar vínculos intocados", async () => {
     const user = userEvent.setup();
     renderModal();

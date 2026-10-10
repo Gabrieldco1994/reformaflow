@@ -247,6 +247,22 @@ export async function fundingAccount(
   return scope.account;
 }
 
+/** The economic state "active funding"; the SQL guard and `isActiveFundingRow` both read this one value. */
+export const ACTIVE_FUNDING_WHERE = {
+  mode: ADDITIVE,
+  reversedAt: null,
+} satisfies Prisma.CrossProjectSettlementWhereInput;
+
+/** Economic state only: tenant and id scope stay with the caller (SQL `where` or the context loader). */
+export function isActiveFundingRow(
+  row: Pick<CrossProjectSettlement, "mode" | "reversedAt">,
+): boolean {
+  return (
+    row.mode === ACTIVE_FUNDING_WHERE.mode &&
+    (row.reversedAt ?? null) === ACTIVE_FUNDING_WHERE.reversedAt
+  );
+}
+
 export async function guardActiveFunding(
   tx: Tx,
   tenantId: string,
@@ -257,8 +273,7 @@ export async function guardActiveFunding(
     await tx.crossProjectSettlement.count({
       where: {
         tenantId,
-        mode: ADDITIVE,
-        reversedAt: null,
+        ...ACTIVE_FUNDING_WHERE,
         OR: [
           { sourceExpenseId: { in: ids } },
           { targetExpenseId: { in: ids } },

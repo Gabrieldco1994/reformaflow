@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CreditCard, Landmark, Pencil, Check, X, Loader2 } from 'lucide-react';
@@ -10,6 +10,8 @@ import { getExpenseOptions } from '../../expenses/_types';
 import type { MonthlyEntry } from '../_types';
 import { fmtMoneyExact, mesCurto } from './format';
 import { despesasDaCategoriaAno } from './derive';
+import { rootIdentity } from '../../expenses/_lib/credit-policy';
+import { useExpenseRoot } from '../../expenses/_hooks/useExpenseRoot';
 
 /**
  * Pop-up com as despesas consideradas para uma categoria no gráfico "Categorias
@@ -33,6 +35,9 @@ export default function CategoriaDespesasModal({
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [novoTipo, setNovoTipo] = useState<string>('');
+  // Identidade do ROOT resolvida sob demanda (só quando o servidor não a informa).
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [creditIds, setCreditIds] = useState<string[]>([]);
 
   const itens = useMemo(
     () => (categoria ? despesasDaCategoriaAno(entries, year, categoria, statusMode) : []),
@@ -60,6 +65,26 @@ export default function CategoriaDespesasModal({
     const dia = iso.slice(8, 10);
     const m0 = parseInt(iso.slice(5, 7), 10) - 1;
     return `${dia} ${mesCurto(m0)}`;
+  }
+
+  const pending = pendingId ? itens.find((item) => item.id === pendingId) : undefined;
+  const root = useExpenseRoot(pending?.projectId, pending?.expenseId, !!pending);
+  useEffect(() => {
+    if (!pending || root.status !== 'ready') return;
+    setPendingId(null);
+    if (rootIdentity(pending.expenseIsCredit, root.expense) === 'credit') {
+      setCreditIds((ids) => [...ids, pending.id]);
+    } else {
+      startEdit(pending);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, root.status, root.expense]);
+
+  // Categoria é metadado: raiz sem crédito pode reclassificar; crédito não. Só o servidor
+  // (ou o detalhe real) prova a raiz; o sinal da ocorrência não decide nada.
+  function requestEdit(e: MonthlyEntry) {
+    if (rootIdentity(e.expenseIsCredit) === 'not-credit') startEdit(e);
+    else setPendingId(e.id);
   }
 
   function startEdit(e: MonthlyEntry) {
@@ -91,7 +116,9 @@ export default function CategoriaDespesasModal({
         <ul className="space-y-1.5">
           {itens.map((e) => {
             const editing = editingId === e.id;
-            const canEdit = !!e.expenseId;
+            // Crédito (raiz, não a ocorrência) não é reclassificado aqui; o servidor segue como autoridade.
+            const canEdit = !!e.expenseId && e.expenseIsCredit !== true && !creditIds.includes(e.id);
+            const verifying = pendingId === e.id;
             const saving = mutation.isPending && editing;
             const tipoOptions = getExpenseOptions(e.projectType || 'PESSOAL');
             return (
@@ -162,6 +189,20 @@ export default function CategoriaDespesasModal({
                       )}
                     </span>
                   )}
+                  {!editing && verifying && root.status === 'loading' && (
+                    <p role="status" className="text-[11px] text-gray-500">Verificando ações</p>
+                  )}
+                  {!editing && verifying && root.status === 'error' && (
+                    <p role="alert" className="text-[11px] text-amber-700">
+                      Não foi possível verificar as ações.{' '}
+                      <button type="button" onClick={root.retry} className="min-h-11 font-semibold underline">
+                        Tentar novamente
+                      </button>
+                    </p>
+                  )}
+                  {!editing && creditIds.includes(e.id) && (
+                    <p className="text-[11px] text-gray-500">Crédito: a categoria não é alterada aqui.</p>
+                  )}
                 </div>
                 {!editing && (
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -176,7 +217,7 @@ export default function CategoriaDespesasModal({
                     {canEdit && (
                       <button
                         type="button"
-                        onClick={() => startEdit(e)}
+                        onClick={() => requestEdit(e)}
                         className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
                         aria-label="Editar tipo de despesa"
                         title="Editar tipo de despesa"

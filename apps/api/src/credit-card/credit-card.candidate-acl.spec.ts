@@ -81,6 +81,7 @@ describe('CreditCardService candidate ACL (#480)', () => {
           );
         }),
       },
+      receipt: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((run: any) => run(prisma)),
       $queryRaw: jest.fn().mockResolvedValue([]),
     };

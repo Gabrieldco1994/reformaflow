@@ -74,6 +74,104 @@ Antes de publicar uma migration sobre schema persistido:
 2. crie backup restaurável e teste o restore;
 3. confirme inventário antes/depois e que o entrypoint normal termina com a API saudável.
 
+### Release da entrada CSV da Maria
+
+**Contrato aprovado em 2026-10-09; ainda não lançado.** Não marque a entrada produtiva como
+entregue ou ativa antes de o runtime estar mergeado e a QA de release abaixo passar no ambiente
+real.
+
+O único controle de boot é `IMPORT_SESSION_INTAKE_MODE=off|csv`:
+
+- variável ausente ou `off`: nenhuma nova entrada; histórico, resultado e recuperação de sessões
+  existentes continuam disponíveis;
+- `csv`: pode anunciar somente CSV de fatura de cartão quando toda a cadeia real estiver
+  qualificada;
+- qualquer outro valor: configuração inválida, com falha de boot. Não fazer fallback silencioso
+  para `off`.
+
+OFX, PDF, XLS, XLSX e imagens não entram neste rollout, mesmo que a imagem contenha seus
+parsers/contratos. O catálogo versionado deve publicar disponibilidade ou um dos motivos tipados
+`NOT_ENABLED`, `RUNTIME_UNAVAILABLE` e `NO_QUALIFIED_FORMAT`; indisponibilidade de nova entrada
+não pode derrubar as rotas de histórico/resultado/recuperação.
+
+#### Provider exigido para este rollout
+
+O runtime geral ainda assume Ollama quando `AGENT_LLM_PROVIDER` está ausente. Esse default é
+conveniente para desenvolvimento, mas **não qualifica a revisão guiada CSV**. Neste rollout, o
+ambiente de release deve definir explicitamente:
+
+```text
+AGENT_LLM_PROVIDER=gemini
+GEMINI_API_KEY=<secret no gerenciador do ambiente>
+AGENT_MODEL=<modelo/revisão Gemini aprovado, quando houver pin disponível>
+```
+
+Não registrar o valor de `GEMINI_API_KEY` em arquivo, comando, log, evidência, screenshot ou
+argumento de processo. `GEMINI_BASE_URL` só deve existir quando houver endpoint aprovado
+deliberadamente; ausente, o runtime usa o endpoint Gemini previsto pelo provider. Um
+`AGENT_LLM_FALLBACK` só pode ser habilitado depois de qualificação própria com os mesmos limites
+de minimização, schema e ausência de tools de escrita; para a evidência baseline × candidate,
+deixe fallback de modelo desabilitado para não misturar resultados.
+
+Essa configuração habilita somente a interpretação opcional de texto/voz. Resposta estruturada,
+adiamento, reativação, preparação, revisão ready-only, confirmação e recuperação continuam
+determinísticos. Falta, rejeição, timeout, quota ou resposta inválida do Gemini deve produzir
+fallback explícito e recuperável, preservar a sessão e manter os controles estruturados; nunca
+gravar uma declaração, incluir item não pronto ou declarar sucesso.
+
+#### Pré-requisitos bloqueantes
+
+1. Banco de produção migrado **antes do boot** da nova API, com backup/restore e upgrade legado
+   validados conforme a seção Migrations.
+2. Prova do cofre e de seu ciclo de vida na imagem e no host **Linux reais** usados em produção;
+   prova local, mock ou unidade de contrato não substitui esse gate.
+3. Gemini explicitamente selecionado conforme acima, alcançável a partir da imagem real e
+   verificado com credencial allowlisted já provisionada, sem stub.
+4. Tenant real de QA, capability real e runtime real autorizados e saudáveis, preservando ACL,
+   isolamento e os limites operacionais.
+5. Nenhum override de teste, provider sintético, DI override ou fixture conta como evidência de
+   release.
+6. Smoke do catálogo e da jornada CSV real, incluindo consentimento documental separado da
+   confirmação financeira e a preservação de histórico/resultado/recuperação com o intake em
+   `off`.
+7. Produção deve falhar o boot se `ALLOW_TENANT_OVERRIDE=1`; confirmar que a configuração
+   publicada está ausente/`0` e que os testes do interceptor global estão verdes. Esta correção
+   de segurança pode viver em entrega separada, mas bloqueia ativar `IMPORT_SESSION_INTAKE_MODE=csv`.
+
+#### Evidência de teste × evidência de release
+
+Testes de PR não usam segredo nem rede externa. Com banco/cofre descartáveis e dados sintéticos,
+devem provar: controles estruturados sem chamada ao provider; contexto em português sem IDs;
+adiar/recarregar/reativar/continuar; projeção do servidor contendo somente compras prontas;
+confirmação financeira separada; minimização do payload; falhas seguras; e layout/hit-testing em
+375/390/1280 px. Provider `qa-local`, stub, fixture, caminho determinístico, override de DI ou
+teste que apenas verifica `isConfigured()` prova contrato/orquestração, não Gemini.
+
+Para liberar, execute separadamente o eval **baseline × candidate** e um smoke opt-in na imagem e
+no tenant reais. O runner recebe `GEMINI_API_KEY` já exportada pelo processo pai: não aceita
+`ENV_FILE`, não executa `source`, não abre o `.env` compartilhado e não imprime valor, tamanho,
+prefixo, sufixo ou hash da credencial. A evidência sanitizada registra somente configuração sem
+segredo, provider/modelo resolvido, SHA, dataset/hashes, resultado e métricas permitidas.
+
+O smoke precisa incluir ao menos uma resposta livre realmente interpretada pelo Gemini e os casos
+de indisponibilidade/credencial rejeitada, timeout, quota e saída inválida. A chamada retorna
+somente candidato: o operador ainda confere e usa a ação documental determinística. A captura
+deve provar que nenhum ID estável, CSV bruto, outra compra, filename, total oculto, grant, nonce,
+recibo ou tool operacional chegou ao provider. `CONTINUE`, `READ_RESULT`, controles estruturados
+e abertura determinística da revisão podem funcionar sem Gemini e, por isso, não comprovam esse
+gate.
+
+#### Ordem obrigatória para o wire versionado
+
+1. Manter a web atual compatível e o intake em `off` enquanto os pré-requisitos são preparados.
+2. Aplicar migrations e publicar **primeiro a API**, com o wire versionado e o modo configurado
+   explicitamente. Confirmar boot, health, SHA e catálogo no runtime real.
+3. Só depois publicar a **web** consumidora da mesma versão do wire.
+4. Executar a QA de release ponta a ponta no tenant real. Até ela passar, o status continua
+   “aprovado, não entregue/ativo”.
+5. Para contenção, voltar o modo para `off` e redeployar/reiniciar a API; confirmar que novas
+   entradas sumiram e que histórico, resultado e recuperação continuam utilizáveis.
+
 Para o rollback de releases que carregam migração aditiva com trilha e guards (ex.: **#569 PR1**, em
 validação), o critério de reversão vive no design — ver §3.3 de
 [docs/569-invoice-undo-design.md](docs/569-invoice-undo-design.md). Em resumo: rollback é forward-only,

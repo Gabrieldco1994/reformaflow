@@ -60,6 +60,8 @@ export interface MonthlyEntry {
   isSettlementProjection?: boolean;
   /** Id da Expense de origem (null = lançamento manual de cashflow). Para editar o tipo. */
   expenseId?: string | null;
+  /** Root signal (Expense.valorTotal < 0), server-derived; optional for older payloads. NOT a permission. */
+  expenseIsCredit?: boolean;
 }
 
 /** Caixa real da conta corrente (reconciliação §10). Valores em centavos. */

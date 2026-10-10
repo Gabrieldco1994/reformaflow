@@ -34,6 +34,8 @@ function makeSaida(overrides: Partial<AccountViewSaida> = {}): AccountViewSaida 
     editavel: true,
     dueMonth: null,
     projetoOrigem: null,
+    // Root signal from the server (Expense.valorTotal >= 0). Not a permission: P01 flags still gate.
+    expenseIsCredit: false,
     ...overrides,
   };
 }
@@ -83,6 +85,20 @@ describe('MovimentacaoRow — entrada', () => {
 });
 
 describe('MovimentacaoRow — saída', () => {
+  it.each([undefined, false, true])(
+    'credit actions require expense deletion capability: %s',
+    (expenseDeleteAllowed) => {
+      renderRow({
+        item: makeSaida({ valor: -40_000, realizado: true, status: 'PAGO', expenseIsCredit: true }),
+        expenseDeleteAllowed,
+        onRatear: vi.fn(),
+        onVincular: vi.fn(),
+      });
+      expect(screen.queryByRole('button', { name: /Ratear|Vincular|Paga|Quitar/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Excluir' }) !== null).toBe(expenseDeleteAllowed === true);
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeEnabled();
+    },
+  );
   it.each([false, undefined])('#706 honors installment capability %s instead of offering legacy Quitar', (canExecuteAction) => {
     const item = {
       ...makeSaida({

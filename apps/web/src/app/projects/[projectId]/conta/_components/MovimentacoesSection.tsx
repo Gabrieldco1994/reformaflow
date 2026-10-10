@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowDownUp, CreditCard, Eye, EyeOff, Filter, Layers, LayoutList, PieChart, Plus, Settings, Shapes, X } from 'lucide-react';
 import { ExpenseType, isConsumptionNeutralExpenseType, isNeutralReceiptType } from '@reformaflow/domain';
@@ -23,6 +23,8 @@ import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import type { Expense } from '@/types';
+import { canDeleteExpense, rootIdentity } from '../../expenses/_lib/credit-policy';
+import { expenseRootQueryOptions, toRootState, type RootState } from '../../expenses/_hooks/useExpenseRoot';
 import { DespesaModal } from './DespesaModal';
 import { MovimentacaoRow, type QuitarTarget } from './MovimentacaoRow';
 import { QuitarParcelaModal } from './QuitarParcelaModal';
@@ -200,6 +202,9 @@ export function MovimentacoesSection({
   const [rulesOpen, setRulesOpen] = useState(false);
   const [ruleSearch, setRuleSearch] = useState('');
   const [detailItem, setDetailItem] = useState<AccountViewMovimentacao | null>(null);
+  // Proveniência capturada NA ABERTURA (lista de origem da linha), estável após refetch; reabrir recalcula.
+  const [detailFromCardPurchase, setDetailFromCardPurchase] = useState(false);
+  const fromCardPurchase = (row: AccountViewMovimentacao) => (data.comprasCartao as AccountViewMovimentacao[]).includes(row);
 
   // Deep-link: open detail for `initialItemId` from already-loaded data.
   // If the id is not in the scoped response, do nothing (security: don't reveal existence).
@@ -214,6 +219,7 @@ export function MovimentacoesSection({
     ];
     const found = allItems.find((m) => m.id === initialItemId);
     if (found) {
+      setDetailFromCardPurchase(fromCardPurchase(found));
       setDetailItem(found);
     }
     setConsumedItemId(initialItemId);
@@ -282,7 +288,11 @@ export function MovimentacoesSection({
       toast.success('Lançamento excluído');
       invalidateForeign(vars.targetProjectId);
     },
-    onError: (e: Error) => toast.error(`Erro ao excluir: ${e.message}`),
+    onError: (e: Error, vars) => {
+      toast.error(`Erro ao excluir: ${e.message}`);
+      // A capacidade pode ter mudado no servidor: releia (detalhe + listas).
+      invalidateForeign(vars.targetProjectId);
+    },
   });
 
   const removeReceita = useMutation({
@@ -301,6 +311,48 @@ export function MovimentacoesSection({
     queryFn: () => api.get(`/projects/${projectId}/expenses/${actionExpenseId}`),
     enabled: actionExpenseId != null,
   });
+
+  // Account rows are not Expense DTOs. The ROOT identity / deletion capability come
+  // from the ordinary expense detail, read ON DEMAND (row hover/focus/menu), never
+  // for the whole list. Loading, error and absence stay restricted (nothing invented).
+  const [requestedRoots, setRequestedRoots] = useState<Record<string, { id: string; owner: string }>>({});
+  const rootTarget = (item: AccountViewMovimentacao) => {
+    if (item.kind !== 'saida' || item.isInvoice) return null;
+    const id = item.foreignExpenseId ?? item.id;
+    if (!id) return null;
+    const owner = item.foreignExpenseId ? (item.projetoOrigem?.id ?? projectId) : projectId;
+    return { key: `${owner}/${id}`, id, owner };
+  };
+  const requestedList = Object.entries(requestedRoots);
+  const rootQueries = useQueries({
+    queries: requestedList.map(([, { id, owner }]) => expenseRootQueryOptions(owner, id)),
+  });
+  const rootStateFor = (item: AccountViewMovimentacao): RootState | undefined => {
+    const target = rootTarget(item);
+    if (!target) return undefined;
+    const index = requestedList.findIndex(([key]) => key === target.key);
+    if (index < 0) return undefined;
+    return toRootState(rootQueries[index]);
+  };
+
+  // The purpose flow belongs to the ROOT credit, never to the occurrence sign: the entry is offered
+  // only when the flag or the real root detail proves a credit, and it targets the real owner/id.
+  const refundPurposeFor = (item: AccountViewMovimentacao) => {
+    const target = rootTarget(item);
+    if (!target) return undefined;
+    const flag = item.kind === 'saida' ? item.expenseIsCredit : undefined;
+    if (rootIdentity(flag, rootStateFor(item)?.expense) !== 'credit') return undefined;
+    return { anchorProjectId: projectId, ownerProjectId: target.owner, expenseId: target.id };
+  };
+
+  // The flag may be absent: the detail (user intent, ONE item) asks for its own root, never the list.
+  useEffect(() => {
+    if (!detailItem || detailItem.kind !== 'saida' || detailItem.expenseIsCredit !== undefined) return;
+    const target = rootTarget(detailItem);
+    if (target && !requestedRoots[target.key])
+      setRequestedRoots((current) => ({ ...current, [target.key]: { id: target.id, owner: target.owner } }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rootTarget/requestedRoots derive from these
+  }, [detailItem]);
 
   const semCategoriaMerchants = useMemo(() => {
     const set = new Set<string>();
@@ -782,6 +834,16 @@ export function MovimentacoesSection({
     return (
     <MovimentacaoRow
       key={rowKey(item)}
+      rootState={rootStateFor(item)}
+      onRequestRoot={() => {
+        const target = rootTarget(item);
+        if (target && !requestedRoots[target.key])
+          setRequestedRoots((current) => ({ ...current, [target.key]: { id: target.id, owner: target.owner } }));
+      }}
+      expenseDeleteAllowed={(() => {
+        const detail = rootStateFor(item)?.expense;
+        return detail ? canDeleteExpense(detail) : undefined;
+      })()}
       item={
         item.kind === 'saida' && !item.isInvoice && item.tipoDespesa === 'OUTROS'
           ? {
@@ -814,7 +876,11 @@ export function MovimentacoesSection({
       expandable={expand?.expandable}
       expanded={expand?.expanded}
       onToggleExpand={expand?.onToggleExpand}
-      onShowDetail={setDetailItem}
+      // `item` (da lista de origem) decide a proveniência; a linha exibida pode ser um clone (sugestão de categoria).
+      onShowDetail={(shown) => {
+        setDetailFromCardPurchase(fromCardPurchase(item));
+        setDetailItem(shown);
+      }}
     />
     );
   };
@@ -1471,7 +1537,10 @@ export function MovimentacoesSection({
       )}
       {detailItem && (
         <FinancialItemDetail
+          key={detailItem.id ?? 'detail'}
           item={toDetailItem(detailItem)}
+          refundPurpose={refundPurposeFor(detailItem)}
+          presentation={detailFromCardPurchase ? 'card-purchase' : undefined}
           onClose={() => { setDetailItem(null); onClearItemId?.(); }}
         />
       )}

@@ -62,7 +62,7 @@ describe('CashFlowService.findAll — espelho cross-project', () => {
       cashFlowEntry: {
         findMany: jest.fn().mockImplementation(({ where }: any) => {
           const expenseClause = where.OR?.[1]?.expense;
-          const excludesLinked = expenseClause?.linkedExpenseId === null;
+          const excludesLinked = expenseClause?.OR?.[0]?.linkedExpenseId === null;
           if (!excludesLinked) return Promise.resolve(entriesBase);
           return Promise.resolve(entriesBase.filter((e) => !e.expense?.linkedExpenseId));
         }),
@@ -88,7 +88,9 @@ describe('CashFlowService.findAll — espelho cross-project', () => {
         where: expect.objectContaining({
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null } },
+            { expense: expect.objectContaining({ deletedAt: null,
+              OR: expect.arrayContaining([{ rateioAsSource: { none: { tenantId, isRefundCredit: true } } }]),
+            }) },
           ],
         }),
       }),
@@ -108,7 +110,9 @@ describe('CashFlowService.findAll — espelho cross-project', () => {
         where: expect.objectContaining({
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, linkedExpenseId: null } },
+            { expense: expect.objectContaining({ deletedAt: null,
+              OR: expect.arrayContaining([{ linkedExpenseId: null }]),
+            }) },
           ],
         }),
       }),

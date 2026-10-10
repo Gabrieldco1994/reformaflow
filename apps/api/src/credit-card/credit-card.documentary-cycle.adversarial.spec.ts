@@ -410,7 +410,7 @@ describe("#701 documentary cycle — adversarial real import", () => {
     );
   });
 
-  it("does not infer exceptional cycles for future printed installments", async () => {
+  it("derives the generated future installment from the document cycle by array offset, not the printed number", async () => {
     await imported(["2026-07-14,QA SERIAL MAPLE 2/3,123.45"]);
     const source = await setup.expense.findFirstOrThrow({
       where: { tenantId: ID.tenant },
@@ -452,8 +452,8 @@ describe("#701 documentary cycle — adversarial real import", () => {
           total,
         })),
     ).toEqual([
-      { mes: "2026-09", total: 12345 },
       { mes: "2026-11", total: 12345 },
+      { mes: "2026-12", total: 12345 },
     ]);
     expect(annual.totalAno).toBe(24690);
   });

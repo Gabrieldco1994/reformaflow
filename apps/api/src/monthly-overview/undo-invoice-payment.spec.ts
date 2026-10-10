@@ -78,6 +78,10 @@ function buildPrisma(seed: {
         if (matchWhere(record, condition)) return false;
         continue;
       }
+      if (key === 'rateioAsTarget' && condition.none) {
+        if ((record.rateioAsTarget ?? []).some((row: any) => matchWhere(row, condition.none))) return false;
+        continue;
+      }
       if (key === 'expense' || key === 'receipt') {
         const pool = key === 'expense' ? expenses : receipts;
         const fk = key === 'expense' ? record.expenseId : record.receiptId;
@@ -186,7 +190,7 @@ function buildPrisma(seed: {
     receipt: collection('receipt', receipts),
     cashFlowEntry: collection('cashFlowEntry', entries, withRelations),
     crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
-    rateioAllocation: { findMany: jest.fn().mockResolvedValue([]) },
+    rateioAllocation: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
     invoiceAdjustment: {
       ...collection('invoiceAdjustment', []),
       create: jest.fn(),

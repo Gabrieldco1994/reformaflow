@@ -5,6 +5,7 @@ import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { withAclRequester } from '../test-utils/acl-requester-test-helper';
+import { findManyOver } from '../test-utils/prisma-where';
 import type { RateioRequester } from './rateio.types';
 
 jest.mock('../bank-account/inline-expenses', () => ({
@@ -68,7 +69,7 @@ const makePrismaMock = (): PrismaMock => {
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),
   };
   const mock = {
-    project: { findFirst: jest.fn() },
+    project: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     expense: expenseMock,
     creditCard: { findFirst: jest.fn() },
     bankAccount: { findFirst: jest.fn() },
@@ -1024,15 +1025,24 @@ describe('ExpenseService', () => {
   });
 
   describe('remove', () => {
+    // The removal reads a whole graph of rows in bulk, so the fake answers real `where` filters.
+    function seedRemovalRows(rows: any[], projects: Record<string, string>) {
+      prisma.expense.findFirst.mockImplementation(async ({ where }: any) =>
+        rows.find((row) => row.id === where.id && (where.deletedAt !== null || !row.deletedAt)) ?? null,
+      );
+      prisma.expense.findMany.mockImplementation(findManyOver(() => rows));
+      prisma.project.findMany.mockImplementation(async ({ where }: any) =>
+        (where.id.in as string[])
+          .filter((id) => projects[id])
+          .map((id) => ({ id, tenantId, type: projects[id], deletedAt: null })),
+      );
+    }
+
     it('soft-delete da despesa e das entradas do fluxo de caixa', async () => {
-      prisma.expense.findFirst.mockResolvedValue({
-        id: 'e1',
-        projectId,
-        tenantId,
-        deletedAt: null,
-        linkedExpenseId: null,
-      });
-      prisma.expense.findMany.mockResolvedValue([]); // sem espelhos
+      seedRemovalRows(
+        [{ id: 'e1', projectId, tenantId, deletedAt: null, linkedExpenseId: null }],
+        { [projectId]: 'PESSOAL' },
+      );
       prisma.crossProjectSettlement.count.mockResolvedValue(0);
       const result = await service.remove(tenantId, projectId, 'e1', TEST_OWNER_REQUESTER);
       expect(result).toEqual({ deleted: true, count: 1 });
@@ -1040,31 +1050,13 @@ describe('ExpenseService', () => {
 
     it('cascateia o par vinculado (espelho -> canônico) quando não há conciliação', async () => {
       // remove o espelho 'mir' que aponta para o canônico 'canon'
-      prisma.expense.findFirst
-        .mockResolvedValueOnce({ id: 'mir', projectId, tenantId, deletedAt: null, linkedExpenseId: 'canon' }) // a própria
-        .mockResolvedValueOnce({ id: 'canon' }); // o alvo
-      prisma.expense.findMany
-        .mockResolvedValueOnce([
-          {
-            id: 'mir', projectId, tenantId, linkedExpenseId: 'canon',
-            project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
-          },
-          {
-            id: 'canon', projectId: 'other-project', tenantId, linkedExpenseId: null,
-            project: { id: 'other-project', tenantId, type: 'REFORMA', deletedAt: null },
-          },
-        ])
-        .mockResolvedValueOnce([
-          {
-            id: 'mir', projectId, tenantId, linkedExpenseId: 'canon',
-            project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
-          },
-          {
-            id: 'canon', projectId: 'other-project', tenantId, linkedExpenseId: null,
-            project: { id: 'other-project', tenantId, type: 'REFORMA', deletedAt: null },
-          },
-        ])
-        .mockResolvedValue([]); // sem espelhos apontando para 'mir'
+      seedRemovalRows(
+        [
+          { id: 'mir', projectId, tenantId, deletedAt: null, linkedExpenseId: 'canon' },
+          { id: 'canon', projectId: 'other-project', tenantId, deletedAt: null, linkedExpenseId: null },
+        ],
+        { [projectId]: 'PESSOAL', 'other-project': 'REFORMA' },
+      );
       prisma.crossProjectSettlement.count.mockResolvedValue(0);
       let deletedIds: string[] = [];
       prisma.expense.updateMany.mockImplementation((args: any) => {
@@ -1078,32 +1070,21 @@ describe('ExpenseService', () => {
     });
 
     it('NÃO cascateia quando há conciliação (CrossProjectSettlement)', async () => {
-      prisma.expense.findFirst.mockResolvedValue({
-        id: 'src', projectId, tenantId, deletedAt: null, linkedExpenseId: 'planned',
-      });
-      prisma.expense.findMany
-        .mockResolvedValueOnce([
-          {
-            id: 'src', projectId, tenantId, linkedExpenseId: 'planned',
-            project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
-          },
-          {
-            id: 'planned', projectId: 'other-project', tenantId, linkedExpenseId: null,
-            project: { id: 'other-project', tenantId, type: 'REFORMA', deletedAt: null },
-          },
-        ])
-        .mockResolvedValueOnce([
-          {
-            id: 'src', projectId, tenantId, linkedExpenseId: 'planned',
-            project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
-          },
-          {
-            id: 'planned', projectId: 'other-project', tenantId, linkedExpenseId: null,
-            project: { id: 'other-project', tenantId, type: 'REFORMA', deletedAt: null },
-          },
-        ])
-        .mockResolvedValue([]);
+      seedRemovalRows(
+        [
+          { id: 'src', projectId, tenantId, deletedAt: null, linkedExpenseId: 'planned' },
+          { id: 'planned', projectId: 'other-project', tenantId, deletedAt: null, linkedExpenseId: null },
+        ],
+        { [projectId]: 'PESSOAL', 'other-project': 'REFORMA' },
+      );
       prisma.crossProjectSettlement.count.mockResolvedValue(1); // tem settlement
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([
+        {
+          id: 'set-1', tenantId, mode: 'LEGACY_REPLACEMENT', reversedAt: null,
+          sourceExpenseId: 'src', targetExpenseId: 'planned', parcelaIndex: 0,
+          plannedStatus: 'PLANEJADO', realValor: 100,
+        },
+      ]);
       const result = await service.remove(tenantId, projectId, 'src', TEST_OWNER_REQUESTER);
       expect(result.count).toBe(1); // só a própria, não cascateia o 'planned'
     });

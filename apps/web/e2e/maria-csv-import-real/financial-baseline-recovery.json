@@ -1,0 +1,20 @@
+{
+  "baseSha": "dc13523246bc66671832734b7ac55d524b3feac3",
+  "status": "BLOCKED_NOT_RECOVERABLE",
+  "command": null,
+  "manifest": null,
+  "reason": "The architect explicitly says the candidate has no clearly named checked-in 210-case command/manifest. The retained session evidence contains no successful 210/210 financial run from which an exact selector can be recovered.",
+  "disqualifiedLookalikes": [
+    {
+      "path": "b2a-evidence/s5-green.json",
+      "result": "209 passed / 210 total",
+      "reason": "vault probe evidence, failed, not the financial baseline"
+    },
+    {
+      "path": "b2a-evidence/s22-m5-no-final-settled.json",
+      "result": "210 passed / 228 total",
+      "reason": "vault probe mutation evidence, failed, not the financial baseline"
+    }
+  ],
+  "rule": "Do not invent, approximate, or relabel a generic suite as the frozen 210-test financial baseline."
+}

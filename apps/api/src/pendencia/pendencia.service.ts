@@ -66,6 +66,12 @@ export interface FinancialQueueItem {
   >;
   /** A summary requires explicit true to offer the existing queue action. */
   canExecuteAction?: boolean;
+  /**
+   * Authoritative `Expense.valorTotal < 0` of the source expense, propagated
+   * from the account view. Absent when there is no Expense; never derived from
+   * `valor`/`remainingCents`. It grants no purpose, ownership or delete right.
+   */
+  expenseIsCredit?: boolean;
 }
 
 export interface FinancialQueueGroup {
@@ -211,6 +217,7 @@ export class PendenciaService {
         expenseId: s.id ?? undefined,
         foreignExpenseId: s.foreignExpenseId ?? undefined,
         parcelaIndex: s.parcelaIndex ?? undefined,
+        ...(typeof s.expenseIsCredit === 'boolean' ? { expenseIsCredit: s.expenseIsCredit } : {}),
         ...(s.installmentSettlement
           ? {
               installmentSettlement: {
@@ -245,6 +252,7 @@ export class PendenciaService {
           valor: s.valor,
           data: s.data,
           expenseId: s.id ?? undefined,
+          ...(typeof s.expenseIsCredit === 'boolean' ? { expenseIsCredit: s.expenseIsCredit } : {}),
           suggestionTipoDespesa: learned.expenseType,
         } satisfies FinancialQueueItem;
       }),
@@ -333,6 +341,7 @@ export class PendenciaService {
         expenseId: s.id ?? undefined,
         foreignExpenseId: s.foreignExpenseId ?? undefined,
         parcelaIndex: s.parcelaIndex ?? undefined,
+        ...(typeof s.expenseIsCredit === 'boolean' ? { expenseIsCredit: s.expenseIsCredit } : {}),
         ...(s.installmentSettlement
           ? {
               installmentSettlement: {

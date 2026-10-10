@@ -109,42 +109,17 @@ it("upgrades the same backed-up legacy database without financial backfill, then
         institution: "ITAU",
       },
     });
-    await db.expense.createMany({
-      data: [
-        {
-          id: "legacy-source",
-          tenantId,
-          projectId,
-          tipoDespesa: "OUTROS",
-          valor: 12345,
-          valorTotal: 12345,
-          formaPagamento: "A_VISTA",
-          status: "PAGO",
-          linkedExpenseId: "legacy-target",
-        },
-        {
-          id: "legacy-target",
-          tenantId,
-          projectId: targetProject,
-          tipoDespesa: "OUTROS",
-          valor: 80000,
-          valorTotal: 80000,
-          formaPagamento: "A_VISTA",
-          status: "PAGO",
-        },
-        {
-          id: "legacy-tombstone",
-          tenantId,
-          projectId,
-          tipoDespesa: "OUTROS",
-          valor: 12345,
-          valorTotal: 12345,
-          formaPagamento: "A_VISTA",
-          status: "PAGO",
-          deletedAt: new Date("2026-01-01"),
-        },
-      ],
-    });
+    // The current client knows later columns; seed only columns in this legacy schema.
+    await db.$executeRaw`INSERT INTO expenses
+      (id, tenant_id, project_id, tipo_despesa, valor, valor_total, forma_pagamento,
+       status, linked_expense_id, deleted_at, updated_at)
+      VALUES
+      ('legacy-source', ${tenantId}, ${projectId}, 'OUTROS', 12345, 12345,
+       'A_VISTA', 'PAGO', 'legacy-target', NULL, CURRENT_TIMESTAMP),
+      ('legacy-target', ${tenantId}, ${targetProject}, 'OUTROS', 80000, 80000,
+       'A_VISTA', 'PAGO', NULL, NULL, CURRENT_TIMESTAMP),
+      ('legacy-tombstone', ${tenantId}, ${projectId}, 'OUTROS', 12345, 12345,
+       'A_VISTA', 'PAGO', NULL, ${new Date("2026-01-01")}, CURRENT_TIMESTAMP)`;
     await db.cashFlowEntry.createMany({
       data: [
         {
@@ -181,34 +156,14 @@ it("upgrades the same backed-up legacy database without financial backfill, then
     ] as const) {
       const sourceId = `legacy-source-${label}`;
       const targetId = `legacy-target-${label}`;
-      await db.expense.createMany({
-        data: [
-          {
-            id: sourceId,
-            tenantId,
-            projectId,
-            tipoDespesa: "OUTROS",
-            valor: real,
-            valorTotal: real,
-            formaPagamento: "A_VISTA",
-            status: "PAGO",
-            linkedExpenseId: targetId,
-          },
-          {
-            id: targetId,
-            tenantId,
-            projectId: targetProject,
-            tipoDespesa: "OUTROS",
-            valor: 2 * planned,
-            valorTotal: 2 * planned,
-            formaPagamento: "PARCELADO",
-            quantidadeParcela: 2,
-            dataInicioParcela: new Date("2026-09-20"),
-            status: "PLANEJADO",
-            paidParcelas: "[1]",
-          },
-        ],
-      });
+      await db.$executeRaw`INSERT INTO expenses
+        (id, tenant_id, project_id, tipo_despesa, valor, valor_total, forma_pagamento,
+         status, linked_expense_id, quantidade_parcela, data_inicio_parcela, paid_parcelas, updated_at)
+        VALUES
+        (${sourceId}, ${tenantId}, ${projectId}, 'OUTROS', ${real}, ${real},
+         'A_VISTA', 'PAGO', ${targetId}, NULL, NULL, NULL, CURRENT_TIMESTAMP),
+        (${targetId}, ${tenantId}, ${targetProject}, 'OUTROS', ${2 * planned}, ${2 * planned},
+         'PARCELADO', 'PLANEJADO', NULL, 2, ${new Date("2026-09-20")}, '[1]', CURRENT_TIMESTAMP)`;
       await db.cashFlowEntry.createMany({
         data: [0, 1].map((index) => ({
           id: `${targetId}-${index}`,
@@ -231,7 +186,7 @@ it("upgrades the same backed-up legacy database without financial backfill, then
       Array<Record<string, unknown>>
     >`SELECT * FROM cross_project_settlements`;
     const before = {
-      expenses: await db.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM expenses`,
+      expenses: await db.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM expenses ORDER BY id`,
       cash: await db.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM cash_flow_entries`,
     };
     await db.$disconnect();
@@ -243,10 +198,10 @@ it("upgrades the same backed-up legacy database without financial backfill, then
     deploy();
     await db.$connect();
     expect({
-      expenses: await db.$queryRaw`SELECT * FROM expenses`,
+      expenses: await db.$queryRaw`SELECT * FROM expenses ORDER BY id`,
       cash: await db.$queryRaw`SELECT * FROM cash_flow_entries`,
     }).toEqual({
-      expenses: before.expenses.map((row) => ({ ...row, documented_schedule: null })),
+      expenses: before.expenses.map((row) => ({ ...row, documented_schedule: null, refund_purpose_revision: 0 })),
       cash: before.cash.map((row) => ({ ...row, invoice_due_month: null })),
     });
     expect(await db.$queryRaw`SELECT * FROM cross_project_settlements`).toEqual(
@@ -290,6 +245,14 @@ it("upgrades the same backed-up legacy database without financial backfill, then
         },
       }),
     ).rejects.toThrow();
+    // Prove #702's upgrade above before applying later migrations for current services.
+    for (const name of readdirSync(join(root, "prisma/migrations")).sort()) {
+      if (name > migration && /^\d/.test(name))
+        cpSync(join(root, "prisma/migrations", name), join(migrations, name), {
+          recursive: true,
+        });
+    }
+    deploy();
     process.env.DATABASE_URL = url;
     service = new PrismaService();
     const expenses = new ExpenseService(

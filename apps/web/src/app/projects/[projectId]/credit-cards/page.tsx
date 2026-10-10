@@ -157,8 +157,10 @@ export default function CreditCardsPage() {
       </div>
 
       <p className="text-sm text-gray-600 mb-6">
-        Importe faturas em <strong>OFX</strong> ou <strong>CSV</strong> (Itaú/Nubank). Parcelas futuras
-        são criadas como planejadas e viram pagas automaticamente quando você importar a fatura do mês seguinte.
+        Importe faturas em <strong>OFX</strong> ou <strong>CSV</strong> (Itaú/Nubank).
+        Confira os lançamentos da fatura antes de confirmar.
+        Compras novas geram as parcelas restantes como planejadas.
+        Importar não quita a fatura.
       </p>
 
       {loading ? (

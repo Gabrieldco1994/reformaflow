@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MariaPage from './page';
 import { setPendingMariaPrompt, consumePendingMariaPrompt } from './_lib/pending-prompt';
 import { ProjectProvider } from '@/contexts/project-context';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Contrato de view: a página Maria reusa `useFinancialAgent`/`useSpeechRecognition`
 // (nenhuma nova instância de STT/TTS aqui) e ganha um CTA explícito e acessível
@@ -24,13 +25,24 @@ vi.mock('@/contexts/auth-context', () => ({
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ projectId: 'project-1' }),
+  usePathname: () => '/projects/project-1/maria',
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ replace: vi.fn() }),
 }));
 
 function renderMariaPage() {
   return render(
-    <ProjectProvider value={{ projectId: 'project-1', projectType: 'PESSOAL', projectName: 'Pessoal' }}>
-      <MariaPage />
-    </ProjectProvider>,
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ProjectProvider
+        value={{
+          projectId: 'project-1',
+          projectType: 'PESSOAL',
+          projectName: 'Pessoal',
+        }}
+      >
+        <MariaPage />
+      </ProjectProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -50,7 +62,11 @@ const { agentSend, speechStart, speechStop, streamSpeak, ttsStop } = vi.hoisted(
 }));
 let agentMessages: Array<{ role: 'assistant'; content: string }> = [];
 vi.mock('@/components/agent/useFinancialAgent', () => ({
-  useFinancialAgent: () => ({ messages: agentMessages, loading: false, send: agentSend }),
+  useFinancialAgent: () => ({
+    messages: agentMessages,
+    loading: false,
+    send: agentSend,
+  }),
 }));
 
 vi.mock('@/components/agent/useSpeechRecognition', () => ({
@@ -76,7 +92,11 @@ vi.mock('../_components/mobile-launch/MobileLaunchSheetContainer', () => ({
   MobileLaunchSheetContainer: () => null,
 }));
 
-let lastVoiceOverlayProps: { send: unknown; autoStart?: boolean; onClose: () => void } | null = null;
+let lastVoiceOverlayProps: {
+  send: unknown;
+  autoStart?: boolean;
+  onClose: () => void;
+} | null = null;
 vi.mock('@/components/agent/VoiceAssistantOverlay', () => ({
   VoiceAssistantOverlay: (props: { send: unknown; autoStart?: boolean; onClose: () => void }) => {
     lastVoiceOverlayProps = props;
@@ -105,10 +125,7 @@ describe('MariaPage', () => {
 
   it('points "Voltar para hoje" at /monthly when the user has monthlyOverview', () => {
     renderMariaPage();
-    expect(screen.getByLabelText('Voltar para hoje')).toHaveAttribute(
-      'href',
-      '/projects/project-1/monthly',
-    );
+    expect(screen.getByLabelText('Voltar para hoje')).toHaveAttribute('href', '/projects/project-1/monthly');
   });
 
   it('never sends a monthlyOverview-reduced user through /monthly (issue #521): falls back to the first module they can actually see', () => {
@@ -152,7 +169,9 @@ describe('MariaPage', () => {
   it('ignores a late one-shot transcript after the automatic conversation opens', () => {
     renderMariaPage();
     fireEvent.click(screen.getByRole('button', { name: 'Falar' }));
-    const callbacks = speechStart.mock.calls[0]?.[0] as { onResult: (text: string) => void };
+    const callbacks = speechStart.mock.calls[0]?.[0] as {
+      onResult: (text: string) => void;
+    };
 
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar conversa por voz' }));
     callbacks.onResult('resultado atrasado');
@@ -181,5 +200,12 @@ describe('MariaPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar conversa por voz' }));
     fireEvent.click(screen.getByRole('button', { name: 'Fechar overlay' }));
     expect(screen.queryByTestId('voice-assistant-overlay')).not.toBeInTheDocument();
+  });
+
+  it('offers the import recovery entry without replacing the chat or the voice CTA', () => {
+    renderMariaPage();
+    expect(screen.getByRole('button', { name: 'Importações da Maria' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Iniciar conversa por voz/i })).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { findManyOver } from '../test-utils/prisma-where';
 import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { BadRequestException } from '@nestjs/common';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
@@ -101,6 +102,14 @@ function makeHarness() {
         type: where.id === PESSOAL_PROJECT_ID ? 'PESSOAL' : 'REFORMA',
         deletedAt: null,
       })),
+      findMany: jest.fn(async ({ where }: any) =>
+        (where.id.in as string[]).map((id) => ({
+          id,
+          tenantId: TENANT_ID,
+          type: id === PESSOAL_PROJECT_ID ? 'PESSOAL' : 'REFORMA',
+          deletedAt: null,
+        })),
+      ),
     },
     expense: {
       findFirst: jest.fn(async ({ where }: any) => {
@@ -108,14 +117,7 @@ function makeHarness() {
         if (!row) return null;
         return where.deletedAt === null && row.deletedAt !== null ? null : row;
       }),
-      findMany: jest.fn(async ({ where }: any) =>
-        [...rows.values()].filter(
-          (row) =>
-            row.tenantId === where.tenantId &&
-            row.linkedExpenseId === where.linkedExpenseId &&
-            (where.deletedAt === undefined || row.deletedAt === where.deletedAt),
-        ),
-      ),
+      findMany: jest.fn(findManyOver(() => [...rows.values()])),
       update: jest.fn(async ({ where, data }: any) => {
         const current = rows.get(where.id);
         const definedData = Object.fromEntries(
@@ -161,14 +163,7 @@ function makeHarness() {
         return settlements.get(k);
       }),
       update: jest.fn(async ({ where, data }: any) => Object.assign(settlements.get(where.id), data)),
-      findMany: jest.fn(async ({ where }: any) =>
-        [...settlements.values()].filter(
-          (row) =>
-            (!where.mode || row.mode === where.mode) &&
-            row.tenantId === where.tenantId &&
-            (where.sourceExpenseId === undefined || row.sourceExpenseId === where.sourceExpenseId),
-        ),
-      ),
+      findMany: jest.fn(findManyOver(() => [...settlements.values()])),
       deleteMany: jest.fn(async ({ where }: any) => {
         let count = 0;
         for (const [k, row] of settlements) {

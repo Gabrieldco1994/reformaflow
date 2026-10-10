@@ -3,9 +3,14 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import {
+  AGENT_ADMISSION_CLOCK,
+  type AgentAdmissionClock,
+} from './agent-admission-clock';
 
 @Injectable()
 export class AgentChatThrottleGuard implements CanActivate {
@@ -15,12 +20,17 @@ export class AgentChatThrottleGuard implements CanActivate {
   private readonly maxPerIp = 60;
   private readonly maxPerTenantUser = 30;
 
+  constructor(
+    @Inject(AGENT_ADMISSION_CLOCK)
+    private readonly clock: AgentAdmissionClock,
+  ) {}
+
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request & {
       tenantId?: string;
       user?: { id?: string };
     }>();
-    const now = Date.now();
+    const now = this.clock.now().getTime();
     const ip = this.clientIp(req);
     const tenant = req.tenantId || 'unknown-tenant';
     const userId = req.user?.id || 'unknown-user';

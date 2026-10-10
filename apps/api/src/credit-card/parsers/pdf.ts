@@ -9,7 +9,8 @@
  *  - Faturas Nubank exportadas em PDF (formato similar)
  *  - Padrões genéricos brasileiros com data DD/MM ou DD/MM/AAAA
  */
-import { PDFParse } from 'pdf-parse';
+import { PDFParse } from "pdf-parse";
+import { IMPORT_SESSION_LIMITS } from "@reformaflow/domain";
 import {
   type NormalizedTx,
   type ParseResult,
@@ -18,25 +19,44 @@ import {
   inferPeriodLabel,
   makeExternalId,
   parseBrlMoney,
-} from './types';
+  BinaryDocumentExtractionError,
+  DocumentExtractionError,
+  BINARY_DOCUMENT_LIMITS,
+  buildBinaryCardDocument,
+  captureDocumentHeading,
+  isFutureStatementHeading,
+  type CardDocumentEvent,
+  type CardDocumentCapture,
+  type DocumentExtractionV1,
+} from "./types";
 
 export class PdfPasswordRequiredError extends Error {
   constructor() {
-    super('PDF protegido por senha — informe a senha');
-    this.name = 'PdfPasswordRequiredError';
+    super("PDF protegido por senha — informe a senha");
+    this.name = "PdfPasswordRequiredError";
   }
 }
 
 export class PdfWrongPasswordError extends Error {
   constructor() {
-    super('Senha do PDF incorreta');
-    this.name = 'PdfWrongPasswordError';
+    super("Senha do PDF incorreta");
+    this.name = "PdfWrongPasswordError";
   }
 }
 
 const MONTHS_PT: Record<string, number> = {
-  jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5,
-  jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11,
+  jan: 0,
+  fev: 1,
+  mar: 2,
+  abr: 3,
+  mai: 4,
+  jun: 5,
+  jul: 6,
+  ago: 7,
+  set: 8,
+  out: 9,
+  nov: 10,
+  dez: 11,
 };
 
 function parseDateBR(s: string, fallbackYear?: number): Date | null {
@@ -45,11 +65,15 @@ function parseDateBR(s: string, fallbackYear?: number): Date | null {
   if (m) {
     const day = parseInt(m[1], 10);
     const month = parseInt(m[2], 10) - 1;
-    let year = m[3] ? parseInt(m[3], 10) : (fallbackYear ?? new Date().getUTCFullYear());
+    let year = m[3]
+      ? parseInt(m[3], 10)
+      : (fallbackYear ?? new Date().getUTCFullYear());
     if (year < 100) year += 2000;
     return new Date(Date.UTC(year, month, day));
   }
-  m = /^(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)$/i.exec(s.trim());
+  m = /^(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)$/i.exec(
+    s.trim(),
+  );
   if (m) {
     const day = parseInt(m[1], 10);
     const month = MONTHS_PT[m[2].toLowerCase()];
@@ -59,7 +83,9 @@ function parseDateBR(s: string, fallbackYear?: number): Date | null {
   return null;
 }
 
-function inferDueDateFromText(text: string): { month: number; year: number } | undefined {
+function inferDueDateFromText(
+  text: string,
+): { month: number; year: number } | undefined {
   // Procura "Vencimento DD/MM/AAAA" ou variantes; retorna mês (1-12) e ano da fatura
   const patterns = [
     /vencimento[:\s]*(\d{1,2})\/(\d{1,2})\/(\d{4})/i,
@@ -124,7 +150,11 @@ function resolveYearForTransaction(
  * Detecta parcela mesmo quando colada ao merchant (ex.: "WWW-CASASBAHIA-COM06/10").
  * Retorna { current, total, cleanMerchant }.
  */
-function detectInstallmentLoose(description: string): { current?: number; total?: number; cleanMerchant: string } {
+function detectInstallmentLoose(description: string): {
+  current?: number;
+  total?: number;
+  cleanMerchant: string;
+} {
   const std = detectInstallment(description);
   if (std.current && std.total) return std;
   // Tenta padrão colado: letras seguidas de NN/NN no final ou meio
@@ -134,10 +164,7 @@ function detectInstallmentLoose(description: string): { current?: number; total?
     const current = parseInt(m[2], 10);
     const total = parseInt(m[3], 10);
     if (current >= 1 && total > 1 && current <= total && total <= 60) {
-      const cleaned = description
-        .replace(re, m[1])
-        .replace(/\s+/g, ' ')
-        .trim();
+      const cleaned = description.replace(re, m[1]).replace(/\s+/g, " ").trim();
       return { current, total, cleanMerchant: cleaned || description.trim() };
     }
   }
@@ -147,11 +174,17 @@ function detectInstallmentLoose(description: string): { current?: number; total?
 /**
  * Extrai texto do PDF, opcionalmente com senha.
  */
-export async function extractPdfText(buffer: Buffer, password?: string): Promise<string> {
+export async function extractPdfText(
+  buffer: Buffer,
+  password?: string,
+): Promise<string> {
   try {
-    const parser = new PDFParse({ data: buffer, password: password || undefined });
+    const parser = new PDFParse({
+      data: buffer,
+      password: password || undefined,
+    });
     const result = await parser.getText();
-    return result.text ?? '';
+    return result.text ?? "";
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/no password/i.test(msg)) throw new PdfPasswordRequiredError();
@@ -169,34 +202,51 @@ export async function extractPdfText(buffer: Buffer, password?: string): Promise
  *  - Sinal de "-" antes do valor (com espaços) indica estorno (negativo)
  *  - Ano é inferido por mês: faturas mostram lançamentos passados (parcelas)
  */
-// Marcadores de seção "futura" — após estes, paramos de ler transações
-// (faturas listam parcelas futuras como projeção; commitImport gera essas automaticamente).
-// Marcadores de seção "futura" — após estes, paramos de ler transações
-// (faturas listam parcelas futuras como projeção; commitImport gera essas automaticamente).
-// Mais permissivo: cobre Itaú, Nubank, Santander, Bradesco, BB, Caixa, C6, Inter, XP, etc.
-const FUTURE_SECTION_RE = new RegExp(
-  '^(?:\\s*)(' +
-  [
-    'pr[oó]xim[oa]s?\\s+(?:faturas?|compras?|lan[cç]amentos?|parcelas?|pagamentos?|m[eê]s|meses|vencimentos?|cobran[cç]as?)',
-    'compras\\s+parceladas\\s+(?:futuras?|em\\s+aberto|a\\s+vencer|projetadas?)',
-    'parcelas?\\s+(?:futuras?|a\\s+vencer|previstas?|em\\s+aberto|projetadas?|seguintes?)',
-    'pagamentos?\\s+(?:futuros?|previstos?)(?:\\s+parcelados?)?',
-    'pr[eé]\\s*-?\\s*fatura',
-    'demonstrativo\\s+das\\s+compras\\s+parceladas',
-    'resumo\\s+das\\s+parcelas?\\s+(?:a\\s+vencer|futuras?)',
-    'fatura\\s+(?:posterior|seguinte|pr[oó]xima)',
-    'lan[cç]amentos?\\s+(?:futuros?|previstos?|a\\s+vencer)',
-    'compromissos?\\s+(?:futuros?|pr[oó]ximos?|a\\s+vencer)',
-    'faturas?\\s+(?:seguintes?|pr[oó]ximas?|projetadas?)',
-    'compras?\\s+a\\s+vencer',
-    'demonstrativo\\s+de\\s+parcelamentos?',
-    'previs[aã]o\\s+de\\s+(?:cobran[cç]as?|lan[cç]amentos?|parcelas?|pagamentos?)',
-    'acompanhamento\\s+de\\s+compras\\s+parceladas',
-    'saldo\\s+a\\s+vencer',
-  ].join('|') +
-  ')\\b',
-  'i',
-);
+const LINE_RE =
+  /^\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|\d{4}-\d{2}-\d{2})(?:\s+(.*))?$/;
+const LEGACY_LINE_RE =
+  /^\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+(-\s+)?(?:R\$\s*)?(-?\d{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})|-?\d+[,.]\d{2})\s*$/;
+const METADATA_LINE_RE =
+  /^(total|subtotal|saldo|limite|vencimento|fechamento|p[aá]gina|fatura|período|cliente|cpf|cnpj|endere[çc]o|pagamento|nome\b|n[uú]mero|valor\s+do\s+documento|emiss[aã]o|postagem|previs[aã]o)/i;
+
+function* capturePdfLines(
+  text: string,
+  page: number,
+): Generator<{
+  raw: string;
+  reference: string;
+  legacy: RegExpExecArray | null;
+  capture: CardDocumentCapture | null;
+}> {
+  for (const [index, raw] of text.split(/\r?\n/).entries()) {
+    const reference = `pdf:page:${page}:line:${index + 1}`;
+    const candidate = LINE_RE.exec(raw);
+    const tail = candidate ? (candidate[2] ?? null) : raw;
+    const amount =
+      /(?:^|\s+)((?:-\s+)?(?:R\$\s*)?[+-]?(?:\d{1,3}(?:[.,]\d{3})+[.,]\d{1,2}|\d+[.,]\d{1,2}))\s*$/.exec(
+        tail ?? "",
+      );
+    const description = amount
+      ? (tail ?? "").slice(0, amount.index) || null
+      : tail;
+    yield {
+      raw,
+      reference,
+      legacy: LEGACY_LINE_RE.exec(raw),
+      capture:
+        candidate ||
+        (amount && description?.trim() && !METADATA_LINE_RE.test(raw.trim()))
+          ? {
+              reference,
+              date: candidate?.[1] ?? null,
+              description,
+              amount: amount?.[1] ?? null,
+              fitId: null,
+            }
+          : null,
+    };
+  }
+}
 
 export function extractTransactionsFromText(
   text: string,
@@ -205,36 +255,29 @@ export function extractTransactionsFromText(
 ): { current: NormalizedTx[]; future: NormalizedTx[] } {
   const current: NormalizedTx[] = [];
   const future: NormalizedTx[] = [];
-  const lines = text.split(/\r?\n/);
-
-  // Padrão tolerante: data no início, opcional "- " (estorno), valor no fim
-  // Captura grupo 3 = sinal de estorno opcional, grupo 4 = valor absoluto
-  const lineRe = /^\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+(-\s+)?(?:R\$\s*)?(-?\d{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})|-?\d+[,.]\d{2})\s*$/;
-
   let inFutureSection = false;
 
-  for (const raw of lines) {
+  for (const { raw, legacy: m } of capturePdfLines(text, 1)) {
     const line = raw.trim();
     if (!line) continue;
 
     // Detecta entrada em seção de futuro/projeção
-    if (FUTURE_SECTION_RE.test(line)) {
+    if (isFutureStatementHeading(line)) {
       inFutureSection = true;
       continue;
     }
 
     // Skip linhas óbvias de cabeçalho/rodapé/totais/recibo bancário
-    if (/^(total|subtotal|saldo|limite|vencimento|fechamento|p[aá]gina|fatura|período|cliente|cpf|cnpj|endere[çc]o|pagamento|nome\b|n[uú]mero|valor\s+do\s+documento|emiss[aã]o|postagem|previs[aã]o)/i.test(line)) continue;
+    if (METADATA_LINE_RE.test(line)) continue;
 
-    const m = lineRe.exec(line);
     if (!m) continue;
 
     // Validação: dia deve ser 1-31, mês 1-12
     const dateStr = m[1];
-    const [dd, mm] = dateStr.split('/').map((s) => parseInt(s, 10));
+    const [dd, mm] = dateStr.split("/").map((s) => parseInt(s, 10));
     if (!(dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12)) continue;
 
-    let description = m[2].trim().replace(/\s{2,}/g, ' ');
+    let description = m[2].trim().replace(/\s{2,}/g, " ");
     // Rejeita descrições degeneradas (vazias, só "R$", só pontuação/números)
     if (description.length < 2) continue;
     if (!/[a-zA-Z]/.test(description)) continue;
@@ -251,12 +294,17 @@ export function extractTransactionsFromText(
     const merchant = inst.cleanMerchant || description;
 
     // Ano correto baseado no mês de vencimento (faturas mostram parcelas passadas)
-    const txYear = resolveYearForTransaction(mm, due, fallbackYear, inst.current);
+    const txYear = resolveYearForTransaction(
+      mm,
+      due,
+      fallbackYear,
+      inst.current,
+    );
     const date = new Date(Date.UTC(txYear, mm - 1, dd));
     if (isNaN(date.getTime())) continue;
 
     const t: NormalizedTx = {
-      externalId: '',
+      externalId: "",
       date,
       merchant,
       amountCents,
@@ -268,18 +316,25 @@ export function extractTransactionsFromText(
     else current.push(t);
   }
 
-  function dedupAll(arr: NormalizedTx[], collapseSeries: boolean): NormalizedTx[] {
+  function dedupAll(
+    arr: NormalizedTx[],
+    collapseSeries: boolean,
+  ): NormalizedTx[] {
     // Dedup nível 1: chave exata (date + merchant + amount + installment).
     const dedup = new Map<string, NormalizedTx>();
     for (const t of arr) {
-      const instKey = t.installmentCurrent != null ? `#${t.installmentCurrent}/${t.installmentTotal ?? '?'}` : '';
+      const instKey =
+        t.installmentCurrent != null
+          ? `#${t.installmentCurrent}/${t.installmentTotal ?? "?"}`
+          : "";
       const key = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase()}|${t.amountCents}${instKey}`;
       const existing = dedup.get(key);
       if (!existing) {
         dedup.set(key, t);
         continue;
       }
-      const existingInst = existing.installmentCurrent ?? Number.MAX_SAFE_INTEGER;
+      const existingInst =
+        existing.installmentCurrent ?? Number.MAX_SAFE_INTEGER;
       const currentInst = t.installmentCurrent ?? Number.MAX_SAFE_INTEGER;
       if (currentInst < existingInst) dedup.set(key, t);
     }
@@ -294,17 +349,31 @@ export function extractTransactionsFromText(
       const k = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase()}|${t.installmentTotal}`;
       seriesCount.set(k, (seriesCount.get(k) ?? 0) + 1);
       const existing = bySeries.get(k);
-      if (!existing) { bySeries.set(k, t); continue; }
+      if (!existing) {
+        bySeries.set(k, t);
+        continue;
+      }
       const diff = Math.abs(existing.amountCents - t.amountCents);
-      const tol = Math.max(5, Math.round(Math.abs(existing.amountCents) * 0.01));
+      const tol = Math.max(
+        5,
+        Math.round(Math.abs(existing.amountCents) * 0.01),
+      );
       if (diff <= tol) {
-        const winner = (t.installmentCurrent ?? Infinity) < (existing.installmentCurrent ?? Infinity) ? t : existing;
+        const winner =
+          (t.installmentCurrent ?? Infinity) <
+          (existing.installmentCurrent ?? Infinity)
+            ? t
+            : existing;
         bySeries.set(k, winner);
       }
     }
     const result: NormalizedTx[] = [];
     for (const t of dedup.values()) {
-      if (collapseSeries && t.installmentCurrent != null && t.installmentTotal != null) {
+      if (
+        collapseSeries &&
+        t.installmentCurrent != null &&
+        t.installmentTotal != null
+      ) {
         const k = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase()}|${t.installmentTotal}`;
         if ((seriesCount.get(k) ?? 0) > 1) {
           if (bySeries.get(k) === t) result.push(t);
@@ -323,8 +392,12 @@ export function extractTransactionsFromText(
   //  - tem installmentCurrent > 1 e installmentTotal definidos
   //  - data > fim do mês de vencimento (parcelas futuras vencem em meses seguintes)
   //  - amount > 0 (despesa, não estorno)
-  function applyFutureHeuristic(curArr: NormalizedTx[], futArr: NormalizedTx[]): {
-    current: NormalizedTx[]; future: NormalizedTx[];
+  function applyFutureHeuristic(
+    curArr: NormalizedTx[],
+    futArr: NormalizedTx[],
+  ): {
+    current: NormalizedTx[];
+    future: NormalizedTx[];
   } {
     if (!due) return { current: curArr, future: futArr };
     // Última data válida da fatura "atual": último dia do mês de vencimento.
@@ -368,7 +441,8 @@ export async function parsePdfStatement(
 ): Promise<ParseResult> {
   const text = await extractPdfText(buffer, password);
   const due = inferDueDateFromText(text);
-  const year = due?.year ?? inferYearFromText(text) ?? new Date().getUTCFullYear();
+  const year =
+    due?.year ?? inferYearFromText(text) ?? new Date().getUTCFullYear();
   const { current, future } = extractTransactionsFromText(text, year, due);
 
   const ordCurrent = assignOrdinals(current);
@@ -398,22 +472,107 @@ export async function parsePdfStatement(
   // Apenas loga — não muda o resultado (a heurística aplyFutureHeuristic já tentou
   // remediar quando há mês de vencimento detectado).
   const nonFirstInstallments = current.filter(
-    (t) => t.installmentCurrent != null && t.installmentCurrent > 1 && t.amountCents > 0,
+    (t) =>
+      t.installmentCurrent != null &&
+      t.installmentCurrent > 1 &&
+      t.amountCents > 0,
   ).length;
   if (current.length > 0 && nonFirstInstallments / current.length > 0.4) {
     console.warn(
       `[pdf-parser] suspect: ${nonFirstInstallments}/${current.length} txs are non-first installments; ` +
-      `due=${due ? `${due.month}/${due.year}` : 'unknown'} — fatura pode ter header de futuras não reconhecido.`,
+        `due=${due ? `${due.month}/${due.year}` : "unknown"} — fatura pode ter header de futuras não reconhecido.`,
     );
   }
 
   const totalAmountCents = current.reduce((s, t) => s + t.amountCents, 0);
 
   return {
-    source: 'PDF',
+    source: "PDF",
     periodLabel: inferPeriodLabel(current),
     transactions: current,
     totalAmountCents,
     futureInstallments: future,
   };
+}
+
+export async function parsePdfDocument(
+  bytes: Buffer,
+): Promise<DocumentExtractionV1> {
+  let parser: PDFParse | undefined;
+  try {
+    parser = new PDFParse({
+      data: bytes,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      stopAtErrors: true,
+    });
+    const { total } = await parser.getInfo();
+    if (!Number.isSafeInteger(total) || total < 1)
+      throw new DocumentExtractionError("INVALID_RESULT");
+    if (total > IMPORT_SESSION_LIMITS.pdfPagesPerFile)
+      throw new DocumentExtractionError("LIMIT_EXCEEDED");
+    const events: CardDocumentEvent[] = [];
+    let decodedBytes = 0;
+    let occurrences = 0;
+    for (let page = 1; page <= total; page++) {
+      const result = await parser.getText({
+        partial: [page],
+        disableNormalization: true,
+        pageJoiner: "",
+      });
+      if (
+        result.pages.length !== 1 ||
+        result.pages[0].num !== page ||
+        typeof result.pages[0].text !== "string"
+      )
+        throw new DocumentExtractionError("INVALID_RESULT");
+      const text = result.pages[0].text;
+      decodedBytes += Buffer.byteLength(text, "utf8");
+      if (decodedBytes > BINARY_DOCUMENT_LIMITS.decodedTextBytes)
+        throw new DocumentExtractionError("LIMIT_EXCEEDED");
+      if (!text.trim())
+        throw new BinaryDocumentExtractionError("NO_TEXT_LAYER");
+      let recognized = false;
+      for (const line of capturePdfLines(text, page)) {
+        const heading = captureDocumentHeading(line.raw, line.reference);
+        if (heading) {
+          events.push(heading);
+          recognized = true;
+        } else if (line.capture) {
+          if (++occurrences > IMPORT_SESSION_LIMITS.parsedRowsPerFile)
+            throw new DocumentExtractionError("LIMIT_EXCEEDED");
+          events.push({ kind: "row", capture: line.capture });
+          recognized = true;
+        } else if (/\d{1,2}\/\d{1,2}/.test(line.raw)) {
+          throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+        }
+      }
+      if (!recognized)
+        throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+    }
+    if (!occurrences)
+      throw new BinaryDocumentExtractionError("UNSUPPORTED_LAYOUT");
+    return buildBinaryCardDocument(events, "PDF", {
+      pages: total,
+      expandedBytes: 0,
+      archiveEntries: 0,
+      imagePixels: 0,
+      frames: 0,
+    });
+  } catch (error) {
+    if (error instanceof DocumentExtractionError) throw error;
+    throw new BinaryDocumentExtractionError(
+      error instanceof Error && error.name === "PasswordException"
+        ? "PASSWORD_PROTECTED"
+        : "CORRUPT_DOCUMENT",
+    );
+  } finally {
+    if (parser) {
+      try {
+        await parser.destroy();
+      } catch {
+        throw new BinaryDocumentExtractionError("CORRUPT_DOCUMENT");
+      }
+    }
+  }
 }

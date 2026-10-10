@@ -1175,7 +1175,7 @@ describe("bank debit selective restoration #700", () => {
       new JwtAuthGuard(reflector),
       new RolesGuard(reflector),
       new ModulesGuard(reflector, prisma),
-      new ProjectAccessGuard(prisma),
+      new ProjectAccessGuard(prisma, reflector),
     );
     await app.listen(0, "127.0.0.1");
     const http = await playwrightRequest.newContext({

@@ -401,6 +401,7 @@ describe('PendenciasQueueCard', () => {
       if (url.includes('/expenses/e-sem-cat')) {
         return {
           id: 'e-sem-cat',
+          valorTotal: 12000,
           tipoDespesa: 'OUTROS',
           fornecedor: 'Padaria do João',
         };
@@ -458,7 +459,7 @@ describe('PendenciasQueueCard', () => {
       }
       if (url.includes('/monthly-overview/account-view')) return { cartoes: [], contas: [] };
       if (url.includes('/expenses/e-apto')) {
-        return { id: 'e-apto', tipoDespesa: 'MORADIA', fornecedor: 'Pagamento APTO' };
+        return { id: 'e-apto', valorTotal: 12000, tipoDespesa: 'MORADIA', fornecedor: 'Pagamento APTO' };
       }
       return null;
     });
@@ -512,6 +513,7 @@ describe('PendenciasQueueCard', () => {
       if (url.includes('/expenses/e-sem-cat-2')) {
         return {
           id: 'e-sem-cat-2',
+          valorTotal: 12000,
           tipoDespesa: 'OUTROS',
           fornecedor: 'Farmácia Bairro',
         };

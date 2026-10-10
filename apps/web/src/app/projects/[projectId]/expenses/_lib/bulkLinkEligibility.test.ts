@@ -16,6 +16,15 @@ function exp(patch: Partial<Expense>): Expense {
 }
 
 describe('selectEligibleForBulkLink', () => {
+  it('does not offer credit or zero-value rows to the positive-payment flow', () => {
+    expect(
+      selectEligibleForBulkLink([
+        exp({ id: 'credit', valorTotal: -40_000 }),
+        exp({ id: 'zero', valorTotal: 0 }),
+        exp({ id: 'positive', valorTotal: 40_000 }),
+      ]).map((row) => row.id),
+    ).toEqual(['positive']);
+  });
   it('lista vazia → []', () => {
     expect(selectEligibleForBulkLink([])).toEqual([]);
   });

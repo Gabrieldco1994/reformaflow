@@ -59,6 +59,7 @@ for (const width of [375, 390, 1280]) {
       status: "PLANEJADO",
       isInvoice: false,
       editavel: true,
+      expenseIsCredit: false,
       cardLast4: null,
       bankLast4: null,
       dueMonth: null,

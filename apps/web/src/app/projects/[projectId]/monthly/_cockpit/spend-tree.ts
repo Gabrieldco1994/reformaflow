@@ -99,12 +99,22 @@ export function spendTree(
       total: o.total,
       tipos: Array.from(o.tipos.entries())
         .map(([tipo, valor]) => ({ tipo, valor }))
-        .filter((t) => t.valor > 0)
+        .filter((t) => t.valor !== 0)
         .sort((a, b) => b.valor - a.valor),
     }))
-    .filter((o) => o.total > 0)
+    .filter((o) => o.tipos.length > 0)
     .sort((a, b) => b.total - a.total);
 
   const total = origins.reduce((s, o) => s + o.total, 0);
   return { total, origins };
+}
+
+/**
+ * Percentual de `part` sobre `total` para rótulos. Sem denominador positivo não há
+ * proporção significativa: devolve `null` (o chamador omite o rótulo) em vez de
+ * inventar "0%". Com denominador > 0 mantém Math.round(part/total*100), inclusive
+ * para partes negativas.
+ */
+export function sharePct(part: number, total: number): number | null {
+  return total > 0 ? Math.round((part / total) * 100) : null;
 }

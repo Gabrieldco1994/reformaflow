@@ -183,7 +183,7 @@ function buildRef(
 ): PaidOriginRef {
   const identity =
     kind === 'card'
-      ? resolveCardIdentity(source.projectId, last4, cards)
+      ? resolveCardIdentity(source.projectId, last4, cards, source.cardId)
       : resolveAccountIdentity(source, accounts);
   return {
     kind,
@@ -205,7 +205,12 @@ function resolveCardIdentity(
   sourceProjectId: string,
   last4: string,
   cards: PaidOriginCardRow[],
+  explicitCardId?: string | null,
 ): ResolvedIdentity {
+  if (explicitCardId !== undefined) {
+    const card = cards.find(row => row.id === explicitCardId && row.projectId === sourceProjectId && row.last4 === last4);
+    return { nickname: card?.nickname ?? null, institution: card?.brand ?? null };
+  }
   const candidates = cards.filter((card) => card.last4 === last4);
   const winner = pickPreferred(candidates, sourceProjectId);
   if (!winner) return { nickname: null, institution: null };

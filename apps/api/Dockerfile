@@ -1,10 +1,16 @@
 # ---- Builder ----
-FROM node:20-bookworm-slim AS builder
+FROM node:20.20.2-bookworm-slim AS base
+
+RUN npm install --global --no-audit --no-fund npm@11.6.2 \
+  && npm_version="$(npm --version)" \
+  && { [ "$npm_version" = "11.6.2" ] \
+    || { echo "Expected npm 11.6.2, got $npm_version" >&2; exit 1; }; }
+FROM base AS builder
 
 WORKDIR /repo
 
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates python3 make g++ \
+  && apt-get install -y --no-install-recommends openssl ca-certificates python3 make g++ libseccomp-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy manifests and lock first for better caching
@@ -17,7 +23,8 @@ COPY packages/domain/package.json packages/domain/
 RUN npm ci --no-audit --no-fund --include=dev
 
 # Now copy the rest of the sources we need
-COPY prisma ./prisma
+COPY prisma/schema.prisma ./prisma/schema.prisma
+COPY prisma/migrations ./prisma/migrations
 COPY packages/domain ./packages/domain
 COPY apps/api ./apps/api
 
@@ -27,10 +34,13 @@ RUN npm --workspace @reformaflow/domain run build
 # Generate Prisma client (sqlite) and build NestJS
 RUN npx prisma generate --schema=prisma/schema.prisma
 RUN npm --workspace @reformaflow/api run build
+RUN make -C apps/api/native build \
+  && readelf --file-header --program-headers --dynamic apps/api/native/build/reformaflow-x2 \
+  && sha256sum apps/api/native/build/reformaflow-x2
 
 
 # ---- Runtime ----
-FROM node:20-bookworm-slim AS runtime
+FROM base AS runtime-base
 
 WORKDIR /app
 
@@ -40,7 +50,7 @@ ENV NODE_ENV=production \
     UPLOADS_DIR=/data/uploads
 
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates curl sqlite3 \
+  && apt-get install -y --no-install-recommends openssl ca-certificates curl sqlite3 libseccomp2 \
   && sqlite3 --version \
   && rm -rf /var/lib/apt/lists/*
 
@@ -69,3 +79,22 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3001/api/docs-json || exit 1
 
 CMD ["/entrypoint.sh"]
+
+# Static packaging only; the launcher is not registered or executed here.
+FROM builder AS x2-package
+RUN --mount=type=bind,from=runtime-base,source=/,target=/image,readonly \
+  make -C /repo/apps/api/native stage IMAGE_ROOT=/image STAGE=/x2-runtime
+
+FROM scratch AS x2-runtime-smoke
+COPY --from=x2-package --chown=0:0 /x2-runtime/ /
+COPY --chown=0:0 --chmod=0444 apps/api/native/x2-runtime-smoke.cjs /test/x2-runtime-smoke.cjs
+COPY --chown=0:0 --chmod=0444 scripts/test-db-env.cjs /test/scripts/test-db-env.cjs
+WORKDIR /test
+ENV TZ=UTC \
+    TEST_DATABASE_URL=file:/test/x2-smoke.test.db
+USER 65532:65532
+ENTRYPOINT ["/bin/node", "--require", "/test/scripts/test-db-env.cjs", "/test/x2-runtime-smoke.cjs"]
+
+FROM runtime-base AS runtime
+COPY --from=builder --chown=0:0 --chmod=0550 /repo/apps/api/native/build/reformaflow-x2 /usr/local/libexec/reformaflow-x2
+COPY --from=x2-package --chown=0:0 /x2-runtime /opt/reformaflow-x2/runtime

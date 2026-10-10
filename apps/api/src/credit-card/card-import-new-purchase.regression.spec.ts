@@ -312,7 +312,8 @@ describe("#701 independent card purchase versus historical purchase barriers", (
       inserted: 0,
       duplicated: 0,
       settled: 0,
-      skipped: 1,
+      skipped: 0,
+      reviewRequired: [expect.objectContaining({ reason: "REVIEW_REQUIRED" })],
       possibleDuplicates: [],
     });
     expect(await readFinancialState()).toEqual(before);

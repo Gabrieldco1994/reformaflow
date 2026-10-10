@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { refundPurposeScope } from '../expense/refund-purpose-scope';
 import { isNeutralExpenseType } from '@reformaflow/domain';
 import {
   BUDGET_ALLOCATION_MODULE,
@@ -323,7 +324,7 @@ export class BudgetAllocationService {
         tenantId,
         deletedAt: null,
         settledByExpenseId: null,
-        linkedExpenseId: null,
+        ...refundPurposeScope(tenantId, [projectId]),
       },
       select: { valorTotal: true, tipoDespesa: true },
     });

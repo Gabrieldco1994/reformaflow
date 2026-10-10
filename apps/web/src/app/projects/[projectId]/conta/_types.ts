@@ -45,6 +45,8 @@ export interface AccountViewConta {
 export interface AccountViewSaida {
   id: string | null;
   kind: 'saida';
+  /** Root signal (Expense.valorTotal < 0), server-derived; optional for older payloads. NOT a permission. */
+  expenseIsCredit?: boolean;
   descricao: string;
   data: string;
   forma: 'cartao' | 'pix' | 'debito' | 'boleto' | 'ted';
