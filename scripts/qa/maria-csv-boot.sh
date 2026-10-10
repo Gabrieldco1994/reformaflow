@@ -97,7 +97,8 @@ case "${1:-}" in
     # Real API proof, no mocks: model listed, tool capability advertised, and one actual
     # completion through the exact endpoint/model the API provider will use. No fallback.
     kill -0 "$(cat "$ollama_pid_file")" || fail 'Ollama is not running'
-    node - <<'NODE' | tee "$QA_ARTIFACTS_DIR/ollama-model-check.log"
+    node - "$ROOT/scripts/qa/ollama-readiness.cjs" <<'NODE' | tee "$QA_ARTIFACTS_DIR/ollama-model-check.log"
+const { waitForOllamaTags } = require(process.argv[2]);
 const host = process.env.QA_OLLAMA_HOST, model = process.env.QA_OLLAMA_MODEL;
 if (process.env.OLLAMA_BASE_URL !== `http://${host}/v1` || process.env.AGENT_LLM_PROVIDER !== 'ollama' || process.env.AGENT_MODEL !== model)
   throw new Error('provider env does not match the local Ollama model under test');
@@ -107,7 +108,9 @@ const post = async (path, body, ms) => {
   return res.json();
 };
 (async () => {
-  const tags = await (await fetch(`http://${host}/api/tags`, { signal: AbortSignal.timeout(10000) })).json();
+  // Only cheap transport readiness polls within a 60s budget (3s per request).
+  // Model/tool declarations and the single real inference below remain fail-closed.
+  const tags = await waitForOllamaTags(`http://${host}/api/tags`);
   if (!tags.models.some(m => m.name === model || m.model === model)) throw new Error(`model ${model} not installed`);
   const show = await post('/api/show', { model }, 30000);
   if (!(show.capabilities || []).includes('tools')) throw new Error(`model ${model} lacks tools capability`);
