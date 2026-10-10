@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-typecheck:
     name: Lint & Type Check
@@ -96,6 +100,10 @@ jobs:
   e2e-web:
     name: E2E Web (Playwright)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/4', '2/4', '3/4', '4/4']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -108,8 +116,14 @@ jobs:
         run: npm --workspace @reformaflow/domain run build
       - name: Install Playwright browser
         run: npm --workspace @reformaflow/web exec playwright install --with-deps chromium
-      - name: Run E2E responsive tests
-        run: npm --workspace @reformaflow/web run test:e2e
+      - name: Verify shard is non-empty
+        run: |
+          listing="$(npm --workspace @reformaflow/web run test:e2e -- --list --shard=${{ matrix.shard }})"
+          printf '%s\n' "$listing"
+          total="$(printf '%s\n' "$listing" | sed -n 's/^Total: \([0-9][0-9]*\) tests.*/\1/p')"
+          test -n "$total" && test "$total" -gt 0
+      - name: Run E2E responsive tests (shard ${{ matrix.shard }})
+        run: npm --workspace @reformaflow/web run test:e2e -- --shard=${{ matrix.shard }}
 
   quiesce-failsafe:
     name: Quiesce Fail-Safe (native)
@@ -130,7 +144,6 @@ jobs:
   build-web:
     name: Build Web
     runs-on: ubuntu-latest
-    needs: [lint-and-typecheck, test-domain, test-api, test-web, e2e-web]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -149,7 +162,6 @@ jobs:
   build-api:
     name: Build API
     runs-on: ubuntu-latest
-    needs: [lint-and-typecheck, test-domain, test-api, test-web, e2e-web, quiesce-failsafe]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -168,7 +180,7 @@ jobs:
   deploy-api:
     name: Deploy API to Fly
     runs-on: ubuntu-latest
-    needs: [build-api, build-web]
+    needs: [lint-and-typecheck, test-domain, test-api, test-web, e2e-web, quiesce-failsafe, build-web, build-api]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     concurrency:
       group: deploy-api
