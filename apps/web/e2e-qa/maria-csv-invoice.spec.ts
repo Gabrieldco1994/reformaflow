@@ -18,6 +18,7 @@ import {
   fillFocusedDraftPreview,
   focusedDraftContract,
   isFocusedDraftQuestion,
+  nativeFocusedOnly,
 } from "./helpers/focused-draft-answer";
 import {
   captureNativeDocumentaryAnswer,
@@ -418,31 +419,34 @@ for (const phase of ["upload", "confirmation"] as const) {
           await expect(form).toBeVisible();
           const answer = answerFromFixture(question, current, selectedIds);
           if (isFocusedDraftQuestion(question)) {
-            const typed = await fillFocusedDraftPreview(
-              form,
-              question,
-              expected.declarations.firstDueDate,
-            );
-            await evidence.capture(
-              `answer-${attempt + 1}-${question.field}-typed-preview`,
-            );
-            await captureNativeDocumentaryAnswer(
-              page,
-              info,
-              `answer-${attempt + 1}-${question.field}-focused-draft`,
-              focusedDraftContract(sessionId, question, current, typed),
-              () =>
-                form
-                  .getByRole("button", {
-                    name: "Guardar informação",
-                    exact: true,
-                  })
-                  .click(),
-            );
-            await noExpenses();
-            await evidence.capture(
-              `answer-${attempt + 1}-${question.field}-saved`,
-            );
+            await nativeFocusedOnly(form, async () => {
+              const typed = await fillFocusedDraftPreview(
+                form,
+                question,
+                expected.declarations.firstDueDate,
+                current,
+              );
+              await evidence.capture(
+                `answer-${attempt + 1}-${question.field}-typed-preview`,
+              );
+              await captureNativeDocumentaryAnswer(
+                page,
+                info,
+                `answer-${attempt + 1}-${question.field}-focused-draft`,
+                focusedDraftContract(sessionId, question, current, typed),
+                () =>
+                  form
+                    .getByRole("button", {
+                      name: "Guardar informação",
+                      exact: true,
+                    })
+                    .click(),
+              );
+              await noExpenses();
+              await evidence.capture(
+                `answer-${attempt + 1}-${question.field}-saved`,
+              );
+            });
             continue;
           }
           if (

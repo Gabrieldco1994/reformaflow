@@ -9,6 +9,7 @@ import {
 } from "@playwright/test";
 import type { ImportSessionViewV1 } from "@reformaflow/domain";
 import { assertTouchable } from "./evidence";
+import { traceSignupNavigation } from "./signup-navigation-trace";
 import {
   assertSupportedImportEntry,
   invoiceImportCTA,
@@ -35,6 +36,7 @@ export class PdfEvidence {
     method: string;
   }[] = [];
   expectedDocumentFailure: { path: string; code: string } | null = null;
+  signupNavigation: unknown[] = [];
   constructor(
     private readonly page: Page,
     info: TestInfo,
@@ -231,6 +233,7 @@ export class PdfEvidence {
             errors: this.errors,
             httpFailures: this.failures,
             expectedDocumentFailure: this.expectedDocumentFailure,
+            signupNavigation: this.signupNavigation,
             primaryFailure:
               primary instanceof Error ? primary.message : (primary ?? null),
           },
@@ -257,6 +260,8 @@ export class PdfEvidence {
 }
 
 export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
+  const navigation = await traceSignupNavigation(page);
+  evidence.signupNavigation = navigation.events;
   await page.goto("/register");
   const name = page.getByLabel(/^seu nome$/i);
   await expect
@@ -274,6 +279,7 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
     .check();
   await page.getByRole("button", { name: /criar minha conta/i }).click();
   await expect(page).toHaveURL(/\/projects\/[^/]+\/conta(?:\?|$)/);
+  await navigation.mark("signup-first-conta-url");
   const token = (await page.context().cookies()).find(
     (cookie) => cookie.name === "rf_token",
   )?.value;
@@ -294,6 +300,7 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
   const personal = projects.filter((project) => project.type === "PESSOAL");
   expect(personal).toHaveLength(1);
   const projectId = personal[0].id;
+  await navigation.mark("before-api-card-create");
   const response = await page.request.post(
     `${apiURL}/projects/${projectId}/credit-cards`,
     {
@@ -311,14 +318,22 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
   );
   expect(response.ok()).toBe(true);
   const card: { id: string } = await response.json();
+  await navigation.mark("after-api-card-create");
   const close = page.getByRole("button", {
     name: "Fechar jornada",
     exact: true,
   });
   if (await close.isVisible()) await close.click();
+  await navigation.mark("after-close-journey-check");
   await evidence.capture("real-signup-card");
   if (page.viewportSize()!.width < 768) {
-    await page.getByRole("link", { name: "Maria", exact: true }).click();
+    const maria = page.getByRole("link", { name: "Maria", exact: true });
+    await expect(
+      maria,
+      "Maria navigation must be rendered after real signup",
+    ).toBeVisible();
+    await navigation.mark("before-visible-maria-click");
+    await maria.click();
   } else {
     await page
       .getByRole("button", { name: "Abrir Copiloto Financeiro", exact: true })

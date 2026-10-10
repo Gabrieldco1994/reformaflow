@@ -22,6 +22,7 @@ import {
   fillFocusedDraftPreview,
   focusedDraftContract,
   isFocusedDraftQuestion,
+  nativeFocusedOnly,
 } from "./helpers/focused-draft-answer";
 
 let fixtures: string;
@@ -215,31 +216,39 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
       await expect(form).toBeVisible();
       const answer = pdfFixtureAnswer(question, current, selectedIds);
       if (isFocusedDraftQuestion(question)) {
-        const typed = await fillFocusedDraftPreview(
-          form,
-          question,
-          pdfExpected.declarations.firstDueDate,
-        );
-        await evidence.capture(
-          `answer-${attempt + 1}-${question.field}-typed-preview`,
-        );
-        const contract = focusedDraftContract(
-          sessionId,
-          question,
-          current,
-          typed,
-        );
-        const response = await evidence.response(
-          `answer-${attempt + 1}-${question.field}-focused-draft`,
-          contract.matches,
-          () =>
-            form
-              .getByRole("button", { name: "Guardar informação", exact: true })
-              .click(),
-        );
-        await contract.assertSaved(response);
-        await journey.noFinance();
-        await evidence.capture(`answer-${attempt + 1}-${question.field}-saved`);
+        await nativeFocusedOnly(form, async () => {
+          const typed = await fillFocusedDraftPreview(
+            form,
+            question,
+            pdfExpected.declarations.firstDueDate,
+            current,
+          );
+          await evidence.capture(
+            `answer-${attempt + 1}-${question.field}-typed-preview`,
+          );
+          const contract = focusedDraftContract(
+            sessionId,
+            question,
+            current,
+            typed,
+          );
+          const response = await evidence.response(
+            `answer-${attempt + 1}-${question.field}-focused-draft`,
+            contract.matches,
+            () =>
+              form
+                .getByRole("button", {
+                  name: "Guardar informação",
+                  exact: true,
+                })
+                .click(),
+          );
+          await contract.assertSaved(response);
+          await journey.noFinance();
+          await evidence.capture(
+            `answer-${attempt + 1}-${question.field}-saved`,
+          );
+        });
         continue;
       }
       const radio = form.getByRole("radio", {
