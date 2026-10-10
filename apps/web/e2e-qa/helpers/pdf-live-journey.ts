@@ -143,6 +143,11 @@ export class PdfEvidence {
                     literalAnswer: turn.literalAnswer,
                   }
                 : null,
+              documentaryAnswer:
+                response.request().method() === "POST" &&
+                safePath(response.url()).endsWith("/documentary-answer")
+                  ? response.request().postDataJSON()
+                  : null,
             },
             null,
             2,

@@ -30,6 +30,13 @@ jobs:
   maria-csv-vault:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Real /auth/register uses the production IP+empty-username bucket (10/10min).
+    # Six scenarios per runner keep that protection intact. Each viewport owns a
+    # fresh API process, SQLite and vault; no retries, shared auth or bypass flags.
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport: [mobile-375, mobile-390, desktop-1280]
     env:
       CI: "1"
       TZ: UTC
@@ -53,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          runtime="$RUNNER_TEMP/maria-csv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          runtime="$RUNNER_TEMP/maria-csv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.viewport }}"
           mkdir "$runtime"
           runtime=$(cd "$runtime" && pwd -P)
           # vault-probe.ts requires root/t/trash (not .trash), each owner-only 0700.
@@ -127,9 +134,9 @@ jobs:
           cd apps/web
           npx tsc --noEmit
           npx playwright test -c playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts --list
-      - name: Run mandatory real Maria CSV + PDF journeys at all three viewports
+      - name: Run mandatory real Maria CSV + PDF journeys (${{ matrix.viewport }})
         timeout-minutes: 45
-        run: npx playwright test -c apps/web/playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts
+        run: npx playwright test -c apps/web/playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts --project=${{ matrix.viewport }}
       - name: Stop owned QA servers
         if: always() && env.QA_RUNTIME_DIR != ''
         run: bash scripts/qa/maria-csv-boot.sh stop
@@ -137,7 +144,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: maria-csv-vault-qa-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.QA_ARTIFACTS_DIR || format('{0}/maria-csv-{1}-{2}/artifacts', runner.temp, github.run_id, github.run_attempt) }}
+          name: maria-csv-vault-qa-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.viewport }}
+          path: ${{ env.QA_ARTIFACTS_DIR || format('{0}/maria-csv-{1}-{2}-{3}/artifacts', runner.temp, github.run_id, github.run_attempt, matrix.viewport) }}
           if-no-files-found: warn
           retention-days: 7

@@ -17,6 +17,7 @@ import {
 } from "./helpers/pdf-fixture";
 import { PdfEvidence, startPdfJourney } from "./helpers/pdf-live-journey";
 import { identicalImportNotice } from "./helpers/supported-import-entry";
+import { nativeDocumentaryContract } from "./helpers/native-documentary-answer";
 
 let fixtures: string;
 test.beforeAll(async () => {
@@ -213,23 +214,18 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
           form.getByLabel("Prévia da informação", { exact: true }),
         ).toBeVisible();
       }
-      // Documentary preview serializes dates as ISO and quotes merchant text.
-      // Match that actual wire contract while keeping the user-entered literal.
-      const wireAnswer =
+      const native =
         "subject" in question
-          ? question.field === "merchant"
-            ? JSON.stringify(answer)
-            : question.field === "dataCompra"
-              ? answer.split("/").reverse().join("-")
-              : answer
-          : answer;
-      await evidence.response(
+          ? nativeDocumentaryContract(sessionId, question, current, answer)
+          : null;
+      const savedResponse = await evidence.response(
         `answer-${attempt + 1}-${question.field}`,
         (r) => {
+          if (native) return native.matches(r);
           if (!chatResponse(sessionId, "ANSWER")(r)) return false;
           const turn = r.request().postDataJSON().importTurn;
           return (
-            turn.focus?.id === question.id && turn.literalAnswer === wireAnswer
+            turn.focus?.id === question.id && turn.literalAnswer === answer
           );
         },
         () =>
@@ -243,6 +239,7 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
             })
             .click(),
       );
+      if (native) await native.assertSaved(savedResponse);
       await expect
         .poll(async () => (await view()).revision)
         .toBeGreaterThan(current.revision);

@@ -15,6 +15,10 @@ import {
 
 import { csvFixtureAnswers, type CsvExpected } from "./helpers/fixture-answers";
 import {
+  captureNativeDocumentaryAnswer,
+  nativeDocumentaryContract,
+} from "./helpers/native-documentary-answer";
+import {
   assertSupportedImportEntry,
   identicalImportNotice,
   invoiceImportCTA,
@@ -387,6 +391,12 @@ for (const phase of ["upload", "confirmation"] as const) {
               .getByRole("radio", { name: "Total da compra", exact: true })
               .check();
           } else {
+            const textMode = form.getByRole("button", {
+              name: "Responder com texto",
+              exact: true,
+            });
+            if (question.field === "dataCompra" && (await textMode.count()))
+              await textMode.click();
             await form.locator("input:not([type=radio])").fill(answer);
           }
           await evidence.capture(
@@ -399,9 +409,19 @@ for (const phase of ["upload", "confirmation"] as const) {
             await expect(
               form.getByLabel("Prévia da informação", { exact: true }),
             ).toBeVisible();
-            await form
-              .getByRole("button", { name: "Guardar informação", exact: true })
-              .click();
+            await captureNativeDocumentaryAnswer(
+              page,
+              info,
+              `answer-${attempt + 1}-${question.field}`,
+              nativeDocumentaryContract(sessionId, question, current, answer),
+              () =>
+                form
+                  .getByRole("button", {
+                    name: "Guardar informação",
+                    exact: true,
+                  })
+                  .click(),
+            );
           } else {
             await evidence.submitAnswer(
               {
