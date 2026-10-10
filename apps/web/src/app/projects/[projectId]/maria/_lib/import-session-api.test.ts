@@ -5,6 +5,7 @@ import {
   uploadImportSessionAttachment,
 } from "./import-session-api";
 import {
+  assertWorkflowReceipt,
   ImportWorkflowResponseError,
   readImportWorkflowReceipt,
   readImportWorkflowView,
@@ -99,6 +100,56 @@ const appliedReceipt = {
     bankCashDeltaCents: 0,
     invoiceDeltas: [{ invoiceDueMonth: "2026-11", amountCents: 12345 }],
   },
+};
+const auditItem = {
+  observationId: "observation-payment",
+  outcome: "IGNORED" as const,
+  reason: "INVOICE_PAYMENT" as const,
+  title: "Pagamento de fatura",
+  amountCents: -12000,
+};
+const readyLine = {
+  id: "line",
+  observationIds: ["observation-purchase"],
+  titulo: "Compra documental",
+  fornecedor: null,
+  tipoDespesa: "OUTROS",
+  categoriaMaoDeObra: null,
+  amountMeaning: "TOTAL_PURCHASE",
+  amountCents: 12345,
+  installmentCount: 1,
+  dataCompra: "2026-10-10",
+  firstDueDate: "2026-11-10",
+  targets: [],
+  decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+};
+const readyProposal = {
+  version: 1,
+  kind: "CREATE_CARD_PURCHASES",
+  sessionId: "session",
+  revision: 2,
+  proposalHash: "a".repeat(64),
+  lines: [
+    {
+      kind: "CREATE",
+      lineId: "line",
+      titulo: "Compra documental",
+      fornecedor: null,
+      tipoDespesa: "OUTROS",
+      categoriaMaoDeObra: null,
+      dataCompra: "2026-10-10",
+      totalCents: 12345,
+      schedule: appliedReceipt.snapshot.lines[0].schedule,
+      targets: [],
+    },
+  ],
+  auditItems: [auditItem],
+  deferredObservationIds: [],
+  deferredAttachmentIds: [],
+  retainUntil: null,
+  createdEconomicTotalCents: 12345,
+  bankCashDeltaCents: 0,
+  invoiceDeltas: appliedReceipt.snapshot.invoiceDeltas,
 };
 
 describe("answerImportFocusedDraftQuestion", () => {
@@ -218,14 +269,6 @@ describe("readImportWorkflowView analysisOutcome contract", () => {
   });
 
   describe("readImportWorkflowReceipt audit contract", () => {
-    const auditItem = {
-      observationId: "observation-payment",
-      outcome: "IGNORED",
-      reason: "INVOICE_PAYMENT",
-      title: "Pagamento de fatura",
-      amountCents: -12000,
-    };
-
     it("accepts and retains an APPLIED receipt with terminal invoice-payment audit", () => {
       const receipt = {
         ...appliedReceipt,
@@ -305,6 +348,92 @@ describe("readImportWorkflowView analysisOutcome contract", () => {
         ),
       ).toThrow(ImportWorkflowResponseError);
     });
+  });
+
+  describe("readImportWorkflowView proposal audit contract", () => {
+    const readyResponse = {
+      ...view,
+      state: "READY",
+      lines: [readyLine],
+      selectedLineIds: [readyLine.id],
+      searchComplete: true,
+      proposal: readyProposal,
+      actions: ["CONFIRM", "CANCEL"],
+    };
+
+    it("accepts a financial proposal combined with terminal invoice-payment audit", () => {
+      const parsed = readImportWorkflowView(readyResponse);
+
+      expect(parsed.proposal).toMatchObject({
+        lines: readyProposal.lines,
+        auditItems: [auditItem],
+      });
+    });
+
+    it("accepts matching proposal and receipt audit in the confirmed execution contract", () => {
+      const confirmed = readImportWorkflowView({
+        ...readyResponse,
+        state: "CONFIRMED",
+        confirmation: {
+          financialRequestId: appliedReceipt.financialRequestId,
+          confirmedRevision: appliedReceipt.confirmedRevision,
+          proposalHash: appliedReceipt.proposalHash,
+        },
+        actions: ["EXECUTE"],
+      });
+      const receipt = readImportWorkflowReceipt(
+        { ...appliedReceipt, auditItems: [auditItem] },
+        "project",
+      );
+
+      expect(() => assertWorkflowReceipt(receipt, confirmed)).not.toThrow();
+      expect(() =>
+        assertWorkflowReceipt(
+          {
+            ...receipt,
+            auditItems: [{ ...auditItem, observationId: "other-observation" }],
+          },
+          confirmed,
+        ),
+      ).toThrow(ImportWorkflowResponseError);
+    });
+
+    it("normalizes a historical proposal without auditItems", () => {
+      const { auditItems: _auditItems, ...historicalProposal } = readyProposal;
+
+      expect(
+        readImportWorkflowView({
+          ...readyResponse,
+          proposal: historicalProposal,
+        }).proposal,
+      ).toMatchObject({ auditItems: [] });
+    });
+
+    it("rejects unknown proposal keys even with valid auditItems", () => {
+      expect(() =>
+        readImportWorkflowView({
+          ...readyResponse,
+          proposal: { ...readyProposal, unexpected: true },
+        }),
+      ).toThrow(ImportWorkflowResponseError);
+    });
+
+    it.each([
+      { auditItems: [{ ...auditItem, outcome: "CREATED" }] },
+      { auditItems: [{ ...auditItem, reason: "UNKNOWN" }] },
+      { auditItems: [{ ...auditItem, unexpected: true }] },
+      { auditItems: [auditItem, { ...auditItem }] },
+    ])(
+      "rejects malformed or duplicate proposal audit items %#",
+      ({ auditItems }) => {
+        expect(() =>
+          readImportWorkflowView({
+            ...readyResponse,
+            proposal: { ...readyProposal, auditItems },
+          }),
+        ).toThrow(ImportWorkflowResponseError);
+      },
+    );
   });
 
   it.each([null, "NO_ELIGIBLE_PURCHASES"])(

@@ -2,15 +2,8 @@ name: Maria CSV + textual PDF private-vault QA
 
 on:
   workflow_dispatch:
-  # Dispatch is unavailable until this workflow is on the default branch.
-  push:
-    branches:
-      [
-        feat/maria-conversational-csv-20261009,
-        feat/maria-pdf-integration-20261010,
-        feat/maria-current-main-20261010,
-        feat/maria-vault-startup-20261010,
-      ]
+  pull_request:
+    branches: [main]
     paths:
       - .github/workflows/maria-csv-vault-qa.yml
       - scripts/qa/**

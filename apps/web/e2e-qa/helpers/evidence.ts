@@ -27,6 +27,23 @@ type HttpFailure = {
   reason?: string;
 };
 
+export interface TouchTargetEvidence {
+  rect: { x: number; y: number; width: number; height: number };
+  testPoint: { x: number; y: number };
+  elementFromPoint: {
+    tagName: string | null;
+    id: string | null;
+    role: string | null;
+    ariaLabel: string | null;
+    testId: string | null;
+    hitsTarget: boolean;
+  };
+}
+
+export const meetsMinimumTouchTarget = (
+  rect: Pick<TouchTargetEvidence["rect"], "width" | "height">,
+) => rect.width >= 44 && rect.height >= 44;
+
 function safeUrl(value: string) {
   const url = new URL(value);
   return `${url.origin}${url.pathname}`;
@@ -59,6 +76,13 @@ export class JourneyEvidence {
   private readonly consoleErrors: string[] = [];
   private readonly httpFailures: HttpFailure[] = [];
   private readonly answerArtifacts: string[] = [];
+  private readonly touchTargets: TouchTargetEvidence[] = [];
+  private readonly viewportMeasurements: {
+    name: string;
+    expectedWidth: number;
+    innerWidth: number;
+    documentElementClientWidth: number;
+  }[] = [];
   private readonly failures: {
     phase: string;
     message: string;
@@ -78,7 +102,7 @@ export class JourneyEvidence {
     this.directory = path.resolve(
       process.env.QA_ARTIFACTS_DIR ?? "./qa-artifacts",
       info.project.name,
-      info.title.includes("explicit subset") ? "confirmation" : "upload",
+      info.title.includes("lost execute response") ? "confirmation" : "upload",
     );
     page.on("console", (message) => {
       // Chromium also prints its generic network diagnostic for the expected anonymous /auth/me 401.
@@ -118,6 +142,27 @@ export class JourneyEvidence {
 
   authenticated() {
     this.signedIn = true;
+  }
+
+  async recordTouchTarget(measurement: TouchTargetEvidence) {
+    this.touchTargets.push(measurement);
+    await this.persist();
+  }
+
+  async assertAndRecordViewport(name: string, expectedWidth: number) {
+    const measurement = await this.page.evaluate(() => ({
+      innerWidth,
+      documentElementClientWidth: document.documentElement.clientWidth,
+    }));
+    expect(measurement.innerWidth, `${name}: window.innerWidth`).toBe(
+      expectedWidth,
+    );
+    expect(
+      measurement.documentElementClientWidth,
+      `${name}: documentElement.clientWidth`,
+    ).toBe(expectedWidth);
+    this.viewportMeasurements.push({ name, expectedWidth, ...measurement });
+    await this.persist();
   }
 
   /** Only synthetic import turns/bodies; never serialize cookies or request headers. */
@@ -328,6 +373,8 @@ export class JourneyEvidence {
           consoleErrors: this.consoleErrors,
           httpFailures: this.httpFailures,
           answerArtifacts: this.answerArtifacts,
+          touchTargets: this.touchTargets,
+          viewportMeasurements: this.viewportMeasurements,
           failures: this.failures,
         },
         null,
@@ -348,28 +395,47 @@ export class JourneyEvidence {
   }
 }
 
-export async function assertTouchable(locator: Locator) {
+export async function assertTouchable(
+  locator: Locator,
+  evidence?: Pick<JourneyEvidence, "recordTouchTarget">,
+) {
   await locator.scrollIntoViewIfNeeded();
   await expect(locator).toBeVisible();
   await expect(locator).toBeEnabled();
   const measurement = await locator.evaluate((element) => {
     const rect = element.getBoundingClientRect();
-    const hit = document.elementFromPoint(
-      rect.x + rect.width / 2,
-      rect.y + rect.height / 2,
-    );
+    const testPoint = {
+      x: rect.x + rect.width / 2,
+      y: rect.y + rect.height / 2,
+    };
+    const hit = document.elementFromPoint(testPoint.x, testPoint.y);
     return {
-      height: rect.height,
-      width: rect.width,
-      hit: hit === element || (hit !== null && element.contains(hit)),
+      rect: {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      },
+      testPoint,
+      elementFromPoint: {
+        tagName: hit?.tagName ?? null,
+        id: hit?.id || null,
+        role: hit?.getAttribute("role") ?? null,
+        ariaLabel: hit?.getAttribute("aria-label") ?? null,
+        testId: hit?.getAttribute("data-testid") ?? null,
+        hitsTarget: hit === element || (hit !== null && element.contains(hit)),
+      },
     };
   });
   expect(
-    measurement.height,
-    "Primary CTA touch target height",
-  ).toBeGreaterThanOrEqual(44);
-  expect(measurement.width).toBeGreaterThan(0);
-  expect(measurement.hit, "Primary CTA covered by another element").toBe(true);
+    meetsMinimumTouchTarget(measurement.rect),
+    `Primary CTA touch target must be at least 44×44; received ${measurement.rect.width}×${measurement.rect.height}`,
+  ).toBe(true);
+  expect(
+    measurement.elementFromPoint.hitsTarget,
+    "Primary CTA covered by another element",
+  ).toBe(true);
+  await evidence?.recordTouchTarget(measurement);
 }
 
 export async function assertUniqueButtonNames(page: Page) {

@@ -93,6 +93,15 @@ for (const phase of ["upload", "confirmation"] as const) {
       : "real signup → Maria CSV → lost execute response → authorized APPLIED recovery with exact inventory",
     async ({ page }, info) => {
       const evidence = new JourneyEvidence(page, info);
+      const expectedViewportWidth = {
+        "mobile-375": 375,
+        "mobile-390": 390,
+        "desktop-1280": 1280,
+      }[info.project.name];
+      expect(
+        expectedViewportWidth,
+        `Unexpected QA viewport project ${info.project.name}`,
+      ).toBeTruthy();
       let primaryFailure: { error: unknown } | null = null;
       let token = "";
       let projectId = "";
@@ -246,7 +255,7 @@ for (const phase of ["upload", "confirmation"] as const) {
           name: invoiceImportCTA,
           exact: true,
         });
-        await assertTouchable(cta);
+        await assertTouchable(cta, evidence);
         await expect(cta).toHaveCount(1);
         await assertUniqueButtonNames(page);
         await evidence.capture("maria-visible-csv-cta");
@@ -296,7 +305,7 @@ for (const phase of ["upload", "confirmation"] as const) {
           name: "Analisar e guardar rascunho",
           exact: true,
         });
-        await assertTouchable(consent);
+        await assertTouchable(consent, evidence);
         await consent.click();
         await expect(
           page.getByText(identicalImportNotice, { exact: true }),
@@ -577,7 +586,7 @@ for (const phase of ["upload", "confirmation"] as const) {
           name: "Confirmar lote",
           exact: true,
         });
-        await assertTouchable(confirm);
+        await assertTouchable(confirm, evidence);
         await noExpenses();
         await evidence.capture("review-exact-subset-no-financial-writes");
         let executeRequests = 0;
@@ -608,6 +617,33 @@ for (const phase of ["upload", "confirmation"] as const) {
         await recoveredRead;
         const receipt = page.getByTestId("import-receipt");
         await expect(receipt).toBeVisible();
+        const storedStateNotice = review.getByRole("status").filter({
+          hasText:
+            "A resposta da ação não pôde ser confirmada. O estado guardado foi consultado; confira-o antes de continuar.",
+        });
+        await expect(storedStateNotice).toBeVisible();
+        await expect(storedStateNotice).toHaveText(
+          "A resposta da ação não pôde ser confirmada. O estado guardado foi consultado; confira-o antes de continuar.",
+        );
+        await expect(
+          review.getByText(/^Resultado guardado · Revisão \d+$/),
+        ).toBeVisible();
+        await expect(
+          review.getByRole("button", {
+            name: /Confirmar lote|Aplicar lote confirmado/,
+          }),
+        ).toHaveCount(0);
+        await expect(
+          review.getByRole("heading", {
+            name: "Revisão do lote",
+            exact: true,
+          }),
+        ).toBeFocused();
+        await assertUniqueButtonNames(page);
+        await evidence.assertAndRecordViewport(
+          "applied-after-lost-execute-recovery",
+          expectedViewportWidth!,
+        );
         await expect(
           receipt.getByRole("heading", {
             name: "Comprovante da importação",
@@ -696,7 +732,7 @@ for (const phase of ["upload", "confirmation"] as const) {
           exact: true,
         });
         await expect(continuationAction).toBeVisible();
-        await assertTouchable(continuationAction);
+        await assertTouchable(continuationAction, evidence);
         await assertReadableMoney(receipt, true);
         await evidence.capture("confirmed-receipt-two-purchases");
 
@@ -736,6 +772,12 @@ for (const phase of ["upload", "confirmation"] as const) {
             `/projects/${projectId}/maria\\?importSessionId=${continuationSessionId}$`,
           ),
         );
+        const continuationConversation = page.getByRole("region", {
+          name: "Conversa da importação",
+          exact: true,
+        });
+        await expect(continuationConversation).toBeVisible();
+        await expect(continuationConversation).toBeFocused();
         await expect
           .poll(async () => {
             const current = (await get(

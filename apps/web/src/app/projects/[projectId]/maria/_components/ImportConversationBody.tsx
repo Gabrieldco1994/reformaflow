@@ -44,9 +44,13 @@ import { MariaMessageBubble } from "./MariaMessageBubble";
 function Conversation({
   sessionId,
   documents,
+  focusOnMount = false,
+  onContinuationRequest,
 }: {
   sessionId: string | null;
   documents: ImportDocumentFlow;
+  focusOnMount?: boolean;
+  onContinuationRequest?: (sessionId: string) => void;
 }) {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
@@ -92,12 +96,17 @@ function Conversation({
     : null;
   const openContinuation = useCallback(
     (continuationSessionId: string) => {
+      onContinuationRequest?.(continuationSessionId);
       router.replace(
         `/projects/${encodeURIComponent(projectId)}/maria?importSessionId=${encodeURIComponent(continuationSessionId)}`,
       );
     },
-    [projectId, router],
+    [onContinuationRequest, projectId, router],
   );
+  const conversationRegion = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (focusOnMount) conversationRegion.current?.focus();
+  }, [focusOnMount]);
   const onIgnoredCountChange = useCallback(
     (count: number) => setIgnoredCount(count),
     [],
@@ -231,6 +240,8 @@ function Conversation({
 
   return (
     <section
+      ref={conversationRegion}
+      tabIndex={focusOnMount ? -1 : undefined}
       aria-label="Conversa da importação"
       className="flex min-h-0 min-w-0 flex-1 flex-col gap-3"
     >
@@ -652,9 +663,24 @@ function Conversation({
   );
 }
 
-function StandaloneConversation({ sessionId }: { sessionId: string | null }) {
+function StandaloneConversation({
+  sessionId,
+  focusOnMount,
+  onContinuationRequest,
+}: {
+  sessionId: string | null;
+  focusOnMount: boolean;
+  onContinuationRequest: (sessionId: string) => void;
+}) {
   const documents = useImportDocumentFlow(sessionId);
-  return <Conversation sessionId={sessionId} documents={documents} />;
+  return (
+    <Conversation
+      sessionId={sessionId}
+      documents={documents}
+      focusOnMount={focusOnMount}
+      onContinuationRequest={onContinuationRequest}
+    />
+  );
 }
 
 /** The actor/session key destroys local media state, not the public host's documentary attempt. */
@@ -666,16 +692,26 @@ export function ImportConversationBody({
   documents?: ImportDocumentFlow;
 }) {
   const userId = useImportUserId();
+  const continuationTarget = useRef<string | null>(null);
+  const markContinuationRequest = useCallback((nextSessionId: string) => {
+    continuationTarget.current = nextSessionId;
+  }, []);
+  const focusOnMount =
+    sessionId !== null && continuationTarget.current === sessionId;
   return documents ? (
     <Conversation
       key={JSON.stringify([userId, sessionId])}
       sessionId={sessionId}
       documents={documents}
+      focusOnMount={focusOnMount}
+      onContinuationRequest={markContinuationRequest}
     />
   ) : (
     <StandaloneConversation
       key={JSON.stringify([userId, sessionId])}
       sessionId={sessionId}
+      focusOnMount={focusOnMount}
+      onContinuationRequest={markContinuationRequest}
     />
   );
 }

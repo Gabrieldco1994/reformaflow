@@ -62,6 +62,12 @@ export interface ImportWorkflowAuditItem {
 export type ImportWorkflowReceipt = ImportSessionReceiptV1 & {
   auditItems: ImportWorkflowAuditItem[];
 };
+export type ImportWorkflowProposal = ImportSessionProposalV1 & {
+  auditItems: ImportWorkflowAuditItem[];
+};
+type ImportWorkflowProposalWire = ImportSessionProposalV1 & {
+  auditItems?: ImportWorkflowAuditItem[];
+};
 const invalid = (): never => {
   throw new ImportWorkflowResponseError();
 };
@@ -449,7 +455,8 @@ function invoiceEffectsMatch(
     (month) => (expected.get(month) ?? 0) === (supplied.get(month) ?? 0),
   );
 }
-function proposal(v: unknown): v is ImportSessionProposalV1 {
+function proposal(v: unknown): v is ImportWorkflowProposalWire {
+  const hasAuditItems = isRecord(v) && Object.hasOwn(v, "auditItems");
   if (
     !isRecord(v) ||
     !boundedJson(v) ||
@@ -460,6 +467,7 @@ function proposal(v: unknown): v is ImportSessionProposalV1 {
       "revision",
       "proposalHash",
       "lines",
+      ...(hasAuditItems ? ["auditItems"] : []),
       "deferredObservationIds",
       "deferredAttachmentIds",
       "retainUntil",
@@ -474,6 +482,9 @@ function proposal(v: unknown): v is ImportSessionProposalV1 {
     !hash(v.proposalHash) ||
     !every(v.lines, plannedLine, 1, L.selectedLines) ||
     !distinct(v.lines.map((l) => l.lineId)) ||
+    (hasAuditItems &&
+      (!every(v.auditItems, workflowAuditItem, 0, L.parsedRowsPerSession) ||
+        !distinct(v.auditItems.map((item) => item.observationId)))) ||
     !ids(v.deferredObservationIds, 0, L.parsedRowsPerSession) ||
     !ids(v.deferredAttachmentIds, 0, L.filesPerSession) ||
     !(v.retainUntil === null || instant(v.retainUntil)) ||
@@ -507,6 +518,14 @@ function proposal(v: unknown): v is ImportSessionProposalV1 {
     )
   );
 }
+function normalizeProposal(
+  value: ImportWorkflowProposalWire,
+): ImportWorkflowProposal {
+  return {
+    ...value,
+    auditItems: value.auditItems ?? [],
+  };
+}
 function confirmation(v: unknown): v is ImportSessionConfirmationRefV1 {
   return (
     isRecord(v) &&
@@ -539,7 +558,7 @@ function receiptItem(v: unknown): v is ImportSessionReceiptV1["items"][number] {
     )
   );
 }
-function receiptAuditItem(v: unknown): v is ImportWorkflowAuditItem {
+function workflowAuditItem(v: unknown): v is ImportWorkflowAuditItem {
   return (
     isRecord(v) &&
     exact(v, ["observationId", "outcome", "reason", "title", "amountCents"]) &&
@@ -614,7 +633,7 @@ export function readImportWorkflowReceipt(
     !every(value.items, receiptItem, 1, L.selectedLines) ||
     !distinct(value.items.map((i) => i.lineId)) ||
     (hasAuditItems &&
-      (!every(value.auditItems, receiptAuditItem, 0, L.parsedRowsPerSession) ||
+      (!every(value.auditItems, workflowAuditItem, 0, L.parsedRowsPerSession) ||
         !distinct(value.auditItems.map((item) => item.observationId)))) ||
     !distinct(
       value.items
@@ -714,7 +733,7 @@ export function readImportWorkflowReceipt(
 
 /** Compare to the approved proposal, never to current financial rows. */
 export function assertWorkflowReceipt(
-  receipt: ImportSessionReceiptV1,
+  receipt: ImportWorkflowReceipt,
   view: ImportSessionViewV1,
 ): void {
   const c = view.confirmation;
@@ -728,7 +747,10 @@ export function assertWorkflowReceipt(
     invalid();
   const p = view.proposal;
   if (!p) return;
+  const proposalAuditItems = (p as ImportWorkflowProposalWire).auditItems ?? [];
+  const receiptAuditItems = receipt.auditItems;
   if (
+    !same(receiptAuditItems, proposalAuditItems) ||
     receipt.snapshot.createdEconomicTotalCents !==
       p.createdEconomicTotalCents ||
     !same(receipt.snapshot.invoiceDeltas, p.invoiceDeltas) ||
@@ -874,7 +896,7 @@ export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
     return invalid();
   const terminal = ["APPLIED", "CANCELLED", "EXPIRED"].includes(value.state);
   if (terminal !== (value.expiresAt === null)) return invalid();
-  const p = value.proposal;
+  const p = value.proposal === null ? null : normalizeProposal(value.proposal);
   const c = value.confirmation;
   if (c && ["DRAFT", "ANALYZING", "NEEDS_INPUT", "READY"].includes(value.state))
     return invalid();
