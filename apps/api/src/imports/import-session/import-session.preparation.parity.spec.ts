@@ -41,7 +41,10 @@ const schedule = {
   ],
 };
 
-function evidence(sourceDescription: string, amountCents: number): string {
+function evidence(
+  sourceDescription: string,
+  amountCents: number | null,
+): string {
   return JSON.stringify({
     version: 1,
     sourceDescription,
@@ -65,7 +68,7 @@ function evidence(sourceDescription: string, amountCents: number): string {
 function observation(
   id: string,
   sourceDescription = id,
-  amountCents = 12345,
+  amountCents: number | null = 12345,
 ): PreparationObservation {
   return {
     id,
@@ -336,6 +339,209 @@ describe("import preparation parity", () => {
     expect(plan.continuation.deferredObservations).toHaveLength(3);
     expect(plan.expandedCounts.financialAndCoordinationWrites).toBe(10);
   });
+
+  it("maps each deferred documentary amount to its successor line without changing financial or audit output", () => {
+    const deferredLines = [
+      {
+        ...line("line-25000", "obs-25000"),
+        amountMeaning: ImportSessionAmountMeaning.INSTALLMENT_CHARGE,
+        amountCents: null,
+        installmentCount: 5,
+        targets: null,
+        decision: { kind: "UNRESOLVED" as const },
+      },
+      {
+        ...line("line-4500", "obs-4500"),
+        amountCents: null,
+      },
+      {
+        ...line("line-1890", "obs-1890"),
+        amountCents: null,
+      },
+    ];
+    const questions = [
+      {
+        id: "question-deferred",
+        lineIds: deferredLines.map(({ id }) => id),
+        field: "dataCompra" as const,
+        text: "Confirm deferred dates",
+      },
+    ];
+    const declarations = {
+      version: 1 as const,
+      items: [
+        {
+          field: "merchant" as const,
+          value: "Documented merchant",
+          meaningContext: null,
+          lineId: "line-4500",
+          observationId: "obs-4500",
+          originalFingerprint: "b".repeat(64),
+          claimVersion: 0,
+          originSessionId: session.id,
+          recordedRevision: 1,
+          questionId: "question-merchant",
+          turnId: "123e4567-e89b-42d3-a456-426614174000",
+          attestedByUserId: "user",
+          attestedAt: "2026-10-10T15:00:00.000Z",
+          literalHash: "c".repeat(64),
+        },
+      ],
+    };
+    const draft: ImportSessionStoredDraftV1 = {
+      version: 1,
+      lines: [line("line-selected", "obs-selected"), ...deferredLines],
+      selectedLineIds: ["line-selected"],
+      questions,
+      declarations,
+      scope: {
+        observationIds: [
+          "obs-selected",
+          "obs-25000",
+          "obs-4500",
+          "obs-1890",
+          "obs-payment",
+        ],
+        pendingAttachmentIds: [],
+      },
+    };
+    const observations = [
+      observation("obs-1890", "Purchase 18.90", 1890),
+      observation("obs-payment", "Pagamento de fatura", -12000),
+      observation("obs-selected"),
+      observation("obs-4500", "Purchase 45.00", 4500),
+      observation("obs-25000", "Purchase 250.00", 25000),
+    ];
+    const body = proposalBody();
+    const references = [reference()];
+    const originalInput = structuredClone({
+      draft,
+      proposalBody: body,
+      observations,
+      references,
+    });
+
+    const plan = buildImportPreparationPlan({
+      session,
+      draft,
+      proposalBody: body,
+      observations,
+      references,
+    });
+
+    expect(plan.continuationDraft?.lines).toEqual(
+      deferredLines.map((deferredLine) => ({
+        ...deferredLine,
+        amountCents: {
+          "line-4500": 4500,
+          "line-1890": 1890,
+          "line-25000": 25000,
+        }[deferredLine.id],
+      })),
+    );
+    expect(plan.continuationDraft?.questions).toEqual(questions);
+    expect(plan.continuationDraft?.declarations).toEqual(declarations);
+    expect(plan.proposal.createdEconomicTotalCents).toBe(12345);
+    expect(plan.proposal.invoiceDeltas).toEqual([
+      { invoiceDueMonth: "2026-10", amountCents: 12345 },
+    ]);
+    expect(plan.proposal.auditItems).toEqual([
+      {
+        observationId: "obs-payment",
+        outcome: "IGNORED",
+        reason: "INVOICE_PAYMENT",
+        title: "Pagamento de fatura",
+        amountCents: -12000,
+      },
+    ]);
+    expect({ draft, proposalBody: body, observations, references }).toEqual(
+      originalInput,
+    );
+  });
+
+  it.each([
+    {
+      case: "minimum positive evidence",
+      evidenceAmount: IMPORT_SESSION_PRIMITIVES.minPurchaseCents,
+      existingAmount: null,
+      grouped: false,
+      expectedAmount: IMPORT_SESSION_PRIMITIVES.minPurchaseCents,
+    },
+    {
+      case: "zero evidence",
+      evidenceAmount: 0,
+      existingAmount: null,
+      grouped: false,
+      expectedAmount: null,
+    },
+    {
+      case: "negative evidence",
+      evidenceAmount: -1,
+      existingAmount: null,
+      grouped: false,
+      expectedAmount: null,
+    },
+    {
+      case: "missing evidence amount",
+      evidenceAmount: null,
+      existingAmount: null,
+      grouped: false,
+      expectedAmount: null,
+    },
+    {
+      case: "existing draft amount wins",
+      evidenceAmount: 4500,
+      existingAmount: 777,
+      grouped: false,
+      expectedAmount: 777,
+    },
+    {
+      case: "grouped observations",
+      evidenceAmount: 4500,
+      existingAmount: null,
+      grouped: true,
+      expectedAmount: null,
+    },
+  ])(
+    "enriches only an eligible single-observation deferred line: $case",
+    ({ evidenceAmount, existingAmount, grouped, expectedAmount }) => {
+      const observationIds = [
+        "obs-deferred",
+        ...(grouped ? ["obs-grouped"] : []),
+      ];
+      const deferredLine = {
+        ...line("line-deferred", "obs-deferred"),
+        observationIds,
+        amountCents: existingAmount,
+      };
+      const draft: ImportSessionStoredDraftV1 = {
+        version: 1,
+        lines: [line("line-selected", "obs-selected"), deferredLine],
+        selectedLineIds: ["line-selected"],
+        questions: [],
+        scope: {
+          observationIds: ["obs-selected", ...observationIds],
+          pendingAttachmentIds: [],
+        },
+      };
+
+      const plan = buildImportPreparationPlan({
+        session,
+        draft,
+        proposalBody: proposalBody(),
+        observations: [
+          observation("obs-selected"),
+          observation("obs-deferred", "Deferred", evidenceAmount),
+          ...(grouped ? [observation("obs-grouped", "Grouped", 2500)] : []),
+        ],
+        references: [reference()],
+      });
+
+      expect(plan.continuationDraft?.lines).toEqual([
+        { ...deferredLine, amountCents: expectedAmount },
+      ]);
+    },
+  );
 
   it.each([
     { ready: 0, pendingAttachment: true, expectedSelected: 0 },

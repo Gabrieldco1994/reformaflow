@@ -316,10 +316,15 @@ export function buildImportPreparationPlan(input: {
   );
   const auditItems: ImportSessionProposalV1["auditItems"] = [];
   const terminalObservations = new Set<string>();
+  const evidenceByObservationId = new Map<
+    string,
+    ReturnType<typeof parseStoredImportObservationEvidence>
+  >();
   for (const observation of observations) {
     const evidence = parseStoredImportObservationEvidence(
       observation.evidenceJson,
     );
+    evidenceByObservationId.set(observation.id, evidence);
     const ignoredReason = ignoredImportObservation(evidence);
     if (ignoredReason === null) continue;
     terminalObservations.add(observation.id);
@@ -469,13 +474,31 @@ export function buildImportPreparationPlan(input: {
   let continuationDraft: ImportSessionStoredDraftV1 | null = null;
   if (hasContinuation) {
     const remainingObservations = new Set(deferredObservationIds);
-    const lines = draft.lines.filter(
-      (line) =>
-        !selectedLines.has(line.id) &&
-        line.observationIds.every((observationId) =>
-          remainingObservations.has(observationId),
-        ),
-    );
+    const lines = draft.lines
+      .filter(
+        (line) =>
+          !selectedLines.has(line.id) &&
+          line.observationIds.every((observationId) =>
+            remainingObservations.has(observationId),
+          ),
+      )
+      .map((line) => {
+        if (line.amountCents !== null || line.observationIds.length !== 1)
+          return line;
+        const observationId = line.observationIds[0];
+        if (
+          observationId === undefined ||
+          terminalObservations.has(observationId)
+        )
+          return line;
+        const amountCents =
+          evidenceByObservationId.get(observationId)?.amountCents;
+        return amountCents !== null &&
+          amountCents !== undefined &&
+          amountCents >= IMPORT_SESSION_PRIMITIVES.minPurchaseCents
+          ? { ...line, amountCents }
+          : line;
+      });
     const remainingLines = new Set(lines.map((line) => line.id));
     continuationDraft = validateStoredDraft({
       version: IMPORT_SESSION_PROTOCOL_VERSION,
