@@ -140,7 +140,10 @@ export class ImportUiGrantIssuer {
     ) {
       throw uiActionRequired();
     }
-    if (scope.operation === "DOCUMENTARY_ANSWER")
+    if (
+      scope.operation === "DOCUMENTARY_ANSWER" ||
+      scope.operation === "FOCUSED_DRAFT_ANSWER"
+    )
       assertImportAuthForRequest(request, auth);
     const nowMs = this.clock.now().getTime();
     const tokenExpiryMs = Date.parse(auth.tokenExpiresAt);

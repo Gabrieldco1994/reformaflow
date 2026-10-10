@@ -25,6 +25,7 @@ import type {
   ImportSessionResultV1,
   ImportSessionViewV1,
 } from "@reformaflow/domain";
+import { ImportSessionErrorCode } from "@reformaflow/domain";
 import { ServiceOwnedProjectAccess } from "../../common/decorators/service-owned-project-access.decorator";
 import { ImportAuth, ImportAuthGuard } from "./import-session.auth";
 import {
@@ -33,7 +34,10 @@ import {
 } from "./import-session.capability";
 import type { AuthenticatedImportContext } from "./import-session.contract";
 import { assertImportSessionOperationAvailable } from "./import-session.disabled";
-import { ImportSessionExceptionFilter } from "./import-session.errors";
+import {
+  ImportSessionError,
+  ImportSessionExceptionFilter,
+} from "./import-session.errors";
 import {
   assertSessionId,
   ImportSessionService,
@@ -42,6 +46,11 @@ import {
 } from "./import-session.service";
 import { ImportUiGrantIssuer } from "./import-session-ui-grant";
 import { ImportUiGuard } from "./import-session-ui.guard";
+import {
+  focusedDraftAnswerScope,
+  isFocusedDraftAnswerRequest,
+  parseFocusedDraftAnswerRequest,
+} from "./import-session.focused-draft-answer";
 import {
   documentaryAnswerScope,
   parseDocumentaryAnswerRequest,
@@ -154,7 +163,20 @@ export class ImportSessionController {
     @ImportAuth() auth: AuthenticatedImportContext,
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request?: Request,
   ): Promise<ImportSessionViewV1> {
+    if (isFocusedDraftAnswerRequest(body)) {
+      assertSessionId(id);
+      const validated = parseFocusedDraftAnswerRequest(body);
+      if (!request)
+        throw new ImportSessionError(ImportSessionErrorCode.UI_ACTION_REQUIRED);
+      const grant = this.issuer.issue(
+        request,
+        auth,
+        focusedDraftAnswerScope(id, validated),
+      );
+      return this.workflow.focusedDraftAnswer(auth, id, validated, grant);
+    }
     return this.workflow.edit(auth, id, body);
   }
 

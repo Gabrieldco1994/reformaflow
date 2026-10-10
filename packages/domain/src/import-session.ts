@@ -579,6 +579,16 @@ export interface ImportSessionEditRequestV1 extends ImportSessionRevisionRequest
   replaceLines: ImportSessionDraftLineV1[];
   selectedLineIds: ImportSessionId[];
 }
+/** Explicit UI draft choices, not documentary attestations or financial consent. */
+export type ImportSessionFocusedDraftAnswerV1 =
+  | { field: "firstDueDate"; value: ImportSessionDateOnly | null }
+  | { field: "tipoDespesa"; value: ExpenseType | null };
+export interface ImportSessionFocusedDraftAnswerRequestV1 extends ImportSessionRevisionRequestV1 {
+  version: typeof IMPORT_SESSION_PROTOCOL_VERSION;
+  answerRequestId: ImportSessionRequestId;
+  questionId: ImportSessionId;
+  answer: ImportSessionFocusedDraftAnswerV1;
+}
 export interface ImportSessionChallengeRequestV1 extends ImportSessionRevisionRequestV1 {
   proposalHash: ImportSessionHash;
 }

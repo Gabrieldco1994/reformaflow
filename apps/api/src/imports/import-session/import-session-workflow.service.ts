@@ -31,6 +31,7 @@ import {
   type ImportSessionConfirmResponseV1,
   type ImportSessionEditRequestV1,
   type ImportSessionDocumentaryAnswerRequestV1,
+  type ImportSessionFocusedDraftAnswerRequestV1,
   type ImportSessionExecuteRequestV1,
   type ImportSessionProposalV1,
   type ImportSessionReceiptV1,
@@ -114,6 +115,10 @@ import {
   documentaryAnswerScope,
   parseDocumentaryAnswerRequest,
 } from "./import-session.native-answer";
+import {
+  focusedDraftAnswerScope,
+  parseFocusedDraftAnswerRequest,
+} from "./import-session.focused-draft-answer";
 
 type ConversationAnswer =
   | Extract<ResolvedImportAnswerV1, { kind: "VALUE" }>
@@ -339,6 +344,35 @@ export class ImportSessionWorkflowService {
     return this.editCore(auth, sessionId, null, undefined, undefined, request);
   }
 
+  async focusedDraftAnswer(
+    auth: AuthenticatedImportContext,
+    sessionId: string,
+    body: unknown,
+    grant: unknown,
+  ): Promise<ImportSessionViewV1> {
+    this.identity(auth, sessionId);
+    const request = parseFocusedDraftAnswerRequest(body);
+    if (!this.verifier.verify)
+      throw new ImportSessionError(Code.UI_ACTION_REQUIRED);
+    // Admission is spent once per invocation; locked context below reauthorizes
+    // actor/owner/project and resolves the exact current generic task on every retry.
+    this.verifier.verify(
+      grant,
+      auth,
+      focusedDraftAnswerScope(sessionId, request),
+      this.clock.now(),
+    );
+    return this.editCore(
+      auth,
+      sessionId,
+      null,
+      undefined,
+      undefined,
+      undefined,
+      request,
+    );
+  }
+
   async editConversationAnswer(
     auth: AuthenticatedImportContext,
     sessionId: string,
@@ -369,6 +403,7 @@ export class ImportSessionWorkflowService {
     binding?: ImportConversationWriteBinding,
     command?: ConversationAnswer,
     nativeRequest?: ImportSessionDocumentaryAnswerRequestV1,
+    focusedRequest?: ImportSessionFocusedDraftAnswerRequestV1,
   ): Promise<ImportSessionViewV1> {
     const assertLive = binding
       ? (): undefined =>
@@ -431,7 +466,32 @@ export class ImportSessionWorkflowService {
             { userId: actor.userId, turnId: turn.turnId, now },
           );
         } else {
+          let focusedEdit: ImportSessionEditRequestV1 | undefined;
+          if (focusedRequest) {
+            this.editable(row, now, focusedRequest.expectedRevision);
+            const question = view.questions.find(
+              (q) => q.id === focusedRequest.questionId && !("subject" in q),
+            );
+            if (!question || !draft.questions.some((q) => q.id === question.id))
+              throw problem(Code.REVISION_CONFLICT, row);
+            if (question.field !== focusedRequest.answer.field) throw invalid();
+            const lines = question.lineIds.map((lineId) => {
+              const line = draft.lines.find((line) => line.id === lineId);
+              if (!line) throw invalid();
+              // Server-owned clones only. No DTO replacement lines or selection scope.
+              return focusedRequest.answer.field === "firstDueDate"
+                ? { ...line, firstDueDate: focusedRequest.answer.value }
+                : { ...line, tipoDespesa: focusedRequest.answer.value };
+            });
+            focusedEdit = editRequest({
+              expectedRevision: focusedRequest.expectedRevision,
+              questionId: question.id,
+              replaceLines: lines,
+              selectedLineIds: draft.selectedLineIds,
+            });
+          }
           const request =
+            focusedEdit ??
             httpRequest ??
             editRequest({
               expectedRevision: binding?.expectedRevision,
@@ -547,6 +607,7 @@ export class ImportSessionWorkflowService {
               questions: question
                 ? draft.questions.flatMap((item) => {
                     if (item.id !== question.id) return [item];
+                    if (focusedRequest?.answer.value === null) return [item];
                     const lineIds = item.lineIds.filter((id) => {
                       const line = replacement.get(id);
                       return !line || same(line, existing.get(id));

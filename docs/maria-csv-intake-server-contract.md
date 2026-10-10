@@ -202,6 +202,44 @@ resposta nativa, recuperação legada e preparação sem nenhum efeito financeir
 
 ### Dependência de modelo na conversa livre (candidato, não prova de entrega)
 
+#### Escolhas tipadas de rascunho sem interpretação
+
+Além da seleção legada, `PATCH /import-sessions/:id/draft` admite a variante exata
+`ImportSessionFocusedDraftAnswerRequestV1`:
+
+```ts
+{
+  version: 1;
+  answerRequestId: string; // UUID
+  expectedRevision: number;
+  questionId: string; // pergunta genérica atual, não oq_…
+  answer:
+    | { field: "firstDueDate"; value: string | null } // YYYY-MM-DD explícito
+    | { field: "tipoDespesa"; value: ExpenseType | null };
+}
+```
+
+Essa variante representa escolhas humanas do rascunho, **não atestações do original**.
+O controller valida chaves/UUID/revisão/data/enum antes de emitir o grant
+`FOCUSED_DRAFT_ANSWER`, vinculado ao ator, sessão, revisão, pergunta e hash canônico.
+No writer bloqueado, o serviço reautoriza o projeto proprietário e resolve a pergunta
+genérica atual; constrói somente a mudança do campo permitido nas linhas do servidor.
+Não aceita substituições de linhas, seleção, destinos ou decisões nesse envelope.
+Retorna `ImportSessionViewV1` e reutiliza o tail de edição existente; seleção legada
+conserva seu contrato e comportamento anteriores.
+
+Datas não recebem ano/ciclo inferido nem ajuste automático. `2026-10-10` continua
+exatamente essa data. Prepare conserva a validação de fechamento/vencimento e ciclo;
+salvar um vencimento inválido para o ciclo não concede READY ou execução. `MAO_DE_OBRA`
+não preenche categoria de mão de obra implicitamente. Null significa ausência explícita
+e conserva a pergunta pendente; no-op não renova revisão/expiração. Resposta incerta
+exige GET autorizado, sem reaplicação cega.
+
+`focused-draft-answer.integration.spec.ts` cobre guards/grants/writer/preparação reais,
+OUTROS e data sem provider, isolamento do campo, ACL, falsificação/expiração, concorrência,
+no-op e ciclo incompatível, com zero efeitos financeiros. Decisões/destinos e conversa
+livre continuam fora dessa variante; a entrega não afirma uma jornada inteira sem LLM.
+
 `AgentService.contextual` encaminha `ANSWER` ao provider construído em
 `agent.module.ts`; a conversa livre continua dependente do provider. Os controles
 documentais explícitos com preview aceito usam o endpoint nativo acima, não `/agent/chat`.
