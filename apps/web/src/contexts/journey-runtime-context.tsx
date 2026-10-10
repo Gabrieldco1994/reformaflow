@@ -61,6 +61,9 @@ interface JourneyRuntimeContextValue {
   emitProjectsCreated: (
     projects: Array<{ id: string; type: JourneyProject["type"] }>,
   ) => Promise<void>;
+  completeSignup: (
+    projects: Array<{ id: string; type: JourneyProject["type"] }>,
+  ) => Promise<void>;
   next: () => void;
   back: () => void;
   skip: () => void;
@@ -110,6 +113,8 @@ export function JourneyRuntimeProvider({
   const { user, loading: authLoading } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const [active, setActive] = useState<ActiveJourney | null>(null);
   const [queue, setQueue] = useState<QueuedJourney[]>([]);
   const [projects, setProjects] = useState<JourneyProject[]>([]);
@@ -141,15 +146,28 @@ export function JourneyRuntimeProvider({
   // nem uma requisição. Guardamos o contexto e reemitimos quando o usuário
   // aparece, o que preserva "nunca disparar sem usuário autenticado" sem
   // perder o gatilho.
-  const pendingEmit = useRef<JourneyEligibilityContext[] | null>(null);
+  const pendingEmit = useRef<{
+    contexts: JourneyEligibilityContext[];
+    signup: boolean;
+  } | null>(null);
+  const emission = useRef({ generation: 0, signup: false });
 
   const emitMany = useCallback(
-    async (contexts: JourneyEligibilityContext[]) => {
-      if (active || contexts.length === 0) return;
+    async (contexts: JourneyEligibilityContext[], signup = false) => {
+      if ((!signup && active) || contexts.length === 0) return;
       if (!user || authLoading) {
-        pendingEmit.current = contexts;
+        // Screen/action events cannot replace the pending authenticated signup.
+        if (!pendingEmit.current?.signup || signup)
+          pendingEmit.current = { contexts, signup };
         return;
       }
+      // Signup supersedes an older additive screen lookup; screen/action events
+      // cannot race its initial destination while its eligibility is unresolved.
+      if (emission.current.signup && !signup) return;
+      const generation = signup
+        ? ++emission.current.generation
+        : emission.current.generation;
+      emission.current.signup = signup;
       pendingEmit.current = null;
       setLoading(true);
       setError(null);
@@ -177,6 +195,7 @@ export function JourneyRuntimeProvider({
             }));
           }),
         );
+        if (generation !== emission.current.generation) return;
 
         const seen = new Set<string>();
         const entries: QueuedJourney[] = [];
@@ -205,11 +224,27 @@ export function JourneyRuntimeProvider({
             projectType: first.projectType,
           });
           setQueue(entries);
+        } else if (signup) {
+          setActive(null);
+          setQueue([]);
         }
+        // The FULL activation effect owns the project destination. Only an
+        // absent/summary first journey falls back to the hub, from this owner.
+        const step = first?.journey.steps[0];
+        if (
+          signup &&
+          !(step?.experience === "FULL" && step.slug && first.projectId)
+        )
+          routerRef.current.replace("/projects");
       } catch {
         // The runtime is additive: an unavailable journey API must not break the app.
+        if (signup && generation === emission.current.generation)
+          routerRef.current.replace("/projects");
       } finally {
-        setLoading(false);
+        if (generation === emission.current.generation) {
+          emission.current.signup = false;
+          setLoading(false);
+        }
       }
     },
     [active, authLoading, user],
@@ -238,11 +273,30 @@ export function JourneyRuntimeProvider({
     [emitMany],
   );
 
+  const completeSignup = useCallback(
+    (projects: Array<{ id: string; type: JourneyProject["type"] }>) =>
+      emitMany(
+        [
+          ...projects.map(
+            (project): JourneyEligibilityContext => ({
+              triggerType: "PROJECT_CREATED",
+              device: device(),
+              projectId: project.id,
+              projectType: project.type,
+            }),
+          ),
+          { triggerType: "SIGNUP_COMPLETED", device: device() },
+        ],
+        true,
+      ),
+    [emitMany],
+  );
+
   // Drena o gatilho que chegou cedo demais, assim que a autenticação resolve.
   useEffect(() => {
     const pending = pendingEmit.current;
-    if (!pending || !user || authLoading || active) return;
-    void emitMany(pending);
+    if (!pending || !user || authLoading || (active && !pending.signup)) return;
+    void emitMany(pending.contexts, pending.signup);
   }, [active, authLoading, emitMany, user]);
 
   useEffect(() => {
@@ -374,6 +428,7 @@ export function JourneyRuntimeProvider({
       emit,
       emitSignupCompleted,
       emitProjectsCreated,
+      completeSignup,
       next,
       back,
       skip,
@@ -387,6 +442,7 @@ export function JourneyRuntimeProvider({
       dismiss,
       emit,
       emitProjectsCreated,
+      completeSignup,
       emitSignupCompleted,
       error,
       loading,

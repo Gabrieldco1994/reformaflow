@@ -192,12 +192,13 @@ não duplica a parcela planejada do projeto de destino no mesmo mês.
 
 ### 3.1b Registro (`/register`)
 - **Propósito:** criar uma nova conta (tenant + usuário).
-- **Campos:** nome do espaço, nome do usuário, usuário (login), senha,
-  confirmação de senha, objetivos (seletor de tipos de projeto).
-- **Ação "Criar conta e continuar":** cria a conta e redireciona para o
-  **Hub — Meus Projetos** (`/projects`), onde o usuário é convidado a criar o
-  primeiro projeto. Ao criar, o painel de onboarding aparece automaticamente
-  sobre o Dashboard via o trigger `PROJECT_CREATED` (jornada genérica, ver §3.1c).
+- **Campos:** seu nome, email, senha e objetivos (seletor de tipos de projeto).
+- **Ação "Criar minha conta":** cria a conta e um projeto por objetivo marcado.
+  Após atualizar a sessão, o runtime consulta `PROJECT_CREATED` de cada projeto
+  e `SIGNUP_COMPLETED`, preservando uma jornada por projeto na fila. A primeira
+  etapa FULL abre sua própria tela (por exemplo, **Conta**) com o painel de
+  onboarding; sem etapa FULL inicial, o destino é o **Hub — Meus Projetos**
+  (`/projects`). O formulário não dispara uma navegação concorrente ao Hub.
 
 ### 3.1c Onboarding (painel sobre Dashboard)
 Assistente **genérico**, dirigido por configuração — todos os 6 tipos de projeto
