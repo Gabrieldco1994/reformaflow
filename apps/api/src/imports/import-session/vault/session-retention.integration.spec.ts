@@ -1816,8 +1816,9 @@ describe("guarded persisted session retention", () => {
         searchJson: null,
       },
     });
+    const normalizedReceipt = { ...receipt, auditItems: [] };
     expect((await service.getResult(auth, created.view.id)).receipt).toEqual(
-      receipt,
+      normalizedReceipt,
     );
     const batches = { applyInTx: jest.fn(), prepareInTx: jest.fn() };
     const workflow = new ImportSessionWorkflowService(
@@ -1831,14 +1832,14 @@ describe("guarded persisted session retention", () => {
     );
     expect(
       await workflow.execute(auth, created.view.id, { financialRequestId }, {}),
-    ).toEqual(receipt);
+    ).toEqual(normalizedReceipt);
     expect(batches.applyInTx).not.toHaveBeenCalled();
     expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
     expect(await prisma.cashFlowEntry.count({ where: { tenantId } })).toBe(0);
   });
 
   it.each([false, true])(
-    "real prepare/consent/execute strips persisted drafts, releases refs and replays only the receipt (continuation=%s)",
+    "real prepare/consent/execute strips persisted drafts, releases refs and replays only the receipt (invoice-payment=%s)",
     async (deferred) => {
       const initialActivities = await prisma.userActivityLog.count({
         where: { tenantId },
@@ -2004,33 +2005,17 @@ describe("guarded persisted session retention", () => {
         challengeJson: null,
       });
       expect(JSON.parse(applied.receiptJson!)).toEqual(receipt);
-      // Deferred observations create a live continuation. APPLIED must not erase
-      // its evidence; the last terminal close owns cleanup of the shared artifact.
+      // Invoice payments are terminal audit-only evidence, never continuation work.
       if (deferred) {
-        expect(receipt.continuationSessionId).not.toBeNull();
-        const continuation = await service.getSession(
-          auth,
-          receipt.continuationSessionId!,
-        );
-        expect(
-          await prisma.importObservation.count({
-            where: { artifactId: artifact.id },
+        expect(receipt.auditItems).toEqual([
+          expect.objectContaining({
+            outcome: "IGNORED",
+            reason: "INVOICE_PAYMENT",
+            amountCents: -100,
           }),
-        ).toBe(2);
-        expect(
-          (await service.getObservations(auth, continuation.id)).items,
-        ).toHaveLength(1);
-        await service.cancel(
-          auth,
-          continuation.id,
-          {
-            expectedRevision: continuation.revision,
-          },
-          {},
-        );
-      } else {
-        expect(receipt.continuationSessionId).toBeNull();
+        ]);
       }
+      expect(receipt.continuationSessionId).toBeNull();
       const claimed = await prisma.importObservation.findMany({
         where: { artifactId: artifact.id },
       });
@@ -2119,7 +2104,7 @@ describe("guarded persisted session retention", () => {
       await expect(
         upload.upload(auth, session.id, ref.id, 1, source, {}),
       ).rejects.toMatchObject({
-        code: deferred ? "NOT_FOUND" : "LEASE_CONFLICT",
+        code: "LEASE_CONFLICT",
       });
       expect(source.readableDidRead).toBe(false);
       const otherTenant = await prisma.tenant.create({

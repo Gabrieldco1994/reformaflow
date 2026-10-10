@@ -3,6 +3,8 @@ import {
   IMPORT_SESSION_LIMITS,
   IMPORT_SESSION_PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
+  IMPORT_SESSION_AUDIT_OUTCOME,
+  CARD_IMPORT_IGNORED_REASON,
   ImportSessionAttachmentState,
   ImportSessionState,
   isInvoiceDueMonth,
@@ -175,7 +177,18 @@ const RECEIPT_KEYS = [
   "appliedAt",
   "continuationSessionId",
   "items",
+  "auditItems",
   "snapshot",
+].sort();
+const HISTORICAL_RECEIPT_KEYS = RECEIPT_KEYS.filter(
+  (key) => key !== "auditItems",
+);
+const AUDIT_ITEM_KEYS = [
+  "observationId",
+  "outcome",
+  "reason",
+  "title",
+  "amountCents",
 ].sort();
 const ITEM_KEYS = [
   "lineId",
@@ -217,6 +230,12 @@ const isIdArray = (value: unknown): value is string[] =>
 /** Non-negative safe integer (centavos). Fractions, strings and negatives are corruption. */
 const isCents = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const isIgnoredCents = (value: unknown): value is number | null =>
+  value === null ||
+  (typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= IMPORT_SESSION_PRIMITIVES.minCents &&
+    value < 0);
 
 /**
  * The ACL envelope of a stored receipt: ONLY `snapshot.participantProjectIds`, judged with the
@@ -377,7 +396,10 @@ export function parseReceipt(
   const value = parseJson(raw, "receipt");
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, RECEIPT_KEYS) ||
+    !(
+      hasExactKeys(value, RECEIPT_KEYS) ||
+      hasExactKeys(value, HISTORICAL_RECEIPT_KEYS)
+    ) ||
     value["version"] !== IMPORT_SESSION_PROTOCOL_VERSION ||
     value["sessionId"] !== sessionId ||
     typeof value["financialRequestId"] !== "string" ||
@@ -420,6 +442,36 @@ export function parseReceipt(
       };
     },
   );
+  const rawAuditItems = value["auditItems"] ?? [];
+  if (!Array.isArray(rawAuditItems)) throw corrupt("receipt");
+  const seenAuditObservations = new Set<string>();
+  const auditItems: ImportSessionReceiptV1["auditItems"] = rawAuditItems.map(
+    (item: unknown) => {
+      if (
+        !isRecord(item) ||
+        !hasExactKeys(item, AUDIT_ITEM_KEYS) ||
+        !isId(item["observationId"]) ||
+        seenAuditObservations.has(item["observationId"]) ||
+        item["outcome"] !== IMPORT_SESSION_AUDIT_OUTCOME.IGNORED ||
+        item["reason"] !== CARD_IMPORT_IGNORED_REASON.INVOICE_PAYMENT ||
+        typeof item["title"] !== "string" ||
+        item["title"].normalize("NFC") !== item["title"] ||
+        item["title"].length < 1 ||
+        item["title"].length > IMPORT_SESSION_PRIMITIVES.maxTitleLength ||
+        !isIgnoredCents(item["amountCents"])
+      ) {
+        throw corrupt("receipt");
+      }
+      seenAuditObservations.add(item["observationId"]);
+      return {
+        observationId: item["observationId"],
+        outcome: IMPORT_SESSION_AUDIT_OUTCOME.IGNORED,
+        reason: CARD_IMPORT_IGNORED_REASON.INVOICE_PAYMENT,
+        title: item["title"],
+        amountCents: item["amountCents"],
+      };
+    },
+  );
   const snapshot = parseSnapshot(value["snapshot"], items, anchorProjectId);
   return {
     version: IMPORT_SESSION_PROTOCOL_VERSION,
@@ -429,6 +481,7 @@ export function parseReceipt(
     proposalHash: value["proposalHash"],
     appliedAt: value["appliedAt"],
     continuationSessionId: value["continuationSessionId"] as string | null,
+    auditItems,
     items,
     snapshot,
   };

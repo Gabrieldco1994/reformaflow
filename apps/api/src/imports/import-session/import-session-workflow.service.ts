@@ -1472,6 +1472,7 @@ export class ImportSessionWorkflowService {
   ): ImportPreparationPlanV1 {
     const {
       proposalHash: _hash,
+      auditItems: _audit,
       deferredObservationIds: _observations,
       deferredAttachmentIds: _attachments,
       retainUntil: _retention,
@@ -1622,6 +1623,7 @@ export class ImportSessionWorkflowService {
       proposalHash: row.proposalHash,
       appliedAt: now.toISOString(),
       continuationSessionId: null,
+      auditItems: structuredClone(proposal.auditItems),
       items,
       snapshot: {
         lines,

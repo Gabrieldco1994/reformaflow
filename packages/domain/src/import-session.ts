@@ -1,4 +1,5 @@
 import type { ExpenseScheduleV1 } from "./calculations/expense-schedule";
+import { CARD_IMPORT_IGNORED_REASON } from "./types/card-import-review";
 export const IMPORT_CARD_CYCLE_CONFIGURATION_REQUIRED =
   "CARD_CYCLE_CONFIGURATION_REQUIRED";
 export const IMPORT_NO_ELIGIBLE_PURCHASES = "NO_ELIGIBLE_PURCHASES";
@@ -59,7 +60,7 @@ export const IMPORT_SESSION_LIMITS = Object.freeze({
   editableLines: 100,
   selectedLines: 10,
   installmentsPerPurchase: 24,
-  targetsPerPurchase: 4,
+  targetsPerPurchase: 1,
   expandedCFEsPerBatch: 240,
   financialAndCoordinationWritesPerBatch: 512,
   matchingRowsVisitedPerPreparation: 5000,
@@ -346,6 +347,19 @@ export interface ImportSessionPlannedKeepV1 {
   totalCents: ImportSessionCents;
   schedule: ExpenseScheduleV1;
 }
+export const IMPORT_SESSION_AUDIT_OUTCOME = {
+  IGNORED: "IGNORED",
+} as const;
+export type ImportSessionAuditOutcome =
+  (typeof IMPORT_SESSION_AUDIT_OUTCOME)[keyof typeof IMPORT_SESSION_AUDIT_OUTCOME];
+export interface ImportSessionIgnoredAuditItemV1 {
+  observationId: ImportSessionId;
+  outcome: typeof IMPORT_SESSION_AUDIT_OUTCOME.IGNORED;
+  reason: typeof CARD_IMPORT_IGNORED_REASON.INVOICE_PAYMENT;
+  title: string;
+  /** Documentary amount only; ignored observations never affect financial totals. */
+  amountCents: ImportSessionCents | null;
+}
 export interface ImportSessionProposalV1 {
   version: typeof IMPORT_SESSION_PROTOCOL_VERSION;
   kind: typeof IMPORT_SESSION_KIND;
@@ -353,6 +367,8 @@ export interface ImportSessionProposalV1 {
   revision: ImportSessionRevision;
   proposalHash: ImportSessionHash;
   lines: Array<ImportSessionPlannedCreateV1 | ImportSessionPlannedKeepV1>;
+  /** Terminal documentary outcomes, hash-bound but excluded from every financial effect. */
+  auditItems: ImportSessionIgnoredAuditItemV1[];
   /** Selected-out observations that stay in the draft (AC18 continuation). */
   deferredObservationIds: ImportSessionId[];
   /**
@@ -413,6 +429,8 @@ export interface ImportSessionReceiptV1 extends ImportSessionConfirmationRefV1 {
    * successor's own state is read separately.
    */
   continuationSessionId: ImportSessionId | null;
+  /** Immutable copy of the proposal audit. Historical receipts parse this as an empty list. */
+  auditItems?: ImportSessionIgnoredAuditItemV1[];
   items: Array<{
     lineId: ImportSessionId;
     outcome: "CREATED" | "KEPT_EXISTING";

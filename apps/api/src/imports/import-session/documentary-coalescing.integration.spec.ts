@@ -240,7 +240,9 @@ describe("real upload → materialization → native documentary coalescing → 
           prisma.receipt.count({ where: { tenantId } }),
           prisma.rateioAllocation.count({ where: { tenantId } }),
           prisma.crossProjectSettlement.count({ where: { tenantId } }),
+          prisma.budgetAllocation.count({ where: { tenantId } }),
           prisma.importedInvoiceLiquidation.count({ where: { tenantId } }),
+          prisma.merchantCategory.count({ where: { tenantId } }),
         ]);
       let view: ImportSessionViewV1;
       const answer = async (
@@ -278,6 +280,18 @@ describe("real upload → materialization → native documentary coalescing → 
           payload,
           grant(documentaryAnswerScope(view.id, payload)),
         );
+      };
+      const financialRequest = () => {
+        const fresh = {
+          headers: { ...request.headers },
+          user: { ...request.user },
+        };
+        const freshContext = {
+          switchToHttp: () => ({ getRequest: () => fresh }),
+        } as ExecutionContext;
+        new ImportAuthGuard().canActivate(freshContext);
+        ui.canActivate(freshContext);
+        return { request: fresh, auth: readImportAuthForRequest(fresh) };
       };
       try {
         const createRequestId = randomUUID();
@@ -419,7 +433,7 @@ describe("real upload → materialization → native documentary coalescing → 
             evidenceJson: row.evidenceJson,
           }));
           expect(await immutable()).toEqual(originalEvidence);
-          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0]);
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
           const paymentPage = await sessions.getObservations(auth, view.id);
           const payment = paymentPage.items.filter(
             (o) => o.ignoredReason === "INVOICE_PAYMENT",
@@ -452,21 +466,9 @@ describe("real upload → materialization → native documentary coalescing → 
             ),
           ).toBe(false);
           expect(await immutable()).toEqual(originalEvidence);
-          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0]);
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
           const ready = view;
           const proposalHash = ready.proposal!.proposalHash;
-          const financialRequest = () => {
-            const fresh = {
-              headers: { ...request.headers },
-              user: { ...request.user },
-            };
-            const freshContext = {
-              switchToHttp: () => ({ getRequest: () => fresh }),
-            } as ExecutionContext;
-            new ImportAuthGuard().canActivate(freshContext);
-            ui.canActivate(freshContext);
-            return { request: fresh, auth: readImportAuthForRequest(fresh) };
-          };
           const challengeRequest = financialRequest();
           const challenge = await controller.challenge(
             challengeRequest.request as never,
@@ -490,7 +492,7 @@ describe("real upload → materialization → native documentary coalescing → 
             ready.id,
             confirmation,
           );
-          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0]);
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
           const execute = () => {
             const executeRequest = financialRequest();
             return controller.execute(
@@ -505,6 +507,16 @@ describe("real upload → materialization → native documentary coalescing → 
           const receipt = await execute();
           expect(receipt.items).toHaveLength(2);
           expect(receipt.snapshot.createdEconomicTotalCents).toBe(246912);
+          expect(receipt.auditItems).toEqual([
+            {
+              observationId: payment[0].id,
+              outcome: "IGNORED",
+              reason: "INVOICE_PAYMENT",
+              title: "PAGAMENTO DE FATURA",
+              amountCents: -246912,
+            },
+          ]);
+          expect(receipt.continuationSessionId).toBeNull();
           const confirmReplayRequest = financialRequest();
           await controller.confirm(
             confirmReplayRequest.request as never,
@@ -513,7 +525,7 @@ describe("real upload → materialization → native documentary coalescing → 
             confirmation,
           );
           expect(await execute()).toEqual(receipt);
-          expect(await counts()).toEqual([2, 2, 0, 0, 0, 0]);
+          expect(await counts()).toEqual([2, 2, 0, 0, 0, 0, 0, 0]);
           const expenses = await prisma.expense.findMany({
             where: { tenantId },
             orderBy: { externalId: "asc" },
@@ -545,7 +557,6 @@ describe("real upload → materialization → native documentary coalescing → 
           expect(new Set(flows.map((flow) => flow.expenseId))).toEqual(
             new Set(expenses.map((expense) => expense.id)),
           );
-          expect(await immutable()).toEqual(originalEvidence);
           const claimedPurchases = await prisma.importObservation.findMany({
             where: { tenantId, canonicalExpenseId: { not: null } },
           });
@@ -553,18 +564,15 @@ describe("real upload → materialization → native documentary coalescing → 
           expect(
             new Set(claimedPurchases.map((row) => row.canonicalExpenseId)),
           ).toEqual(new Set(expenses.map((expense) => expense.id)));
-          const ignored = await prisma.importObservation.findUniqueOrThrow({
+          const ignored = await prisma.importObservation.findUnique({
             where: { id: payment[0].id },
           });
-          expect(ignored).toMatchObject({
-            canonicalExpenseId: null,
-            canonicalReceiptId: null,
-            claimSessionId: null,
-            claimedAt: null,
-          });
+          expect(ignored).toBeNull();
           const terminal = await sessions.getSession(auth, ready.id);
           expect(terminal.state).toBe("APPLIED");
           expect(terminal.receipt).toEqual(receipt);
+          expect(terminal.actions).not.toContain("CONFIRM");
+          expect(terminal.actions).not.toContain("EXECUTE");
           expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
           return;
         }
@@ -612,7 +620,7 @@ describe("real upload → materialization → native documentary coalescing → 
             (q) => covered.includes(q.field) && isPendingImportQuestion(q),
           ),
         ).toHaveLength(0);
-        expect(await counts()).toEqual([0, 0, 0, 0, 0, 0]);
+        expect(await counts()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
         expect(
           await prisma.importObservation.findMany({
             where: { tenantId },
@@ -621,7 +629,48 @@ describe("real upload → materialization → native documentary coalescing → 
         ).toEqual(evidenceBefore);
         const reread = await sessions.getSession(auth, view.id);
         expect(reread.lines).toEqual(view.lines);
+        let reformaProjectId: string | null = null;
         if (format === "CSV") {
+          const reformaProjects = await Promise.all(
+            ["reforma-a", "reforma-b"].map((name) =>
+              prisma.project.create({
+                data: {
+                  tenantId,
+                  name,
+                  type: ProjectType.REFORMA,
+                },
+              }),
+            ),
+          );
+          reformaProjectId = reformaProjects[0].id;
+          const beforeInvalidEdit =
+            await prisma.importSession.findUniqueOrThrow({
+              where: { id: view.id },
+            });
+          await expect(
+            workflow.edit(auth, view.id, {
+              expectedRevision: view.revision,
+              questionId: null,
+              selectedLineIds: [view.lines[0].id],
+              replaceLines: [
+                {
+                  ...view.lines[0],
+                  targets: reformaProjects.map((project) => ({
+                    projectId: project.id,
+                    roomId: null,
+                    amountCents: 61728,
+                  })),
+                },
+              ],
+            }),
+          ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+          expect(
+            await prisma.importSession.findUniqueOrThrow({
+              where: { id: view.id },
+            }),
+          ).toEqual(beforeInvalidEdit);
+
           // Structurally equivalent pre-fix draft: retained production declarations,
           // missing derived total, and the old generic task. Recovery GET must not write
           // or require replaying the human attestation to eliminate this stale task.
@@ -702,7 +751,16 @@ describe("real upload → materialization → native documentary coalescing → 
             ...line,
             firstDueDate: "2026-10-10",
             tipoDespesa: ExpenseType.OUTROS,
-            targets: [],
+            targets:
+              reformaProjectId === null
+                ? []
+                : [
+                    {
+                      projectId: reformaProjectId,
+                      roomId: null,
+                      amountCents: 123456,
+                    },
+                  ],
             decision: { kind: "CREATE", acceptNaturalDuplicate: false },
           })),
         });
@@ -714,8 +772,111 @@ describe("real upload → materialization → native documentary coalescing → 
             (q) => covered.includes(q.field) && isPendingImportQuestion(q),
           ),
         ).toHaveLength(0);
-        if (format === "CSV") expect(view.state).toBe("READY");
-        else {
+        if (format === "CSV") {
+          expect(view.state).toBe("READY");
+          expect(reformaProjectId).not.toBeNull();
+          const proposalHash = view.proposal!.proposalHash;
+          const challengeRequest = financialRequest();
+          const challenge = await controller.challenge(
+            challengeRequest.request as never,
+            challengeRequest.auth,
+            view.id,
+            {
+              expectedRevision: view.revision,
+              proposalHash,
+            },
+          );
+          const financialRequestId = randomUUID();
+          const confirmRequest = financialRequest();
+          await controller.confirm(
+            confirmRequest.request as never,
+            confirmRequest.auth,
+            view.id,
+            {
+              expectedRevision: view.revision,
+              proposalHash,
+              financialRequestId,
+              nonce: challenge.nonce,
+            },
+          );
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+          const executeRequest = financialRequest();
+          const receipt = await controller.execute(
+            executeRequest.request as never,
+            executeRequest.auth,
+            view.id,
+            { financialRequestId },
+          );
+          expect(receipt.items).toHaveLength(1);
+          expect(receipt.items[0].targetExpenseIds).toHaveLength(1);
+          expect(receipt.items[0].allocationIds).toHaveLength(1);
+          expect(receipt.continuationSessionId).toBeNull();
+          expect(receipt.auditItems).toEqual([
+            expect.objectContaining({
+              outcome: "IGNORED",
+              reason: "INVOICE_PAYMENT",
+              amountCents: -123456,
+            }),
+          ]);
+          const source = await prisma.expense.findUniqueOrThrow({
+            where: { id: receipt.items[0].sourceExpenseId },
+          });
+          const target = await prisma.expense.findUniqueOrThrow({
+            where: { id: receipt.items[0].targetExpenseIds[0] },
+          });
+          expect(source).toMatchObject({
+            projectId,
+            valorTotal: 123456,
+            linkedExpenseId: target.id,
+            cardLast4: "1234",
+            bankLast4: null,
+            accountId: null,
+          });
+          expect(target).toMatchObject({
+            projectId: reformaProjectId,
+            valorTotal: 123456,
+          });
+          expect(
+            await prisma.rateioAllocation.findMany({
+              where: {
+                tenantId,
+                sourceExpenseId: source.id,
+              },
+              select: {
+                targetExpenseId: true,
+                allocation: true,
+              },
+            }),
+          ).toEqual([
+            {
+              targetExpenseId: target.id,
+              allocation: 123456,
+            },
+          ]);
+          expect(
+            await prisma.cashFlowEntry.groupBy({
+              by: ["expenseId"],
+              where: {
+                tenantId,
+                expenseId: { in: [source.id, target.id] },
+                deletedAt: null,
+              },
+              _sum: { valor: true },
+            }),
+          ).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                expenseId: source.id,
+                _sum: { valor: 123456 },
+              }),
+              expect.objectContaining({
+                expenseId: target.id,
+                _sum: { valor: 123456 },
+              }),
+            ]),
+          );
+          expect(await counts()).toEqual([2, 2, 0, 1, 0, 0, 0, 0]);
+        } else {
           // Original no-year identity has no ordinal: documentary answers cannot invent
           // immutable financial identity. Keep that separate pre-existing readiness gate.
           expect(view.reviewBlockers).toEqual(
@@ -727,18 +888,23 @@ describe("real upload → materialization → native documentary coalescing → 
           );
           expect(view.state).not.toBe("READY");
         }
-        expect(await counts()).toEqual([0, 0, 0, 0, 0, 0]);
+        if (format !== "CSV")
+          expect(await counts()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
         const persisted = await prisma.importSession.findUniqueOrThrow({
           where: { id: view.id },
         });
-        expect(persisted.financialRequestId).toBeNull();
+        expect(persisted.financialRequestId).toEqual(
+          format === "CSV" ? expect.any(String) : null,
+        );
         expect(persisted.challengeJson).toBeNull();
-        expect(persisted.receiptJson).toBeNull();
+        expect(persisted.receiptJson).toEqual(
+          format === "CSV" ? expect.any(String) : null,
+        );
       } finally {
         await registry.shutdown(1000);
         rmSync(root, { recursive: true, force: true });
         await prisma.$transaction(async (tx) => {
-          if (documentedYear) {
+          if (documentedYear || format === "CSV") {
             await tx.cashFlowEntry.deleteMany({ where: { tenantId } });
             await tx.importObservation.deleteMany({ where: { tenantId } });
             await tx.expense.deleteMany({ where: { tenantId } });

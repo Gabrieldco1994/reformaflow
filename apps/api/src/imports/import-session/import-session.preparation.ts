@@ -9,6 +9,7 @@ import {
   IMPORT_SESSION_LIMITS,
   IMPORT_SESSION_PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
+  IMPORT_SESSION_AUDIT_OUTCOME,
   ImportSessionArtifactState,
   ImportSessionAttachmentState,
   ImportSessionErrorCode,
@@ -26,6 +27,10 @@ import {
   validateProposal,
   validateStoredDraft,
 } from "./import-session.validation";
+import {
+  ignoredImportObservation,
+  parseStoredImportObservationEvidence,
+} from "./import-session.observation";
 
 export type PreparationSession = Readonly<
   Pick<
@@ -42,7 +47,12 @@ export type PreparationSession = Readonly<
 export type PreparationObservation = Readonly<
   Pick<
     ImportObservation,
-    "id" | "tenantId" | "ownerProjectId" | "artifactId" | "claimVersion"
+    | "id"
+    | "tenantId"
+    | "ownerProjectId"
+    | "artifactId"
+    | "claimVersion"
+    | "evidenceJson"
   >
 >;
 export type PreparationReference = Readonly<{
@@ -69,6 +79,7 @@ export type PreparationReference = Readonly<{
 export type ProposalBody = Omit<
   ImportSessionProposalV1,
   | "proposalHash"
+  | "auditItems"
   | "deferredObservationIds"
   | "deferredAttachmentIds"
   | "retainUntil"
@@ -302,8 +313,35 @@ export function buildImportPreparationPlan(input: {
       .filter((line) => selectedLines.has(line.id))
       .flatMap((line) => line.observationIds),
   );
+  const auditItems: ImportSessionProposalV1["auditItems"] = [];
+  const terminalObservations = new Set<string>();
+  for (const observation of observations) {
+    const evidence = parseStoredImportObservationEvidence(
+      observation.evidenceJson,
+    );
+    const ignoredReason = ignoredImportObservation(evidence);
+    if (ignoredReason === null) continue;
+    terminalObservations.add(observation.id);
+    const documentaryTitle =
+      evidence.identity.merchant === null ||
+      evidence.identity.merchant.length === 0
+        ? evidence.reference
+        : evidence.identity.merchant;
+    auditItems.push({
+      observationId: observation.id,
+      outcome: IMPORT_SESSION_AUDIT_OUTCOME.IGNORED,
+      reason: ignoredReason,
+      title: documentaryTitle.slice(
+        0,
+        IMPORT_SESSION_PRIMITIVES.maxTitleLength,
+      ),
+      amountCents: evidence.amountCents,
+    });
+  }
   const deferred = observations.filter(
-    (observation) => !selectedObservations.has(observation.id),
+    (observation) =>
+      !selectedObservations.has(observation.id) &&
+      !terminalObservations.has(observation.id),
   );
   const deferredObservationIds = deferred.map((observation) => observation.id);
   const deferredAttachmentIds = sorted(draft.scope.pendingAttachmentIds);
@@ -315,6 +353,7 @@ export function buildImportPreparationPlan(input: {
         {
           ...proposalBody,
           proposalHash: VALIDATION_HASH,
+          auditItems,
           deferredObservationIds,
           deferredAttachmentIds,
           retainUntil: hasContinuation ? expiresAt : null,
@@ -432,7 +471,9 @@ export function buildImportPreparationPlan(input: {
     continuationDraft = validateStoredDraft({
       version: IMPORT_SESSION_PROTOCOL_VERSION,
       lines,
-      selectedLineIds: [],
+      selectedLineIds: lines
+        .slice(0, IMPORT_SESSION_LIMITS.selectedLines)
+        .map((line) => line.id),
       questions: draft.questions.filter((question) =>
         question.lineIds.every((lineId) => remainingLines.has(lineId)),
       ),

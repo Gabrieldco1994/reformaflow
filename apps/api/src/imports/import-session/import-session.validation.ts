@@ -1,6 +1,8 @@
 import {
   ExpenseType,
   LaborCategory,
+  CARD_IMPORT_IGNORED_REASON,
+  IMPORT_SESSION_AUDIT_OUTCOME,
   IMPORT_SESSION_KIND,
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PRIMITIVES as PRIMITIVES,
@@ -55,12 +57,23 @@ const PROPOSAL_KEYS = [
   "revision",
   "proposalHash",
   "lines",
+  "auditItems",
   "deferredObservationIds",
   "deferredAttachmentIds",
   "retainUntil",
   "createdEconomicTotalCents",
   "bankCashDeltaCents",
   "invoiceDeltas",
+];
+const HISTORICAL_PROPOSAL_KEYS = PROPOSAL_KEYS.filter(
+  (key) => key !== "auditItems",
+);
+const AUDIT_ITEM_KEYS = [
+  "observationId",
+  "outcome",
+  "reason",
+  "title",
+  "amountCents",
 ];
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -459,6 +472,21 @@ function invoiceDelta(
   );
 }
 
+function ignoredAuditItem(
+  value: unknown,
+): value is ImportSessionProposalV1["auditItems"][number] {
+  return (
+    record(value) &&
+    exact(value, AUDIT_ITEM_KEYS) &&
+    id(value["observationId"]) &&
+    value["outcome"] === IMPORT_SESSION_AUDIT_OUTCOME.IGNORED &&
+    value["reason"] === CARD_IMPORT_IGNORED_REASON.INVOICE_PAYMENT &&
+    text(value["title"], 1, PRIMITIVES.maxTitleLength) &&
+    (value["amountCents"] === null ||
+      integer(value["amountCents"], PRIMITIVES.minCents, -1))
+  );
+}
+
 export function validateProposal(
   value: unknown,
   sessionId: string,
@@ -467,7 +495,7 @@ export function validateProposal(
   const corrupt = () => new ImportSessionCorruptStateError("proposal");
   if (
     !record(value) ||
-    !exact(value, PROPOSAL_KEYS) ||
+    !(exact(value, PROPOSAL_KEYS) || exact(value, HISTORICAL_PROPOSAL_KEYS)) ||
     value["version"] !== IMPORT_SESSION_PROTOCOL_VERSION ||
     value["kind"] !== IMPORT_SESSION_KIND ||
     !id(value["sessionId"]) ||
@@ -484,6 +512,17 @@ export function validateProposal(
     value["lines"].length === 0 ||
     value["lines"].length > LIMITS.selectedLines ||
     !value["lines"].every(plannedLine) ||
+    !(
+      value["auditItems"] === undefined ||
+      (Array.isArray(value["auditItems"]) &&
+        value["auditItems"].every(ignoredAuditItem) &&
+        distinct(
+          value["auditItems"].map(
+            (item: ImportSessionProposalV1["auditItems"][number]) =>
+              item.observationId,
+          ),
+        ))
+    ) ||
     !ids(value["deferredObservationIds"], 0, LIMITS.parsedRowsPerSession) ||
     !ids(value["deferredAttachmentIds"], 0, LIMITS.filesPerSession) ||
     !(value["retainUntil"] === null || instant(value["retainUntil"])) ||
@@ -494,6 +533,7 @@ export function validateProposal(
   )
     throw corrupt();
   const lines = value["lines"];
+  const auditItems = value["auditItems"] ?? [];
   const hasDeferred =
     value["deferredObservationIds"].length +
       value["deferredAttachmentIds"].length >
@@ -514,6 +554,7 @@ export function validateProposal(
     revision: value["revision"],
     proposalHash: value["proposalHash"],
     lines,
+    auditItems,
     deferredObservationIds: value["deferredObservationIds"],
     deferredAttachmentIds: value["deferredAttachmentIds"],
     retainUntil: value["retainUntil"],
@@ -536,6 +577,9 @@ export function assertProposalDraftReferences(
   const usedObservations = new Set(
     selected.flatMap((line) => line.observationIds),
   );
+  const auditedObservations = new Set(
+    proposal.auditItems.map((item) => item.observationId),
+  );
   if (
     !sameIds(
       proposal.lines.map((line) => line.lineId),
@@ -554,7 +598,14 @@ export function assertProposalDraftReferences(
     }) ||
     !sameIds(
       proposal.deferredObservationIds,
-      draft.scope.observationIds.filter((item) => !usedObservations.has(item)),
+      draft.scope.observationIds.filter(
+        (item) => !usedObservations.has(item) && !auditedObservations.has(item),
+      ),
+    ) ||
+    proposal.auditItems.some(
+      (item) =>
+        !draft.scope.observationIds.includes(item.observationId) ||
+        usedObservations.has(item.observationId),
     ) ||
     !sameIds(proposal.deferredAttachmentIds, draft.scope.pendingAttachmentIds)
   )
