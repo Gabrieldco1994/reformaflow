@@ -102,21 +102,31 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          runtime="$RUNNER_TEMP/maria-csv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.viewport }}"
-          mkdir "$runtime"
+          # Main's requested-ON production contract is not bypassed for Maria QA.
+          # Each matrix job owns a separate disposable runner and ext4 /data mount.
+          test ! -e /data
+          image="$RUNNER_TEMP/maria-ext4-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.viewport }}.img"
+          # Disposable browser QA also stores the local 7B Ollama model here.
+          # This is test capacity, never production headroom/default sizing.
+          truncate -s 12G "$image"
+          mkfs.ext4 -q "$image"
+          sudo mkdir /data
+          sudo mount -o loop "$image" /data
+          sudo chown "$(id -u):$(id -g)" /data
+          runtime=/data
           runtime=$(cd "$runtime" && pwd -P)
           # vault-probe.ts requires root/t/trash (not .trash), each owner-only 0700.
-          mkdir "$runtime/artifacts" "$runtime/vault" "$runtime/vault/t" "$runtime/vault/trash"
+          mkdir "$runtime/artifacts" "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash"
           mkdir "$runtime/public-uploads" "$runtime/private-uploads"
-          touch "$runtime/vault/.lock"
-          chmod 700 "$runtime/vault" "$runtime/vault/t" "$runtime/vault/trash"
-          chmod 600 "$runtime/vault/.lock"
+          touch "$runtime/import-vault/.lock"
+          chmod 700 "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash"
+          chmod 600 "$runtime/import-vault/.lock"
           secret=$(node -e 'console.log(require("node:crypto").randomBytes(48).toString("hex"))')
           echo "::add-mask::$secret"
           {
             echo "QA_RUNTIME_DIR=$runtime"
             echo "QA_DB_PATH=$runtime/maria-qa.db"
-            echo "QA_VAULT_DIR=$runtime/vault"
+            echo "QA_VAULT_DIR=$runtime/import-vault"
             echo "QA_ARTIFACTS_DIR=$runtime/artifacts"
             echo "DATABASE_URL=file:$runtime/maria-qa.db"
             echo "JWT_SECRET=$secret"
@@ -190,3 +200,14 @@ jobs:
           path: ${{ env.QA_ARTIFACTS_DIR || format('{0}/maria-csv-{1}-{2}-{3}/artifacts', runner.temp, github.run_id, github.run_attempt, matrix.viewport) }}
           if-no-files-found: warn
           retention-days: 7
+      - name: Unmount owned disposable Maria filesystem after artifact collection
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/maria-ext4-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.viewport }}.img"
+          if test -f "$image"; then
+            if mountpoint -q /data; then sudo umount /data; fi
+            rm -f "$image"
+            if test -d /data; then sudo rmdir /data; fi
+          fi

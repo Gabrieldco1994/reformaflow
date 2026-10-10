@@ -88,6 +88,11 @@ startup/upgrade/runtime-version proof is **pending**, not green by inference.
 Parent must arrange a branch trigger/push; this change does not activate a flag
 or add a release branch trigger. The owned preparation branch
 `feat/maria-vault-startup-20261010` is now in the workflow push list for Linux QA.
+The existing three Maria browser jobs also provision their own disposable ext4
+`/data` mount and canonical `/data/import-vault`; their development launcher
+does not bypass bootstrap's production layout checks. This fixes the observed
+run `38092337121` boot rejection from its older `$RUNNER_TEMP/vault` layout.
+Their mount is unmounted only after owned servers stop and artifacts upload.
 
 ## Release remains separately blocked
 
