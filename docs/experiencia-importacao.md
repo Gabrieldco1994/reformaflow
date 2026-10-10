@@ -17,10 +17,11 @@ rollout fica restrito a CSV de fatura de cartão, atrás do modo de boot documen
 [contrato da Maria](maria-ia.md#primeiro-rollout-produtivo-entrada-csv-de-fatura). Aprovação,
 parsers e testes não comprovam merge do runtime nem QA de release.
 
-**Revisão guiada #716 implementada no candidato de backend GREEN
-`5ce573e6a6de033c096389c2be8c7b52639f97d3` em 2026-10-10; não mergeada, implantada,
-liberada nem ativa.** O candidato estrutura as decisões que faltavam, mas não altera os
-gates de release nem comprova disponibilidade ao usuário.
+**Revisão guiada #716 verificada na baseline funcional
+`3bb5c28b9129388944374e9291f3426ef226699d` em 2026-10-10; não mergeada, implantada,
+liberada nem ativa.** A baseline estrutura as decisões que faltavam, mas não altera os
+gates de release nem comprova disponibilidade ao usuário. Commits documentais posteriores
+podem descrevê-la sem redefinir qual código funcional foi verificado.
 
 ## CONTRATO (normativo — o que nunca pode quebrar)
 
@@ -136,6 +137,24 @@ permanecem fora do rollout ainda que seus parsers ou contratos existam. O catál
 `NOT_ENABLED`, `RUNTIME_UNAVAILABLE` e `NO_QUALIFIED_FORMAT`; cada indisponibilidade precisa
 ser explicada sem remover o acesso a histórico, resultado e recuperação.
 
+O CSV qualificado é estrito e fail-closed:
+
+- bytes em UTF-8, com BOM opcional e linhas LF ou CRLF; um único perfil reconhecível usa
+  vírgula ou ponto e vírgula;
+- o cabeçalho contém exatamente uma coluna de data (`date` ou `data`), uma de descrição
+  (`title`, `descricao`, `descrição`, `memo`, `historico`, `histórico`, `estabelecimento`,
+  `lancamento` ou `lançamento`) e uma de valor (`amount`, `valor` ou `value`);
+- decimal pt-BR no perfil com ponto e vírgula, delimitador dentro de campo entre aspas,
+  BOM+CRLF e registros duplicados são preservados; aspas não transformam duas linhas físicas
+  em um registro;
+- cada arquivo aceita no máximo 10 MiB, 1.000 registros, 64 colunas e 1.000 bytes UTF-8 por
+  campo. Cabeçalho ausente/ambíguo/duplicado, colunas inconsistentes, UTF-8 inválido,
+  delimitadores conflitantes e campo entre aspas com quebra de linha são
+  `UNSUPPORTED_DOCUMENT`; exceder limite é `LIMIT_EXCEEDED`;
+- PDF é recusado como `UNSUPPORTED_DOCUMENT` antes de parser, cofre ou escrita — inclusive PDF
+  textual de uma ou várias páginas e PDF escaneado. Conteúdo com magic de PDF disfarçado de
+  `text/csv` também é recusado. OFX, XLS/XLSX e imagens continuam fora do catálogo.
+
 O modo `off` é o padrão e bloqueia só novas entradas. O modo `csv` não reduz os dois atos
 humanos a um: **Analisar e guardar rascunho** autoriza persistência documental, enquanto
 **Confirmar lote** autoriza os efeitos financeiros daquela revisão. A ativação depende do
@@ -178,11 +197,12 @@ até merge do runtime e QA em produção.
    enquanto proposta e revisão não mudarem. A resposta contém apenas as compras prontas e os
    totais desse conjunto; o navegador não filtra uma proposta ampla. **Continuar respondendo**
    usa `POST /import-sessions/:id/current-lot/continue` apenas com versão, `requestId` e revisão
-   esperada — nunca recebe `lineId`. O servidor deriva a seleção pendente do escopo selado,
-   invalida a proposta pronta e seu material de confirmação e volta a `NEEDS_INPUT` antes de
-   aceitar mais respostas. Se restar trabalho, mostrar apenas “Há outras compras fora deste lote.
-   Elas continuam no rascunho para depois.”, sem quantidade, valor, identidade ou total
-   subtraível.
+   esperada — nunca recebe `lineId`. O servidor mantém selecionado o subconjunto já pronto e
+   acrescenta, na ordem do rascunho, as linhas pendentes retomáveis derivadas do escopo selado;
+   o navegador não escolhe nenhuma delas. Em seguida invalida a proposta pronta e seu material
+   de confirmação e volta a `NEEDS_INPUT` antes de aceitar mais respostas. Se restar trabalho,
+   mostrar apenas “Há outras compras fora deste lote. Elas continuam no rascunho para depois.”,
+   sem quantidade, valor, identidade ou total subtraível.
 6. **Confirmar lote separadamente:** a revisão não lança dinheiro. Um card separado apresenta
    os efeitos do lote pronto e exige confirmação financeira autenticada da UI, com nonce fora
    do LLM. O servidor relê revisão, participantes e estado e aplica o lote atômico. Operações
@@ -194,6 +214,11 @@ até merge do runtime e QA em produção.
    desconhecido. Retomar o rascunho dentro da retenção; após timeout consultar o comprovante
    persistido e autorizado, sem recriar. Undo usa somente capacidades reais, com prova de
    propriedade, ACL e drift.
+   Depois de resposta financeira incerta, **Consultar estado guardado** faz primeiro
+   `GET /import-sessions/:id/result`. Se o resultado autorizado já for `APPLIED` e tiver recibo,
+   a recuperação termina ali: não repete `execute`, não consulta `current-lot`, limpa a
+   identidade financeira local retida, deixa indisponível a ação financeira antiga e informa
+   o sucesso persistido. Somente `READY` ou `CONFIRMED` leva à releitura de `current-lot`.
    Leitura/GET/resultado de recuperação não pedem grant financeira. Já o replay exato de
    confirmação ou execução exige uma grant fresca do servidor para cada invocação HTTP,
    não a grant antiga nem um novo clique humano ou nova confirmação do lote. `nonce: null`
@@ -406,13 +431,13 @@ executor financeiro, tool da Maria nem LLM confirmado. Não é entrega do recort
 nenhum contrato financeiro; o comportamento visível ao usuário só será documentado no manual
 após composição e verificação.
 
-| Rota | Papel | Com escritas desligadas (padrão) |
-|---|---|---|
-| `POST /import-sessions` | Criar rascunho após consentimento (idempotente por `createRequestId`) | `503 CAPABILITY_DISABLED` antes de qualquer validação ou leitura de banco |
-| `GET /import-sessions?state=active\|applied&cursor=` | Lista de recuperação, 25 por página, cursor assinado com TTL de 15 min | Funciona: é leitura de recuperação |
-| `GET /import-sessions/:id` | Sessão autorizada, com recibo quando aplicada | Funciona |
-| `GET /import-sessions/:id/result` | Resultado/recibo persistido | Funciona |
-| `POST /import-sessions/:id/cancel` | Cancelar sessão não aplicada (revisão esperada) | Funciona |
+| Rota                                                 | Papel                                                                  | Com escritas desligadas (padrão)                                          |
+| ---------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `POST /import-sessions`                              | Criar rascunho após consentimento (idempotente por `createRequestId`)  | `503 CAPABILITY_DISABLED` antes de qualquer validação ou leitura de banco |
+| `GET /import-sessions?state=active\|applied&cursor=` | Lista de recuperação, 25 por página, cursor assinado com TTL de 15 min | Funciona: é leitura de recuperação                                        |
+| `GET /import-sessions/:id`                           | Sessão autorizada, com recibo quando aplicada                          | Funciona                                                                  |
+| `GET /import-sessions/:id/result`                    | Resultado/recibo persistido                                            | Funciona                                                                  |
+| `POST /import-sessions/:id/cancel`                   | Cancelar sessão não aplicada (revisão esperada)                        | Funciona                                                                  |
 
 Regras de contrato desta superfície:
 
@@ -623,8 +648,8 @@ Os contratos técnicos e gates estão em [Maria — adoção X3](maria-ia.md#ado
 ### #716 — complementação humana guiada implementada no candidato, inativa
 
 Este contrato substitui a apresentação B3-A de múltiplas intenções concorrentes.
-A implementação existe no candidato de backend GREEN
-`5ce573e6a6de033c096389c2be8c7b52639f97d3`; isso não declara merge em `main`,
+A implementação foi verificada na baseline funcional
+`3bb5c28b9129388944374e9291f3426ef226699d`; isso não declara merge em `main`,
 montagem pública, ativação, deploy ou release.
 
 #### Pergunta e resposta
@@ -670,15 +695,17 @@ estruturados; não muda rascunho, seleção ou finanças.
   Reload e retomada mostram que ela continua no rascunho, sem reaplicar respostas.
 - Para voltar às perguntas de um lote pronto parcial, **Continuar respondendo** chama
   `POST /import-sessions/:id/current-lot/continue` com `version`, `requestId` e
-  `expectedRevision`, sem `lineId` ou seleção indicada pelo cliente. O servidor deriva
-  as compras pendentes do escopo de continuação da proposta selada, preserva as
-  declarações aplicáveis e aceita também o caso de pendência apenas em anexo. Antes
-  de qualquer nova resposta, muda para `NEEDS_INPUT` e invalida proposta, preflight,
-  challenge e digest privados daquele lote; para revisar/confirmar depois, é preciso
-  preparar e selar uma nova proposta.
-- Uma continuação pós-execução começa sem seleção. **Continuar compra N de M** reativa
-  explicitamente uma compra adiada, volta sua decisão para não resolvida e a
-  seleciona em uma única operação do servidor. Se o limite do lote já tiver sido
+  `expectedRevision`, sem `lineId` ou seleção indicada pelo cliente. O servidor conserva
+  as linhas já prontas na seleção e acrescenta as compras pendentes retomáveis do escopo
+  selado, em ordem de rascunho, preservando as declarações aplicáveis; pendência apenas
+  em anexo também é válida. Antes de qualquer nova resposta, muda para `NEEDS_INPUT` e
+  invalida proposta, preflight, challenge e digest privados daquele lote; para
+  revisar/confirmar depois, é preciso preparar e selar uma nova proposta.
+- Uma continuação pós-execução preseleciona no servidor, em ordem de rascunho, até dez
+  linhas retomáveis. Ela começa sem seleção somente quando a pendência é exclusivamente
+  de anexo. **Continuar compra N de M** continua sendo a ação explícita para reativar uma
+  compra adiada que esteja fora da seleção corrente: volta sua decisão para não resolvida
+  e a seleciona em uma única operação do servidor. Se o limite do lote já tiver sido
   alcançado, a reativação falha sem alteração e orienta concluir ou retirar outra.
 - Reenvio após resposta perdida reutiliza a identidade da mesma operação até
   receber recibo ou leitura definitiva. Replay exato não duplica declaração,
@@ -699,7 +726,11 @@ estruturados; não muda rascunho, seleção ou finanças.
 A revisão vem de uma projeção ready-only do servidor. Ela contém exclusivamente
 as compras prontas do lote e os totais desse mesmo conjunto. Item adiado,
 incompleto, inválido ou ignorado não aparece nem contribui para contagem, valor,
-motivo ou total. Quando existir trabalho fora do lote, a tela pode informar apenas:
+motivo ou total. `IGNORED_POLICY` de pagamento de fatura permanece como evidência
+auditável, sem pergunta nem controle de seleção, mas é terminal: não marca
+`READY_WITH_PENDING`, não aciona a mensagem abaixo e não cria continuação. O mesmo
+vale para `EXCLUDED`; somente observação/anexo deferido ou linha `DEFERRED` é trabalho
+retomável. Quando existir esse trabalho retomável fora do lote, a tela pode informar apenas:
 
 > Há outras compras fora deste lote. Elas continuam no rascunho para depois.
 

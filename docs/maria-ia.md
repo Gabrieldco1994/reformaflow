@@ -110,17 +110,30 @@ entrada disponível.
 - `off` impede **novas** entradas, mas não desliga histórico, leitura de resultado ou recuperação
   autorizada de sessões já existentes. Desabilitar intake nunca pode esconder o que o usuário
   precisa consultar ou retomar.
-- `csv` qualifica somente **fatura de cartão em CSV**, ponta a ponta. OFX, PDF, XLS, XLSX e imagens
-  continuam indisponíveis neste rollout, mesmo que exista parser, tipo, fixture ou contrato
-  parcial para eles. Suporte de parser isolado não é formato qualificado para produção.
+- `csv` qualifica somente **fatura de cartão em CSV**, ponta a ponta. O perfil aceito é UTF-8,
+  com BOM opcional e LF ou CRLF, usando um único perfil reconhecível com vírgula ou ponto e
+  vírgula. O cabeçalho exige exatamente uma coluna de data (`date` ou `data`), descrição
+  (`title`, `descricao`, `descrição`, `memo`, `historico`, `histórico`, `estabelecimento`,
+  `lancamento` ou `lançamento`) e valor (`amount`, `valor` ou `value`). Decimal pt-BR no perfil
+  com ponto e vírgula, delimitador entre aspas na mesma linha, BOM+CRLF e duplicatas são
+  suportados. Os limites por arquivo são 10 MiB, 1.000 registros, 64 colunas e 1.000 bytes
+  UTF-8 por campo.
+- CSV com quebra de linha dentro de campo entre aspas, cabeçalho ausente/ambíguo/duplicado,
+  colunas inconsistentes, delimitadores conflitantes ou UTF-8 inválido falha como
+  `UNSUPPORTED_DOCUMENT`; excesso de limite falha como `LIMIT_EXCEEDED`. Arquivo declarado
+  como PDF falha como `UNSUPPORTED_DOCUMENT` na reserva, antes de parser, cofre ou escrita,
+  inclusive PDF textual de uma ou várias páginas e PDF escaneado. Magic de PDF disfarçado de
+  `text/csv` é recusado depois pela extração CSV estrita. OFX, XLS, XLSX e imagens continuam
+  indisponíveis neste rollout, mesmo que exista parser, tipo, fixture ou contrato parcial para
+  eles. Suporte de parser isolado não é formato qualificado para produção.
 - O catálogo de entrada usa motivos tipados, não um indisponível ambíguo:
   - `NOT_ENABLED` — o modo de nova entrada está `off`;
   - `RUNTIME_UNAVAILABLE` — o modo foi solicitado, mas o runtime obrigatório não está disponível;
   - `NO_QUALIFIED_FORMAT` — o runtime respondeu, mas nenhum formato completou a qualificação
     produtiva.
-  A web deve tornar o motivo compreensível e oferecer a recuperação adequada sem apagar
-  histórico, resultado ou retomada. Resposta malformada ou falha de catálogo permanece erro
-  visível e recuperável; nunca vira lista vazia nem disponibilidade presumida.
+    A web deve tornar o motivo compreensível e oferecer a recuperação adequada sem apagar
+    histórico, resultado ou retomada. Resposta malformada ou falha de catálogo permanece erro
+    visível e recuperável; nunca vira lista vazia nem disponibilidade presumida.
 - **Analisar e guardar rascunho** continua sendo consentimento documental. Ele não é
   `Confirmar lote`, não concede autorização financeira e não pode ser reaproveitado como tal.
   A confirmação financeira continua separada, vinculada à revisão e executada pela ação
@@ -140,12 +153,13 @@ compostos não representam entrega da jornada nem ativação.
 
 ### Revisão guiada do CSV — contrato candidato #716
 
-**Implementado no candidato de backend GREEN #716
-`5ce573e6a6de033c096389c2be8c7b52639f97d3` em 2026-10-10; ainda não mergeado,
+**Verificado na baseline funcional #716
+`3bb5c28b9129388944374e9291f3426ef226699d` em 2026-10-10; ainda não mergeado,
 implantado, ativo nem qualificado para produção.** Este contrato substitui, para a
 jornada guiada candidata, o caminho amplo pelo chat e a filtragem de revisão no
 cliente. A implementação no candidato não altera o status de release: merge, gates
-verdes, deploy SHA-strict e QA de produção continuam necessários.
+verdes, deploy SHA-strict e QA de produção continuam necessários. Commits documentais
+posteriores descrevem essa baseline sem redefinir qual código funcional foi verificado.
 
 #### Controles estruturados e continuidade
 
@@ -191,16 +205,20 @@ verdes, deploy SHA-strict e QA de produção continuam necessários.
 - Em um lote pronto parcial, **Continuar respondendo** usa o comando documental
   `POST /import-sessions/:id/current-lot/continue`. Seu corpo contém somente
   `version`, `requestId` e `expectedRevision`: não aceita `lineId` nem seleção do
-  cliente. O servidor deriva a seleção pendente do escopo de continuação selado,
-  preserva as declarações aplicáveis e cobre também pendência apenas em anexo.
-  O aceite muda a sessão para `NEEDS_INPUT` e invalida proposta pronta, preflight,
-  challenge e digest privado antes de qualquer resposta nova; uma revisão posterior
-  exige nova preparação.
+  cliente. O servidor mantém na seleção o subconjunto já pronto e acrescenta, em ordem
+  de rascunho, as linhas pendentes retomáveis derivadas do escopo de continuação selado;
+  preserva as declarações aplicáveis e cobre também pendência apenas em anexo. O aceite
+  muda a sessão para `NEEDS_INPUT` e invalida proposta pronta, preflight, challenge e
+  digest privado antes de qualquer resposta nova; uma revisão posterior exige nova
+  preparação.
 - A continuação criada somente depois de executar um lote ready-only conserva o
-  escopo adiado e as decisões documentais aplicáveis, começa sem seleção e oferece
-  reativação explícita. Abrir a revisão ou confirmar sem executar não a cria. Reload,
-  retomada e resposta perdida consultam o estado autoritativo antes de repetir; uma
-  decisão já aceita não é perdida nem enviada novamente com nova identidade.
+  escopo adiado e as decisões documentais aplicáveis. O servidor preseleciona, em ordem
+  de rascunho, até dez linhas retomáveis; somente uma sucessora com pendência exclusiva
+  de anexo começa sem seleção. **Continuar compra N de M** reativa explicitamente uma
+  compra adiada que esteja fora da seleção corrente. Abrir a revisão ou confirmar sem
+  executar não cria sucessora. Reload, retomada e resposta perdida consultam o estado
+  autoritativo antes de repetir; uma decisão já aceita não é perdida nem enviada
+  novamente com nova identidade.
 - Os rótulos de continuidade têm funções únicas: **Guardar e continuar** salva a
   resposta em foco; **Continuar respondendo** volta às perguntas quando já existe
   um lote pronto; **Continuar compra N de M** reativa uma compra adiada; e
@@ -272,8 +290,11 @@ continuam utilizáveis e a sessão segue retomável.
   perguntas; revisar não descarta nem altera o que ficou no rascunho.
 - Compras adiadas, incompletas, inválidas, ignoradas por política ou sem autorização
   não contribuem com título, valor, identificador, contagem, motivo, total global ou
-  qualquer resto calculável. A única sinalização fora do lote é o booleano genérico
-  que permite a mensagem: **“Há outras compras fora deste lote. Elas continuam no
+  qualquer resto calculável. Pagamento de fatura `IGNORED_POLICY` permanece somente
+  como evidência auditável, sem pergunta ou seleção, e é terminal: sozinho não produz
+  `READY_WITH_PENDING`, continuação ou a mensagem genérica. `EXCLUDED` também é
+  terminal. Somente observação/anexo deferido ou linha `DEFERRED` torna verdadeiro o
+  booleano que permite: **“Há outras compras fora deste lote. Elas continuam no
   rascunho para depois.”**
 - Abrir a revisão não autoriza finanças. O card separado **Confirmar lote** continua
   exigindo clique explícito, releitura atual, grant financeira, nonce e proposta
@@ -283,6 +304,12 @@ continuam utilizáveis e a sessão segue retomável.
   lote e, quando a proposta selada conserva trabalho pendente, cria a sessão indicada
   por `continuationSessionId`; o GET de revisão e a confirmação isolada não criam a
   continuação.
+- Depois de resposta financeira incerta, **Consultar estado guardado** consulta primeiro
+  `GET /import-sessions/:id/result`. Se houver `APPLIED` com recibo, a recuperação termina
+  sem repetir `execute` e sem consultar `current-lot`: limpa a identidade financeira local,
+  deixa indisponível a ação financeira antiga e informa o sucesso persistido. Só resultado
+  `READY` ou `CONFIRMED` permite então reler `current-lot`; falha do GET de resultado não cai
+  adiante para outra chamada.
 - A projeção ready-only publica `confirmationHash` sobre a tupla que a pessoa vê:
   compras e destinos exibidos, cronogramas, totais econômicos, delta bancário e
   deltas de fatura, preservando a ordem dos arrays. Challenge e confirmação usam
@@ -318,8 +345,8 @@ Isso prova o candidato, não a release. Ativação exige separadamente:
 
 O candidato local P06/P07 registra o adapter e o workflow existentes, sem nova
 lógica financeira nem dependência do cofre. A barreira exige literalmente as
-18 rotas abaixo no candidato de backend GREEN
-`5ce573e6a6de033c096389c2be8c7b52639f97d3`; isso não declara merge, deploy,
+18 rotas abaixo, verificadas na baseline funcional
+`3bb5c28b9129388944374e9291f3426ef226699d`; isso não declara merge, deploy,
 ativação ou release. Os antigos caminhos genéricos `PATCH /:id/draft` e
 `POST /:id/prepare` não integram essa superfície: a jornada guiada usa comandos
 dedicados e a projeção ready-only descritos acima.

@@ -413,12 +413,20 @@ financeiro em tela própria (chat em tela cheia no mobile).
   tentativa local, não cancela remotamente a importação.
 - **Primeiro rollout produtivo aprovado — ainda não entregue nem ativo:** quando
   liberada após merge e QA de release, a nova entrada aceitará somente **CSV de
-  fatura de cartão**. OFX, PDF, XLS, XLSX e imagens continuarão indisponíveis nesse
-  rollout, mesmo que outras partes do sistema já saibam interpretar algum desses
-  formatos. A tela explicará em linguagem comum se a entrada está desabilitada, se
-  o serviço necessário está temporariamente indisponível ou se ainda não há formato
-  qualificado, sempre mantendo acessíveis as importações guardadas, seus resultados
-  e as ações de recuperação.
+  fatura de cartão** em UTF-8. Aceita vírgula ou ponto e vírgula, decimal pt-BR,
+  delimitador entre aspas na mesma linha, BOM opcional e linhas LF ou CRLF. O
+  cabeçalho precisa ter exatamente uma coluna de data (`date`/`data`), descrição
+  (`title`, `descricao`, `descrição`, `memo`, `historico`, `histórico`,
+  `estabelecimento`, `lancamento` ou `lançamento`) e valor
+  (`amount`, `valor` ou `value`). O limite é 10 MiB, 1.000 registros, 64 colunas
+  e 1.000 bytes UTF-8 por campo. CSV com quebra de linha dentro de campo entre
+  aspas é recusado como documento não suportado.
+  OFX, XLS, XLSX e imagens continuarão indisponíveis. PDF também é recusado
+  explicitamente antes do processamento, seja textual de uma ou várias páginas,
+  escaneado ou disfarçado de CSV. A tela explicará em linguagem comum se a entrada
+  está desabilitada, se o serviço necessário está temporariamente indisponível ou
+  se ainda não há formato qualificado, sempre mantendo acessíveis as importações
+  guardadas, seus resultados e as ações de recuperação.
   Tentar novamente não apaga nem escolhe uma sessão automaticamente.
   **Analisar e guardar rascunho** autoriza apenas guardar e processar o documento;
   os lançamentos financeiros continuam exigindo o card separado **Confirmar lote**.
@@ -439,16 +447,19 @@ financeiro em tela própria (chat em tela cheia no mobile).
   adicionadas ou retiradas, sempre após aceite do servidor; o lote aceita até 10
   compras e, ao atingir o limite, orienta retirar uma antes de adicionar outra.
   Pagamento de fatura ignorado continua visível com essa explicação — ele não é
-  apresentado como perdido e não recebe controle de seleção. A recuperação
-  existente apenas lê esses avisos: não ganha análise ou edição. Testes sintéticos
-  e browser offline não provam framing Nest, cadastro, extração RAW ou jornada
-  entregue; não há ativação pública.
+  apresentado como perdido e não recebe pergunta nem controle de seleção. É um
+  resultado terminal e somente de auditoria: não entra nos totais das prontas, não
+  deixa o lote como pendente e não cria continuação. A recuperação existente apenas
+  lê esses avisos: não ganha análise ou edição. Testes sintéticos e browser offline
+  não provam framing Nest, cadastro, extração RAW ou jornada entregue; não há
+  ativação pública.
 - **Revisão guiada #716 — contrato candidato LOCAL/INATIVO:** a jornada candidata
   mostra uma compra reconhecível por vez — estabelecimento/descrição, data, valor
   e parcela/ciclo quando disponíveis — e faz uma pergunta curta, sem IDs, nomes
-  de campo, proveniência privada ou estados técnicos. A implementação existe no
-  candidato de backend GREEN `5ce573e6a6de033c096389c2be8c7b52639f97d3`,
-  ainda sem merge, deploy, ativação ou release.
+  de campo, proveniência privada ou estados técnicos. A implementação foi verificada
+  na baseline funcional `3bb5c28b9129388944374e9291f3426ef226699d`, ainda sem
+  merge, deploy, ativação ou release. Commits apenas documentais posteriores não
+  mudam a baseline funcional verificada.
   A ação principal usa botões e campos grandes em português, como **Total da compra /
   Valor da parcela**, calendário, valor ou número de parcela. Também pergunta, com
   opções fechadas, se deve criar/manter/não importar a compra, sua finalidade, o tipo de
@@ -490,14 +501,15 @@ financeiro em tela própria (chat em tela cheia no mobile).
     estruturadas disponíveis.
   - Quando já houver compras prontas e outras pendentes, a tela oferece duas ações:
     **Continuar respondendo** e **Revisar as prontas agora**. A pergunta fica oculta
-    até essa escolha. Continuar preserva tudo o que já foi guardado; o servidor
-    escolhe as pendências do lote selado, sem a tela enviar identificador de linha,
-    invalida a revisão pronta e só então reabre as perguntas. Revisar apenas consulta
-    uma visão estável produzida pelo servidor, sem salvar ou avançar a revisão, somente
-    com as prontas e seus totais. Itens
-    adiados, incompletos, inválidos ou ignorados não aparecem nem entram em
-    contagens ou valores, mas continuam no rascunho. A tela pode dizer apenas:
-    “Há outras compras fora deste lote. Elas continuam no rascunho para depois.”
+    até essa escolha. Continuar mantém selecionadas as compras já prontas e o
+    servidor acrescenta, em ordem, as pendências retomáveis do lote selado, sem a
+    tela enviar identificador de linha; invalida a revisão pronta e só então reabre
+    as perguntas. Revisar apenas consulta uma visão estável produzida pelo servidor,
+    sem salvar ou avançar a revisão, somente com as prontas e seus totais. Itens
+    adiados, incompletos, inválidos ou ignorados não aparecem nem entram em contagens
+    ou valores. Pagamento de fatura ignorado continua auditável no rascunho, mas é
+    terminal e sozinho não gera pendência nem a mensagem: “Há outras compras fora
+    deste lote. Elas continuam no rascunho para depois.”
   - Revisar não lança dinheiro. O card separado **Confirmar lote** mostra os
     efeitos financeiros e exige outra ação explícita. Responder, adiar, reativar,
     aceitar o processamento externo ou dizer “sim” nunca confirma o lote.
@@ -505,7 +517,13 @@ financeiro em tela própria (chat em tela cheia no mobile).
     visível; o digest privado do plano completo (`proposalHash`) não é enviado à
     interface. Somente depois de executar o lote confirmado o servidor cria uma
     continuação para as pendências; abrir a revisão ou confirmar sem executar não
-    cria outra sessão.
+    cria outra sessão. A continuação criada preseleciona no servidor, em ordem, até
+    dez compras retomáveis; fica sem seleção apenas quando resta somente anexo.
+  - Se a resposta de confirmação ou execução se perder, **Consultar estado
+    guardado** lê primeiro o resultado persistido. Se ele já estiver `APPLIED`, a
+    tela encerra a tentativa como concluída, deixa a ação financeira antiga
+    indisponível e não repete a execução nem consulta novamente o lote atual. Só
+    resultados ainda `READY` ou `CONFIRMED` levam à atualização do lote.
   - Os rótulos parecidos têm funções diferentes: **Guardar e continuar** salva a
     resposta atual; **Continuar respondendo** volta às perguntas; **Continuar compra
     N de M** reativa uma compra adiada; **Continuar na Maria** abre uma importação
