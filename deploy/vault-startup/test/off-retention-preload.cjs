@@ -1,7 +1,7 @@
 "use strict";
 // Test-only observation of real EVERY_MINUTE callbacks; no fake clock or scheduler invocation.
 if (process.argv[1]?.endsWith("/dist/main.js")) {
-  require("reflect-metadata");
+  require("/app/node_modules/reflect-metadata");
   const {
     VaultRetentionScheduler,
   } = require("/app/apps/api/dist/imports/import-session/vault/vault-retention.scheduler");
