@@ -75,6 +75,21 @@ export function parseFocusedDraftAnswerRequest(
       !Object.values(ExpenseType).some((value) => value === answer.value)
     )
       throw invalid();
+  } else if (answer.field === "decision") {
+    if (
+      !record(answer.value) ||
+      !exact(answer.value, ["kind", "acceptNaturalDuplicate"]) ||
+      answer.value.kind !== "CREATE" ||
+      answer.value.acceptNaturalDuplicate !== false
+    )
+      throw invalid();
+  } else if (answer.field === "targets") {
+    if (
+      !Array.isArray(answer.value) ||
+      answer.value.length !== 0 ||
+      Reflect.ownKeys(answer.value).length !== 1
+    )
+      throw invalid();
   } else throw invalid();
   return structuredClone({
     version: IMPORT_SESSION_PROTOCOL_VERSION,

@@ -582,7 +582,14 @@ export interface ImportSessionEditRequestV1 extends ImportSessionRevisionRequest
 /** Explicit UI draft choices, not documentary attestations or financial consent. */
 export type ImportSessionFocusedDraftAnswerV1 =
   | { field: "firstDueDate"; value: ImportSessionDateOnly | null }
-  | { field: "tipoDespesa"; value: ExpenseType | null };
+  | { field: "tipoDespesa"; value: ExpenseType | null }
+  /** Explicit CREATE only. Duplicate waiver and KEEP_EXISTING are not admitted here. */
+  | {
+      field: "decision";
+      value: { kind: "CREATE"; acceptNaturalDuplicate: false };
+    }
+  /** Explicit no-allocation choice, not a default or arbitrary destination authority. */
+  | { field: "targets"; value: [] };
 export interface ImportSessionFocusedDraftAnswerRequestV1 extends ImportSessionRevisionRequestV1 {
   version: typeof IMPORT_SESSION_PROTOCOL_VERSION;
   answerRequestId: ImportSessionRequestId;

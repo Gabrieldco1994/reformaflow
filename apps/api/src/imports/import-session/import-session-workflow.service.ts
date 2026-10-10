@@ -154,6 +154,9 @@ const same = (left: unknown, right: unknown): boolean =>
 const digest = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
 const invalid = () => new ImportSessionError(Code.INVALID_INPUT);
+const unsupportedFocusedAnswer = (_answer: never): never => {
+  throw invalid();
+};
 const corrupt = (field: string) => new ImportSessionCorruptStateError(field);
 const problem = (code: Code, row: ImportSession) =>
   new ImportSessionError(code, {
@@ -479,9 +482,19 @@ export class ImportSessionWorkflowService {
               const line = draft.lines.find((line) => line.id === lineId);
               if (!line) throw invalid();
               // Server-owned clones only. No DTO replacement lines or selection scope.
-              return focusedRequest.answer.field === "firstDueDate"
-                ? { ...line, firstDueDate: focusedRequest.answer.value }
-                : { ...line, tipoDespesa: focusedRequest.answer.value };
+              const answer = focusedRequest.answer;
+              switch (answer.field) {
+                case "firstDueDate":
+                  return { ...line, firstDueDate: answer.value };
+                case "tipoDespesa":
+                  return { ...line, tipoDespesa: answer.value };
+                case "decision":
+                  return { ...line, decision: { ...answer.value } };
+                case "targets":
+                  return { ...line, targets: [...answer.value] };
+                default:
+                  return unsupportedFocusedAnswer(answer);
+              }
             });
             focusedEdit = editRequest({
               expectedRevision: focusedRequest.expectedRevision,

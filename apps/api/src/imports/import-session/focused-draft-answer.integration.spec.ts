@@ -4,6 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   IMPORT_SESSION_CONSENT_POLICY_VERSION,
   ExpenseType,
+  ExpenseStatus,
+  PaymentForm,
   ImportSessionErrorCode as Code,
   ProjectType,
   encodeImportDeclaration,
@@ -13,6 +15,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { ConciliacaoService } from "../../conciliacao/conciliacao.service";
 import { ExpenseService } from "../../expense/expense.service";
 import { extractCardStatementDocument } from "../../credit-card/parsers/statement-document";
+import { dedupeKeyNatural } from "../../credit-card/parsers/dedupe-key";
 import { CardPurchaseBatchAdapter } from "./card-purchase-batch.adapter";
 import {
   ImportAuthGuard,
@@ -123,7 +126,7 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     };
   }
   function payload(
-    field: "firstDueDate" | "tipoDespesa",
+    field: "firstDueDate" | "tipoDespesa" | "decision" | "targets",
     value: unknown,
   ): Record<string, unknown> {
     const question = view.questions.find(
@@ -153,14 +156,14 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     prisma.importSession.findUniqueOrThrow({ where: { id: sessionId } });
   const finance = async (): Promise<number[]> =>
     Promise.all([
-      prisma.expense.count({ where: { tenantId } }),
-      prisma.cashFlowEntry.count({ where: { tenantId } }),
-      prisma.receipt.count({ where: { tenantId } }),
+      prisma.expense.count({ where: { tenantId, deletedAt: null } }),
+      prisma.cashFlowEntry.count({ where: { tenantId, deletedAt: null } }),
+      prisma.receipt.count({ where: { tenantId, deletedAt: null } }),
       prisma.rateioAllocation.count({ where: { tenantId } }),
       prisma.crossProjectSettlement.count({ where: { tenantId } }),
       prisma.importedInvoiceLiquidation.count({ where: { tenantId } }),
     ]);
-  beforeAll(async () => {
+  beforeEach(async () => {
     expect(process.env.DATABASE_URL).toMatch(/test(?:-worker-\d+)?\.db/);
     await prisma.$connect();
     tenantId = (
@@ -338,13 +341,15 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
   });
   afterEach(async () => {
     await prisma.$transaction(async (tx) => {
-      await tx.importSessionArtifact.deleteMany({ where: { sessionId } });
-      await tx.importSession.deleteMany({ where: { id: sessionId } });
-      await tx.importObservation.deleteMany({ where: { artifactId } });
-      await tx.importArtifact.deleteMany({ where: { id: artifactId } });
+      await tx.importSessionArtifact.deleteMany({ where: { tenantId } });
+      await tx.importObservation.deleteMany({ where: { tenantId } });
+      await tx.importSession.deleteMany({ where: { tenantId } });
+      await tx.importArtifact.deleteMany({ where: { tenantId } });
+      await tx.cashFlowEntry.deleteMany({ where: { tenantId } });
+      await tx.expense.deleteMany({ where: { tenantId } });
     });
   });
-  afterAll(async () => {
+  afterEach(async () => {
     await prisma.$transaction(async (tx) => {
       await tx.creditCard.deleteMany({ where: { tenantId } });
       await tx.project.deleteMany({ where: { tenantId } });
@@ -433,7 +438,7 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     { answer: { field: "firstDueDate", value: "10/10/2026" } },
     { answer: { field: "tipoDespesa", value: "unknown" } },
     { answer: { field: "firstDueDate", value: "2026-10-10", extra: true } },
-    { answer: { field: "targets", value: [] } },
+    { answer: { field: "targets", value: null } },
     { answer: { field: "decision", value: { kind: "CREATE" } } },
     { answer: { field: "dataCompra", value: "2026-10-10" } },
     { input: { kind: "VALUE", text: "ignored" } },
@@ -707,5 +712,403 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
           q.lineIds.includes(view.selectedLineIds[0]),
       ),
     ).toBe(true);
+  });
+  async function pendingChoices(): Promise<void> {
+    const lineId = view.selectedLineIds[0];
+    view = await workflow.edit(authenticated().auth, sessionId, {
+      expectedRevision: view.revision,
+      questionId: null,
+      selectedLineIds: view.selectedLineIds,
+      replaceLines: view.lines
+        .filter((line) => line.id === lineId)
+        .map((line) => ({
+          ...line,
+          firstDueDate: "2026-10-10",
+          tipoDespesa: ExpenseType.OUTROS,
+          decision: { kind: "UNRESOLVED" },
+          targets: null,
+        })),
+    });
+    view = await workflow.prepare(authenticated().auth, sessionId, {
+      expectedRevision: view.revision,
+    });
+  }
+  it.each(["decision", "targets"] as const)(
+    "native %s changes only its exact field and never selects, prepares or confirms",
+    async (field) => {
+      await pendingChoices();
+      const before = await row();
+      const observations = await prisma.importObservation.findMany({
+        where: { tenantId },
+        orderBy: { id: "asc" },
+      });
+      const oldDraft = JSON.parse(before.draftJson);
+      const value =
+        field === "decision"
+          ? { kind: "CREATE", acceptNaturalDuplicate: false }
+          : [];
+      view = await submit(payload(field, value));
+      const after = await row();
+      const draft = JSON.parse(after.draftJson);
+      expect(view.revision).toBe(before.revision + 1);
+      expect(view.lines[0]).toEqual({ ...oldDraft.lines[0], [field]: value });
+      expect(view.lines[1]).toEqual(oldDraft.lines[1]);
+      expect(draft.declarations).toEqual(oldDraft.declarations);
+      expect(view.selectedLineIds).toEqual(oldDraft.selectedLineIds);
+      expect(
+        await prisma.importObservation.findMany({
+          where: { tenantId },
+          orderBy: { id: "asc" },
+        }),
+      ).toEqual(observations);
+      expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+      expect(after.proposalJson).toBeNull();
+      expect(after.challengeJson).toBeNull();
+      expect(after.financialRequestId).toBeNull();
+      expect(after.receiptJson).toBeNull();
+      expect(chat).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    { field: "decision", value: null },
+    { field: "decision", value: { kind: "CREATE" } },
+    {
+      field: "decision",
+      value: { kind: "CREATE", acceptNaturalDuplicate: true },
+    },
+    {
+      field: "decision",
+      value: { kind: "CREATE", acceptNaturalDuplicate: false, extra: true },
+    },
+    {
+      field: "decision",
+      value: { kind: "KEEP_EXISTING", expenseId: "anything" },
+    },
+    { field: "decision", value: { kind: "UNRESOLVED" } },
+    { field: "decision", value: { kind: "IGNORE" } },
+    { field: "targets", value: null },
+    {
+      field: "targets",
+      value: [{ projectId: "anything", roomId: null, amountCents: 20696 }],
+    },
+    { field: "targets", value: {} },
+  ])(
+    "rejects all unfrozen choice values %j before granting authority",
+    async (answer) => {
+      await pendingChoices();
+      const before = await row();
+      const issue = jest.spyOn(issuer, "issue");
+      issue.mockClear();
+      await expect(
+        submit({
+          ...payload("decision", {
+            kind: "CREATE",
+            acceptNaturalDuplicate: false,
+          }),
+          answer,
+        }),
+      ).rejects.toMatchObject({ code: Code.INVALID_INPUT });
+      expect(issue).not.toHaveBeenCalled();
+      issue.mockRestore();
+      expect(await row()).toEqual(before);
+    },
+  );
+  it.each(["decision", "targets"] as const)(
+    "native %s obeys exact grant, ACL, revision and current question fences",
+    async (field) => {
+      await pendingChoices();
+      const value =
+        field === "decision"
+          ? { kind: "CREATE", acceptNaturalDuplicate: false }
+          : [];
+      const body = payload(field, value);
+      const before = await row();
+      await expect(submit(body, authenticated(), false)).rejects.toMatchObject({
+        code: Code.UI_ACTION_REQUIRED,
+      });
+      await expect(
+        submit(body, authenticated(undefined, randomUUID())),
+      ).rejects.toBeDefined();
+      await expect(
+        submit({ ...body, expectedRevision: view.revision + 1 }),
+      ).rejects.toMatchObject({ code: Code.REVISION_CONFLICT });
+      await expect(
+        submit({ ...body, questionId: "unknown" }),
+      ).rejects.toMatchObject({ code: Code.REVISION_CONFLICT });
+      const actor = authenticated();
+      ui.canActivate(context(actor.request));
+      const validated = parseFocusedDraftAnswerRequest(body);
+      const grant = issuer.issue(
+        actor.request,
+        actor.auth,
+        focusedDraftAnswerScope(sessionId, validated),
+      );
+      const other =
+        field === "decision"
+          ? payload("targets", [])
+          : payload("decision", {
+              kind: "CREATE",
+              acceptNaturalDuplicate: false,
+            });
+      await expect(
+        workflow.focusedDraftAnswer(actor.auth, sessionId, other, grant),
+      ).rejects.toMatchObject({ code: Code.UI_ACTION_REQUIRED });
+      await expect(
+        workflow.focusedDraftAnswer(actor.auth, sessionId, validated, {}),
+      ).rejects.toMatchObject({ code: Code.UI_ACTION_REQUIRED });
+      expect(await row()).toEqual(before);
+      view = await workflow.focusedDraftAnswer(
+        actor.auth,
+        sessionId,
+        validated,
+        grant,
+      );
+    },
+  );
+  it.each(["decision", "targets"] as const)(
+    "concurrent %s submissions yield at most one conditional update",
+    async (field) => {
+      await pendingChoices();
+      const value =
+        field === "decision"
+          ? { kind: "CREATE", acceptNaturalDuplicate: false }
+          : [];
+      const body = payload(field, value);
+      const before = await row();
+      const outcomes = await Promise.allSettled([submit(body), submit(body)]);
+      expect(
+        outcomes.filter((outcome) => outcome.status === "fulfilled"),
+      ).toHaveLength(1);
+      expect((await row()).revision).toBe(before.revision + 1);
+      expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+      await expect(submit(body)).rejects.toMatchObject({
+        code: Code.REVISION_CONFLICT,
+      });
+    },
+  );
+  it.each(["decision", "targets"] as const)(
+    "equal %s on a retained pending task changes neither revision nor expiry",
+    async (field) => {
+      await pendingChoices();
+      const value =
+        field === "decision"
+          ? { kind: "CREATE", acceptNaturalDuplicate: false }
+          : [];
+      const body = payload(field, value);
+      // Legacy persisted snapshots may retain a question after the line already has this value.
+      // This fixture tests the existing no-op tail, not a new production state transition.
+      const draft = JSON.parse((await row()).draftJson);
+      draft.lines.find(
+        (line: { id: string }) => line.id === view.selectedLineIds[0],
+      )[field] = value;
+      await prisma.importSession.update({
+        where: { id: sessionId },
+        data: { draftJson: JSON.stringify(draft) },
+      });
+      const before = await row();
+      now = new Date(now.getTime() + 5000);
+      view = await submit(body);
+      expect(await row()).toEqual(before);
+      expect(view.revision).toBe(before.revision);
+      expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+    },
+  );
+  it("explicit CREATE false never waives a real natural duplicate or enables confirmation", async () => {
+    await pendingChoices();
+    const line = view.lines.find(
+      (line) => line.id === view.selectedLineIds[0],
+    )!;
+    const actor = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
+    const existing = await new ExpenseService(prisma, conciliacao).create(
+      tenantId,
+      projectId,
+      {
+        tipoDespesa: ExpenseType.OUTROS,
+        valor: line.amountCents! / 100,
+        quantidade: 1,
+        titulo: line.titulo,
+        fornecedor: line.fornecedor ?? line.titulo,
+        formaPagamento: PaymentForm.A_VISTA,
+        dataCompra: line.dataCompra!,
+        dataPagamento: "2026-10-10",
+        status: ExpenseStatus.PLANEJADO,
+        creditCardId: cardId,
+      },
+      userId,
+      undefined,
+      {
+        id: userId,
+        role: actor.role,
+        allowedProjects: [],
+        allowedModules: [],
+        allowedProjectTypes: [],
+      },
+    );
+    // Historical cross-origin import fixture: natural identity only, never a strong match.
+    await prisma.expense.update({
+      where: { id: existing.id },
+      data: {
+        dedupeKeyNatural: dedupeKeyNatural({
+          tenantId,
+          projectId,
+          date: new Date(`${line.dataCompra}T00:00:00.000Z`),
+          merchant: line.fornecedor ?? line.titulo,
+          amountCents: line.amountCents!,
+          ordinal: 0,
+        }),
+      },
+    });
+    view = await submit(
+      payload("decision", { kind: "CREATE", acceptNaturalDuplicate: false }),
+    );
+    view = await submit(payload("targets", []));
+    const before = await finance();
+    view = await workflow.prepare(authenticated().auth, sessionId, {
+      expectedRevision: view.revision,
+    });
+    expect(view.state).not.toBe("READY");
+    expect(JSON.parse((await row()).searchJson!).candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reason: "NATURAL_MATCH", lineId: line.id }),
+      ]),
+    );
+    expect(
+      view.questions.some(
+        (question) =>
+          question.field === "decision" && question.lineIds.includes(line.id),
+      ),
+    ).toBe(true);
+    const beforeRow = await row();
+    view = await submit(
+      payload("decision", { kind: "CREATE", acceptNaturalDuplicate: false }),
+    );
+    expect(await row()).toEqual(beforeRow);
+    expect(await finance()).toEqual(before);
+    expect(view.proposal).toBeNull();
+    expect((await row()).financialRequestId).toBeNull();
+    const challengeActor = authenticated();
+    ui.canActivate(context(challengeActor.request));
+    const proposalHash = createHash("sha256")
+      .update("absent proposal")
+      .digest("hex");
+    await expect(
+      workflow.challenge(
+        challengeActor.auth,
+        sessionId,
+        {
+          expectedRevision: view.revision,
+          proposalHash,
+        },
+        issuer.issueFinancialAction(
+          challengeActor.request,
+          challengeActor.auth,
+          {
+            operation: "CHALLENGE",
+            sessionId,
+            expectedRevision: view.revision,
+            proposalHash,
+          },
+        ),
+      ),
+    ).rejects.toBeDefined();
+    expect(await row()).toEqual(beforeRow);
+    expect(await finance()).toEqual(before);
+  });
+  it("separate explicit confirmation creates the source purchase, CFE and session receipt with no allocations", async () => {
+    await pendingChoices();
+    view = await submit(
+      payload("decision", { kind: "CREATE", acceptNaturalDuplicate: false }),
+    );
+    view = await submit(payload("targets", []));
+    expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+    view = await workflow.prepare(authenticated().auth, sessionId, {
+      expectedRevision: view.revision,
+    });
+    expect(view.state).toBe("READY");
+    const ready = view;
+    const proposalHash = ready.proposal!.proposalHash;
+    await expect(
+      workflow.confirm(
+        authenticated().auth,
+        sessionId,
+        {
+          expectedRevision: ready.revision,
+          proposalHash,
+          financialRequestId: randomUUID(),
+          nonce: null,
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ code: Code.UI_ACTION_REQUIRED });
+    const challengeActor = authenticated();
+    ui.canActivate(context(challengeActor.request));
+    const challenge = await workflow.challenge(
+      challengeActor.auth,
+      sessionId,
+      { expectedRevision: ready.revision, proposalHash },
+      issuer.issueFinancialAction(challengeActor.request, challengeActor.auth, {
+        operation: "CHALLENGE",
+        sessionId,
+        expectedRevision: ready.revision,
+        proposalHash,
+      }),
+    );
+    const financialRequestId = randomUUID();
+    const confirmActor = authenticated();
+    ui.canActivate(context(confirmActor.request));
+    await workflow.confirm(
+      confirmActor.auth,
+      sessionId,
+      {
+        expectedRevision: ready.revision,
+        proposalHash,
+        financialRequestId,
+        nonce: challenge.nonce,
+      },
+      issuer.issueFinancialAction(confirmActor.request, confirmActor.auth, {
+        operation: "CONFIRM",
+        sessionId,
+        expectedRevision: ready.revision,
+        proposalHash,
+        financialRequestId,
+      }),
+    );
+    const executeActor = authenticated();
+    ui.canActivate(context(executeActor.request));
+    const receipt = await workflow.execute(
+      executeActor.auth,
+      sessionId,
+      { financialRequestId },
+      issuer.issueFinancialAction(executeActor.request, executeActor.auth, {
+        operation: "EXECUTE",
+        sessionId,
+        financialRequestId,
+      }),
+    );
+    expect(await finance()).toEqual([1, 1, 0, 0, 0, 0]);
+    const expense = await prisma.expense.findFirstOrThrow({
+      where: { tenantId },
+    });
+    expect(expense).toMatchObject({ projectId, valorTotal: 20696 });
+    expect(
+      await prisma.cashFlowEntry.findFirstOrThrow({ where: { tenantId } }),
+    ).toMatchObject({
+      projectId,
+      expenseId: expense.id,
+      valor: 20696,
+      data: new Date("2026-10-10T00:00:00.000Z"),
+    });
+    expect(receipt.items[0]).toMatchObject({
+      sourceExpenseId: expense.id,
+      targetExpenseIds: [],
+      allocationIds: [],
+    });
+    expect((await row()).receiptJson).not.toBeNull();
+    expect(
+      (await service.getSession(authenticated().auth, sessionId)).receipt,
+    ).toEqual(receipt);
+    expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
   });
 });
