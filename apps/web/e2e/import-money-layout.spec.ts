@@ -246,7 +246,13 @@ test.beforeAll(async () => {
 for (const width of [375, 390, 1280]) {
   test(`review and receipt monetary layout at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.setContent(`<style>${css}</style><div id="root"></div>`);
+    // Match the real App Router layout; mobile otherwise uses a 980px layout viewport.
+    await page.setContent(
+      `<meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><div id="root"></div>`,
+    );
+    expect(
+      await page.evaluate(() => document.documentElement.clientWidth),
+    ).toBe(width);
     await page.addScriptTag({ content: script });
     const review = page.getByRole("region", { name: "Revisão do lote" });
     const receipt = page.getByTestId("import-receipt");
