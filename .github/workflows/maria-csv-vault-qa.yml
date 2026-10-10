@@ -1,0 +1,96 @@
+name: Maria CSV private-vault QA
+
+on:
+  workflow_dispatch:
+  # Dispatch is unavailable until this workflow is on the default branch.
+  push:
+    branches: [feat/maria-conversational-csv-20261009]
+    paths:
+      - .github/workflows/maria-csv-vault-qa.yml
+      - scripts/qa/**
+      - apps/web/e2e-qa/**
+      - apps/web/playwright.qa.config.ts
+
+permissions:
+  contents: read
+
+jobs:
+  maria-csv-vault:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: '1'
+      TZ: UTC
+      API_URL: http://127.0.0.1:3011
+      WEB_URL: http://127.0.0.1:3010
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:3011
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build domain and generate Prisma client
+        run: |
+          npm --workspace @reformaflow/domain run build
+          npx prisma generate --schema=prisma/schema.prisma
+      - name: Prepare isolated runtime (no secrets or production access)
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          runtime="$RUNNER_TEMP/maria-csv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir "$runtime"
+          runtime=$(cd "$runtime" && pwd -P)
+          mkdir "$runtime/artifacts" "$runtime/vault" "$runtime/vault/t" "$runtime/vault/.trash"
+          mkdir "$runtime/public-uploads" "$runtime/private-uploads"
+          touch "$runtime/vault/.lock"
+          chmod 700 "$runtime/vault" "$runtime/vault/t" "$runtime/vault/.trash"
+          chmod 600 "$runtime/vault/.lock"
+          secret=$(node -e 'console.log(require("node:crypto").randomBytes(48).toString("hex"))')
+          echo "::add-mask::$secret"
+          {
+            echo "QA_RUNTIME_DIR=$runtime"
+            echo "QA_DB_PATH=$runtime/maria-qa.db"
+            echo "QA_VAULT_DIR=$runtime/vault"
+            echo "QA_ARTIFACTS_DIR=$runtime/artifacts"
+            echo "DATABASE_URL=file:$runtime/maria-qa.db"
+            echo "JWT_SECRET=$secret"
+          } >> "$GITHUB_ENV"
+      - name: Apply committed migrations to disposable SQLite
+        # Same migrate deploy invocation as prepare-test-db.mjs. Do not invoke that
+        # script: its test guard intentionally redirects to the worktree's test.db.
+        run: npx prisma migrate deploy --schema=prisma/schema.prisma
+      - name: Build API and install browser
+        run: |
+          npm --workspace @reformaflow/api run build
+          npx playwright install --with-deps chromium
+          command -v lsof
+          command -v flock
+      - name: Boot API and web with private vault enabled
+        # boot.sh uses IMPORT_VAULT_ENABLED=true, IMPORT_VAULT_LOCK_FD=9,
+        # VAULT_DIR, IMPORT_VAULT_IDLE_TIMEOUT_MS, IMPORT_VAULT_HEADROOM_BYTES,
+        # IMPORT_VAULT_DRAIN_TIMEOUT_MS (vault.config.ts). Real flock survives exec;
+        # the API checks /proc/self/fdinfo/9 itself. No NO_FDINFO override exists.
+        # Broad IMPORT_SESSION_WRITES_ENABLED stays false; CSV is qualified separately.
+        run: |
+          bash scripts/qa/maria-csv-boot.sh api
+          bash scripts/qa/maria-csv-boot.sh web
+          bash scripts/qa/maria-csv-boot.sh wait-api
+          bash scripts/qa/maria-csv-boot.sh wait-web
+          bash scripts/qa/maria-csv-boot.sh gate
+      - name: Run real Maria CSV browser journey
+        run: npx playwright test -c apps/web/playwright.qa.config.ts
+      - name: Stop owned QA servers
+        if: always() && env.QA_RUNTIME_DIR != ''
+        run: bash scripts/qa/maria-csv-boot.sh stop
+      - name: Upload screenshots, browser evidence and server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maria-csv-vault-qa-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.QA_ARTIFACTS_DIR || format('{0}/maria-csv-{1}-{2}/artifacts', runner.temp, github.run_id, github.run_attempt) }}
+          if-no-files-found: warn
+          retention-days: 7
