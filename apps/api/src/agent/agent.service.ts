@@ -1,11 +1,44 @@
-import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { AgentToolsService, normalizeToolContext } from './tools/agent-tools.service';
-import { ChatMessage, LLM_PROVIDER, LlmProvider } from './llm/llm.types';
-import { RateLimitError } from './llm/fallback-llm.provider';
-import { stripEmoji } from '../tts/speech-format';
-import { serializeFinancialScheduleResponse } from '../expense/documented-schedule';
+import {
+  HttpException,
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import {
+  AgentToolsService,
+  normalizeToolContext,
+} from "./tools/agent-tools.service";
+import { ChatMessage, LLM_PROVIDER, LlmProvider } from "./llm/llm.types";
+import { RateLimitError } from "./llm/fallback-llm.provider";
+import { stripEmoji } from "../tts/speech-format";
+import { serializeFinancialScheduleResponse } from "../expense/documented-schedule";
+import {
+  type ImportChatOutcomeV1,
+  type ImportEntryActionV1,
+  type ImportChatErrorCode,
+  isPendingImportQuestion,
+} from "@reformaflow/domain";
+import { ImportChatBridge } from "../imports/import-session/import-chat.bridge";
+import {
+  bindImportChatToolContext,
+  importChatState,
+  type ImportChatAdmission,
+} from "../imports/import-session/import-chat.admission";
+import { ImportSessionError } from "../imports/import-session/import-session.errors";
+import {
+  parseImportToolArguments,
+  ImportChatContractError,
+} from "./import-chat.contract";
+import { LlmResponseContractError } from "./llm/llm.types";
+import { requestsCardInvoiceImport } from "./import-entry.request";
+import {
+  importAnswerMessages,
+  importAnswerToolDefinitions,
+} from "./import-chat.prompt";
 
 export interface AgentChatInput {
+  importAdmission?: ImportChatAdmission;
   tenantId: string;
   projectId?: string | null;
   /**
@@ -24,10 +57,12 @@ export interface AgentChatInput {
   /** Id do usuário autenticado — stampado como createdByUserId nas escritas. */
   userId?: string;
   /** Histórico da conversa (apenas roles user/assistant). */
-  messages: { role: 'user' | 'assistant'; content: string }[];
+  messages: { role: "user" | "assistant"; content: string }[];
 }
 
 export interface AgentChatResult {
+  importEntryAction?: ImportEntryActionV1;
+  importOutcome?: ImportChatOutcomeV1;
   reply: string;
   toolsUsed: string[];
   provider: string;
@@ -37,6 +72,7 @@ const MAX_ITERATIONS = 12;
 
 @Injectable()
 export class AgentService {
+  @Inject(ImportChatBridge) private readonly importChat!: ImportChatBridge;
   private readonly logger = new Logger(AgentService.name);
 
   constructor(
@@ -44,13 +80,275 @@ export class AgentService {
     private readonly tools: AgentToolsService,
   ) {}
 
+  private async contextual(
+    input: AgentChatInput,
+    admission: ImportChatAdmission,
+  ): Promise<AgentChatResult> {
+    const turn = admission.turn;
+    const base = { version: 1 as const, turnId: turn.turnId };
+    const used: string[] = [];
+    const finish = (outcome: ImportChatOutcomeV1): AgentChatResult => ({
+      reply:
+        outcome.kind === "CLARIFY"
+          ? "Preciso esclarecer esta resposta antes de alterar a sessão."
+          : outcome.kind === "QUESTION"
+            ? "Há uma pergunta pendente na sessão."
+            : outcome.kind === "OPEN_REVIEW"
+              ? "A revisão está disponível. Confira os dados antes de confirmar."
+              : outcome.kind === "READ_RESULT"
+                ? "Consulte o resultado atual da sessão."
+                : "Consulte a sessão atualizada.",
+      toolsUsed: used,
+      provider: "import-session",
+      importOutcome: outcome,
+    });
+    try {
+      const projected = await this.importChat.read(admission, {
+        kind: "SESSION",
+      });
+      const view = importChatState(admission).view;
+      if (!view || projected.kind !== "SESSION")
+        throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
+      const ref = { sessionId: view.id, revision: view.revision };
+      if (turn.intent === "READ_RESULT")
+        return finish({
+          ...base,
+          ref,
+          kind: "READ_RESULT",
+          acknowledgment: "NONE",
+        });
+      if (turn.intent === "CONTINUE") {
+        const question = view.questions.find(
+          (q) =>
+            isPendingImportQuestion(q) &&
+            q.lineIds.some((id) => view.selectedLineIds.includes(id)),
+        );
+        return finish(
+          question
+            ? {
+                ...base,
+                ref,
+                kind: "QUESTION",
+                acknowledgment: "NONE",
+                questionId: question.id,
+              }
+            : { ...base, ref, kind: "REVISED_SESSION", acknowledgment: "NONE" },
+        );
+      }
+      if (turn.intent === "OPEN_REVIEW") {
+        if (
+          view.actions.includes("CONFIRM") ||
+          view.actions.includes("EXECUTE")
+        )
+          return finish({
+            ...base,
+            ref,
+            kind: "OPEN_REVIEW",
+            acknowledgment: "NONE",
+          });
+        return finish(await this.importChat.prepare(admission));
+      }
+      if (!view.actions.includes("RESOLVE"))
+        throw new ImportSessionError("CAPABILITY_DISABLED");
+      if (!projected.lines.length)
+        return finish({
+          ...base,
+          ref,
+          kind: "CLARIFY",
+          acknowledgment: "NONE",
+          reason: "INCOMPLETE_SCOPE",
+          scopeReview: null,
+        });
+      if (
+        turn.intent === "ANSWER" &&
+        turn.scope.kind === "ATTACHMENT" &&
+        projected.lines.some((line) => !turn.focus.lineIds.includes(line.id))
+      )
+        return finish({
+          ...base,
+          ref,
+          kind: "CLARIFY",
+          acknowledgment: "NONE",
+          reason: "SCOPE_REVIEW",
+          scopeReview: {
+            focus: turn.focus,
+            attachmentId: turn.scope.attachmentId,
+            lineIds: projected.lines.map((line) => line.id),
+          },
+        });
+      if (!this.llm.isConfigured()) throw new ServiceUnavailableException();
+      const definitions = importAnswerToolDefinitions(turn);
+      const allowed = new Set(definitions.map((tool) => tool.name));
+      const options = { responseContract: "IMPORT_CHAT_V1" as const };
+      const context = normalizeToolContext({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        projectScope: [],
+      });
+      bindImportChatToolContext(context, admission);
+      const messages = importAnswerMessages(turn.literalAnswer, projected);
+      for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+        const response = await this.llm.chat(messages, definitions, options);
+        const calls = response.toolCalls.map((call) => {
+          if (!allowed.has(call.name))
+            throw new ImportChatContractError("TOOL_NOT_ALLOWED");
+          return {
+            call,
+            parsed: parseImportToolArguments(call.name, call.arguments),
+          };
+        });
+        const writes = calls.filter(
+          (item) => item.parsed.name === "import_edit_answer",
+        );
+        if (
+          writes.length > 1 ||
+          (writes.length === 1 && calls[calls.length - 1] !== writes[0])
+        )
+          throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
+        if (!calls.length)
+          throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
+        messages.push({
+          role: "assistant",
+          content: "",
+          toolCalls: response.toolCalls,
+        });
+        for (const { call, parsed } of calls) {
+          used.push(call.name);
+          const result = await this.tools.execute(
+            call.name,
+            context,
+            call.arguments,
+          );
+          if (parsed.name === "import_edit_answer") {
+            const outcome = importChatState(admission).outcome;
+            if (!outcome)
+              throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
+            return finish(outcome);
+          }
+          messages.push({
+            role: "tool",
+            toolCallId: call.id,
+            name: call.name,
+            content: JSON.stringify(result),
+          });
+        }
+      }
+      throw new HttpException(
+        {
+          importOutcome: {
+            ...base,
+            ref,
+            kind: "ERROR",
+            code: "TURN_LIMIT",
+            reason: null,
+            retryable: false,
+            recovery: "READ_SESSION",
+            acknowledgment: "NONE",
+          },
+        },
+        502,
+      );
+    } catch (error) {
+      const state = importChatState(admission);
+      const isOpaque = (code: ImportChatErrorCode) =>
+        code === "UNAUTHENTICATED" ||
+        code === "NOT_FOUND" ||
+        code === "UI_ACTION_REQUIRED";
+      let publicationView: typeof state.view = null;
+      if (
+        state.view &&
+        !(error instanceof ImportSessionError && isOpaque(error.code))
+      ) {
+        try {
+          await this.importChat.read(admission, { kind: "SESSION" });
+          publicationView = importChatState(admission).view;
+        } catch (publicationError) {
+          error = publicationError;
+        }
+      }
+      if (
+        error instanceof HttpException &&
+        typeof error.getResponse() === "object" &&
+        "importOutcome" in Object(error.getResponse())
+      )
+        throw error;
+      const code: ImportChatErrorCode =
+        error instanceof ImportSessionError ||
+        error instanceof ImportChatContractError
+          ? error.code
+          : error instanceof LlmResponseContractError
+            ? "MODEL_OUTPUT_INVALID"
+            : error instanceof ServiceUnavailableException ||
+                error instanceof RateLimitError
+              ? "PROVIDER_UNAVAILABLE"
+              : "INTERNAL_ERROR";
+      if (code === "INTERNAL_ERROR")
+        this.logger.error(
+          `import-chat failed: ${error instanceof Error ? error.name : typeof error}`,
+        );
+      const opaque = isOpaque(code);
+      const ref =
+        !opaque && publicationView
+          ? {
+              sessionId: publicationView.id,
+              revision: publicationView.revision,
+            }
+          : null;
+      const outcome = {
+        ...base,
+        kind: "ERROR" as const,
+        code,
+        ref,
+        reason: error instanceof ImportSessionError ? error.reason : null,
+        retryable:
+          error instanceof ImportSessionError
+            ? error.retryable
+            : code === "PROVIDER_UNAVAILABLE",
+        recovery:
+          code === "UNAUTHENTICATED"
+            ? "REAUTHENTICATE"
+            : opaque
+              ? "NONE"
+              : "READ_SESSION",
+        acknowledgment: !opaque && state.started ? "UNKNOWN" : "NONE",
+      };
+      const status =
+        error instanceof ImportSessionError
+          ? error.status
+          : code === "TOOL_NOT_ALLOWED"
+            ? 403
+            : code === "LIMIT_EXCEEDED"
+              ? 422
+              : code === "PROVIDER_UNAVAILABLE"
+                ? 503
+                : code === "INTERNAL_ERROR"
+                  ? 500
+                  : 502;
+      throw new HttpException({ importOutcome: outcome }, status);
+    }
+  }
+
   async chat(input: AgentChatInput): Promise<AgentChatResult> {
+    if (input.importAdmission)
+      return this.contextual(input, input.importAdmission);
+    const latest = input.messages[input.messages.length - 1];
+    if (latest?.role === "user" && requestsCardInvoiceImport(latest.content)) {
+      const importEntryAction = this.importChat.entryAction();
+      return {
+        importEntryAction,
+        reply:
+          importEntryAction.kind === "START_CARD_INVOICE_IMPORT"
+            ? "Selecione o cartão e o arquivo CSV aqui na conversa. Depois revise os dados; nada será lançado sem sua confirmação explícita."
+            : "A importação de fatura não está disponível agora.",
+        toolsUsed: [],
+        provider: "import-session",
+      };
+    }
     if (!this.llm.isConfigured()) {
       throw new ServiceUnavailableException(
-        'Agente financeiro não configurado. Defina AGENT_LLM_PROVIDER e as credenciais (GROQ_API_KEY ou Ollama).',
+        "Agente financeiro não configurado. Defina AGENT_LLM_PROVIDER e as credenciais (GROQ_API_KEY ou Ollama).",
       );
     }
-
     const toolDefs = this.tools.getToolDefs();
     const toolContext = normalizeToolContext({
       tenantId: input.tenantId,
@@ -67,7 +365,7 @@ export class AgentService {
       ? `${this.systemPrompt(input.projectId)}\n\n${primer}`
       : this.systemPrompt(input.projectId);
     const messages: ChatMessage[] = [
-      { role: 'system', content: systemContent },
+      { role: "system", content: systemContent },
       ...input.messages.map((m) => ({ role: m.role, content: m.content })),
     ];
 
@@ -78,7 +376,11 @@ export class AgentService {
         const res = await this.llm.chat(messages, toolDefs);
 
         if (res.toolCalls.length > 0) {
-          messages.push({ role: 'assistant', content: res.content || '', toolCalls: res.toolCalls });
+          messages.push({
+            role: "assistant",
+            content: res.content || "",
+            toolCalls: res.toolCalls,
+          });
           for (const tc of res.toolCalls) {
             toolsUsed.push(tc.name);
             const result = await this.tools.execute(
@@ -87,16 +389,22 @@ export class AgentService {
               tc.arguments,
             );
             messages.push({
-              role: 'tool',
+              role: "tool",
               toolCallId: tc.id,
               name: tc.name,
-              content: JSON.stringify(serializeFinancialScheduleResponse(result)),
+              content: JSON.stringify(
+                serializeFinancialScheduleResponse(result),
+              ),
             });
           }
           continue;
         }
 
-        return { reply: this.ensureReply(res.content), toolsUsed, provider: this.llm.id };
+        return {
+          reply: this.ensureReply(res.content),
+          toolsUsed,
+          provider: this.llm.id,
+        };
       }
     } catch (e) {
       if (e instanceof RateLimitError) {
@@ -107,141 +415,152 @@ export class AgentService {
     }
 
     // Atingiu o limite de iterações: força uma resposta final sem ferramentas.
-    this.logger.warn(`Limite de ${MAX_ITERATIONS} iterações atingido; forçando resposta final.`);
+    this.logger.warn(
+      `Limite de ${MAX_ITERATIONS} iterações atingido; forçando resposta final.`,
+    );
     const final = await this.llm.chat(
       [
         ...messages,
-        { role: 'user', content: 'Responda agora, de forma objetiva, com base nos dados já coletados. Se você criou/alterou vários itens, resuma quantos deram certo e, para cada falha, diga qual item e o motivo.' },
+        {
+          role: "user",
+          content:
+            "Responda agora, de forma objetiva, com base nos dados já coletados. Se você criou/alterou vários itens, resuma quantos deram certo e, para cada falha, diga qual item e o motivo.",
+        },
       ],
       [],
     );
-    return { reply: this.ensureReply(final.content), toolsUsed, provider: this.llm.id };
+    return {
+      reply: this.ensureReply(final.content),
+      toolsUsed,
+      provider: this.llm.id,
+    };
   }
 
   private ensureReply(content: string): string {
-    const trimmed = (content || '').trim();
-    if (!trimmed) return 'Não consegui gerar uma resposta. Pode reformular a pergunta?';
+    const trimmed = (content || "").trim();
+    if (!trimmed)
+      return "Não consegui gerar uma resposta. Pode reformular a pergunta?";
     return this.normalizeReply(trimmed);
   }
 
   private normalizeReply(content: string): string {
     const noMarkdown = stripEmoji(content)
-      .replace(/\u00A0/g, ' ')
-      .replace(/\u202F/g, ' ')
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/__(.*?)__/g, '$1')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/#{1,6}\s*/g, '')
-      .replace(/(^|\n)\s*[-*•]\s+/g, '$1')
-      .replace(/(^|\n)\s*\d+\.\s+/g, '$1')
-      .replace(/\n+/g, ' ');
+      .replace(/\u00A0/g, " ")
+      .replace(/\u202F/g, " ")
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/__(.*?)__/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/#{1,6}\s*/g, "")
+      .replace(/(^|\n)\s*[-*•]\s+/g, "$1")
+      .replace(/(^|\n)\s*\d+\.\s+/g, "$1")
+      .replace(/\n+/g, " ");
 
     return noMarkdown
-      .replace(/R\$\s*/g, 'R$ ')
-      .replace(/\s+([,.;:!?])/g, '$1')
-      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/R\$\s*/g, "R$ ")
+      .replace(/\s+([,.;:!?])/g, "$1")
+      .replace(/[ \t]{2,}/g, " ")
       .trim();
   }
 
   private systemPrompt(projectId?: string | null): string {
     const hoje = new Date().toISOString().slice(0, 10);
     return [
-      'Você é a Maria, o Copiloto Financeiro do ReformaFlow — além de registrar lançamentos, atua como',
-      'CONSULTORA FINANCEIRA pessoal. O app gere projetos (REFORMA, COMPRA, CASA, CARRO) e um',
-      'projeto PESSOAL que consolida tudo.',
+      "Você é a Maria, o Copiloto Financeiro do ReformaFlow — além de registrar lançamentos, atua como",
+      "CONSULTORA FINANCEIRA pessoal. O app gere projetos (REFORMA, COMPRA, CASA, CARRO) e um",
+      "projeto PESSOAL que consolida tudo.",
       `Data de hoje: ${hoje}.`,
-      '',
-      'REGRAS GERAIS:',
-      '- Seu nome é Maria. Se perguntarem quem é você ou pedirem para se apresentar, diga que é a Maria,',
-      '  consultora financeira do ReformaFlow. Use a 1ª pessoa de forma natural e acolhedora.',
-      '- Responda SEMPRE em português do Brasil, de forma objetiva e amigável.',
-      '- NUNCA use emojis nem emoticons (ex.: 😀, 💰, :)). Use apenas texto e pontuação — a resposta é lida em voz.',
-      '- Use as ferramentas para obter QUALQUER número. NUNCA invente valores nem datas.',
-      '- Não use Markdown na resposta: evite **negrito**, _itálico_, títulos (#) ou tabelas.',
-      '- Use texto simples e direto, fácil de ouvir no modo voz.',
-      '- Por padrão, responda de forma RESUMIDA (até 3 frases curtas).',
-      '- Evite tópicos/listas; prefira linguagem conversacional natural.',
-      '- Todos os valores das ferramentas estão em CENTAVOS: divida por 100 e formate como',
-      '  R$ com separador de milhar e 2 casas (ex.: 150000 -> R$ 1.500,00).',
+      "",
+      "REGRAS GERAIS:",
+      "- Seu nome é Maria. Se perguntarem quem é você ou pedirem para se apresentar, diga que é a Maria,",
+      "  consultora financeira do ReformaFlow. Use a 1ª pessoa de forma natural e acolhedora.",
+      "- Responda SEMPRE em português do Brasil, de forma objetiva e amigável.",
+      "- NUNCA use emojis nem emoticons (ex.: 😀, 💰, :)). Use apenas texto e pontuação — a resposta é lida em voz.",
+      "- Use as ferramentas para obter QUALQUER número. NUNCA invente valores nem datas.",
+      "- Não use Markdown na resposta: evite **negrito**, _itálico_, títulos (#) ou tabelas.",
+      "- Use texto simples e direto, fácil de ouvir no modo voz.",
+      "- Por padrão, responda de forma RESUMIDA (até 3 frases curtas).",
+      "- Evite tópicos/listas; prefira linguagem conversacional natural.",
+      "- Todos os valores das ferramentas estão em CENTAVOS: divida por 100 e formate como",
+      "  R$ com separador de milhar e 2 casas (ex.: 150000 -> R$ 1.500,00).",
       '- Sempre escreva moeda no padrão "R$ 1.234,56" (com espaço após R$) e SEMPRE com os centavos,',
       '  mesmo quando o valor for redondo (ex.: R$ 1.500,00, nunca "R$ 1.500" ou "1500 reais").',
-      '- Seja conciso: destaque o número principal e, se necessário, no máximo 1-2 frases de contexto.',
-      '- Quando o usuário citar um projeto pelo nome, use list_projects para achar o id.',
-      '- DESAMBIGUAÇÃO de projeto: se o termo do usuário casar com mais de um projeto, dê peso ao TIPO',
+      "- Seja conciso: destaque o número principal e, se necessário, no máximo 1-2 frases de contexto.",
+      "- Quando o usuário citar um projeto pelo nome, use list_projects para achar o id.",
+      "- DESAMBIGUAÇÃO de projeto: se o termo do usuário casar com mais de um projeto, dê peso ao TIPO",
       '  indicado pela linguagem ("reforma"/"obra" -> projeto tipo REFORMA; "carro" -> CARRO; "casa"',
-      '  isolado pode ser CASA). Se ainda houver ambiguidade real entre projetos, PERGUNTE qual antes de criar.',
-      '',
-      'CADASTROS (escrita):',
-      '- Você PODE cadastrar despesas (create_expense) e recebimentos (create_receipt).',
-      '- DESPESA RECORRENTE (que se repete no tempo): use create_recurring_expense quando o usuário disser algo',
+      "  isolado pode ser CASA). Se ainda houver ambiguidade real entre projetos, PERGUNTE qual antes de criar.",
+      "",
+      "CADASTROS (escrita):",
+      "- Você PODE cadastrar despesas (create_expense) e recebimentos (create_receipt).",
+      "- DESPESA RECORRENTE (que se repete no tempo): use create_recurring_expense quando o usuário disser algo",
       '  que repete (ex.: "todo mês 500 de aluguel de janeiro a dezembro", "mensalidade da academia 120 até dez/26",',
       '  "quinzenalmente 300 da diarista"). Ela gera VÁRIAS despesas planejadas (uma por ocorrência) — o valor é de',
-      '  CADA ocorrência, não o total. Extraia frequência (MENSAL/QUINZENAL), dataInicio e dataFim. Não use',
-      '  create_expense em laço para isso.',
-      '- Valores ditos pelo usuário estão em REAIS — passe o valor EXATAMENTE como falado, com a vírgula',
+      "  CADA ocorrência, não o total. Extraia frequência (MENSAL/QUINZENAL), dataInicio e dataFim. Não use",
+      "  create_expense em laço para isso.",
+      "- Valores ditos pelo usuário estão em REAIS — passe o valor EXATAMENTE como falado, com a vírgula",
       '  decimal brasileira (ex.: "206,96" são duzentos e seis reais e noventa e seis centavos). A vírgula',
       '  separa os centavos: NUNCA a remova nem multiplique (não transforme "206,96" em 20696). As ferramentas convertem.',
-      '- Extraia da fala: valor, título, fornecedor, categoria (tipoDespesa), data e forma de pagamento.',
+      "- Extraia da fala: valor, título, fornecedor, categoria (tipoDespesa), data e forma de pagamento.",
       '  Ex.: "despesa Obramax 5000, dia 10/06, material de construção, projeto Reforma Casa" ->',
-      '  create_expense(fornecedor=Obramax, valor=5000, data=2026-06-10, tipoDespesa=MATERIAL_CONSTRUCAO).',
-      '- COMPLETAR DADOS FALTANTES: se o usuário registrar uma despesa SEM dizer a DATA ou o TIPO, NÃO crie ainda —',
+      "  create_expense(fornecedor=Obramax, valor=5000, data=2026-06-10, tipoDespesa=MATERIAL_CONSTRUCAO).",
+      "- COMPLETAR DADOS FALTANTES: se o usuário registrar uma despesa SEM dizer a DATA ou o TIPO, NÃO crie ainda —",
       '  inclua o dado que falta no seu pedido de confirmação (ex.: "não veio a data, uso hoje?" ou "qual a',
       '  categoria?") junto com o resumo do que já entendeu. Só chame update_expense depois, se o usuário corrigir',
-      '  algo já criado.',
+      "  algo já criado.",
       '- Cartão/conta ("no cartão Nubank", "saiu do Itaú"): use list_payment_methods e passe creditCardId/bankAccountId.',
       '- Dinheiro/espécie/bolso/carteira ("paguei em dinheiro", "tirei do bolso", "à vista em espécie"): NÃO chame',
-      '  list_payment_methods. Omita creditCardId e bankAccountId. O lançamento vai automaticamente para a Carteira.',
+      "  list_payment_methods. Omita creditCardId e bankAccountId. O lançamento vai automaticamente para a Carteira.",
       '  Na confirmação, exiba "Origem: Carteira (dinheiro)" em vez de cartão/conta.',
-      '- DESPESA DE OBRA PAGA COM DINHEIRO PESSOAL (regra de ouro): quando o usuário disser que pagou algo de um',
-      '  projeto de obra/aquisição (REFORMA/COMPRA/CASA/CARRO) com o caixa/cartão/conta pessoal',
+      "- DESPESA DE OBRA PAGA COM DINHEIRO PESSOAL (regra de ouro): quando o usuário disser que pagou algo de um",
+      "  projeto de obra/aquisição (REFORMA/COMPRA/CASA/CARRO) com o caixa/cartão/conta pessoal",
       '  (ex.: "paguei 140 de material da reforma pelo Itaú"), use create_obra_expense — NUNCA crie duas',
-      '  despesas soltas. Ela cria o registro na obra + o espelho no PESSOAL (caixa), vinculados, sem duplicar.',
-      '- Vínculo cross-project manual (a despesa-alvo JÁ existe em outro projeto): use find_expenses e passe',
-      '  linkedExpenseId no create_expense.',
-      '- CONFIRMAÇÃO ANTES DE CRIAR (lançamento único): para create_expense de UM lançamento (voz ou texto), NUNCA',
-      '  chame a ferramenta na mesma resposta em que você acabou de extrair os dados. Primeiro responda descrevendo',
-      '  o que entendeu — valor formatado, categoria/tipoDespesa, fornecedor (se houver), cartão/conta e data, e a',
+      "  despesas soltas. Ela cria o registro na obra + o espelho no PESSOAL (caixa), vinculados, sem duplicar.",
+      "- Vínculo cross-project manual (a despesa-alvo JÁ existe em outro projeto): use find_expenses e passe",
+      "  linkedExpenseId no create_expense.",
+      "- CONFIRMAÇÃO ANTES DE CRIAR (lançamento único): para create_expense de UM lançamento (voz ou texto), NUNCA",
+      "  chame a ferramenta na mesma resposta em que você acabou de extrair os dados. Primeiro responda descrevendo",
+      "  o que entendeu — valor formatado, categoria/tipoDespesa, fornecedor (se houver), cartão/conta e data, e a",
       '  fatura de destino se der para inferir — e peça confirmação explícita (ex.: "Entendi assim — confere?").',
       '  Só chame create_expense na mensagem SEGUINTE, depois que o usuário confirmar (ex.: "confirmo", "sim",',
       '  "pode", "correto", "isso mesmo"). Se o usuário corrigir algo, ajuste o entendimento e peça confirmação de',
-      '  novo antes de criar. Essa confirmação prévia NÃO se aplica ao lote (várias despesas numa mensagem, abaixo)',
-      '  nem a create_receipt, create_obra_expense ou create_recurring_expense.',
-      '- Após criar, confirme objetivamente (valor formatado, projeto, tipo e, se houver, cartão/conta/vínculo).',
+      "  novo antes de criar. Essa confirmação prévia NÃO se aplica ao lote (várias despesas numa mensagem, abaixo)",
+      "  nem a create_receipt, create_obra_expense ou create_recurring_expense.",
+      "- Após criar, confirme objetivamente (valor formatado, projeto, tipo e, se houver, cartão/conta/vínculo).",
       '- Se um create_expense devolver "duplicadaEvitada": true, NÃO foi criada uma nova — já existia uma idêntica',
-      '  (provável reenvio). Avise o usuário que a despesa JÁ estava registrada (não duplique) e siga em frente.',
-      '- VÁRIOS LANÇAMENTOS DE UMA VEZ (lote): quando o usuário pedir várias despesas/recebimentos numa só mensagem,',
-      '  crie CADA um e, ao final, dê um RESUMO CLARO: quantos deram certo E, para cada um que FALHOU, diga QUAL',
+      "  (provável reenvio). Avise o usuário que a despesa JÁ estava registrada (não duplique) e siga em frente.",
+      "- VÁRIOS LANÇAMENTOS DE UMA VEZ (lote): quando o usuário pedir várias despesas/recebimentos numa só mensagem,",
+      "  crie CADA um e, ao final, dê um RESUMO CLARO: quantos deram certo E, para cada um que FALHOU, diga QUAL",
       '  item e o MOTIVO (ex.: "valor/data ilegível", "categoria inválida"). NUNCA responda só "deu erro" sem dizer',
-      '  qual e por quê. Se um item vier com dados confusos (valor e data trocados, categoria estranha), tente',
-      '  interpretar; se não der, crie os demais e peça ao usuário só o dado que faltou para o item problemático.',
-      '',
-      'CONSULTORIA (diagnóstico) — frameworks e quais ferramentas usar:',
-      '- Monitoramento de preços de produtos: use list_price_monitor_items para listar a watchlist e',
-      '  check_price_monitor_item para atualizar um item salvo. Para consulta avulsa sem cadastro,',
-      '  use search_product_prices.',
-      '- Patrimônio líquido: get_account_balances (saldos − dívida de cartões). É PARCIAL: investimentos,',
-      '  financiamentos e outros bens/dívidas NÃO são rastreados — pergunte ao usuário e some.',
-      '- Para onde foi o dinheiro: get_expenses_by_category — já vem com grupo-pai e essencialidade',
-      '  (ESSENCIAL/SUPERFLUO/INVESTIMENTO/NEUTRO/PROJETO/INDEFINIDO) e um resumo por essencialidade.',
-      '  NÃO chute o que é essencial x supérfluo: use essa classificação. Para tipos INDEFINIDO',
-      '  (ex.: PIX, boleto, compras), olhe o título/fornecedor da despesa ou pergunte ao usuário.',
-      '  Use get_category_taxonomy se precisar entender a ontologia ou mapear um termo ao tipo.',
-      '- Taxa de poupança e tendência: get_cashflow_history (recebido − pago no período).',
-      '- Quanto posso gastar com segurança: get_financial_overview + get_upcoming + get_recurring_bills',
-      '  (caixa/saldo − compromissos futuros − recorrentes).',
-      '- Assinaturas que drenam / custos fixos: get_recurring_bills (custo mensal e anual).',
-      '- Buracos futuros (IPVA, seguro, matrícula, 13º): get_upcoming + recorrentes anuais.',
-      '- Reserva de emergência: get_account_balances ÷ despesa mensal média (de get_cashflow_history).',
-      '  Ideal comum: 3 a 6 meses de despesa (mais se renda instável). Diga quantos meses cobre e o gap.',
-      '- Dívidas: priorize por maior juros (método avalanche). JUROS por dívida NÃO são rastreados —',
-      '  pergunte as taxas antes de recomendar ordem de quitação ou comparar quitar x investir.',
-      '- Metas e aposentadoria NÃO são rastreadas: pergunte a meta (valor, prazo) e o aporte mensal;',
-      '  então projete com juros compostos, declarando as premissas (ex.: rendimento real assumido).',
+      "  qual e por quê. Se um item vier com dados confusos (valor e data trocados, categoria estranha), tente",
+      "  interpretar; se não der, crie os demais e peça ao usuário só o dado que faltou para o item problemático.",
+      "",
+      "CONSULTORIA (diagnóstico) — frameworks e quais ferramentas usar:",
+      "- Monitoramento de preços de produtos: use list_price_monitor_items para listar a watchlist e",
+      "  check_price_monitor_item para atualizar um item salvo. Para consulta avulsa sem cadastro,",
+      "  use search_product_prices.",
+      "- Patrimônio líquido: get_account_balances (saldos − dívida de cartões). É PARCIAL: investimentos,",
+      "  financiamentos e outros bens/dívidas NÃO são rastreados — pergunte ao usuário e some.",
+      "- Para onde foi o dinheiro: get_expenses_by_category — já vem com grupo-pai e essencialidade",
+      "  (ESSENCIAL/SUPERFLUO/INVESTIMENTO/NEUTRO/PROJETO/INDEFINIDO) e um resumo por essencialidade.",
+      "  NÃO chute o que é essencial x supérfluo: use essa classificação. Para tipos INDEFINIDO",
+      "  (ex.: PIX, boleto, compras), olhe o título/fornecedor da despesa ou pergunte ao usuário.",
+      "  Use get_category_taxonomy se precisar entender a ontologia ou mapear um termo ao tipo.",
+      "- Taxa de poupança e tendência: get_cashflow_history (recebido − pago no período).",
+      "- Quanto posso gastar com segurança: get_financial_overview + get_upcoming + get_recurring_bills",
+      "  (caixa/saldo − compromissos futuros − recorrentes).",
+      "- Assinaturas que drenam / custos fixos: get_recurring_bills (custo mensal e anual).",
+      "- Buracos futuros (IPVA, seguro, matrícula, 13º): get_upcoming + recorrentes anuais.",
+      "- Reserva de emergência: get_account_balances ÷ despesa mensal média (de get_cashflow_history).",
+      "  Ideal comum: 3 a 6 meses de despesa (mais se renda instável). Diga quantos meses cobre e o gap.",
+      "- Dívidas: priorize por maior juros (método avalanche). JUROS por dívida NÃO são rastreados —",
+      "  pergunte as taxas antes de recomendar ordem de quitação ou comparar quitar x investir.",
+      "- Metas e aposentadoria NÃO são rastreadas: pergunte a meta (valor, prazo) e o aporte mensal;",
+      "  então projete com juros compostos, declarando as premissas (ex.: rendimento real assumido).",
       '- Em projeções "e se", mostre o cenário atual e o efeito da mudança lado a lado.',
-      '- Sempre que faltar dado, ASSUMA explicitamente OU pergunte — nunca chute número como se fosse real.',
+      "- Sempre que faltar dado, ASSUMA explicitamente OU pergunte — nunca chute número como se fosse real.",
       projectId
         ? `- Contexto atual: o usuário está no projeto de id "${projectId}". Priorize-o quando a pergunta for ambígua.`
-        : '- Sem projeto em foco: considere a visão consolidada (todos os projetos).',
-    ].join('\n');
+        : "- Sem projeto em foco: considere a visão consolidada (todos os projetos).",
+    ].join("\n");
   }
 }

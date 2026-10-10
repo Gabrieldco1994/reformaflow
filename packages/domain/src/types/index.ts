@@ -7,10 +7,11 @@ import {
   ExpenseStatus,
   CashFlowType,
   CashFlowStatus,
-} from '../enums';
-import type { ExpenseScheduleV1 } from '../calculations/expense-schedule';
-export * from './partial-settlement';
-import type { InstallmentSettlementSummary } from './partial-settlement';
+} from "../enums";
+import type { ExpenseScheduleV1 } from "../calculations/expense-schedule";
+export * from "./partial-settlement";
+export * from "./card-import-review";
+import type { InstallmentSettlementSummary } from "./partial-settlement";
 
 export interface Tenant {
   id: string;
@@ -58,7 +59,7 @@ export interface Receipt {
   id: string;
   projectId: string;
   tenantId: string;
-  valor: number;    // centavos
+  valor: number; // centavos
   data: Date;
   tipo: ReceiptType;
   status: ReceiptStatus;
@@ -78,9 +79,9 @@ export interface Expense {
   tipoDespesa: ExpenseType;
   categoriaMaoDeObra: LaborCategory | null;
   roomId: string | null;
-  valor: number;         // centavos (unitário)
+  valor: number; // centavos (unitário)
   quantidade: number;
-  valorTotal: number;    // centavos (calculado server-side)
+  valorTotal: number; // centavos (calculado server-side)
   fornecedor: string | null;
   link: string | null;
   formaPagamento: PaymentForm;
@@ -104,7 +105,7 @@ export interface CashFlowEntry {
   tenantId: string;
   receiptId: string | null;
   expenseId: string | null;
-  valor: number;   // centavos
+  valor: number; // centavos
   tipo: CashFlowType;
   data: Date;
   categoria: string;
@@ -127,11 +128,11 @@ export interface CashFlowEntryComputed extends CashFlowEntry {
 // ─── Dashboard ──────────────────────────────────────────────
 
 export interface DashboardKpis {
-  dinheiroDisponivel: number;   // Σ recebimentos EM_CAIXA
-  jaPaguei: number;             // Σ cashflow DESPESA+PAGO
-  previsaoGastos: number;       // Σ cashflow DESPESA+PLANEJADO
+  dinheiroDisponivel: number; // Σ recebimentos EM_CAIXA
+  jaPaguei: number; // Σ cashflow DESPESA+PAGO
+  previsaoGastos: number; // Σ cashflow DESPESA+PLANEJADO
   previsaoRecebimentos: number; // Σ recebimentos PREVISTO
-  previsaoSaldo: number;        // disponivel + previsaoReceb - jaPaguei - previsaoGastos
+  previsaoSaldo: number; // disponivel + previsaoReceb - jaPaguei - previsaoGastos
 }
 
 export interface DashboardRoomSummary {
@@ -159,7 +160,10 @@ export interface DashboardData {
   byExpenseCategory: DashboardExpenseCategorySummary[];
 }
 
-export { type FinancialItemCardV1, assertFinancialItemCardV1Shape } from './financial-item-card-v1';
+export {
+  type FinancialItemCardV1,
+  assertFinancialItemCardV1Shape,
+} from "./financial-item-card-v1";
 
 export interface Attachment {
   id: string;

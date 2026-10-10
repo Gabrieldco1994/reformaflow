@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { ArrowLeft, Sparkles } from 'lucide-react';
-import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
-import { useProject } from '@/contexts/project-context';
-import { getProjectHomePath } from '@/app/projects/_lib/project-home-route';
-import { MariaChatBody } from './_components/MariaChatBody';
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { ArrowLeft, Sparkles } from "lucide-react";
+import { useAuth, type ModuleSlug } from "@/contexts/auth-context";
+import { useProject } from "@/contexts/project-context";
+import { getProjectHomePath } from "@/app/projects/_lib/project-home-route";
+import { MariaImportEntry } from "./_components/MariaImportEntry";
 
 /**
  * Tela "Maria" — copiloto financeiro em tela cheia no app mobile (protótipo
@@ -30,8 +30,10 @@ export default function MariaPage() {
   const params = useParams<{ projectId: string }>();
   const { projectType } = useProject();
   const { hasModule } = useAuth();
-  const backHref = getProjectHomePath(params.projectId as string, projectType, (module) =>
-    hasModule(module as ModuleSlug),
+  const backHref = getProjectHomePath(
+    params.projectId as string,
+    projectType,
+    (module) => hasModule(module as ModuleSlug),
   );
 
   return (
@@ -50,11 +52,13 @@ export default function MariaPage() {
         </div>
         <div>
           <h1 className="text-lg font-bold text-lifeone-ink">Maria</h1>
-          <p className="text-[12px] font-semibold text-lifeone-ink-3">sabe do seu mês inteiro · fala e ouve</p>
+          <p className="text-[12px] font-semibold text-lifeone-ink-3">
+            sabe do seu mês inteiro · fala e ouve
+          </p>
         </div>
       </header>
 
-      <MariaChatBody projectId={params.projectId as string} />
+      <MariaImportEntry projectId={params.projectId as string} />
     </section>
   );
 }

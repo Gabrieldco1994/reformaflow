@@ -1,13 +1,13 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AdditiveSettlementCommand, ExpenseType } from '@reformaflow/domain';
+import { AdditiveSettlementCommand, ExpenseType, ExpenseStatus, IMPORT_SESSION_PRIMITIVES, type ImportSessionPlannedCreateV1, parseExpenseSchedule } from '@reformaflow/domain';
 import { ADDITIVE, applyParcelaFunding, undoParcelaFunding, guardActiveFunding, enrichFunding } from '../conciliacao/additive-settlement';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
-import { buildStoredExpenseInstallments, parseStoredExpenseSchedule, toPublicExpenseSchedule } from './documented-schedule';
-import { StoredProjectionScheduleV1 } from './documented-schedule.types';
+import { buildStoredExpenseInstallments, parseStoredExpenseSchedule, toPublicExpenseSchedule, parseScheduleEvidenceInput } from './documented-schedule';
+import { StoredProjectionScheduleV1, type StoredAssistedSourceScheduleV2, type ScheduleEvidenceInput, ASSISTED_CARD, ASSISTANCE_BASIS, REFERENCE_CHECK } from './documented-schedule.types';
 import { resolveInstallmentIndex } from '@reformaflow/domain';
 import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, normalizeInstallmentDateOverrides, parseInstallmentDateOnlyUtc, parseInstallmentDateOverrides, setInstallmentDateOverride, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
@@ -15,7 +15,7 @@ import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { createRateioTargets } from './create-rateio-targets';
 import { Expense, Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
-import { currentInlineRequester } from '../bank-account/inline-expenses';
+import { currentInlineRequester, assertInlineProject } from '../bank-account/inline-expenses';
 import {
   assertRateioRequester,
   RateioDetalhe,
@@ -27,6 +27,9 @@ import {
   userCanAccessProjectModule,
   resolveAccessibleProjectScope,
   EXPENSE_MODULE,
+  CREDIT_CARD_MODULE,
+  ACL_NOT_FOUND_MESSAGE,
+  projectTypeHasModule,
 } from '../common/access-rules';
 import { MANUAL_INVOICE_KEY_VERSION } from '../common/manual-invoice-key';
 import {
@@ -37,6 +40,11 @@ import {
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
+type PlannedCardSourceInput = Pick<
+  ImportSessionPlannedCreateV1,
+  'titulo' | 'fornecedor' | 'tipoDespesa' | 'categoriaMaoDeObra' |
+  'dataCompra' | 'totalCents' | 'schedule'
+> & { cardId: string; evidence: ScheduleEvidenceInput; reason: string };
 type RateioParticipation = 'source' | 'target' | null;
 
 const RATEIO_PARTICIPANT_MUTATION_MESSAGE =
@@ -265,6 +273,115 @@ export class ExpenseService {
     tx?: Prisma.TransactionClient,
     requester?: RateioRequester,
   ): Promise<ExpenseWithRoom> {
+    return this.createCore(tenantId, projectId, dto, createdByUserId, tx, requester);
+  }
+
+  /** All documentary creation effects belong to the workflow's caller transaction. */
+  async createPlannedCardPurchaseInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    ownerProjectId: string,
+    input: PlannedCardSourceInput,
+    createdByUserId: string,
+    requester: RateioRequester,
+  ): Promise<ExpenseWithRoom> {
+    await tx.$executeRaw`UPDATE tenants SET id = id WHERE id = ${tenantId}`;
+    assertRateioRequester(requester);
+    const actor = await currentInlineRequester(tx, tenantId, requester);
+    if (createdByUserId !== actor.id) throw new UnauthorizedException('Sessão inválida');
+    await assertInlineProject(tx, tenantId, ownerProjectId, actor);
+    const project = await assertInlineProject(tx, tenantId, ownerProjectId, actor, CREDIT_CARD_MODULE);
+    if (!projectTypeHasModule(project.type, CREDIT_CARD_MODULE)) {
+      throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    }
+    const card = await tx.creditCard.findFirst({
+      where: { id: input.cardId, tenantId, projectId: ownerProjectId, deletedAt: null },
+    });
+    if (!card) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    const schedule = parseExpenseSchedule(input.schedule);
+    if (
+      !Number.isSafeInteger(input.totalCents) ||
+      input.totalCents <= 0 ||
+      input.totalCents > IMPORT_SESSION_PRIMITIVES.maxCents ||
+      schedule.occurrences.some((item) => item.valor <= 0) ||
+      schedule.occurrences.reduce((sum, item) => sum + item.valor, 0) !== input.totalCents
+    ) {
+      throw new BadRequestException('Valor total incompatível com o cronograma documentado');
+    }
+    if (!parseInstallmentDateOnlyUtc(input.dataCompra)) {
+      throw new BadRequestException('Data de compra inválida');
+    }
+    const id = randomUUID();
+    const recordedAt = new Date().toISOString();
+    const evidence = {
+      ...parseScheduleEvidenceInput(input.evidence),
+      actorUserId: actor.id,
+      recordedAt,
+    };
+    const stored: StoredAssistedSourceScheduleV2 = {
+      version: 2,
+      kind: 'source',
+      tenantId,
+      sourceExpenseId: id,
+      sourceProjectId: ownerProjectId,
+      cardId: card.id,
+      recordedByUserId: actor.id,
+      recordedAt,
+      provenance: {
+        kind: ASSISTED_CARD,
+        basis: ASSISTANCE_BASIS.NONE,
+        originalImportId: null,
+        originalExternalId: null,
+        referenceCheck: REFERENCE_CHECK.NONE,
+        evidence,
+        reason: input.reason,
+      },
+      occurrences: schedule.occurrences.map((occurrence) => ({
+        ...occurrence,
+        amountEvidence: evidence,
+        cycleEvidence: occurrence.invoiceDueMonth === null ? null : evidence,
+      })),
+      projections: [],
+      lastOperation: null,
+    };
+    const documentedSchedule = JSON.stringify(stored);
+    parseStoredExpenseSchedule(documentedSchedule);
+    const first = schedule.occurrences[0]!;
+    const single = schedule.occurrences.length === 1;
+    return this.createCore(
+      tenantId,
+      ownerProjectId,
+      {
+        titulo: input.titulo,
+        fornecedor: input.fornecedor ?? undefined,
+        tipoDespesa: input.tipoDespesa,
+        categoriaMaoDeObra: input.categoriaMaoDeObra ?? undefined,
+        valor: input.totalCents / 100,
+        quantidade: 1,
+        formaPagamento: single ? PaymentForm.A_VISTA : PaymentForm.PARCELADO,
+        quantidadeParcela: single ? undefined : schedule.occurrences.length,
+        dataPagamento: single ? first.data : undefined,
+        dataInicioParcela: single ? undefined : first.data,
+        dataCompra: input.dataCompra,
+        status: ExpenseStatus.PLANEJADO,
+        creditCardId: card.id,
+      },
+      createdByUserId,
+      tx,
+      actor,
+      { id, documentedSchedule, valorCents: input.totalCents },
+    );
+  }
+
+  private async createCore(
+    tenantId: string,
+    projectId: string,
+    dto: CreateExpenseDto,
+    createdByUserId: string | null,
+    tx?: Prisma.TransactionClient,
+    requester?: RateioRequester,
+    plannedSource?: { id: string; documentedSchedule: string; valorCents: number },
+  ): Promise<ExpenseWithRoom> {
     if (
       dto.linkedExpenseId !== undefined ||
       dto.settlesInvoiceCardId !== undefined
@@ -283,7 +400,7 @@ export class ExpenseService {
     }
     await this.validateProject(tenantId, projectId, db);
 
-    const valorCents = Math.round(dto.valor * 100);
+    const valorCents = plannedSource?.valorCents ?? Math.round(dto.valor * 100);
     const valorTotal = valorCents * dto.quantidade;
 
     const links = await this.resolveLinks(tenantId, projectId, dto, db, requester);
@@ -299,6 +416,7 @@ export class ExpenseService {
 
     const expense = await db.expense.create({
       data: {
+        ...(plannedSource ? { id: plannedSource.id, documentedSchedule: plannedSource.documentedSchedule } : {}),
         projectId,
         tenantId,
         createdByUserId,

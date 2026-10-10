@@ -164,9 +164,13 @@ function utilityStatement(fitId = "SEC481-ENEL"): Buffer {
   );
 }
 
-async function createCasaProject(id: string, name: string): Promise<void> {
+async function createCasaProject(
+  id: string,
+  name: string,
+  createdAt?: Date,
+): Promise<void> {
   await setup.project.create({
-    data: { id, tenantId: TENANT, type: "CASA", name },
+    data: { id, tenantId: TENANT, type: "CASA", name, createdAt },
   });
 }
 
@@ -395,9 +399,9 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
   );
 
   it("OWNER mantém o comportamento irrestrito no tenant", async () => {
-    // O OWNER não tem escopo: cai no primeiro CASA do tenant, como sempre.
-    await createCasaProject(CASA_FIRST, "Casa primeira do tenant");
-    await createCasaProject(CASA_ALLOWED, "Casa seguinte");
+    // O OWNER não tem escopo: o CASA mais antigo é definido por createdAt, não pelo plano SQLite.
+    await createCasaProject(CASA_FIRST, "Casa primeira do tenant", SEEDED_AT);
+    await createCasaProject(CASA_ALLOWED, "Casa seguinte", FIXED_CLOCK);
 
     const result = await commit(ownerRequester);
 
@@ -414,6 +418,116 @@ describe("BankAccountService.propagateRecurrences — ACL do projeto de destino 
       }),
     ]);
   });
+
+  it.each(["CASA", "CARRO"] as const)(
+    "%s escolhe createdAt mais antigo, independente da ordem de inserção e id",
+    async (type) => {
+      const newerId = `${TENANT}-a-newer`;
+      const oldestId = `${TENANT}-z-oldest`;
+      await setup.project.create({
+        data: {
+          id: newerId,
+          tenantId: TENANT,
+          type,
+          name: "Newer inserted first",
+          createdAt: FIXED_CLOCK,
+        },
+      });
+      await setup.project.create({
+        data: {
+          id: oldestId,
+          tenantId: TENANT,
+          type,
+          name: "Oldest inserted last",
+          createdAt: SEEDED_AT,
+        },
+      });
+      const merchant =
+        type === "CASA" ? UTILITY_MERCHANT : VEHICLE_TAX_MERCHANT;
+      const result = await commit(
+        ownerRequester,
+        bankOfx(
+          ofxTransaction("20260710", UTILITY_CENTS, merchant, `ORDER-${type}`),
+        ),
+      );
+      expect(result.recurrencesCreated).toBe(1);
+      expect((await recurringBills()).map((bill) => bill.projectId)).toEqual([
+        oldestId,
+      ]);
+    },
+  );
+
+  it.each(["CASA", "CARRO"] as const)(
+    "%s desempata createdAt igual por id ASC",
+    async (type) => {
+      const firstInsertedId = `${TENANT}-z-tied`;
+      const expectedId = `${TENANT}-a-tied`;
+      for (const id of [firstInsertedId, expectedId]) {
+        await setup.project.create({
+          data: {
+            id,
+            tenantId: TENANT,
+            type,
+            name: "Tied age",
+            createdAt: SEEDED_AT,
+          },
+        });
+      }
+      const merchant =
+        type === "CASA" ? UTILITY_MERCHANT : VEHICLE_TAX_MERCHANT;
+      const result = await commit(
+        ownerRequester,
+        bankOfx(
+          ofxTransaction("20260710", UTILITY_CENTS, merchant, `TIE-${type}`),
+        ),
+      );
+      expect(result.recurrencesCreated).toBe(1);
+      expect((await recurringBills()).map((bill) => bill.projectId)).toEqual([
+        expectedId,
+      ]);
+    },
+  );
+
+  it.each(["CASA", "CARRO"] as const)(
+    "%s exclui o projeto mais antigo após revogação do escopo e mantém o próximo autorizado",
+    async (type) => {
+      const revokedId = `${TENANT}-a-revoked`;
+      const newerId = `${TENANT}-b-newer-allowed`;
+      const oldestAllowedId = `${TENANT}-z-oldest-allowed`;
+      for (const [id, createdAt] of [
+        [revokedId, new Date("2026-01-01T12:00:00.000Z")],
+        [newerId, FIXED_CLOCK],
+        [oldestAllowedId, SEEDED_AT],
+      ] as const) {
+        await setup.project.create({
+          data: { id, tenantId: TENANT, type, name: "Scoped age", createdAt },
+        });
+      }
+      const requester: RateioRequester = {
+        role: "USER",
+        allowedProjects: [PESSOAL, newerId, oldestAllowedId],
+        allowedProjectTypes: [],
+        allowedModules: ["bankAccounts", "expenses", "recurringBills"],
+      };
+      const merchant =
+        type === "CASA" ? UTILITY_MERCHANT : VEHICLE_TAX_MERCHANT;
+      const result = await commit(
+        requester,
+        bankOfx(
+          ofxTransaction(
+            "20260710",
+            UTILITY_CENTS,
+            merchant,
+            `REVOKED-${type}`,
+          ),
+        ),
+      );
+      expect(result.recurrencesCreated).toBe(1);
+      expect((await recurringBills()).map((bill) => bill.projectId)).toEqual([
+        oldestAllowedId,
+      ]);
+    },
+  );
 
   it("escolhe o projeto CASA ACESSÍVEL, não o primeiro do tenant, quando existem dois", async () => {
     await createCasaProject(CASA_FIRST, "Casa fora da ACL SENTINELA");

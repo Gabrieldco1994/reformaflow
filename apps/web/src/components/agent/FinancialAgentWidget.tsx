@@ -1,57 +1,84 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import { Bot, Send, X, Sparkles, Volume2, Square, Mic, AudioLines } from 'lucide-react';
-import { streamSpeak, isStreamingTtsSupported, type StreamTtsHandle } from '@/lib/streaming-tts';
-import { useCopilotStore } from '@/stores/copilot-store';
-import { useFinancialAgent } from './useFinancialAgent';
-import { useSpeechRecognition } from './useSpeechRecognition';
-import { VoiceAssistantOverlay } from './VoiceAssistantOverlay';
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import {
+  Bot,
+  Send,
+  X,
+  Sparkles,
+  Volume2,
+  Square,
+  Mic,
+  AudioLines,
+} from "lucide-react";
+import { hasFeature, type ProjectType } from "@reformaflow/domain";
+import { useProject } from "@/contexts/project-context";
+import {
+  streamSpeak,
+  isStreamingTtsSupported,
+  type StreamTtsHandle,
+} from "@/lib/streaming-tts";
+import { useCopilotStore } from "@/stores/copilot-store";
+import { useFinancialAgent } from "./useFinancialAgent";
+import { useSpeechRecognition } from "./useSpeechRecognition";
+import { VoiceAssistantOverlay } from "./VoiceAssistantOverlay";
 
 const TOOL_LABELS: Record<string, string> = {
-  list_projects: 'projetos',
-  get_financial_overview: 'visão geral',
-  get_by_project: 'por projeto',
-  get_expenses_by_category: 'por categoria',
-  get_upcoming: 'próximos vencimentos',
-  get_top_suppliers: 'fornecedores',
-  get_category_taxonomy: 'categorias',
-  get_cashflow_history: 'histórico',
-  get_recurring_bills: 'contas recorrentes',
-  get_account_balances: 'saldos',
-  find_expenses: 'busca de despesas',
-  list_payment_methods: 'cartões/contas',
-  create_expense: 'registrou despesa',
-  create_receipt: 'registrou recebimento',
-  create_obra_expense: 'registrou despesa de obra (caixa pessoal)',
+  list_projects: "projetos",
+  get_financial_overview: "visão geral",
+  get_by_project: "por projeto",
+  get_expenses_by_category: "por categoria",
+  get_upcoming: "próximos vencimentos",
+  get_top_suppliers: "fornecedores",
+  get_category_taxonomy: "categorias",
+  get_cashflow_history: "histórico",
+  get_recurring_bills: "contas recorrentes",
+  get_account_balances: "saldos",
+  find_expenses: "busca de despesas",
+  list_payment_methods: "cartões/contas",
+  create_expense: "registrou despesa",
+  create_receipt: "registrou recebimento",
+  create_obra_expense: "registrou despesa de obra (caixa pessoal)",
 };
 
 const SUGGESTIONS = [
-  'Quanto tenho em caixa?',
-  'O que vence nos próximos 7 dias?',
-  'Onde estou gastando mais?',
+  "Quanto tenho em caixa?",
+  "O que vence nos próximos 7 dias?",
+  "Onde estou gastando mais?",
 ];
 
-const TTS_ERROR_PREFIX = 'Não consegui gerar áudio agora.';
+const TTS_ERROR_PREFIX = "Não consegui gerar áudio agora.";
 
 export function FinancialAgentWidget() {
+  const params = useParams<{ projectId: string }>();
+  const { projectType } = useProject();
   const agent = useFinancialAgent();
   const speech = useSpeechRecognition();
 
   const open = useCopilotStore((s) => s.open);
   const setOpen = useCopilotStore((s) => s.setOpen);
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
-  const [ttsError, setTtsError] = useState('');
-  const [voiceError, setVoiceError] = useState('');
+  const [ttsError, setTtsError] = useState("");
+  const [voiceError, setVoiceError] = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const ttsHandleRef = useRef<StreamTtsHandle | null>(null);
   const ttsSupported = isStreamingTtsSupported();
+  const mariaHref = `/projects/${encodeURIComponent(params.projectId)}/maria`;
+  const mariaAvailable = hasFeature(
+    projectType as ProjectType,
+    "monthlyOverview",
+  );
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [agent.messages, agent.loading]);
 
   useEffect(() => {
@@ -73,7 +100,7 @@ export function FinancialAgentWidget() {
       stopSpeaking();
       return;
     }
-    setTtsError('');
+    setTtsError("");
     stopSpeaking();
     setSpeakingIndex(index);
     ttsHandleRef.current = streamSpeak({
@@ -94,15 +121,15 @@ export function FinancialAgentWidget() {
   const submit = (text: string) => {
     const content = text.trim();
     if (!content || agent.loading) return;
-    setInput('');
-    setVoiceError('');
+    setInput("");
+    setVoiceError("");
     void agent.send(content);
   };
 
   // Experiência 1: microfone no chat → transcreve e envia. A resposta é só texto.
   const captureVoice = () => {
-    setVoiceError('');
-    setTtsError('');
+    setVoiceError("");
+    setTtsError("");
     speech.start({
       onResult: (text) => {
         setInput(text);
@@ -136,10 +163,21 @@ export function FinancialAgentWidget() {
               <Bot className="w-5 h-5" />
               <div className="leading-tight">
                 <p className="text-sm font-semibold">Copiloto Financeiro</p>
-                <p className="text-[10px] text-white/70">Pergunte sobre suas finanças</p>
+                <p className="text-[10px] text-white/70">
+                  Pergunte sobre suas finanças
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {mariaAvailable && (
+                <Link
+                  href={mariaHref}
+                  onClick={() => setOpen(false)}
+                  className="inline-flex min-h-11 items-center rounded-full border border-white/30 px-3 text-[11px] font-semibold text-white hover:bg-white/15"
+                >
+                  Importar fatura CSV com Maria
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={() => setVoiceOpen(true)}
@@ -151,17 +189,34 @@ export function FinancialAgentWidget() {
                 <AudioLines className="w-3.5 h-3.5" />
                 Voz
               </button>
-              <button type="button" onClick={() => setOpen(false)} aria-label="Fechar" className="p-1 rounded hover:bg-white/10">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Fechar"
+                className="p-1 rounded hover:bg-white/10"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
           {/* Mensagens */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3 bg-darc-linen/20">
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto p-3 space-y-3 bg-darc-linen/20"
+          >
             {agent.messages.length === 0 && (
               <div className="text-center text-sm text-darc-velvet/60 mt-6 space-y-3">
                 <p>👋 Sou seu copiloto financeiro. Pergunte algo:</p>
+                {mariaAvailable && (
+                  <Link
+                    href={mariaHref}
+                    onClick={() => setOpen(false)}
+                    className="block rounded-lg border border-darc-velvet bg-white px-3 py-2 text-sm font-semibold text-darc-velvet hover:bg-darc-linen/30"
+                  >
+                    Para importar uma fatura CSV, abra a conversa da Maria
+                  </Link>
+                )}
                 <div className="flex flex-col gap-2">
                   {SUGGESTIONS.map((s) => (
                     <button
@@ -178,39 +233,59 @@ export function FinancialAgentWidget() {
             )}
 
             {agent.messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                key={i}
+                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+              >
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${
-                    m.role === 'user'
-                      ? 'bg-darc-velvet text-white rounded-br-sm'
-                      : 'bg-white border border-darc-linen text-darc-velvet rounded-bl-sm'
+                    m.role === "user"
+                      ? "bg-darc-velvet text-white rounded-br-sm"
+                      : "bg-white border border-darc-linen text-darc-velvet rounded-bl-sm"
                   }`}
                 >
                   {m.content}
-                  {m.role === 'assistant' && ttsSupported && (
+                  {m.role === "assistant" &&
+                    m.importEntryAction?.kind === "START_CARD_INVOICE_IMPORT" &&
+                    mariaAvailable && (
+                      <Link
+                        href={mariaHref}
+                        onClick={() => setOpen(false)}
+                        className="mt-2 flex min-h-11 items-center justify-center rounded-lg bg-darc-velvet px-3 py-2 text-center text-xs font-semibold text-white hover:opacity-90"
+                      >
+                        Continuar importação CSV com a Maria
+                      </Link>
+                    )}
+                  {m.role === "assistant" && ttsSupported && (
                     <div className="mt-2">
                       <button
                         type="button"
                         onClick={() => speakMessage(i, m.content)}
                         className="inline-flex items-center gap-1 rounded-full border border-darc-linen px-2 py-0.5 text-[10px] text-darc-velvet/80 hover:bg-darc-linen/30"
                       >
-                        {speakingIndex === i ? <Square className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                        {speakingIndex === i ? 'Parar' : 'Ouvir'}
+                        {speakingIndex === i ? (
+                          <Square className="w-3 h-3" />
+                        ) : (
+                          <Volume2 className="w-3 h-3" />
+                        )}
+                        {speakingIndex === i ? "Parar" : "Ouvir"}
                       </button>
                     </div>
                   )}
-                  {m.role === 'assistant' && m.toolsUsed && m.toolsUsed.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {Array.from(new Set(m.toolsUsed)).map((t) => (
-                        <span
-                          key={t}
-                          className="text-[9px] bg-darc-linen/60 text-darc-velvet/70 rounded-full px-1.5 py-0.5"
-                        >
-                          {TOOL_LABELS[t] ?? t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  {m.role === "assistant" &&
+                    m.toolsUsed &&
+                    m.toolsUsed.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {Array.from(new Set(m.toolsUsed)).map((t) => (
+                          <span
+                            key={t}
+                            className="text-[9px] bg-darc-linen/60 text-darc-velvet/70 rounded-full px-1.5 py-0.5"
+                          >
+                            {TOOL_LABELS[t] ?? t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                 </div>
               </div>
             ))}
@@ -219,9 +294,18 @@ export function FinancialAgentWidget() {
               <div className="flex justify-start">
                 <div className="bg-white border border-darc-linen rounded-2xl rounded-bl-sm px-3 py-2 text-sm text-darc-velvet/60">
                   <span className="inline-flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-darc-velvet/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 bg-darc-velvet/40 rounded-full animate-bounce" style={{ animationDelay: '120ms' }} />
-                    <span className="w-1.5 h-1.5 bg-darc-velvet/40 rounded-full animate-bounce" style={{ animationDelay: '240ms' }} />
+                    <span
+                      className="w-1.5 h-1.5 bg-darc-velvet/40 rounded-full animate-bounce"
+                      style={{ animationDelay: "0ms" }}
+                    />
+                    <span
+                      className="w-1.5 h-1.5 bg-darc-velvet/40 rounded-full animate-bounce"
+                      style={{ animationDelay: "120ms" }}
+                    />
+                    <span
+                      className="w-1.5 h-1.5 bg-darc-velvet/40 rounded-full animate-bounce"
+                      style={{ animationDelay: "240ms" }}
+                    />
                   </span>
                 </div>
               </div>
@@ -249,7 +333,11 @@ export function FinancialAgentWidget() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={speech.listening ? 'Ouvindo…' : 'Pergunte sobre suas finanças...'}
+              placeholder={
+                speech.listening
+                  ? "Ouvindo…"
+                  : "Pergunte sobre suas finanças..."
+              }
               className="flex-1 text-sm border border-darc-linen rounded-full px-3 py-2 focus:outline-none focus:ring-1 focus:ring-darc-velvet/30"
               disabled={agent.loading}
             />
@@ -259,7 +347,9 @@ export function FinancialAgentWidget() {
               disabled={!speech.supported || speech.listening || agent.loading}
               aria-label="Falar com o copiloto"
               className={`p-2 rounded-full border text-darc-velvet disabled:opacity-40 transition-colors ${
-                speech.listening ? 'border-darc-pink bg-darc-pink/10 animate-pulse' : 'border-darc-linen hover:bg-darc-linen/40'
+                speech.listening
+                  ? "border-darc-pink bg-darc-pink/10 animate-pulse"
+                  : "border-darc-linen hover:bg-darc-linen/40"
               }`}
             >
               <Mic className="w-4 h-4" />
@@ -277,7 +367,12 @@ export function FinancialAgentWidget() {
       )}
 
       {/* Experiência 2: tela 100% voz */}
-      {voiceOpen && <VoiceAssistantOverlay send={agent.send} onClose={() => setVoiceOpen(false)} />}
+      {voiceOpen && (
+        <VoiceAssistantOverlay
+          send={agent.send}
+          onClose={() => setVoiceOpen(false)}
+        />
+      )}
     </>
   );
 }

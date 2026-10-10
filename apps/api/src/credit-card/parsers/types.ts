@@ -1,14 +1,99 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
+import {
+  IMPORT_SESSION_LIMITS,
+  IMPORT_SESSION_PRIMITIVES,
+  parseInstallmentDateOnlyUtc,
+} from "@reformaflow/domain";
+import { computeImportOrdinals } from "./dedupe-key";
+
+export type CardStatementDocumentInputV1 = Readonly<{
+  version: 1;
+  context: "CARD_INVOICE";
+  format: "CSV" | "PDF";
+  profile: "CSV_NUBANK" | "CSV_ITAU";
+  bytes: Buffer;
+}>;
+
+export interface DocumentOccurrenceV1 {
+  readonly reference: string;
+  readonly sourceOrdinal: number;
+  readonly section: "CURRENT" | "FUTURE" | "UNKNOWN";
+  readonly raw: Readonly<{
+    date: string | null;
+    description: string | null;
+    amount: string | null;
+    installment: string | null;
+  }>;
+  readonly cycle: Readonly<{
+    invoiceDueMonth: string;
+    reference: string;
+  }> | null;
+  readonly dateOnly: string | null;
+  readonly merchant: string | null;
+  readonly amountCents: number | null;
+  readonly amountMeaning: "TOTAL_PURCHASE" | "INSTALLMENT_CHARGE" | "UNKNOWN";
+  readonly installmentCount: number | null;
+  readonly installmentIndex: number | null;
+  readonly fitId: string | null;
+  /** Ordinal in the complete known-identity set, never in a selection. */
+  readonly identityOrdinal: number | null;
+}
+
+export interface DocumentDiagnosticV1 {
+  readonly reference: string | null;
+  readonly code:
+    | "UNREADABLE_ROW"
+    | "UNKNOWN_DATE"
+    | "UNKNOWN_AMOUNT_MEANING"
+    | "UNSUPPORTED_CONTENT"
+    | "INVALID_CALENDAR_DATE"
+    | "AMBIGUOUS_CYCLE"
+    | "OVERLONG_FIELD";
+}
+
+export interface DocumentExtractionV1 {
+  readonly version: 1;
+  readonly parserVersion:
+    | "card-local-text-v1"
+    | "card-local-pdf-v1"
+    | "card-local-xls-v1"
+    | "card-local-xlsx-v1";
+  readonly documentKind: "INVOICE" | "BANK_STATEMENT" | "RECEIPT" | "UNKNOWN";
+  readonly invoiceDueMonth: string | null;
+  readonly metrics: Readonly<{
+    pages: number;
+    rows: number;
+    expandedBytes: number;
+    archiveEntries: number;
+    imagePixels: number;
+    frames: number;
+  }>;
+  readonly occurrences: readonly DocumentOccurrenceV1[];
+  readonly diagnostics: readonly DocumentDiagnosticV1[];
+}
+
+export class DocumentExtractionError extends Error {
+  constructor(
+    readonly code:
+      | "INVALID_INPUT"
+      | "UNSUPPORTED_DOCUMENT"
+      | "LIMIT_EXCEEDED"
+      | "INVALID_RESULT",
+  ) {
+    super(code);
+    this.name = "DocumentExtractionError";
+  }
+}
 
 export interface NormalizedTx {
-  externalId: string;        // hash determinístico para dedup
-  date: Date;                // data da transação
-  merchant: string;          // descrição do estabelecimento
-  amountCents: number;       // positivo = despesa, negativo = estorno
-  rawCategory?: string;      // se a fonte enviar
+  externalId: string; // hash determinístico para dedup
+  date: Date; // data da transação
+  merchant: string; // descrição do estabelecimento
+  amountCents: number; // positivo = despesa, negativo = estorno
+  rawCategory?: string; // se a fonte enviar
   installmentCurrent?: number;
   installmentTotal?: number;
-  isFuture?: boolean;        // true = parcela/lançamento futuro (entrará como PLANEJADO)
+  isFuture?: boolean; // true = parcela/lançamento futuro (entrará como PLANEJADO)
   /**
    * (#659) FITID do OFX — id durável do banco para a transação. Alimenta
    * `bankRef` no `makeExternalId` (compat) E a `dedupeKeyStrong` cross-origin.
@@ -26,10 +111,17 @@ export interface NormalizedTx {
 }
 
 export interface ParseResult {
-  source: 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'IMAGE' | 'XLSX';
+  source:
+    | "OFX"
+    | "CSV_NUBANK"
+    | "CSV_ITAU"
+    | "CSV_GENERIC"
+    | "PDF"
+    | "IMAGE"
+    | "XLSX";
   transactions: NormalizedTx[];
   totalAmountCents: number;
-  periodLabel?: string;       // YYYY-MM da maior densidade
+  periodLabel?: string; // YYYY-MM da maior densidade
   /**
    * Mês de vencimento da fatura (YYYY-MM) lido DIRETAMENTE do arquivo — não
    * inferido das datas dos lançamentos. Faturas Itaú repetem a data da COMPRA
@@ -38,7 +130,7 @@ export interface ParseResult {
    */
   invoiceDueMonth?: string;
   futureInstallments?: NormalizedTx[]; // parcelas/lançamentos futuros (apenas informativo)
-  error?: string;             // erro durante parsing (ex.: arquivo vazio, formato inválido)
+  error?: string; // erro durante parsing (ex.: arquivo vazio, formato inválido)
   /**
    * Linhas que TÊM data + descrição mas o parser NÃO conseguiu transformar em
    * lançamento (sem valor legível, valor zero, etc.) e que NÃO são linhas de
@@ -50,10 +142,10 @@ export interface ParseResult {
 }
 
 export interface UnparsedRow {
-  rowIndex: number;      // linha 1-based na planilha (para o usuário localizar)
-  date: string;          // data crua lida
-  description: string;   // descrição crua lida
-  reason: 'no-amount' | 'unreadable';
+  rowIndex: number; // linha 1-based na planilha (para o usuário localizar)
+  date: string; // data crua lida
+  description: string; // descrição crua lida
+  reason: "no-amount" | "unreadable";
 }
 
 /**
@@ -71,7 +163,11 @@ export interface UnparsedRow {
  * externalId estável para a 2ª+ ocorrência (mesmo lote reimportado gera o
  * mesmo resultado, preservando idempotência).
  */
-function addMerged(map: Map<string, NormalizedTx>, t: NormalizedTx, dedupeOnCollision: boolean) {
+function addMerged(
+  map: Map<string, NormalizedTx>,
+  t: NormalizedTx,
+  dedupeOnCollision: boolean,
+) {
   if (!map.has(t.externalId)) {
     map.set(t.externalId, t);
     return;
@@ -101,7 +197,7 @@ export function mergeParseResults(results: ParseResult[]): ParseResult {
 
   for (const r of results) {
     sources.add(r.source);
-    const dedupeOnCollision = r.source === 'IMAGE';
+    const dedupeOnCollision = r.source === "IMAGE";
     for (const t of r.transactions) {
       addMerged(txByExt, t, dedupeOnCollision);
     }
@@ -116,10 +212,12 @@ export function mergeParseResults(results: ParseResult[]): ParseResult {
   const futureInstallments = Array.from(futByExt.values()).sort(
     (a, b) => a.date.getTime() - b.date.getTime(),
   );
-  total = transactions.filter((t) => t.amountCents > 0).reduce((s, t) => s + t.amountCents, 0);
+  total = transactions
+    .filter((t) => t.amountCents > 0)
+    .reduce((s, t) => s + t.amountCents, 0);
 
   return {
-    source: sources.size === 1 ? (results[0]!.source) : 'IMAGE',
+    source: sources.size === 1 ? results[0]!.source : "IMAGE",
     transactions,
     totalAmountCents: total,
     periodLabel: results.find((r) => r.periodLabel)?.periodLabel,
@@ -133,12 +231,15 @@ export function makeExternalId(parts: {
   merchant: string;
   amountCents: number;
   bankRef?: string;
-  ordinal?: number;       // ordinal por bucket (date+merchant+amount) — diferencia
-                          // N transações idênticas no mesmo dia. Quando bankRef
-                          // é único, ordinal não é necessário (e é ignorado).
+  ordinal?: number; // ordinal por bucket (date+merchant+amount) — diferencia
+  // N transações idênticas no mesmo dia. Quando bankRef
+  // é único, ordinal não é necessário (e é ignorado).
 }): string {
   if (parts.bankRef) {
-    return createHash('sha256').update(`${parts.cardId}|${parts.bankRef}`).digest('hex').slice(0, 32);
+    return createHash("sha256")
+      .update(`${parts.cardId}|${parts.bankRef}`)
+      .digest("hex")
+      .slice(0, 32);
   }
   const ord = parts.ordinal ?? 0;
   // BACKWARD COMPAT: ordinal=0 produz o MESMO hash do formato antigo
@@ -147,7 +248,7 @@ export function makeExternalId(parts: {
   // Apenas ordinal>0 (2ª, 3ª... ocorrência idêntica) entra no hash.
   const baseKey = `${parts.cardId}|${parts.date.toISOString().slice(0, 10)}|${parts.merchant.toLowerCase().trim()}|${parts.amountCents}`;
   const key = ord === 0 ? baseKey : `${baseKey}|${ord}`;
-  return createHash('sha256').update(key).digest('hex').slice(0, 32);
+  return createHash("sha256").update(key).digest("hex").slice(0, 32);
 }
 
 /**
@@ -157,9 +258,9 @@ export function makeExternalId(parts: {
  *
  * Use depois de parsear o arquivo, ANTES de gerar os externalIds.
  */
-export function assignOrdinals<T extends { date: Date; merchant: string; amountCents: number }>(
-  txs: T[],
-): (T & { _ordinal: number })[] {
+export function assignOrdinals<
+  T extends { date: Date; merchant: string; amountCents: number },
+>(txs: T[]): (T & { _ordinal: number })[] {
   const counts = new Map<string, number>();
   return txs.map((t) => {
     const key = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase().trim()}|${t.amountCents}`;
@@ -173,13 +274,16 @@ export function inferPeriodLabel(txs: NormalizedTx[]): string | undefined {
   if (txs.length === 0) return undefined;
   const counts = new Map<string, number>();
   for (const t of txs) {
-    const key = `${t.date.getUTCFullYear()}-${String(t.date.getUTCMonth() + 1).padStart(2, '0')}`;
+    const key = `${t.date.getUTCFullYear()}-${String(t.date.getUTCMonth() + 1).padStart(2, "0")}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   let best: string | undefined;
   let bestN = -1;
   for (const [k, n] of counts) {
-    if (n > bestN) { best = k; bestN = n; }
+    if (n > bestN) {
+      best = k;
+      bestN = n;
+    }
   }
   return best;
 }
@@ -199,7 +303,24 @@ export function inferPeriodLabel(txs: NormalizedTx[]): string | undefined {
  *   Contexto explícito (PARC, parênteses, palavra DE) supera essa ambiguidade e
  *   sempre funciona corretamente.
  */
-export function detectInstallment(description: string): { current?: number; total?: number; cleanMerchant: string } {
+export function detectInstallment(description: string): {
+  current?: number;
+  total?: number;
+  cleanMerchant: string;
+} {
+  const { rawInstallment: _raw, ...result } = captureInstallment(description);
+  return result;
+}
+
+function captureInstallment(
+  description: string,
+  documentary = false,
+): {
+  current?: number;
+  total?: number;
+  cleanMerchant: string;
+  rawInstallment: string | null;
+} {
   // Padrões: "PARC 02/10", "PARC. 2/10", "2/12 puro", "2 DE 10", "(2/10)"
   //
   // Contexto explícito (com palavra-chave ou padrão inequívoco):
@@ -213,11 +334,21 @@ export function detectInstallment(description: string): { current?: number; tota
   // Validação: rigorosa para evitar confundir data (ex.: 03/07 = 3 de julho) com parcela.
   // Uma data válida tem dia 1-31 e mês 1-12. Parcela sem contexto explícito só passa se
   // total > 12 (pois mês máximo é 12; um total > 12 é definitivamente parcelamento).
+  const digits = documentary ? "(\\d+)" : "(\\d{1,2})";
   const patterns: Array<{ re: RegExp; hasContext: boolean }> = [
-    { re: /\bPARC\.?\s*(\d{1,2})\s*\/\s*(\d{1,2})\b/i, hasContext: true },
-    { re: /\((\d{1,2})\s*\/\s*(\d{1,2})\)/, hasContext: true },
-    { re: /\b(\d{1,2})\s*\/\s*(\d{1,2})\b(?!\d)/, hasContext: false },
-    { re: /\b(\d{1,2})\s*DE\s*(\d{1,2})\b/i, hasContext: true },
+    {
+      re: new RegExp(`\\bPARC\\.?\\s*${digits}\\s*\\/\\s*${digits}\\b`, "i"),
+      hasContext: true,
+    },
+    { re: new RegExp(`\\(${digits}\\s*\\/\\s*${digits}\\)`), hasContext: true },
+    {
+      re: new RegExp(`\\b${digits}\\s*\\/\\s*${digits}\\b(?!\\d)`),
+      hasContext: false,
+    },
+    {
+      re: new RegExp(`\\b${digits}\\s*DE\\s*${digits}\\b`, "i"),
+      hasContext: true,
+    },
   ];
 
   for (const { re, hasContext } of patterns) {
@@ -229,7 +360,16 @@ export function detectInstallment(description: string): { current?: number; tota
       const total = parseInt(totalStr, 10);
 
       // Validação base: current >= 1, total > 1, current <= total
-      if (!(current >= 1 && total > 1 && current <= total)) continue;
+      if (
+        !(
+          Number.isSafeInteger(current) &&
+          Number.isSafeInteger(total) &&
+          current >= 1 &&
+          total > 1 &&
+          current <= total
+        )
+      )
+        continue;
 
       // Se não tem contexto explícito (X/Y puro), evita confundir data com parcela:
       // Estratégia: rejeita SÓ se for claramente uma data (dia com leading zero + mês <= 12)
@@ -238,36 +378,223 @@ export function detectInstallment(description: string): { current?: number; tota
       // - "3/7" ou "3 de 7" (parcela: 3 de 7): sem leading zero, pode passar
       // - "1/3", "2/3" (parcela: 1-3): sem leading zero, deve passar
       // - "15/24" (parcela: 15 de 24): total > 12 → claramente parcela, passa
-      if (!hasContext && total <= 12 && currentStr.length > 1 && currentStr[0] === '0' && current !== total) {
+      if (
+        !hasContext &&
+        total <= 12 &&
+        currentStr.length > 1 &&
+        currentStr[0] === "0" &&
+        current !== total
+      ) {
         // Leading zero (ex: "03") com total <= 12 E não é última parcela (03/03, 06/06, etc.)
         // é típico de data, não parcela
         continue;
       }
 
       // Validação final: total <= 60 (limite razoável para parcelamento)
-      if (total > 60) continue;
+      if (!documentary && total > 60) continue;
 
-      const cleanMerchant = description.replace(re, '').replace(/\s+/g, ' ').trim();
-      return { current, total, cleanMerchant: cleanMerchant || description.trim() };
+      const cleanMerchant = description
+        .replace(re, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      return {
+        current,
+        total,
+        cleanMerchant: cleanMerchant || description.trim(),
+        rawInstallment: m[0],
+      };
     }
   }
-  return { cleanMerchant: description.trim() };
+  return { cleanMerchant: description.trim(), rawInstallment: null };
 }
 
 export function parseBrlMoney(raw: string): number {
   // "1.234,56" -> 123456; "-89.90" -> -8990; "89,90" -> 8990
-  if (raw == null || raw === '') return 0;
-  let s = String(raw).replace(/[^\d,.\-]/g, '').trim();
-  if (!s || s === '-' || s === '.' || s === ',') return 0;
-  const negative = s.startsWith('-');
-  s = s.replace(/^-/, '');
-  if (s.includes(',') && s.includes('.')) {
-    s = s.replace(/\./g, '').replace(',', '.');
-  } else if (s.includes(',')) {
-    s = s.replace(',', '.');
+  if (raw == null || raw === "") return 0;
+  let s = String(raw)
+    .replace(/[^\d,.\-]/g, "")
+    .trim();
+  if (!s || s === "-" || s === "." || s === ",") return 0;
+  const negative = s.startsWith("-");
+  s = s.replace(/^-/, "");
+  if (s.includes(",") && s.includes(".")) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (s.includes(",")) {
+    s = s.replace(",", ".");
   }
   const n = parseFloat(s);
   if (!isFinite(n)) return 0;
   const cents = Math.round(n * 100);
   return negative ? -cents : cents;
+}
+
+export interface CardDocumentCapture {
+  readonly reference: string;
+  readonly date: string | null;
+  readonly description: string | null;
+  readonly amount: string | null;
+  readonly fitId: string | null;
+  readonly installment?: string | null;
+  readonly section?: DocumentOccurrenceV1["section"];
+  readonly cycle?: DocumentOccurrenceV1["cycle"];
+  readonly amountMeaning?: DocumentOccurrenceV1["amountMeaning"];
+  readonly diagnostics?: readonly DocumentDiagnosticV1["code"][];
+}
+
+function documentaryDate(raw: string | null): {
+  dateOnly: string | null;
+  code: "UNKNOWN_DATE" | "INVALID_CALENDAR_DATE" | null;
+} {
+  const value = raw?.trim() ?? "";
+  let candidate: string | null = null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    candidate = value;
+  } else {
+    const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
+    if (match)
+      candidate = `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+  }
+  if (candidate === null) return { dateOnly: null, code: "UNKNOWN_DATE" };
+  const date = parseInstallmentDateOnlyUtc(candidate);
+  if (
+    !date ||
+    date.getUTCFullYear() < IMPORT_SESSION_PRIMITIVES.minYear ||
+    date.getUTCFullYear() > IMPORT_SESSION_PRIMITIVES.maxYear
+  ) {
+    return { dateOnly: null, code: "INVALID_CALENDAR_DATE" };
+  }
+  return { dateOnly: candidate, code: null };
+}
+
+function documentaryMoney(raw: string | null): number | null {
+  const token = raw?.trim() ?? null;
+  if (
+    token === null ||
+    !/^(?:R\$\s*)?[+-]?(?:\d+(?:[.,]\d{1,2})?|\d{1,3}(?:\.\d{3})+,\d{1,2})$/.test(
+      token,
+    )
+  )
+    return null;
+  const cents = parseBrlMoney(token);
+  return Number.isSafeInteger(cents) &&
+    cents >= IMPORT_SESSION_PRIMITIVES.minCents &&
+    cents <= IMPORT_SESSION_PRIMITIVES.maxCents
+    ? cents
+    : null;
+}
+
+/** Shared documentary normalization; no legacy transaction or externalId is created. */
+export function buildCardDocument(
+  captures: readonly CardDocumentCapture[],
+  _format: CardStatementDocumentInputV1["format"],
+  documentKind: "INVOICE" | "UNKNOWN",
+): DocumentExtractionV1 {
+  if (captures.length > IMPORT_SESSION_LIMITS.parsedRowsPerFile)
+    throw new DocumentExtractionError("LIMIT_EXCEEDED");
+  const diagnostics: DocumentDiagnosticV1[] = [];
+  const occurrences = captures.map(
+    (capture, sourceOrdinal): DocumentOccurrenceV1 => {
+      const report = (code: DocumentDiagnosticV1["code"]) =>
+        diagnostics.push({ reference: capture.reference, code });
+      for (const code of capture.diagnostics ?? []) report(code);
+      const date = documentaryDate(capture.date);
+      if (date.code) report(date.code);
+      const amountCents = documentaryMoney(capture.amount);
+      const described = captureInstallment(capture.description ?? "", true);
+      const column = capture.installment?.trim()
+        ? captureInstallment(capture.installment, true)
+        : null;
+      const conflict =
+        column !== null &&
+        (column.total === undefined ||
+          (described.total !== undefined &&
+            (described.total !== column.total ||
+              described.current !== column.current)));
+      const installment = column?.total === undefined ? described : column;
+      if (conflict) report("UNSUPPORTED_CONTENT");
+      const count = conflict ? undefined : installment.total;
+      const index = conflict ? undefined : installment.current;
+      let merchant: string | null =
+        described.cleanMerchant.trim().normalize("NFC") || null;
+      if (
+        merchant !== null &&
+        merchant.length > IMPORT_SESSION_PRIMITIVES.maxSupplierLength
+      ) {
+        merchant = null;
+        report("OVERLONG_FIELD");
+      }
+      if (amountCents === null || merchant === null) report("UNREADABLE_ROW");
+      const meaning = conflict
+        ? "UNKNOWN"
+        : (capture.amountMeaning ??
+          (count === undefined ? "UNKNOWN" : "INSTALLMENT_CHARGE"));
+      if (meaning === "UNKNOWN") report("UNKNOWN_AMOUNT_MEANING");
+      const fitId = capture.fitId?.trim().normalize("NFC") ?? null;
+      if (
+        fitId !== null &&
+        fitId.length > IMPORT_SESSION_PRIMITIVES.maxReferenceLength
+      )
+        throw new DocumentExtractionError("LIMIT_EXCEEDED");
+      return {
+        reference: capture.reference,
+        sourceOrdinal,
+        section: capture.section ?? "UNKNOWN",
+        raw: {
+          date: capture.date,
+          description: capture.description,
+          amount: capture.amount,
+          installment:
+            capture.installment === undefined || capture.installment === null
+              ? described.rawInstallment
+              : capture.installment,
+        },
+        cycle: capture.cycle ?? null,
+        dateOnly: date.dateOnly,
+        merchant,
+        amountCents,
+        amountMeaning: meaning,
+        installmentCount: count ?? null,
+        installmentIndex: index ?? null,
+        fitId,
+        identityOrdinal: null,
+      };
+    },
+  );
+  const identities = occurrences.flatMap((row) =>
+    row.dateOnly !== null && row.merchant !== null && row.amountCents !== null
+      ? [
+          {
+            date: new Date(`${row.dateOnly}T00:00:00.000Z`),
+            merchant: row.merchant,
+            amountCents: row.amountCents,
+          },
+        ]
+      : [],
+  );
+  const ordinals = computeImportOrdinals(identities);
+  let identityIndex = 0;
+  return {
+    version: 1,
+    parserVersion: "card-local-text-v1",
+    documentKind,
+    invoiceDueMonth: null,
+    metrics: {
+      pages: 0,
+      rows: captures.length,
+      expandedBytes: 0,
+      archiveEntries: 0,
+      imagePixels: 0,
+      frames: 0,
+    },
+    occurrences: occurrences.map((row) => ({
+      ...row,
+      identityOrdinal:
+        row.dateOnly !== null &&
+        row.merchant !== null &&
+        row.amountCents !== null
+          ? ordinals[identityIndex++]
+          : null,
+    })),
+    diagnostics,
+  };
 }

@@ -3,16 +3,17 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   isFullAccessRole,
   userCanAccessProject,
   userCanAccessProjectType,
-} from '../access-rules';
-import { PrismaService } from '../../prisma/prisma.service';
+} from "../access-rules";
+import { PrismaService } from "../../prisma/prisma.service";
+import { SERVICE_OWNED_PROJECT_ACCESS_KEY } from "../decorators/service-owned-project-access.decorator";
 
 /** Campos que carregam um ID de projeto em params/query/body. */
-const PROJECT_ID_FIELDS = ['projectId', 'sourceProjectId', 'targetProjectId'];
+const PROJECT_ID_FIELDS = ["projectId", "sourceProjectId", "targetProjectId"];
 
 function collectProjectIds(
   source: Record<string, unknown> | undefined,
@@ -21,7 +22,7 @@ function collectProjectIds(
   const ids: string[] = [];
   for (const field of PROJECT_ID_FIELDS) {
     const v = source[field];
-    if (typeof v === 'string' && v) ids.push(v);
+    if (typeof v === "string" && v) ids.push(v);
   }
   return ids;
 }
@@ -46,6 +47,16 @@ export class ProjectAccessGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // These routes own reauthorization inside their writer; don't expose a
+    // global-guard existence/ACL distinction before their opaque service gate.
+    if (
+      Reflect.getMetadata(
+        SERVICE_OWNED_PROJECT_ACCESS_KEY,
+        context.getHandler(),
+      ) === true
+    ) {
+      return true;
+    }
     const request = context.switchToHttp().getRequest();
     const user = request.user;
     if (!user) return true;
@@ -59,14 +70,14 @@ export class ProjectAccessGuard implements CanActivate {
 
     for (const projectId of ids) {
       if (!userCanAccessProject(user.role, user.allowedProjects, projectId)) {
-        throw new ForbiddenException('Sem permissao para acessar este projeto');
+        throw new ForbiddenException("Sem permissao para acessar este projeto");
       }
       const project = await this.prisma.project.findFirst({
         where: { id: projectId, tenantId: user.tenantId },
         select: { type: true },
       });
       if (!project) {
-        throw new ForbiddenException('Sem permissao para acessar este projeto');
+        throw new ForbiddenException("Sem permissao para acessar este projeto");
       }
       if (
         !userCanAccessProjectType(
@@ -77,7 +88,7 @@ export class ProjectAccessGuard implements CanActivate {
         )
       ) {
         throw new ForbiddenException(
-          'Sem permissao para acessar este tipo de projeto',
+          "Sem permissao para acessar este tipo de projeto",
         );
       }
     }

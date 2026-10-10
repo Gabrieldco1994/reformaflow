@@ -1,4 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from "@nestjs/common";
+import { ImportChatBridge } from "../../imports/import-session/import-chat.bridge";
+import {
+  importChatForToolContext,
+  rememberImportChatOutcome,
+} from "../../imports/import-session/import-chat.admission";
+import {
+  getImportToolDefinitions,
+  parseImportToolArguments,
+  ImportChatContractError,
+} from "../import-chat.contract";
 import {
   ExpenseType,
   ProjectType,
@@ -8,18 +18,18 @@ import {
   EssentialityLabels,
   isSinglePaymentForm,
   type TypeModuleSlug,
-} from '@reformaflow/domain';
-import { PrismaService } from '../../prisma/prisma.service';
+} from "@reformaflow/domain";
+import { PrismaService } from "../../prisma/prisma.service";
 import {
   TenantFinancialService,
   type FinancialResourceScope,
-} from '../../tenant-financial/tenant-financial.service';
-import { ExpenseService } from '../../expense/expense.service';
-import { ReceiptService } from '../../receipt/receipt.service';
-import { CreditCardService } from '../../credit-card/credit-card.service';
-import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
-import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
-import { PriceMonitorService } from '../../price-compare/price-monitor.service';
+} from "../../tenant-financial/tenant-financial.service";
+import { ExpenseService } from "../../expense/expense.service";
+import { ReceiptService } from "../../receipt/receipt.service";
+import { CreditCardService } from "../../credit-card/credit-card.service";
+import { MonthlyOverviewService } from "../../monthly-overview/monthly-overview.service";
+import { MerchantClassifierService } from "../../merchant-classifier/merchant-classifier.service";
+import { PriceMonitorService } from "../../price-compare/price-monitor.service";
 import {
   CREDIT_CARD_MODULE,
   EXPENSE_MODULE,
@@ -27,26 +37,29 @@ import {
   isFullAccessRole,
   projectTypeHasModule,
   resolveAccessibleProjectScope,
-} from '../../common/access-rules';
+} from "../../common/access-rules";
 import {
   intersectProjectScope,
   projectScopeIncludes,
   unionProjectScope,
   type ProjectScope,
-} from '../../common/project-scope';
-import type { ModuleSlug } from '../../common/decorators/require-module.decorator';
-import { ToolDef } from '../llm/llm.types';
-import { parseSpokenMoney } from './money-parse';
-import type { RateioRequester } from '../../expense/rateio.types';
+} from "../../common/project-scope";
+import type { ModuleSlug } from "../../common/decorators/require-module.decorator";
+import { ToolDef } from "../llm/llm.types";
+import { parseSpokenMoney } from "./money-parse";
+import type { RateioRequester } from "../../expense/rateio.types";
 
-const PROJECT_ACCESS_DENIED_MESSAGE = 'Sem permissão para acessar este projeto.';
+const PROJECT_ACCESS_DENIED_MESSAGE =
+  "Sem permissão para acessar este projeto.";
 
 /**
  * Lente de escopo POR RECURSO (#483 SEC-5): devolve os projetos onde o
  * requisitante pode LER o recurso do módulo pedido (`null` só para full-access).
  * Memoizada por turno — várias tools no mesmo turno resolvem cada módulo uma vez.
  */
-export type ModuleScopeReader = (module: TypeModuleSlug) => Promise<ProjectScope>;
+export type ModuleScopeReader = (
+  module: TypeModuleSlug,
+) => Promise<ProjectScope>;
 
 export interface ToolContext {
   tenantId: string;
@@ -75,7 +88,9 @@ export interface ToolContext {
 type NormalizedToolContext = ToolContext & { projectScope: string[] | null };
 
 /** Contexto entregue às tools: escopo normalizado + acessor por recurso. */
-type ScopedToolContext = NormalizedToolContext & { scopeFor: ModuleScopeReader };
+type ScopedToolContext = NormalizedToolContext & {
+  scopeFor: ModuleScopeReader;
+};
 
 /** Normaliza o escopo tri-state sem converter deny-all em acesso irrestrito. */
 export function normalizeToolContext(ctx: ToolContext): NormalizedToolContext {
@@ -99,6 +114,7 @@ interface ToolHandler {
  */
 @Injectable()
 export class AgentToolsService {
+  @Inject(ImportChatBridge) private readonly importChat!: ImportChatBridge;
   private readonly handlers: Record<string, ToolHandler>;
 
   /**
@@ -145,7 +161,7 @@ export class AgentToolsService {
    * das duas — e é resolvida ANTES de qualquer leitura do recurso.
    */
   private scopeReaderFor(ctx: ToolContext): ModuleScopeReader {
-    if (typeof ctx.scopeFor === 'function') return ctx.scopeFor;
+    if (typeof ctx.scopeFor === "function") return ctx.scopeFor;
     let memo = this.moduleScopeByContext.get(ctx);
     if (!memo) {
       memo = new Map<string, Promise<ProjectScope>>();
@@ -189,7 +205,9 @@ export class AgentToolsService {
    * Lentes de um agregado MISTO: despesa e recebimento nunca compartilham gate,
    * então cada consulta subjacente filtra pela lente do seu dono (antes da soma).
    */
-  private async financialScope(ctx: ScopedToolContext): Promise<FinancialResourceScope> {
+  private async financialScope(
+    ctx: ScopedToolContext,
+  ): Promise<FinancialResourceScope> {
     const [expenses, receipts] = await Promise.all([
       ctx.scopeFor(EXPENSE_MODULE),
       ctx.scopeFor(RECEIPT_MODULE),
@@ -207,38 +225,122 @@ export class AgentToolsService {
     const normalizedCtx = this.scoped(ctx);
     const scope = normalizedCtx.projectScope;
     const cardScope = await normalizedCtx.scopeFor(CREDIT_CARD_MODULE);
-    const whereProj = { tenantId: normalizedCtx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) };
-    const wherePay = { tenantId: normalizedCtx.tenantId, deletedAt: null, ...(scope !== null ? { projectId: { in: scope } } : {}) };
-    const whereCard = { tenantId: normalizedCtx.tenantId, deletedAt: null, ...(cardScope !== null ? { projectId: { in: cardScope } } : {}) };
+    const whereProj = {
+      tenantId: normalizedCtx.tenantId,
+      deletedAt: null,
+      ...(scope !== null ? { id: { in: scope } } : {}),
+    };
+    const wherePay = {
+      tenantId: normalizedCtx.tenantId,
+      deletedAt: null,
+      ...(scope !== null ? { projectId: { in: scope } } : {}),
+    };
+    const whereCard = {
+      tenantId: normalizedCtx.tenantId,
+      deletedAt: null,
+      ...(cardScope !== null ? { projectId: { in: cardScope } } : {}),
+    };
     const [projects, cards, accounts] = await Promise.all([
-      this.prisma.project.findMany({ where: whereProj, select: { id: true, name: true, type: true }, orderBy: { createdAt: 'asc' } }),
-      this.prisma.creditCard.findMany({ where: whereCard, select: { id: true, nickname: true, institution: true, last4: true }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.project.findMany({
+        where: whereProj,
+        select: { id: true, name: true, type: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.creditCard.findMany({
+        where: whereCard,
+        select: { id: true, nickname: true, institution: true, last4: true },
+        orderBy: { createdAt: "asc" },
+      }),
       // NOTA: contas bancárias seguem no escopo amplo — o gate do módulo
       // `bankAccounts` (e o /tenant/bank-accounts equivalente) é da #484.
-      this.prisma.bankAccount.findMany({ where: wherePay, select: { id: true, nickname: true, institution: true, last4: true }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.bankAccount.findMany({
+        where: wherePay,
+        select: { id: true, nickname: true, institution: true, last4: true },
+        orderBy: { createdAt: "asc" },
+      }),
     ]);
-    if (projects.length === 0) return '';
+    if (projects.length === 0) return "";
 
-    const projLines = projects.map((p) => `  - ${p.name} [${p.type}] id=${p.id}`).join('\n');
+    const projLines = projects
+      .map((p) => `  - ${p.name} [${p.type}] id=${p.id}`)
+      .join("\n");
     const cardLines = cards.length
-      ? cards.map((c) => `  - cartão ${c.nickname ?? c.institution} (final ${c.last4}) creditCardId=${c.id}`).join('\n')
-      : '  (nenhum)';
+      ? cards
+          .map(
+            (c) =>
+              `  - cartão ${c.nickname ?? c.institution} (final ${c.last4}) creditCardId=${c.id}`,
+          )
+          .join("\n")
+      : "  (nenhum)";
     const accLines = accounts.length
-      ? accounts.map((a) => `  - conta ${a.nickname ?? a.institution} (final ${a.last4}) bankAccountId=${a.id}`).join('\n')
-      : '  (nenhuma)';
+      ? accounts
+          .map(
+            (a) =>
+              `  - conta ${a.nickname ?? a.institution} (final ${a.last4}) bankAccountId=${a.id}`,
+          )
+          .join("\n")
+      : "  (nenhuma)";
 
     return [
-      'CONTEXTO DO USUÁRIO (use estes ids diretamente; só chame list_projects/list_payment_methods se algo não estiver aqui):',
-      'Projetos:',
+      "CONTEXTO DO USUÁRIO (use estes ids diretamente; só chame list_projects/list_payment_methods se algo não estiver aqui):",
+      "Projetos:",
       projLines,
-      'Cartões:',
+      "Cartões:",
       cardLines,
-      'Contas bancárias:',
+      "Contas bancárias:",
       accLines,
-    ].join('\n');
+    ].join("\n");
   }
 
-  async execute(name: string, ctx: ToolContext, args: Record<string, unknown>): Promise<unknown> {
+  async execute(
+    name: string,
+    ctx: ToolContext,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    const admission = importChatForToolContext(ctx);
+    if (admission) {
+      if (
+        !getImportToolDefinitions(admission.turn).some(
+          (tool) => tool.name === name,
+        )
+      ) {
+        throw new ImportChatContractError("TOOL_NOT_ALLOWED");
+      }
+      const tool = parseImportToolArguments(name, args);
+      switch (tool.name) {
+        case "import_read_session":
+          return this.importChat.read(admission, { kind: "SESSION" });
+        case "import_read_observations":
+          return this.importChat.read(admission, {
+            kind: "OBSERVATIONS",
+            ...tool.arguments,
+          });
+        case "import_read_candidates":
+          return this.importChat.read(admission, {
+            kind: "CANDIDATES",
+            ...tool.arguments,
+          });
+        case "list_projects":
+          return this.importChat.read(admission, {
+            kind: "PROJECTS",
+            ...tool.arguments,
+          });
+        case "list_payment_methods":
+          return this.importChat.read(admission, { kind: "PAYMENT_METHODS" });
+        case "get_category_taxonomy":
+          return this.importChat.read(admission, { kind: "TAXONOMY" });
+        case "import_edit_answer": {
+          const outcome = await this.importChat.editAnswer(
+            admission,
+            args.interpretation,
+          );
+          rememberImportChatOutcome(admission, outcome);
+          return { importOutcome: outcome };
+        }
+        default:
+          throw new ImportChatContractError("TOOL_NOT_ALLOWED");
+      }
+    }
     const handler = this.handlers[name];
     if (!handler) {
       return { error: `Ferramenta desconhecida: ${name}` };
@@ -246,28 +348,36 @@ export class AgentToolsService {
     try {
       return await handler.run(this.scoped(ctx), args || {});
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'erro desconhecido';
+      const message = e instanceof Error ? e.message : "erro desconhecido";
       return { error: `Falha ao executar ${name}: ${message}` };
     }
   }
 
   private buildHandlers(): Record<string, ToolHandler> {
-    const noParams = { type: 'object', properties: {}, additionalProperties: false };
+    const noParams = {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    };
 
     return {
       list_projects: {
         def: {
-          name: 'list_projects',
+          name: "list_projects",
           description:
-            'Lista todos os projetos do usuário (id, nome, tipo). Use para descobrir os projetos disponíveis e resolver nomes para ids.',
+            "Lista todos os projetos do usuário (id, nome, tipo). Use para descobrir os projetos disponíveis e resolver nomes para ids.",
           parameters: noParams,
         },
         run: async (ctx) => {
           const scope = ctx.projectScope ?? null;
           const projects = await this.prisma.project.findMany({
-            where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) },
+            where: {
+              tenantId: ctx.tenantId,
+              deletedAt: null,
+              ...(scope !== null ? { id: { in: scope } } : {}),
+            },
             select: { id: true, name: true, type: true },
-            orderBy: { createdAt: 'asc' },
+            orderBy: { createdAt: "asc" },
           });
           return { projects };
         },
@@ -275,32 +385,35 @@ export class AgentToolsService {
 
       get_maintenance_status: {
         def: {
-          name: 'get_maintenance_status',
+          name: "get_maintenance_status",
           description:
-            'Consulta o status de manutenção de um projeto (CASA/CARRO/PLANTAS): quando foi a última ' +
-            'manutenção realizada — com quilometragem, se for carro — e a próxima prevista. Use para ' +
+            "Consulta o status de manutenção de um projeto (CASA/CARRO/PLANTAS): quando foi a última " +
+            "manutenção realizada — com quilometragem, se for carro — e a próxima prevista. Use para " +
             'perguntas como "quando foi a última troca de óleo?" ou "quando vence a próxima manutenção?". ' +
-            'Filtra por tipo (ex: TROCA_OLEO) quando informado, senão retorna a mais recente de qualquer tipo.',
+            "Filtra por tipo (ex: TROCA_OLEO) quando informado, senão retorna a mais recente de qualquer tipo.",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
               projectId: {
-                type: 'string',
+                type: "string",
                 description:
-                  'Projeto CASA/CARRO/PLANTAS. Se omitido, resolve pelo único projeto elegível no escopo ou pelo projeto em foco.',
+                  "Projeto CASA/CARRO/PLANTAS. Se omitido, resolve pelo único projeto elegível no escopo ou pelo projeto em foco.",
               },
               tipo: {
-                type: 'string',
+                type: "string",
                 description:
-                  'Tipo de manutenção (ex: TROCA_OLEO, FILTRO_OLEO, PNEUS, REVISAO, PINTURA). Se omitido, retorna a manutenção mais recente de qualquer tipo.',
+                  "Tipo de manutenção (ex: TROCA_OLEO, FILTRO_OLEO, PNEUS, REVISAO, PINTURA). Se omitido, retorna a manutenção mais recente de qualquer tipo.",
               },
             },
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const project = await this.resolveMaintenanceProject(ctx, args['projectId']);
-          const tipo = this.optStr(args['tipo']);
+          const project = await this.resolveMaintenanceProject(
+            ctx,
+            args["projectId"],
+          );
+          const tipo = this.optStr(args["tipo"]);
 
           const log = await this.prisma.maintenanceLog.findFirst({
             where: {
@@ -309,7 +422,7 @@ export class AgentToolsService {
               deletedAt: null,
               ...(tipo ? { tipo } : {}),
             },
-            orderBy: { dataRealizada: 'desc' },
+            orderBy: { dataRealizada: "desc" },
           });
 
           if (!log) {
@@ -330,7 +443,9 @@ export class AgentToolsService {
             tipo: log.tipo,
             dataRealizada: log.dataRealizada.toISOString().slice(0, 10),
             quilometragem: log.quilometragem ?? null,
-            dataProxima: log.dataProxima ? log.dataProxima.toISOString().slice(0, 10) : null,
+            dataProxima: log.dataProxima
+              ? log.dataProxima.toISOString().slice(0, 10)
+              : null,
             custoCentavos: log.custo ?? null,
             fornecedor: log.fornecedor ?? null,
           };
@@ -339,23 +454,36 @@ export class AgentToolsService {
 
       list_price_monitor_items: {
         def: {
-          name: 'list_price_monitor_items',
+          name: "list_price_monitor_items",
           description:
-            'Lista produtos monitorados de preço (watchlist) com último melhor preço, loja e data da última checagem. ' +
+            "Lista produtos monitorados de preço (watchlist) com último melhor preço, loja e data da última checagem. " +
             'Pode filtrar por projeto. Use para "quais produtos estou monitorando?" e "como está minha watchlist".',
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              projectId: { type: 'string', description: 'Projeto opcional para filtrar a watchlist.' },
-              limit: { type: 'integer', description: 'Máximo de itens (1 a 50, default 20).' },
+              projectId: {
+                type: "string",
+                description: "Projeto opcional para filtrar a watchlist.",
+              },
+              limit: {
+                type: "integer",
+                description: "Máximo de itens (1 a 50, default 20).",
+              },
             },
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const projectIds = await this.resolvePriceCompareProjectIds(ctx, args['projectId']);
-          const limit = this.clampInt(args['limit'], 20, 1, 50);
-          const items = await this.priceMonitor.listByProjects(ctx.tenantId, projectIds, limit);
+          const projectIds = await this.resolvePriceCompareProjectIds(
+            ctx,
+            args["projectId"],
+          );
+          const limit = this.clampInt(args["limit"], 20, 1, 50);
+          const items = await this.priceMonitor.listByProjects(
+            ctx.tenantId,
+            projectIds,
+            limit,
+          );
           return {
             total: items.length,
             itens: items.map((i) => ({
@@ -372,7 +500,9 @@ export class AgentToolsService {
               melhorPrecoCentavos: i.lastBestPriceCents ?? null,
               melhorLoja: i.lastBestStore ?? null,
               melhorLink: i.lastBestLink ?? null,
-              checadoEm: i.lastCheckedAt ? i.lastCheckedAt.toISOString().slice(0, 10) : null,
+              checadoEm: i.lastCheckedAt
+                ? i.lastCheckedAt.toISOString().slice(0, 10)
+                : null,
             })),
           };
         },
@@ -380,38 +510,68 @@ export class AgentToolsService {
 
       check_price_monitor_item: {
         def: {
-          name: 'check_price_monitor_item',
+          name: "check_price_monitor_item",
           description:
-            'Atualiza e consulta o monitoramento de preço de um item da watchlist. ' +
-            'Você pode informar itemId diretamente ou uma query para encontrar o produto pelo nome.',
+            "Atualiza e consulta o monitoramento de preço de um item da watchlist. " +
+            "Você pode informar itemId diretamente ou uma query para encontrar o produto pelo nome.",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              itemId: { type: 'string', description: 'Id do item monitorado (preferencial).' },
-              query: { type: 'string', description: 'Nome/trecho do produto para localizar na watchlist.' },
-              projectId: { type: 'string', description: 'Projeto opcional para restringir a busca.' },
+              itemId: {
+                type: "string",
+                description: "Id do item monitorado (preferencial).",
+              },
+              query: {
+                type: "string",
+                description:
+                  "Nome/trecho do produto para localizar na watchlist.",
+              },
+              projectId: {
+                type: "string",
+                description: "Projeto opcional para restringir a busca.",
+              },
             },
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const projectIds = await this.resolvePriceCompareProjectIds(ctx, args['projectId']);
-          const itemId = this.optStr(args['itemId']);
-          const query = this.optStr(args['query']);
+          const projectIds = await this.resolvePriceCompareProjectIds(
+            ctx,
+            args["projectId"],
+          );
+          const itemId = this.optStr(args["itemId"]);
+          const query = this.optStr(args["query"]);
 
           if (!itemId && !query) {
-            return { error: 'Informe itemId ou query para localizar o produto monitorado.' };
+            return {
+              error:
+                "Informe itemId ou query para localizar o produto monitorado.",
+            };
           }
 
           const item = itemId
-            ? await this.priceMonitor.findByIdInProjects(ctx.tenantId, projectIds, itemId)
-            : await this.priceMonitor.findFirstByQuery(ctx.tenantId, projectIds, query!);
+            ? await this.priceMonitor.findByIdInProjects(
+                ctx.tenantId,
+                projectIds,
+                itemId,
+              )
+            : await this.priceMonitor.findFirstByQuery(
+                ctx.tenantId,
+                projectIds,
+                query!,
+              );
 
           if (!item) {
-            return { error: 'Produto monitorado não encontrado no seu escopo.' };
+            return {
+              error: "Produto monitorado não encontrado no seu escopo.",
+            };
           }
 
-          const refreshed = await this.priceMonitor.refreshItem(ctx.tenantId, item.projectId, item.id);
+          const refreshed = await this.priceMonitor.refreshItem(
+            ctx.tenantId,
+            item.projectId,
+            item.id,
+          );
           return {
             item: {
               itemId: refreshed.item.id,
@@ -434,57 +594,74 @@ export class AgentToolsService {
 
       search_product_prices: {
         def: {
-          name: 'search_product_prices',
+          name: "search_product_prices",
           description:
-            'Busca preços de um produto por texto livre (sem depender de item salvo na watchlist). ' +
-            'Use quando o usuário perguntar preço de um produto no chat/voz e ainda não houver cadastro.',
+            "Busca preços de um produto por texto livre (sem depender de item salvo na watchlist). " +
+            "Use quando o usuário perguntar preço de um produto no chat/voz e ainda não houver cadastro.",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              query: { type: 'string', description: 'Texto do produto para busca de preço.' },
-              referencePriceCents: { type: 'integer', description: 'Preço de referência opcional (centavos) para comparar variação.' },
+              query: {
+                type: "string",
+                description: "Texto do produto para busca de preço.",
+              },
+              referencePriceCents: {
+                type: "integer",
+                description:
+                  "Preço de referência opcional (centavos) para comparar variação.",
+              },
             },
-            required: ['query'],
+            required: ["query"],
             additionalProperties: false,
           },
         },
         run: async (_ctx, args) => {
-          const query = this.optStr(args['query']);
+          const query = this.optStr(args["query"]);
           if (!query || query.length < 3) {
-            return { error: 'Informe um termo de busca com pelo menos 3 caracteres.' };
+            return {
+              error: "Informe um termo de busca com pelo menos 3 caracteres.",
+            };
           }
-          const reference = this.optInt(args['referencePriceCents'], 1, 1_000_000_000) ?? null;
+          const reference =
+            this.optInt(args["referencePriceCents"], 1, 1_000_000_000) ?? null;
           return this.priceMonitor.searchPrices(query, reference);
         },
       },
 
       get_financial_overview: {
         def: {
-          name: 'get_financial_overview',
+          name: "get_financial_overview",
           description:
-            'KPIs financeiros consolidados de TODOS os projetos: caixa total, carteira total, pago no mês/ano/total, previsões de gastos e recebimentos para 30/90 dias, saldo projetado (caixa + carteira + recebimentos - previsões). Valores em centavos.',
+            "KPIs financeiros consolidados de TODOS os projetos: caixa total, carteira total, pago no mês/ano/total, previsões de gastos e recebimentos para 30/90 dias, saldo projetado (caixa + carteira + recebimentos - previsões). Valores em centavos.",
           parameters: noParams,
         },
-        run: async (ctx) => this.financial.getOverview(ctx.tenantId, await this.financialScope(ctx)),
+        run: async (ctx) =>
+          this.financial.getOverview(
+            ctx.tenantId,
+            await this.financialScope(ctx),
+          ),
       },
 
       get_by_project: {
         def: {
-          name: 'get_by_project',
+          name: "get_by_project",
           description:
-            'Breakdown financeiro por projeto: gasto total, planejado restante, recebimentos, saldo e progresso de cada projeto. Valores em centavos.',
+            "Breakdown financeiro por projeto: gasto total, planejado restante, recebimentos, saldo e progresso de cada projeto. Valores em centavos.",
           parameters: noParams,
         },
         run: async (ctx) => ({
-          projects: await this.financial.getByProject(ctx.tenantId, await this.financialScope(ctx)),
+          projects: await this.financial.getByProject(
+            ctx.tenantId,
+            await this.financialScope(ctx),
+          ),
         }),
       },
 
       get_expenses_by_category: {
         def: {
-          name: 'get_expenses_by_category',
+          name: "get_expenses_by_category",
           description:
-            'Total de despesas por categoria/tipo (todos os projetos no escopo), JÁ CLASSIFICADO pela ontologia: cada categoria vem com grupo-pai e essencialidade (ESSENCIAL/SUPERFLUO/INVESTIMENTO/NEUTRO/PROJETO/INDEFINIDO). ' +
+            "Total de despesas por categoria/tipo (todos os projetos no escopo), JÁ CLASSIFICADO pela ontologia: cada categoria vem com grupo-pai e essencialidade (ESSENCIAL/SUPERFLUO/INVESTIMENTO/NEUTRO/PROJETO/INDEFINIDO). " +
             'Inclui um resumo por essencialidade — use para "para onde foi meu dinheiro" e "essencial vs supérfluo". Valores em centavos.',
           parameters: noParams,
         },
@@ -497,27 +674,32 @@ export class AgentToolsService {
             const tax = getExpenseTaxonomy(c.key);
             return {
               ...c,
-              grupo: tax?.group ?? 'Outros',
-              essencialidade: tax?.essentiality ?? 'INDEFINIDO',
-              essencialidadeLabel: tax?.essentialityLabel ?? EssentialityLabels['INDEFINIDO'],
+              grupo: tax?.group ?? "Outros",
+              essencialidade: tax?.essentiality ?? "INDEFINIDO",
+              essencialidadeLabel:
+                tax?.essentialityLabel ?? EssentialityLabels["INDEFINIDO"],
             };
           });
           const porEssencialidade: Record<string, number> = {};
           for (const c of enriquecidas) {
-            porEssencialidade[c.essencialidade] = (porEssencialidade[c.essencialidade] ?? 0) + c.total;
+            porEssencialidade[c.essencialidade] =
+              (porEssencialidade[c.essencialidade] ?? 0) + c.total;
           }
-          return { categorias: enriquecidas, resumoPorEssencialidade: porEssencialidade };
+          return {
+            categorias: enriquecidas,
+            resumoPorEssencialidade: porEssencialidade,
+          };
         },
       },
 
       get_category_taxonomy: {
         def: {
-          name: 'get_category_taxonomy',
+          name: "get_category_taxonomy",
           description:
-            'Ontologia de categorias de despesa: árvore grupo-pai → tipos, com a essencialidade de cada um ' +
-            '(ESSENCIAL, SUPERFLUO, INVESTIMENTO, NEUTRO, PROJETO, INDEFINIDO) e sinônimos. ' +
-            'Use para entender como classificar gastos de forma consistente (essencial × supérfluo), ' +
-            'mapear um termo do usuário ao tipo correto, ou explicar a classificação. Não recebe parâmetros.',
+            "Ontologia de categorias de despesa: árvore grupo-pai → tipos, com a essencialidade de cada um " +
+            "(ESSENCIAL, SUPERFLUO, INVESTIMENTO, NEUTRO, PROJETO, INDEFINIDO) e sinônimos. " +
+            "Use para entender como classificar gastos de forma consistente (essencial × supérfluo), " +
+            "mapear um termo do usuário ao tipo correto, ou explicar a classificação. Não recebe parâmetros.",
           parameters: noParams,
         },
         run: async () => ({
@@ -536,41 +718,51 @@ export class AgentToolsService {
 
       get_upcoming: {
         def: {
-          name: 'get_upcoming',
+          name: "get_upcoming",
           description:
             'Despesas e recebimentos com vencimento nos próximos N dias (default 30), em todos os projetos. Use para "o que vence", "próximos pagamentos". Valores em centavos.',
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              days: { type: 'integer', description: 'Janela em dias (1 a 365). Default 30.' },
+              days: {
+                type: "integer",
+                description: "Janela em dias (1 a 365). Default 30.",
+              },
             },
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const days = this.clampInt(args['days'], 30, 1, 365);
+          const days = this.clampInt(args["days"], 30, 1, 365);
           return {
             dias: days,
-            itens: await this.financial.getUpcoming(ctx.tenantId, days, await this.financialScope(ctx)),
+            itens: await this.financial.getUpcoming(
+              ctx.tenantId,
+              days,
+              await this.financialScope(ctx),
+            ),
           };
         },
       },
 
       get_top_suppliers: {
         def: {
-          name: 'get_top_suppliers',
+          name: "get_top_suppliers",
           description:
             'Maiores fornecedores por total gasto (todos os projetos). Use para "onde gasto mais", "principais fornecedores". Valores em centavos.',
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              limit: { type: 'integer', description: 'Quantidade de fornecedores (1 a 20). Default 5.' },
+              limit: {
+                type: "integer",
+                description: "Quantidade de fornecedores (1 a 20). Default 5.",
+              },
             },
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const limit = this.clampInt(args['limit'], 5, 1, 20);
+          const limit = this.clampInt(args["limit"], 5, 1, 20);
           return {
             fornecedores: await this.financial.getTopSuppliers(
               ctx.tenantId,
@@ -583,64 +775,152 @@ export class AgentToolsService {
 
       create_expense: {
         def: {
-          name: 'create_expense',
+          name: "create_expense",
           description:
-            'Cadastra uma DESPESA num projeto a partir de linguagem natural. ' +
+            "Cadastra uma DESPESA num projeto a partir de linguagem natural. " +
             'Use quando o usuário disser que gastou/pagou/comprou algo (ex.: "gastei 250 reais de material na Obramax", "paguei 1.200 ao pintor"). ' +
-            'O valor é em REAIS (será convertido). Se o usuário não indicar o projeto e houver um projeto em foco, use-o; senão chame list_projects e peça para o usuário escolher. ' +
+            "O valor é em REAIS (será convertido). Se o usuário não indicar o projeto e houver um projeto em foco, use-o; senão chame list_projects e peça para o usuário escolher. " +
             'Para vincular a um cartão de crédito ou conta bancária ("comprei no cartão Nubank", "saiu da conta do Itaú"), primeiro chame list_payment_methods para achar o id e passe creditCardId ou bankAccountId. ' +
-            'Confirme valor, projeto e descrição com o usuário antes de criar quando houver ambiguidade.',
+            "Confirme valor, projeto e descrição com o usuário antes de criar quando houver ambiguidade.",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              projectId: { type: 'string', description: 'Id do projeto (use list_projects para resolver pelo nome). Opcional se há projeto em foco.' },
-              valor: { type: 'string', description: 'Valor unitário em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "206,96" (duzentos e seis reais e noventa e seis centavos), "1.500,00", "50". A vírgula é separador de centavos — NUNCA a remova nem multiplique o número. Obrigatório.' },
-              quantidade: { type: 'integer', description: 'Quantidade (default 1).' },
-              tipoDespesa: { type: 'string', description: 'Categoria da despesa. Ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, ALIMENTACAO, TRANSPORTE, SAUDE, MORADIA, SUPERMERCADO, LAZER, OUTROS. Use OUTROS se não tiver certeza.' },
-              titulo: { type: 'string', description: 'Descrição curta (ex.: "Cimento e areia").' },
-              fornecedor: { type: 'string', description: 'Nome do fornecedor/loja (ex.: "Obramax").' },
-              data: { type: 'string', description: 'Data REAL da compra (competência) no formato YYYY-MM-DD. Default: hoje. Para cartão, o vencimento da fatura é derivado automaticamente desta data.' },
-              formaPagamento: { type: 'string', enum: ['A_VISTA', 'PARCELADO', 'QUINZENAL', 'PIX', 'PAGAMENTO_CONTA'], description: 'Forma de pagamento (default A_VISTA).' },
-              quantidadeParcela: { type: 'integer', description: 'Número de parcelas (use com formaPagamento=PARCELADO). Ex.: "em 3x" -> 3.' },
-              status: { type: 'string', enum: ['PAGO', 'PLANEJADO'], description: 'PAGO se já foi pago; PLANEJADO se é uma despesa futura/prevista. Default PAGO.' },
-              creditCardId: { type: 'string', description: 'Id do cartão de crédito a vincular (obtido via list_payment_methods).' },
-              bankAccountId: { type: 'string', description: 'Id da conta bancária a vincular (obtido via list_payment_methods).' },
-              linkedExpenseId: { type: 'string', description: 'Id de uma despesa de OUTRO projeto para vincular (cross-project, evita dupla contagem). Use find_expenses para localizar a despesa-alvo.' },
+              projectId: {
+                type: "string",
+                description:
+                  "Id do projeto (use list_projects para resolver pelo nome). Opcional se há projeto em foco.",
+              },
+              valor: {
+                type: "string",
+                description:
+                  'Valor unitário em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "206,96" (duzentos e seis reais e noventa e seis centavos), "1.500,00", "50". A vírgula é separador de centavos — NUNCA a remova nem multiplique o número. Obrigatório.',
+              },
+              quantidade: {
+                type: "integer",
+                description: "Quantidade (default 1).",
+              },
+              tipoDespesa: {
+                type: "string",
+                description:
+                  "Categoria da despesa. Ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, ALIMENTACAO, TRANSPORTE, SAUDE, MORADIA, SUPERMERCADO, LAZER, OUTROS. Use OUTROS se não tiver certeza.",
+              },
+              titulo: {
+                type: "string",
+                description: 'Descrição curta (ex.: "Cimento e areia").',
+              },
+              fornecedor: {
+                type: "string",
+                description: 'Nome do fornecedor/loja (ex.: "Obramax").',
+              },
+              data: {
+                type: "string",
+                description:
+                  "Data REAL da compra (competência) no formato YYYY-MM-DD. Default: hoje. Para cartão, o vencimento da fatura é derivado automaticamente desta data.",
+              },
+              formaPagamento: {
+                type: "string",
+                enum: [
+                  "A_VISTA",
+                  "PARCELADO",
+                  "QUINZENAL",
+                  "PIX",
+                  "PAGAMENTO_CONTA",
+                ],
+                description: "Forma de pagamento (default A_VISTA).",
+              },
+              quantidadeParcela: {
+                type: "integer",
+                description:
+                  'Número de parcelas (use com formaPagamento=PARCELADO). Ex.: "em 3x" -> 3.',
+              },
+              status: {
+                type: "string",
+                enum: ["PAGO", "PLANEJADO"],
+                description:
+                  "PAGO se já foi pago; PLANEJADO se é uma despesa futura/prevista. Default PAGO.",
+              },
+              creditCardId: {
+                type: "string",
+                description:
+                  "Id do cartão de crédito a vincular (obtido via list_payment_methods).",
+              },
+              bankAccountId: {
+                type: "string",
+                description:
+                  "Id da conta bancária a vincular (obtido via list_payment_methods).",
+              },
+              linkedExpenseId: {
+                type: "string",
+                description:
+                  "Id de uma despesa de OUTRO projeto para vincular (cross-project, evita dupla contagem). Use find_expenses para localizar a despesa-alvo.",
+              },
             },
-            required: ['valor'],
+            required: ["valor"],
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const project = await this.resolveWritableProject(ctx, args['projectId'], 'expenses');
-          const valor = this.parseMoney(args['valor']);
-          if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
-
-          let tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
-          const status = this.pickEnumStr(args['status'], ['PAGO', 'PLANEJADO'], 'PAGO');
-          const quantidadeParcela = this.optInt(args['quantidadeParcela'], 2, 60);
-          const formaPagamento = this.pickEnumStr(
-            args['formaPagamento'],
-            ['A_VISTA', 'PARCELADO', 'QUINZENAL', 'PIX', 'PAGAMENTO_CONTA'],
-            quantidadeParcela ? 'PARCELADO' : 'A_VISTA',
+          const project = await this.resolveWritableProject(
+            ctx,
+            args["projectId"],
+            "expenses",
           );
-          const quantidade = this.clampInt(args['quantidade'], 1, 1, 100000);
-          const data = this.optDate(args['data']);
+          const valor = this.parseMoney(args["valor"]);
+          if (valor == null)
+            return { error: "Informe um valor em reais maior que zero." };
+
+          let tipoDespesa = this.normalizeEnum(
+            args["tipoDespesa"],
+            ExpenseType,
+            "OUTROS",
+          );
+          const status = this.pickEnumStr(
+            args["status"],
+            ["PAGO", "PLANEJADO"],
+            "PAGO",
+          );
+          const quantidadeParcela = this.optInt(
+            args["quantidadeParcela"],
+            2,
+            60,
+          );
+          const formaPagamento = this.pickEnumStr(
+            args["formaPagamento"],
+            ["A_VISTA", "PARCELADO", "QUINZENAL", "PIX", "PAGAMENTO_CONTA"],
+            quantidadeParcela ? "PARCELADO" : "A_VISTA",
+          );
+          const quantidade = this.clampInt(args["quantidade"], 1, 1, 100000);
+          const data = this.optDate(args["data"]);
 
           // Valida vínculos (projeto-alvo do cartão/conta/despesa deve estar no escopo do usuário).
-          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card', EXPENSE_MODULE);
-          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account', EXPENSE_MODULE);
-          const linkedExpenseId = await this.resolveLinkedExpense(ctx, args['linkedExpenseId'], project.id);
+          const creditCardId = await this.resolvePaymentRef(
+            ctx,
+            args["creditCardId"],
+            "card",
+            EXPENSE_MODULE,
+          );
+          const bankAccountId = await this.resolvePaymentRef(
+            ctx,
+            args["bankAccountId"],
+            "account",
+            EXPENSE_MODULE,
+          );
+          const linkedExpenseId = await this.resolveLinkedExpense(
+            ctx,
+            args["linkedExpenseId"],
+            project.id,
+          );
 
-          const parcelado = formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL';
+          const parcelado =
+            formaPagamento === "PARCELADO" || formaPagamento === "QUINZENAL";
 
           // Idempotência: um reenvio do mesmo comando (ex.: usuário achou que deu
           // "timeout" mas o servidor já havia criado) não pode gerar duplicata.
           // Procuramos uma despesa idêntica criada nos últimos 5 min e, se existir,
           // devolvemos ELA em vez de criar outra.
           const valorCents = Math.round(valor * 100);
-          const titulo = this.optStr(args['titulo']);
-          const fornecedor = this.optStr(args['fornecedor']);
+          const titulo = this.optStr(args["titulo"]);
+          const fornecedor = this.optStr(args["fornecedor"]);
 
           // Fallback de categorização automática: só entra quando o agente não
           // conseguiu inferir a categoria (ficou OUTROS) e há algum texto
@@ -653,13 +933,17 @@ export class AgentToolsService {
           // classificação + persistência da regra AI; `resolveLearnedExpenseType`
           // aplica a precedência/limiar (MANUAL tenant > AI tenant >= τ > MANUAL
           // global; AI global nunca). Abaixo do limiar → permanece OUTROS.
-          if (tipoDespesa === 'OUTROS' && (titulo || fornecedor)) {
-            const classifyText = titulo || fornecedor || '';
-            await this.merchantClassifier.classifyBatch([classifyText], ctx.tenantId);
-            const learned = await this.merchantClassifier.resolveLearnedExpenseType(
-              classifyText,
+          if (tipoDespesa === "OUTROS" && (titulo || fornecedor)) {
+            const classifyText = titulo || fornecedor || "";
+            await this.merchantClassifier.classifyBatch(
+              [classifyText],
               ctx.tenantId,
             );
+            const learned =
+              await this.merchantClassifier.resolveLearnedExpenseType(
+                classifyText,
+                ctx.tenantId,
+              );
             if (learned.expenseType) tipoDespesa = learned.expenseType;
           }
 
@@ -680,7 +964,7 @@ export class AgentToolsService {
               createdAt: { gte: dupWindowStart },
               ...(data ? { dataCompra: new Date(data) } : {}),
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { createdAt: "desc" },
           });
           if (existing) {
             return {
@@ -699,26 +983,36 @@ export class AgentToolsService {
             };
           }
 
-          const created = await this.expenses.create(ctx.tenantId, project.id, {
-            tipoDespesa,
-            valor,
-            quantidade,
-            formaPagamento,
-            status,
-            titulo,
-            fornecedor,
-            // À vista: a data vira dataPagamento. Parcelado: vira dataInicioParcela.
-            dataPagamento: parcelado ? undefined : data,
-            dataInicioParcela: parcelado ? data : undefined,
-            // A data informada é a DATA DA COMPRA (competência). Mantida em ambos
-            // os eixos: competência usa dataCompra; o caixa deriva o vencimento
-            // da fatura do cartão a partir dela.
-            dataCompra: data,
-            quantidadeParcela: formaPagamento === 'PARCELADO' ? quantidadeParcela ?? undefined : undefined,
-            creditCardId,
-            bankAccountId,
-            linkedExpenseId,
-          } as any, ctx.userId ?? null, undefined, this.rateioRequester(ctx));
+          const created = await this.expenses.create(
+            ctx.tenantId,
+            project.id,
+            {
+              tipoDespesa,
+              valor,
+              quantidade,
+              formaPagamento,
+              status,
+              titulo,
+              fornecedor,
+              // À vista: a data vira dataPagamento. Parcelado: vira dataInicioParcela.
+              dataPagamento: parcelado ? undefined : data,
+              dataInicioParcela: parcelado ? data : undefined,
+              // A data informada é a DATA DA COMPRA (competência). Mantida em ambos
+              // os eixos: competência usa dataCompra; o caixa deriva o vencimento
+              // da fatura do cartão a partir dela.
+              dataCompra: data,
+              quantidadeParcela:
+                formaPagamento === "PARCELADO"
+                  ? (quantidadeParcela ?? undefined)
+                  : undefined,
+              creditCardId,
+              bankAccountId,
+              linkedExpenseId,
+            } as any,
+            ctx.userId ?? null,
+            undefined,
+            this.rateioRequester(ctx),
+          );
 
           return {
             ok: true,
@@ -731,7 +1025,10 @@ export class AgentToolsService {
               valorTotalCentavos: created.valorTotal,
               status,
               formaPagamento,
-              quantidadeParcela: formaPagamento === 'PARCELADO' ? quantidadeParcela ?? null : null,
+              quantidadeParcela:
+                formaPagamento === "PARCELADO"
+                  ? (quantidadeParcela ?? null)
+                  : null,
               data: data ?? new Date().toISOString().slice(0, 10),
               cardLast4: created.cardLast4 ?? null,
               bankLast4: created.bankLast4 ?? null,
@@ -744,74 +1041,158 @@ export class AgentToolsService {
 
       create_recurring_expense: {
         def: {
-          name: 'create_recurring_expense',
+          name: "create_recurring_expense",
           description:
-            'Cadastra uma DESPESA RECORRENTE: gera VÁRIAS despesas planejadas (uma por ocorrência) entre uma data inicial e uma final, na frequência mensal ou quinzenal. ' +
+            "Cadastra uma DESPESA RECORRENTE: gera VÁRIAS despesas planejadas (uma por ocorrência) entre uma data inicial e uma final, na frequência mensal ou quinzenal. " +
             'Use quando o usuário disser algo que se repete no tempo (ex.: "todo mês pago 500 de aluguel de jan a dez", "coloca uma mensalidade de 120 da academia até dezembro", "quinzenalmente gasto 300 com a diarista"). ' +
-            'Cada ocorrência vira uma despesa futura (PLANEJADO) independente, contada em todos os KPIs. O valor é em REAIS (de CADA ocorrência, não o total). ' +
-            'Se o usuário não indicar o projeto e houver um em foco, use-o; senão chame list_projects. Para vincular a cartão/conta use list_payment_methods. ' +
+            "Cada ocorrência vira uma despesa futura (PLANEJADO) independente, contada em todos os KPIs. O valor é em REAIS (de CADA ocorrência, não o total). " +
+            "Se o usuário não indicar o projeto e houver um em foco, use-o; senão chame list_projects. Para vincular a cartão/conta use list_payment_methods. " +
             'Se a recorrência for de uma OBRA paga com dinheiro pessoal (ex.: "todo mês 2000 de mão de obra da reforma pelo meu cartão"), passe obraProjectId — cada ocorrência vira um par obra + espelho pessoal. ' +
-            'Confirme valor, frequência e período com o usuário quando houver ambiguidade.',
+            "Confirme valor, frequência e período com o usuário quando houver ambiguidade.",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              projectId: { type: 'string', description: 'Id do projeto (list_projects). Opcional se há projeto em foco.' },
-              valor: { type: 'string', description: 'Valor de CADA ocorrência em REAIS, com vírgula decimal brasileira (ex.: "500", "1.200,00"). A vírgula é separador de centavos — nunca a remova. Obrigatório.' },
-              quantidade: { type: 'integer', description: 'Quantidade por ocorrência (default 1).' },
-              tipoDespesa: { type: 'string', description: 'Categoria (ex.: MORADIA, ALIMENTACAO, TRANSPORTE, SAUDE, LAZER, ASSINATURAS, OUTROS). Use OUTROS se incerto.' },
-              titulo: { type: 'string', description: 'Descrição curta (ex.: "Aluguel", "Academia").' },
-              fornecedor: { type: 'string', description: 'Fornecedor/loja (ex.: "Imobiliária X").' },
-              frequencia: { type: 'string', enum: ['MENSAL', 'QUINZENAL'], description: 'MENSAL (todo mês, mesmo dia) ou QUINZENAL (a cada 15 dias).' },
-              dataInicio: { type: 'string', description: 'Data da PRIMEIRA ocorrência (YYYY-MM-DD). Obrigatório.' },
-              dataFim: { type: 'string', description: 'Data LIMITE da recorrência (YYYY-MM-DD, inclusive). Obrigatório.' },
-              obraProjectId: { type: 'string', description: 'Id de um projeto de OBRA (REFORMA/COMPRA/CASA/CARRO) quando a recorrência é de obra paga pelo dinheiro pessoal — gera par canônica(obra)+espelho(pessoal) por ocorrência. Use list_projects. Omita para recorrência puramente pessoal.' },
-              creditCardId: { type: 'string', description: 'Id do cartão a vincular a todas as ocorrências (list_payment_methods).' },
-              bankAccountId: { type: 'string', description: 'Id da conta a vincular a todas as ocorrências (list_payment_methods).' },
+              projectId: {
+                type: "string",
+                description:
+                  "Id do projeto (list_projects). Opcional se há projeto em foco.",
+              },
+              valor: {
+                type: "string",
+                description:
+                  'Valor de CADA ocorrência em REAIS, com vírgula decimal brasileira (ex.: "500", "1.200,00"). A vírgula é separador de centavos — nunca a remova. Obrigatório.',
+              },
+              quantidade: {
+                type: "integer",
+                description: "Quantidade por ocorrência (default 1).",
+              },
+              tipoDespesa: {
+                type: "string",
+                description:
+                  "Categoria (ex.: MORADIA, ALIMENTACAO, TRANSPORTE, SAUDE, LAZER, ASSINATURAS, OUTROS). Use OUTROS se incerto.",
+              },
+              titulo: {
+                type: "string",
+                description: 'Descrição curta (ex.: "Aluguel", "Academia").',
+              },
+              fornecedor: {
+                type: "string",
+                description: 'Fornecedor/loja (ex.: "Imobiliária X").',
+              },
+              frequencia: {
+                type: "string",
+                enum: ["MENSAL", "QUINZENAL"],
+                description:
+                  "MENSAL (todo mês, mesmo dia) ou QUINZENAL (a cada 15 dias).",
+              },
+              dataInicio: {
+                type: "string",
+                description:
+                  "Data da PRIMEIRA ocorrência (YYYY-MM-DD). Obrigatório.",
+              },
+              dataFim: {
+                type: "string",
+                description:
+                  "Data LIMITE da recorrência (YYYY-MM-DD, inclusive). Obrigatório.",
+              },
+              obraProjectId: {
+                type: "string",
+                description:
+                  "Id de um projeto de OBRA (REFORMA/COMPRA/CASA/CARRO) quando a recorrência é de obra paga pelo dinheiro pessoal — gera par canônica(obra)+espelho(pessoal) por ocorrência. Use list_projects. Omita para recorrência puramente pessoal.",
+              },
+              creditCardId: {
+                type: "string",
+                description:
+                  "Id do cartão a vincular a todas as ocorrências (list_payment_methods).",
+              },
+              bankAccountId: {
+                type: "string",
+                description:
+                  "Id da conta a vincular a todas as ocorrências (list_payment_methods).",
+              },
             },
-            required: ['valor', 'frequencia', 'dataInicio', 'dataFim'],
+            required: ["valor", "frequencia", "dataInicio", "dataFim"],
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const project = await this.resolveWritableProject(ctx, args['projectId'], 'expenses');
-          const valor = this.parseMoney(args['valor']);
-          if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+          const project = await this.resolveWritableProject(
+            ctx,
+            args["projectId"],
+            "expenses",
+          );
+          const valor = this.parseMoney(args["valor"]);
+          if (valor == null)
+            return { error: "Informe um valor em reais maior que zero." };
 
-          const frequencia = this.pickEnumStr(args['frequencia'], ['MENSAL', 'QUINZENAL'], 'MENSAL');
-          const dataInicio = this.optDate(args['dataInicio']);
-          const dataFim = this.optDate(args['dataFim']);
+          const frequencia = this.pickEnumStr(
+            args["frequencia"],
+            ["MENSAL", "QUINZENAL"],
+            "MENSAL",
+          );
+          const dataInicio = this.optDate(args["dataInicio"]);
+          const dataFim = this.optDate(args["dataFim"]);
           if (!dataInicio || !dataFim) {
-            return { error: 'Informe dataInicio e dataFim no formato YYYY-MM-DD.' };
+            return {
+              error: "Informe dataInicio e dataFim no formato YYYY-MM-DD.",
+            };
           }
 
-          const tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
-          const quantidade = this.clampInt(args['quantidade'], 1, 1, 100000);
-          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card', EXPENSE_MODULE);
-          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account', EXPENSE_MODULE);
+          const tipoDespesa = this.normalizeEnum(
+            args["tipoDespesa"],
+            ExpenseType,
+            "OUTROS",
+          );
+          const quantidade = this.clampInt(args["quantidade"], 1, 1, 100000);
+          const creditCardId = await this.resolvePaymentRef(
+            ctx,
+            args["creditCardId"],
+            "card",
+            EXPENSE_MODULE,
+          );
+          const bankAccountId = await this.resolvePaymentRef(
+            ctx,
+            args["bankAccountId"],
+            "account",
+            EXPENSE_MODULE,
+          );
 
           // Cross-project: resolve o projeto de obra (deve ser acessível e não-PESSOAL).
           let obraProjectId: string | undefined;
-          if (this.optStr(args['obraProjectId'])) {
-            const obra = await this.resolveWritableProject(ctx, args['obraProjectId'], 'expenses');
-            if (obra.type === 'PESSOAL') {
-              return { error: 'O projeto de obra não pode ser PESSOAL. Omita obraProjectId para recorrência pessoal.' };
+          if (this.optStr(args["obraProjectId"])) {
+            const obra = await this.resolveWritableProject(
+              ctx,
+              args["obraProjectId"],
+              "expenses",
+            );
+            if (obra.type === "PESSOAL") {
+              return {
+                error:
+                  "O projeto de obra não pode ser PESSOAL. Omita obraProjectId para recorrência pessoal.",
+              };
             }
             obraProjectId = obra.id;
           }
 
-          const result = await this.expenses.createRecorrente(ctx.tenantId, project.id, {
-            tipoDespesa,
-            valor,
-            quantidade,
-            titulo: this.optStr(args['titulo']),
-            fornecedor: this.optStr(args['fornecedor']),
-            frequencia,
-            dataInicio,
-            dataFim,
-            obraProjectId,
-            creditCardId,
-            bankAccountId,
-          } as any, ctx.userId ?? null, this.rateioRequester(ctx));
+          const result = await this.expenses.createRecorrente(
+            ctx.tenantId,
+            project.id,
+            {
+              tipoDespesa,
+              valor,
+              quantidade,
+              titulo: this.optStr(args["titulo"]),
+              fornecedor: this.optStr(args["fornecedor"]),
+              frequencia,
+              dataInicio,
+              dataFim,
+              obraProjectId,
+              creditCardId,
+              bankAccountId,
+            } as any,
+            ctx.userId ?? null,
+            this.rateioRequester(ctx),
+          );
 
           return {
             ok: true,
@@ -827,84 +1208,138 @@ export class AgentToolsService {
               valorCadaOcorrenciaReais: valor,
             },
             mensagem: obraProjectId
-              ? `Criei ${result.count} ocorrência(s) ${frequencia === 'MENSAL' ? 'mensais' : 'quinzenais'} da obra (par obra + espelho pessoal por ocorrência).`
-              : `Criei ${result.count} despesa(s) planejada(s) ${frequencia === 'MENSAL' ? 'mensais' : 'quinzenais'} em "${project.name}".`,
+              ? `Criei ${result.count} ocorrência(s) ${frequencia === "MENSAL" ? "mensais" : "quinzenais"} da obra (par obra + espelho pessoal por ocorrência).`
+              : `Criei ${result.count} despesa(s) planejada(s) ${frequencia === "MENSAL" ? "mensais" : "quinzenais"} em "${project.name}".`,
           };
         },
       },
 
       list_payment_methods: {
         def: {
-          name: 'list_payment_methods',
+          name: "list_payment_methods",
           description:
-            'Lista cartões de crédito e contas bancárias disponíveis (id, apelido/instituição, final do número, projeto). ' +
+            "Lista cartões de crédito e contas bancárias disponíveis (id, apelido/instituição, final do número, projeto). " +
             'Use para resolver o nome citado pelo usuário ("cartão Nubank", "conta do Itaú") no id correto antes de vincular numa despesa (creditCardId/bankAccountId).',
           parameters: noParams,
         },
         run: async (ctx) => {
           const scope = ctx.projectScope ?? null;
           const cardScope = await ctx.scopeFor(CREDIT_CARD_MODULE);
-          const whereCard = { tenantId: ctx.tenantId, deletedAt: null, ...(cardScope !== null ? { projectId: { in: cardScope } } : {}) };
+          const whereCard = {
+            tenantId: ctx.tenantId,
+            deletedAt: null,
+            ...(cardScope !== null ? { projectId: { in: cardScope } } : {}),
+          };
           // Contas bancárias: gate do módulo `bankAccounts` é da #484.
-          const whereAccount = { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { projectId: { in: scope } } : {}) };
+          const whereAccount = {
+            tenantId: ctx.tenantId,
+            deletedAt: null,
+            ...(scope !== null ? { projectId: { in: scope } } : {}),
+          };
           const [cards, accounts] = await Promise.all([
             this.prisma.creditCard.findMany({
               where: whereCard,
-              select: { id: true, last4: true, nickname: true, institution: true, project: { select: { name: true } } },
-              orderBy: { createdAt: 'asc' },
+              select: {
+                id: true,
+                last4: true,
+                nickname: true,
+                institution: true,
+                project: { select: { name: true } },
+              },
+              orderBy: { createdAt: "asc" },
             }),
             this.prisma.bankAccount.findMany({
               where: whereAccount,
-              select: { id: true, last4: true, nickname: true, institution: true, project: { select: { name: true } } },
-              orderBy: { createdAt: 'asc' },
+              select: {
+                id: true,
+                last4: true,
+                nickname: true,
+                institution: true,
+                project: { select: { name: true } },
+              },
+              orderBy: { createdAt: "asc" },
             }),
           ]);
           return {
-            cartoes: cards.map((c) => ({ creditCardId: c.id, apelido: c.nickname ?? c.institution ?? null, final: c.last4 ?? null, projeto: c.project?.name ?? null })),
-            contas: accounts.map((a) => ({ bankAccountId: a.id, apelido: a.nickname ?? a.institution ?? null, final: a.last4 ?? null, projeto: a.project?.name ?? null })),
+            cartoes: cards.map((c) => ({
+              creditCardId: c.id,
+              apelido: c.nickname ?? c.institution ?? null,
+              final: c.last4 ?? null,
+              projeto: c.project?.name ?? null,
+            })),
+            contas: accounts.map((a) => ({
+              bankAccountId: a.id,
+              apelido: a.nickname ?? a.institution ?? null,
+              final: a.last4 ?? null,
+              projeto: a.project?.name ?? null,
+            })),
           };
         },
       },
 
       find_expenses: {
         def: {
-          name: 'find_expenses',
+          name: "find_expenses",
           description:
-            'Busca despesas existentes (id, projeto, título, fornecedor, valor, data, tipo) — útil para localizar a despesa-alvo de um vínculo cross-project (linkedExpenseId no create_expense). ' +
-            'Filtre por projeto e/ou por um texto (busca em título e fornecedor).',
+            "Busca despesas existentes (id, projeto, título, fornecedor, valor, data, tipo) — útil para localizar a despesa-alvo de um vínculo cross-project (linkedExpenseId no create_expense). " +
+            "Filtre por projeto e/ou por um texto (busca em título e fornecedor).",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              projectId: { type: 'string', description: 'Restringe a um projeto (opcional).' },
-              query: { type: 'string', description: 'Texto a buscar em título/fornecedor (opcional).' },
-              limit: { type: 'integer', description: 'Máximo de resultados (1 a 25, default 10).' },
+              projectId: {
+                type: "string",
+                description: "Restringe a um projeto (opcional).",
+              },
+              query: {
+                type: "string",
+                description: "Texto a buscar em título/fornecedor (opcional).",
+              },
+              limit: {
+                type: "integer",
+                description: "Máximo de resultados (1 a 25, default 10).",
+              },
             },
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
           const scope = await ctx.scopeFor(EXPENSE_MODULE);
-          const projectId = this.optStr(args['projectId']);
+          const projectId = this.optStr(args["projectId"]);
           if (projectId && !projectScopeIncludes(scope, projectId)) {
             throw new Error(PROJECT_ACCESS_DENIED_MESSAGE);
           }
-          const q = this.optStr(args['query']);
-          const limit = this.clampInt(args['limit'], 10, 1, 25);
+          const q = this.optStr(args["query"]);
+          const limit = this.clampInt(args["limit"], 10, 1, 25);
           const where: Record<string, unknown> = {
             tenantId: ctx.tenantId,
             deletedAt: null,
             settledByExpenseId: null,
-            ...(projectId ? { projectId } : scope ? { projectId: { in: scope } } : {}),
-            ...(q ? { OR: [{ titulo: { contains: q } }, { fornecedor: { contains: q } }] } : {}),
+            ...(projectId
+              ? { projectId }
+              : scope
+                ? { projectId: { in: scope } }
+                : {}),
+            ...(q
+              ? {
+                  OR: [
+                    { titulo: { contains: q } },
+                    { fornecedor: { contains: q } },
+                  ],
+                }
+              : {}),
           };
           const rows = await this.prisma.expense.findMany({
             where: where as never,
             select: {
-              id: true, titulo: true, fornecedor: true, valorTotal: true,
-              tipoDespesa: true, dataPagamento: true,
+              id: true,
+              titulo: true,
+              fornecedor: true,
+              valorTotal: true,
+              tipoDespesa: true,
+              dataPagamento: true,
               project: { select: { name: true } },
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { createdAt: "desc" },
             take: limit,
           });
           return {
@@ -915,7 +1350,9 @@ export class AgentToolsService {
               fornecedor: r.fornecedor ?? null,
               valorTotalCentavos: r.valorTotal,
               tipoDespesa: r.tipoDespesa,
-              data: r.dataPagamento ? r.dataPagamento.toISOString().slice(0, 10) : null,
+              data: r.dataPagamento
+                ? r.dataPagamento.toISOString().slice(0, 10)
+                : null,
             })),
           };
         },
@@ -923,29 +1360,48 @@ export class AgentToolsService {
 
       update_expense: {
         def: {
-          name: 'update_expense',
+          name: "update_expense",
           description:
-            'Atualiza uma despesa JÁ existente pelo id (use o expenseId devolvido por create_expense ou find_expenses). ' +
-            'Use principalmente para COMPLETAR informações que faltaram no cadastro por voz: quando o usuário registrar uma despesa SEM dizer a DATA ou o TIPO, ' +
-            'pergunte e depois chame esta ferramenta para preencher (data e/ou tipoDespesa). Também serve para corrigir valor, título ou fornecedor. ' +
-            'Só envie os campos que mudaram.',
+            "Atualiza uma despesa JÁ existente pelo id (use o expenseId devolvido por create_expense ou find_expenses). " +
+            "Use principalmente para COMPLETAR informações que faltaram no cadastro por voz: quando o usuário registrar uma despesa SEM dizer a DATA ou o TIPO, " +
+            "pergunte e depois chame esta ferramenta para preencher (data e/ou tipoDespesa). Também serve para corrigir valor, título ou fornecedor. " +
+            "Só envie os campos que mudaram.",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              expenseId: { type: 'string', description: 'Id da despesa a atualizar. Obrigatório.' },
-              data: { type: 'string', description: 'Data REAL da compra (competência) no formato YYYY-MM-DD.' },
-              tipoDespesa: { type: 'string', description: 'Categoria da despesa (ex.: MATERIAL_CONSTRUCAO, ALIMENTACAO, TRANSPORTE, MORADIA, SUPERMERCADO, OUTROS).' },
-              valor: { type: 'string', description: 'Novo valor unitário em REAIS, exatamente como falado, com vírgula decimal brasileira (ex.: "206,96"). A vírgula é separador de centavos — não remova nem multiplique.' },
-              titulo: { type: 'string', description: 'Nova descrição curta.' },
-              fornecedor: { type: 'string', description: 'Novo fornecedor/loja.' },
+              expenseId: {
+                type: "string",
+                description: "Id da despesa a atualizar. Obrigatório.",
+              },
+              data: {
+                type: "string",
+                description:
+                  "Data REAL da compra (competência) no formato YYYY-MM-DD.",
+              },
+              tipoDespesa: {
+                type: "string",
+                description:
+                  "Categoria da despesa (ex.: MATERIAL_CONSTRUCAO, ALIMENTACAO, TRANSPORTE, MORADIA, SUPERMERCADO, OUTROS).",
+              },
+              valor: {
+                type: "string",
+                description:
+                  'Novo valor unitário em REAIS, exatamente como falado, com vírgula decimal brasileira (ex.: "206,96"). A vírgula é separador de centavos — não remova nem multiplique.',
+              },
+              titulo: { type: "string", description: "Nova descrição curta." },
+              fornecedor: {
+                type: "string",
+                description: "Novo fornecedor/loja.",
+              },
             },
-            required: ['expenseId'],
+            required: ["expenseId"],
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const expenseId = this.optStr(args['expenseId']);
-          if (!expenseId) return { error: 'Informe o expenseId da despesa a atualizar.' };
+          const expenseId = this.optStr(args["expenseId"]);
+          if (!expenseId)
+            return { error: "Informe o expenseId da despesa a atualizar." };
 
           const expenseScope = await ctx.scopeFor(EXPENSE_MODULE);
           const existing = await this.prisma.expense.findFirst({
@@ -959,34 +1415,48 @@ export class AgentToolsService {
             },
             select: { id: true, projectId: true, formaPagamento: true },
           });
-          if (!existing) return { error: 'Despesa não encontrada.' };
+          if (!existing) return { error: "Despesa não encontrada." };
 
           // ACL: confirma que o usuário pode escrever no projeto dono da despesa.
-          const project = await this.resolveWritableProject(ctx, existing.projectId, 'expenses');
+          const project = await this.resolveWritableProject(
+            ctx,
+            existing.projectId,
+            "expenses",
+          );
 
           const dto: Record<string, unknown> = {};
-          const tipoProvided = this.optStr(args['tipoDespesa']);
-          if (tipoProvided) dto.tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
-          if (args['valor'] !== undefined) {
-            const valor = this.parseMoney(args['valor']);
-            if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+          const tipoProvided = this.optStr(args["tipoDespesa"]);
+          if (tipoProvided)
+            dto.tipoDespesa = this.normalizeEnum(
+              args["tipoDespesa"],
+              ExpenseType,
+              "OUTROS",
+            );
+          if (args["valor"] !== undefined) {
+            const valor = this.parseMoney(args["valor"]);
+            if (valor == null)
+              return { error: "Informe um valor em reais maior que zero." };
             dto.valor = valor;
           }
-          const titulo = this.optStr(args['titulo']);
+          const titulo = this.optStr(args["titulo"]);
           if (titulo) dto.titulo = titulo;
-          const fornecedor = this.optStr(args['fornecedor']);
+          const fornecedor = this.optStr(args["fornecedor"]);
           if (fornecedor) dto.fornecedor = fornecedor;
 
-          const data = this.optDate(args['data']);
+          const data = this.optDate(args["data"]);
           if (data) {
             // Competência sempre; data de pagamento conforme a forma da despesa.
             dto.dataCompra = data;
-            if (isSinglePaymentForm(existing.formaPagamento)) dto.dataPagamento = data;
+            if (isSinglePaymentForm(existing.formaPagamento))
+              dto.dataPagamento = data;
             else dto.dataInicioParcela = data;
           }
 
           if (Object.keys(dto).length === 0) {
-            return { error: 'Nada para atualizar: informe data, tipoDespesa, valor, título ou fornecedor.' };
+            return {
+              error:
+                "Nada para atualizar: informe data, tipoDespesa, valor, título ou fornecedor.",
+            };
           }
 
           const updated = await this.expenses.update(
@@ -1007,27 +1477,30 @@ export class AgentToolsService {
               valorTotalCentavos: updated.valorTotal,
               data: data ?? undefined,
             },
-            mensagem: 'Despesa atualizada.',
+            mensagem: "Despesa atualizada.",
           };
         },
       },
 
       get_cashflow_history: {
         def: {
-          name: 'get_cashflow_history',
+          name: "get_cashflow_history",
           description:
-            'Série mensal consolidada (últimos N meses, default 6): por mês retorna pago (despesas), planejado, recebido (entradas) e saldo acumulado. ' +
+            "Série mensal consolidada (últimos N meses, default 6): por mês retorna pago (despesas), planejado, recebido (entradas) e saldo acumulado. " +
             'Use para tendência do patrimônio/caixa, TAXA DE POUPANÇA (recebido − pago no período) e detectar "buracos" futuros. Valores em centavos.',
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              months: { type: 'integer', description: 'Janela em meses (1 a 36, default 6).' },
+              months: {
+                type: "integer",
+                description: "Janela em meses (1 a 36, default 6).",
+              },
             },
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const months = this.clampInt(args['months'], 6, 1, 36);
+          const months = this.clampInt(args["months"], 6, 1, 36);
           const serie = await this.financial.getCashFlow(
             ctx.tenantId,
             months,
@@ -1036,13 +1509,25 @@ export class AgentToolsService {
           const totalRecebido = serie.reduce((s, p) => s + p.recebido, 0);
           const totalPago = serie.reduce((s, p) => s + p.pago, 0);
           return {
-            meses: serie.map((p) => ({ mes: p.mes, pago: p.pago, planejado: p.planejado, recebido: p.recebido, previsto: p.previsto, saldoAcumulado: p.saldoAcumulado })),
+            meses: serie.map((p) => ({
+              mes: p.mes,
+              pago: p.pago,
+              planejado: p.planejado,
+              recebido: p.recebido,
+              previsto: p.previsto,
+              saldoAcumulado: p.saldoAcumulado,
+            })),
             resumo: {
               meses: months,
               totalRecebido,
               totalPago,
               poupancaPeriodo: totalRecebido - totalPago,
-              taxaPoupancaPercent: totalRecebido > 0 ? Math.round(((totalRecebido - totalPago) / totalRecebido) * 100) : null,
+              taxaPoupancaPercent:
+                totalRecebido > 0
+                  ? Math.round(
+                      ((totalRecebido - totalPago) / totalRecebido) * 100,
+                    )
+                  : null,
             },
           };
         },
@@ -1050,43 +1535,69 @@ export class AgentToolsService {
 
       get_recurring_bills: {
         def: {
-          name: 'get_recurring_bills',
+          name: "get_recurring_bills",
           description:
-            'Lista contas/assinaturas recorrentes ATIVAS (nome, categoria, valor, frequência, próximo vencimento) e o custo MENSAL normalizado total. ' +
+            "Lista contas/assinaturas recorrentes ATIVAS (nome, categoria, valor, frequência, próximo vencimento) e o custo MENSAL normalizado total. " +
             'Use para "assinaturas que drenam dinheiro", custos fixos e choques anuais (IPVA, seguro, IPTU). Valores em centavos.',
           parameters: noParams,
         },
         run: async (ctx) => {
           const scope = ctx.projectScope ?? null;
           const bills = await this.prisma.recurringBill.findMany({
-            where: { tenantId: ctx.tenantId, deletedAt: null, status: 'ATIVO', ...(scope !== null ? { projectId: { in: scope } } : {}) },
-            select: { nome: true, categoria: true, valor: true, frequencia: true, proximoVencimento: true, project: { select: { name: true } } },
-            orderBy: { proximoVencimento: 'asc' },
+            where: {
+              tenantId: ctx.tenantId,
+              deletedAt: null,
+              status: "ATIVO",
+              ...(scope !== null ? { projectId: { in: scope } } : {}),
+            },
+            select: {
+              nome: true,
+              categoria: true,
+              valor: true,
+              frequencia: true,
+              proximoVencimento: true,
+              project: { select: { name: true } },
+            },
+            orderBy: { proximoVencimento: "asc" },
           });
-          const perMonthFactor: Record<string, number> = { MENSAL: 1, BIMESTRAL: 1 / 2, TRIMESTRAL: 1 / 3, SEMESTRAL: 1 / 6, ANUAL: 1 / 12 };
+          const perMonthFactor: Record<string, number> = {
+            MENSAL: 1,
+            BIMESTRAL: 1 / 2,
+            TRIMESTRAL: 1 / 3,
+            SEMESTRAL: 1 / 6,
+            ANUAL: 1 / 12,
+          };
           let custoMensalCentavos = 0;
           const itens = bills.map((b) => {
-            custoMensalCentavos += Math.round(b.valor * (perMonthFactor[b.frequencia] ?? 1));
+            custoMensalCentavos += Math.round(
+              b.valor * (perMonthFactor[b.frequencia] ?? 1),
+            );
             return {
               nome: b.nome,
               categoria: b.categoria,
               valorCentavos: b.valor,
               frequencia: b.frequencia,
-              proximoVencimento: b.proximoVencimento ? b.proximoVencimento.toISOString().slice(0, 10) : null,
+              proximoVencimento: b.proximoVencimento
+                ? b.proximoVencimento.toISOString().slice(0, 10)
+                : null,
               projeto: b.project?.name ?? null,
             };
           });
-          return { itens, custoMensalCentavos, custoAnualCentavos: custoMensalCentavos * 12 };
+          return {
+            itens,
+            custoMensalCentavos,
+            custoAnualCentavos: custoMensalCentavos * 12,
+          };
         },
       },
 
       get_account_balances: {
         def: {
-          name: 'get_account_balances',
+          name: "get_account_balances",
           description:
             'Componentes de PATRIMÔNIO: o SALDO REAL da conta bancária de cada projeto pessoal — saldo inicial cadastrado + entradas − despesas pagas, já reconciliado com o extrato, o MESMO número que a tela "Conta" estampa em "Tenho na conta hoje" — e a FATURA ABERTA de cada cartão (dívida atual). ' +
-            'Use para estimar patrimônio líquido (saldos − dívida de cartões) e RESERVA DE EMERGÊNCIA. ' +
-            'IMPORTANTE: investimentos, financiamentos e outros ativos/dívidas NÃO são rastreados aqui — pergunte ao usuário e some manualmente. Valores em centavos.',
+            "Use para estimar patrimônio líquido (saldos − dívida de cartões) e RESERVA DE EMERGÊNCIA. " +
+            "IMPORTANTE: investimentos, financiamentos e outros ativos/dívidas NÃO são rastreados aqui — pergunte ao usuário e some manualmente. Valores em centavos.",
           parameters: noParams,
         },
         run: async (ctx) => {
@@ -1099,12 +1610,25 @@ export class AgentToolsService {
           const cardScope = await ctx.scopeFor(CREDIT_CARD_MODULE);
           const projectScope = unionProjectScope(balanceScope, cardScope);
           const projects = await this.prisma.project.findMany({
-            where: { tenantId: ctx.tenantId, deletedAt: null, ...(projectScope !== null ? { id: { in: projectScope } } : {}) },
+            where: {
+              tenantId: ctx.tenantId,
+              deletedAt: null,
+              ...(projectScope !== null ? { id: { in: projectScope } } : {}),
+            },
             select: { id: true, name: true, type: true },
           });
 
-          const contas: { conta: string; projeto: string; saldoCentavos: number }[] = [];
-          const cartoes: { cartao: string; projeto: string; faturaAbertaCentavos: number; limiteCentavos: number | null }[] = [];
+          const contas: {
+            conta: string;
+            projeto: string;
+            saldoCentavos: number;
+          }[] = [];
+          const cartoes: {
+            cartao: string;
+            projeto: string;
+            faturaAbertaCentavos: number;
+            limiteCentavos: number | null;
+          }[] = [];
 
           for (const p of projects) {
             const [caixa, cards] = await Promise.all([
@@ -1117,7 +1641,8 @@ export class AgentToolsService {
               // divergência; a tool consome, não recalcula.
               // §10 é o eixo de caixa do cockpit PESSOAL — é o próprio contrato do
               // delegador que exige o filtro por tipo antes da chamada.
-              projectScopeIncludes(balanceScope, p.id) && p.type === ProjectType.PESSOAL
+              projectScopeIncludes(balanceScope, p.id) &&
+              p.type === ProjectType.PESSOAL
                 ? this.monthly.getCaixaConta(ctx.tenantId, p.id)
                 : Promise.resolve(null),
               projectScopeIncludes(cardScope, p.id)
@@ -1134,20 +1659,33 @@ export class AgentToolsService {
               });
             }
             for (const c of cards) {
-              cartoes.push({ cartao: c.nickname, projeto: p.name, faturaAbertaCentavos: c.openInvoiceUsedCents, limiteCentavos: c.limitTotalCents });
+              cartoes.push({
+                cartao: c.nickname,
+                projeto: p.name,
+                faturaAbertaCentavos: c.openInvoiceUsedCents,
+                limiteCentavos: c.limitTotalCents,
+              });
             }
           }
 
-          const saldoBancarioTotal = contas.reduce((s, c) => s + c.saldoCentavos, 0);
-          const dividaCartoesTotal = cartoes.reduce((s, c) => s + c.faturaAbertaCentavos, 0);
+          const saldoBancarioTotal = contas.reduce(
+            (s, c) => s + c.saldoCentavos,
+            0,
+          );
+          const dividaCartoesTotal = cartoes.reduce(
+            (s, c) => s + c.faturaAbertaCentavos,
+            0,
+          );
           return {
             contas,
             cartoes,
             totais: {
               saldoBancarioTotalCentavos: saldoBancarioTotal,
               dividaCartoesTotalCentavos: dividaCartoesTotal,
-              patrimonioParcialCentavos: saldoBancarioTotal - dividaCartoesTotal,
-              observacao: 'Parcial: não inclui investimentos/financiamentos não rastreados. Pergunte ao usuário para completar.',
+              patrimonioParcialCentavos:
+                saldoBancarioTotal - dividaCartoesTotal,
+              observacao:
+                "Parcial: não inclui investimentos/financiamentos não rastreados. Pergunte ao usuário para completar.",
             },
           };
         },
@@ -1155,33 +1693,62 @@ export class AgentToolsService {
 
       create_receipt: {
         def: {
-          name: 'create_receipt',
+          name: "create_receipt",
           description:
-            'Cadastra um RECEBIMENTO (entrada de dinheiro) num projeto a partir de linguagem natural. ' +
+            "Cadastra um RECEBIMENTO (entrada de dinheiro) num projeto a partir de linguagem natural. " +
             'Use quando o usuário disser que recebeu/entrou dinheiro (ex.: "recebi 5 mil de salário", "entrou 800 de freelance"). ' +
-            'O valor é em REAIS. Mesmo critério de projeto do create_expense (foco atual ou list_projects). ' +
-            'Confirme valor e projeto com o usuário quando houver ambiguidade.',
+            "O valor é em REAIS. Mesmo critério de projeto do create_expense (foco atual ou list_projects). " +
+            "Confirme valor e projeto com o usuário quando houver ambiguidade.",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              projectId: { type: 'string', description: 'Id do projeto. Opcional se há projeto em foco.' },
-              valor: { type: 'string', description: 'Valor em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "5.000,00", "206,96", "50". A vírgula é separador de centavos — NUNCA a remova nem multiplique. Obrigatório.' },
-              data: { type: 'string', description: 'Data no formato YYYY-MM-DD. Default: hoje.' },
-              tipo: { type: 'string', description: 'Tipo do recebimento. Ex.: SALARIO, PAGAMENTO, FREELANCE, ALUGUEL, REEMBOLSO, PIX_RECEBIDO, OUTROS. Use OUTROS se não tiver certeza.' },
-              status: { type: 'string', enum: ['EM_CAIXA', 'PREVISTO'], description: 'EM_CAIXA se o dinheiro já entrou; PREVISTO se é uma entrada futura. Default EM_CAIXA.' },
+              projectId: {
+                type: "string",
+                description: "Id do projeto. Opcional se há projeto em foco.",
+              },
+              valor: {
+                type: "string",
+                description:
+                  'Valor em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "5.000,00", "206,96", "50". A vírgula é separador de centavos — NUNCA a remova nem multiplique. Obrigatório.',
+              },
+              data: {
+                type: "string",
+                description: "Data no formato YYYY-MM-DD. Default: hoje.",
+              },
+              tipo: {
+                type: "string",
+                description:
+                  "Tipo do recebimento. Ex.: SALARIO, PAGAMENTO, FREELANCE, ALUGUEL, REEMBOLSO, PIX_RECEBIDO, OUTROS. Use OUTROS se não tiver certeza.",
+              },
+              status: {
+                type: "string",
+                enum: ["EM_CAIXA", "PREVISTO"],
+                description:
+                  "EM_CAIXA se o dinheiro já entrou; PREVISTO se é uma entrada futura. Default EM_CAIXA.",
+              },
             },
-            required: ['valor'],
+            required: ["valor"],
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const project = await this.resolveWritableProject(ctx, args['projectId'], 'receipts');
-          const valor = this.parseMoney(args['valor']);
-          if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+          const project = await this.resolveWritableProject(
+            ctx,
+            args["projectId"],
+            "receipts",
+          );
+          const valor = this.parseMoney(args["valor"]);
+          if (valor == null)
+            return { error: "Informe um valor em reais maior que zero." };
 
-          const tipo = this.normalizeEnum(args['tipo'], ReceiptType, 'OUTROS');
-          const status = this.pickEnumStr(args['status'], ['EM_CAIXA', 'PREVISTO'], 'EM_CAIXA');
-          const data = this.optDate(args['data']) ?? new Date().toISOString().slice(0, 10);
+          const tipo = this.normalizeEnum(args["tipo"], ReceiptType, "OUTROS");
+          const status = this.pickEnumStr(
+            args["status"],
+            ["EM_CAIXA", "PREVISTO"],
+            "EM_CAIXA",
+          );
+          const data =
+            this.optDate(args["data"]) ?? new Date().toISOString().slice(0, 10);
 
           const created = await this.receipts.create(ctx.tenantId, project.id, {
             valor,
@@ -1207,91 +1774,177 @@ export class AgentToolsService {
 
       create_obra_expense: {
         def: {
-          name: 'create_obra_expense',
+          name: "create_obra_expense",
           description:
-            'Registra uma despesa de um PROJETO de obra/aquisição (REFORMA/COMPRA/CASA/CARRO) que foi PAGA com dinheiro pessoal. ' +
-            'Cria DOIS lados vinculados, sem duplicar: (1) a despesa no projeto da obra (registro da obra, aparece no controle do projeto e no consolidado) e ' +
-            '(2) um ESPELHO no projeto PESSOAL (registra a saída do caixa, com o cartão/conta usado). ' +
-            'Use SEMPRE que o usuário disser que pagou algo de um projeto de obra com o dinheiro/cartão/conta pessoal ' +
+            "Registra uma despesa de um PROJETO de obra/aquisição (REFORMA/COMPRA/CASA/CARRO) que foi PAGA com dinheiro pessoal. " +
+            "Cria DOIS lados vinculados, sem duplicar: (1) a despesa no projeto da obra (registro da obra, aparece no controle do projeto e no consolidado) e " +
+            "(2) um ESPELHO no projeto PESSOAL (registra a saída do caixa, com o cartão/conta usado). " +
+            "Use SEMPRE que o usuário disser que pagou algo de um projeto de obra com o dinheiro/cartão/conta pessoal " +
             '(ex.: "paguei 140 de material da reforma pelo Itaú", "gastei 500 na obra da casa no cartão Nubank"). ' +
-            'Para despesas puramente pessoais (mercado, lazer) use create_expense normal.',
+            "Para despesas puramente pessoais (mercado, lazer) use create_expense normal.",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              obraProjectId: { type: 'string', description: 'Id do projeto da obra/aquisição (REFORMA/COMPRA/CASA/CARRO). Use list_projects para resolver pelo nome.' },
-              pessoalProjectId: { type: 'string', description: 'Id do projeto PESSOAL (caixa). Opcional: se houver apenas um PESSOAL acessível, é resolvido automaticamente.' },
-              valor: { type: 'string', description: 'Valor em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "140,00", "206,96", "1.200,50". A vírgula é separador de centavos — NUNCA a remova nem multiplique. Obrigatório.' },
-              tipoDespesa: { type: 'string', description: 'Categoria da despesa (ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, OBRA_REFORMA, OUTROS). Use OUTROS se não tiver certeza.' },
-              titulo: { type: 'string', description: 'Descrição curta (opcional).' },
-              fornecedor: { type: 'string', description: 'Fornecedor/loja (ex.: "Obramax").' },
-              data: { type: 'string', description: 'Data REAL da compra (competência) no formato YYYY-MM-DD. Default: hoje. Para cartão, o vencimento da fatura é derivado automaticamente desta data.' },
-              quantidadeParcela: { type: 'integer', description: 'Número de parcelas quando a compra foi parcelada (ex.: "em 2x"/"duas parcelas" -> 2). Omita para à vista.' },
-              creditCardId: { type: 'string', description: 'Cartão usado no pagamento (via list_payment_methods). Vai no espelho pessoal.' },
-              bankAccountId: { type: 'string', description: 'Conta usada no pagamento (via list_payment_methods). Vai no espelho pessoal.' },
+              obraProjectId: {
+                type: "string",
+                description:
+                  "Id do projeto da obra/aquisição (REFORMA/COMPRA/CASA/CARRO). Use list_projects para resolver pelo nome.",
+              },
+              pessoalProjectId: {
+                type: "string",
+                description:
+                  "Id do projeto PESSOAL (caixa). Opcional: se houver apenas um PESSOAL acessível, é resolvido automaticamente.",
+              },
+              valor: {
+                type: "string",
+                description:
+                  'Valor em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "140,00", "206,96", "1.200,50". A vírgula é separador de centavos — NUNCA a remova nem multiplique. Obrigatório.',
+              },
+              tipoDespesa: {
+                type: "string",
+                description:
+                  "Categoria da despesa (ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, OBRA_REFORMA, OUTROS). Use OUTROS se não tiver certeza.",
+              },
+              titulo: {
+                type: "string",
+                description: "Descrição curta (opcional).",
+              },
+              fornecedor: {
+                type: "string",
+                description: 'Fornecedor/loja (ex.: "Obramax").',
+              },
+              data: {
+                type: "string",
+                description:
+                  "Data REAL da compra (competência) no formato YYYY-MM-DD. Default: hoje. Para cartão, o vencimento da fatura é derivado automaticamente desta data.",
+              },
+              quantidadeParcela: {
+                type: "integer",
+                description:
+                  'Número de parcelas quando a compra foi parcelada (ex.: "em 2x"/"duas parcelas" -> 2). Omita para à vista.',
+              },
+              creditCardId: {
+                type: "string",
+                description:
+                  "Cartão usado no pagamento (via list_payment_methods). Vai no espelho pessoal.",
+              },
+              bankAccountId: {
+                type: "string",
+                description:
+                  "Conta usada no pagamento (via list_payment_methods). Vai no espelho pessoal.",
+              },
             },
-            required: ['obraProjectId', 'valor'],
+            required: ["obraProjectId", "valor"],
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
-          const obra = await this.resolveWritableProject(ctx, args['obraProjectId'], 'expenses');
-          if (obra.type === 'PESSOAL') {
-            return { error: 'O projeto da obra não pode ser PESSOAL. Para despesa pessoal use create_expense.' };
+          const obra = await this.resolveWritableProject(
+            ctx,
+            args["obraProjectId"],
+            "expenses",
+          );
+          if (obra.type === "PESSOAL") {
+            return {
+              error:
+                "O projeto da obra não pode ser PESSOAL. Para despesa pessoal use create_expense.",
+            };
           }
-          const pessoal = await this.resolvePessoalProject(ctx, args['pessoalProjectId']);
+          const pessoal = await this.resolvePessoalProject(
+            ctx,
+            args["pessoalProjectId"],
+          );
 
-          const valor = this.parseMoney(args['valor']);
-          if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+          const valor = this.parseMoney(args["valor"]);
+          if (valor == null)
+            return { error: "Informe um valor em reais maior que zero." };
 
-          const tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
-          const data = this.optDate(args['data']);
-          const titulo = this.optStr(args['titulo']);
-          const fornecedor = this.optStr(args['fornecedor']);
-          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card', EXPENSE_MODULE);
-          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account', EXPENSE_MODULE);
+          const tipoDespesa = this.normalizeEnum(
+            args["tipoDespesa"],
+            ExpenseType,
+            "OUTROS",
+          );
+          const data = this.optDate(args["data"]);
+          const titulo = this.optStr(args["titulo"]);
+          const fornecedor = this.optStr(args["fornecedor"]);
+          const creditCardId = await this.resolvePaymentRef(
+            ctx,
+            args["creditCardId"],
+            "card",
+            EXPENSE_MODULE,
+          );
+          const bankAccountId = await this.resolvePaymentRef(
+            ctx,
+            args["bankAccountId"],
+            "account",
+            EXPENSE_MODULE,
+          );
 
           // Parcelamento (propriedade da compra): aplicado igual nos dois lados,
           // mantendo canônico e espelho consistentes. A data informada é a DATA
           // DA COMPRA (competência); o caixa deriva o vencimento da fatura do
           // cartão a partir dela.
-          const parcelas = this.optInt(args['quantidadeParcela'], 2, 60);
-          const formaPagamento = parcelas ? 'PARCELADO' : 'A_VISTA';
+          const parcelas = this.optInt(args["quantidadeParcela"], 2, 60);
+          const formaPagamento = parcelas ? "PARCELADO" : "A_VISTA";
           const dateFields = parcelas
-            ? { dataInicioParcela: data, quantidadeParcela: parcelas, dataCompra: data }
+            ? {
+                dataInicioParcela: data,
+                quantidadeParcela: parcelas,
+                dataCompra: data,
+              }
             : { dataPagamento: data, dataCompra: data };
 
           // 1) Canônico na obra (registro do projeto — sem meio de pagamento).
-          const canonico = await this.expenses.create(ctx.tenantId, obra.id, {
-            tipoDespesa,
-            valor,
-            quantidade: 1,
-            formaPagamento,
-            status: 'PAGO',
-            titulo,
-            fornecedor,
-            ...dateFields,
-          } as any, ctx.userId ?? null, undefined, this.rateioRequester(ctx));
+          const canonico = await this.expenses.create(
+            ctx.tenantId,
+            obra.id,
+            {
+              tipoDespesa,
+              valor,
+              quantidade: 1,
+              formaPagamento,
+              status: "PAGO",
+              titulo,
+              fornecedor,
+              ...dateFields,
+            } as any,
+            ctx.userId ?? null,
+            undefined,
+            this.rateioRequester(ctx),
+          );
 
           // 2) Espelho no PESSOAL (saída do caixa) vinculado ao canônico.
           //    Se falhar, desfaz o canônico para não deixar registro pela metade.
           let espelho;
           try {
-            espelho = await this.expenses.create(ctx.tenantId, pessoal.id, {
-              tipoDespesa,
-              valor,
-              quantidade: 1,
-              formaPagamento,
-              status: 'PAGO',
-              titulo,
-              fornecedor,
-              ...dateFields,
-              creditCardId,
-              bankAccountId,
-              linkedExpenseId: canonico.id,
-            } as any, ctx.userId ?? null, undefined, this.rateioRequester(ctx));
+            espelho = await this.expenses.create(
+              ctx.tenantId,
+              pessoal.id,
+              {
+                tipoDespesa,
+                valor,
+                quantidade: 1,
+                formaPagamento,
+                status: "PAGO",
+                titulo,
+                fornecedor,
+                ...dateFields,
+                creditCardId,
+                bankAccountId,
+                linkedExpenseId: canonico.id,
+              } as any,
+              ctx.userId ?? null,
+              undefined,
+              this.rateioRequester(ctx),
+            );
           } catch (e) {
             await this.expenses
-              .remove(ctx.tenantId, obra.id, canonico.id, this.rateioRequester(ctx))
+              .remove(
+                ctx.tenantId,
+                obra.id,
+                canonico.id,
+                this.rateioRequester(ctx),
+              )
               .catch(() => undefined);
             throw e;
           }
@@ -1313,88 +1966,97 @@ export class AgentToolsService {
               cardLast4: espelho.cardLast4 ?? null,
               bankLast4: espelho.bankLast4 ?? null,
             },
-            mensagem: `Registrado: despesa em "${obra.name}"${parcelas ? ` (${parcelas}x)` : ''} e espelho no caixa "${pessoal.name}" (sem duplicar no consolidado).`,
+            mensagem: `Registrado: despesa em "${obra.name}"${parcelas ? ` (${parcelas}x)` : ""} e espelho no caixa "${pessoal.name}" (sem duplicar no consolidado).`,
           };
         },
       },
 
       create_price_alert: {
         def: {
-          name: 'create_price_alert',
+          name: "create_price_alert",
           description:
-            'Cria um alerta de preço para monitorar um produto e receber notificação quando atingir o preço-alvo. ' +
+            "Cria um alerta de preço para monitorar um produto e receber notificação quando atingir o preço-alvo. " +
             'Use quando o usuário disser "monitora o iPhone por 5 mil" ou "alerta se cair para R$ 3.500".',
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
               projectId: {
-                type: 'string',
-                description: 'Projeto onde criar o alerta (COMPRA/REFORMA). Se omitido, usa primeiro disponível.',
+                type: "string",
+                description:
+                  "Projeto onde criar o alerta (COMPRA/REFORMA). Se omitido, usa primeiro disponível.",
               },
               title: {
-                type: 'string',
-                description: 'Nome do produto (ex: "iPhone 16", "Smart TV 55\")',
+                type: "string",
+                description:
+                  'Nome do produto (ex: "iPhone 16", "Smart TV 55\")',
               },
               url: {
-                type: 'string',
-                description: 'URL do produto (opcional; se omitido, Maria busca automaticamente).',
+                type: "string",
+                description:
+                  "URL do produto (opcional; se omitido, Maria busca automaticamente).",
               },
               targetPriceCentavos: {
-                type: 'integer',
-                description: 'Preço-alvo em centavos (ex: 500000 = R$ 5.000). Alerta dispara se ≤ este valor.',
+                type: "integer",
+                description:
+                  "Preço-alvo em centavos (ex: 500000 = R$ 5.000). Alerta dispara se ≤ este valor.",
                 minimum: 1,
               },
               diasMonitoramento: {
-                type: 'integer',
-                description: 'Dias para monitorar (padrão 30, mín 1, máx 365).',
+                type: "integer",
+                description: "Dias para monitorar (padrão 30, mín 1, máx 365).",
                 minimum: 1,
                 maximum: 365,
               },
             },
-            required: ['title', 'targetPriceCentavos'],
+            required: ["title", "targetPriceCentavos"],
             additionalProperties: false,
           },
         },
         run: async (ctx, args) => {
           const projectIds = await this.resolvePriceCompareProjectIds(
             ctx,
-            args['projectId']
+            args["projectId"],
           );
           if (projectIds.length === 0) {
             return {
               error:
-                'Nenhum projeto com monitoramento de preços (COMPRA/REFORMA) no seu escopo.',
+                "Nenhum projeto com monitoramento de preços (COMPRA/REFORMA) no seu escopo.",
             };
           }
 
-          const title = this.optStr(args['title']);
+          const title = this.optStr(args["title"]);
           if (!title || title.length < 2) {
-            return { error: 'Informe um nome de produto válido (mín 2 caracteres).' };
+            return {
+              error: "Informe um nome de produto válido (mín 2 caracteres).",
+            };
           }
 
           const targetPrice = this.optInt(
-            args['targetPriceCentavos'],
+            args["targetPriceCentavos"],
             1,
-            1_000_000_000
+            1_000_000_000,
           );
           if (!targetPrice) {
-            return { error: 'Informe um preço-alvo válido (1 centavo a R$ 10 milhões).' };
+            return {
+              error:
+                "Informe um preço-alvo válido (1 centavo a R$ 10 milhões).",
+            };
           }
 
           const dias = Math.min(
             365,
-            Math.max(1, parseInt(args['diasMonitoramento'] as string) || 30)
+            Math.max(1, parseInt(args["diasMonitoramento"] as string) || 30),
           );
-          const url = this.optStr(args['url']);
+          const url = this.optStr(args["url"]);
 
           try {
             const item = await this.priceMonitor.createItem(
               ctx.tenantId,
               projectIds[0],
               title,
-              url ?? '',
+              url ?? "",
               targetPrice,
-              dias
+              dias,
             );
 
             return {
@@ -1402,14 +2064,17 @@ export class AgentToolsService {
               alertId: item.id,
               alert: {
                 titulo: item.title,
-                alvoEmReais: ((item.targetPrice ?? 0) / 100).toLocaleString('pt-BR', {
-                  style: 'currency',
-                  currency: 'BRL',
-                }),
+                alvoEmReais: ((item.targetPrice ?? 0) / 100).toLocaleString(
+                  "pt-BR",
+                  {
+                    style: "currency",
+                    currency: "BRL",
+                  },
+                ),
                 monitorandoAte: item.monitoringEndDate
                   ? item.monitoringEndDate.toISOString().slice(0, 10)
                   : null,
-                msg: `Alerta criado! 🔔 Vou te avisar quando ${item.title} cair para ${((item.targetPrice ?? 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} ou menos.`,
+                msg: `Alerta criado! 🔔 Vou te avisar quando ${item.title} cair para ${((item.targetPrice ?? 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} ou menos.`,
               },
             };
           } catch (err: any) {
@@ -1420,16 +2085,16 @@ export class AgentToolsService {
 
       list_price_alerts: {
         def: {
-          name: 'list_price_alerts',
+          name: "list_price_alerts",
           description:
-            'Lista todos os alertas de preço ativos do usuário com status, preço-alvo e quando expira. ' +
+            "Lista todos os alertas de preço ativos do usuário com status, preço-alvo e quando expira. " +
             'Use quando perguntarem "quais alertas tenho?" ou "monitora quais produtos?".',
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
               projectId: {
-                type: 'string',
-                description: 'Filtrar por projeto específico (opcional).',
+                type: "string",
+                description: "Filtrar por projeto específico (opcional).",
               },
             },
             additionalProperties: false,
@@ -1438,10 +2103,13 @@ export class AgentToolsService {
         run: async (ctx, args) => {
           const projectIds = await this.resolvePriceCompareProjectIds(
             ctx,
-            args['projectId']
+            args["projectId"],
           );
           if (projectIds.length === 0) {
-            return { alerts: [], msg: 'Nenhum projeto com monitoramento disponível.' };
+            return {
+              alerts: [],
+              msg: "Nenhum projeto com monitoramento disponível.",
+            };
           }
 
           try {
@@ -1452,7 +2120,7 @@ export class AgentToolsService {
                 deletedAt: null,
                 targetPrice: { not: null },
               },
-              orderBy: { monitoringEndDate: 'asc' },
+              orderBy: { monitoringEndDate: "asc" },
               take: 50,
             });
 
@@ -1463,24 +2131,24 @@ export class AgentToolsService {
               const diasRestantes = item.monitoringEndDate
                 ? Math.ceil(
                     (item.monitoringEndDate.getTime() - now.getTime()) /
-                      (24 * 60 * 60 * 1000)
+                      (24 * 60 * 60 * 1000),
                   )
                 : null;
 
               return {
                 id: item.id,
                 titulo: item.title,
-                alvoEmReais: (item.targetPrice / 100).toLocaleString('pt-BR', {
-                  style: 'currency',
-                  currency: 'BRL',
+                alvoEmReais: (item.targetPrice / 100).toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
                 }),
                 ativo: isActive,
                 diasRestantes,
                 melhorPrecoCentavos: item.lastBestPrice,
                 melhorPreco: item.lastBestPrice
-                  ? (item.lastBestPrice / 100).toLocaleString('pt-BR', {
-                      style: 'currency',
-                      currency: 'BRL',
+                  ? (item.lastBestPrice / 100).toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
                     })
                   : null,
                 checadoEm: item.lastCheckedAt
@@ -1499,8 +2167,8 @@ export class AgentToolsService {
               alerts,
               msg: `Você tem ${active} alerta(s) ativo(s) e ${expired} expirado(s). ${
                 active === 0
-                  ? 'Nenhum alerta ativo no momento.'
-                  : 'Vou verificar preços a cada hora.'
+                  ? "Nenhum alerta ativo no momento."
+                  : "Vou verificar preços a cada hora."
               }`,
             };
           } catch (err: any) {
@@ -1511,7 +2179,12 @@ export class AgentToolsService {
     };
   }
 
-  private clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  private clampInt(
+    value: unknown,
+    fallback: number,
+    min: number,
+    max: number,
+  ): number {
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.min(max, Math.max(min, Math.round(n)));
@@ -1523,13 +2196,15 @@ export class AgentToolsService {
   ): Promise<string[]> {
     if (!isFullAccessRole(ctx.role)) {
       const mods = Array.isArray(ctx.allowedModules) ? ctx.allowedModules : [];
-      if (!mods.includes('priceCompare')) {
-        throw new Error('Sem permissão para o módulo de comparação de preços.');
+      if (!mods.includes("priceCompare")) {
+        throw new Error("Sem permissão para o módulo de comparação de preços.");
       }
     }
 
     const explicitProjectId =
-      typeof rawProjectId === 'string' && rawProjectId.trim() ? rawProjectId.trim() : '';
+      typeof rawProjectId === "string" && rawProjectId.trim()
+        ? rawProjectId.trim()
+        : "";
     const scope = ctx.projectScope ?? null;
 
     if (explicitProjectId) {
@@ -1542,8 +2217,8 @@ export class AgentToolsService {
         },
         select: { id: true, type: true },
       });
-      if (!project) throw new Error('Projeto não encontrado.');
-      if (!projectTypeHasModule(project.type, 'priceCompare')) {
+      if (!project) throw new Error("Projeto não encontrado.");
+      if (!projectTypeHasModule(project.type, "priceCompare")) {
         throw new Error(
           `Projetos do tipo "${project.type}" não suportam monitoramento de preços.`,
         );
@@ -1558,14 +2233,16 @@ export class AgentToolsService {
         ...(scope !== null ? { id: { in: scope } } : {}),
       },
       select: { id: true, type: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
     const eligible = projects
-      .filter((p) => projectTypeHasModule(p.type, 'priceCompare'))
+      .filter((p) => projectTypeHasModule(p.type, "priceCompare"))
       .map((p) => p.id);
 
     if (eligible.length === 0) {
-      throw new Error('Nenhum projeto com monitoramento de preços disponível no seu escopo.');
+      throw new Error(
+        "Nenhum projeto com monitoramento de preços disponível no seu escopo.",
+      );
     }
     return eligible;
   }
@@ -1583,7 +2260,10 @@ export class AgentToolsService {
     rawProjectId: unknown,
   ): Promise<{ id: string; name: string; type: string }> {
     const scope = ctx.projectScope ?? null;
-    const explicit = typeof rawProjectId === 'string' && rawProjectId.trim() ? rawProjectId.trim() : '';
+    const explicit =
+      typeof rawProjectId === "string" && rawProjectId.trim()
+        ? rawProjectId.trim()
+        : "";
 
     if (explicit) {
       const project = await this.prisma.project.findFirst({
@@ -1595,29 +2275,39 @@ export class AgentToolsService {
         },
         select: { id: true, name: true, type: true },
       });
-      if (!project) throw new Error('Projeto não encontrado.');
-      if (!projectTypeHasModule(project.type, 'maintenance')) {
-        throw new Error(`Projetos do tipo "${project.type}" não têm registro de manutenção.`);
+      if (!project) throw new Error("Projeto não encontrado.");
+      if (!projectTypeHasModule(project.type, "maintenance")) {
+        throw new Error(
+          `Projetos do tipo "${project.type}" não têm registro de manutenção.`,
+        );
       }
       return project;
     }
 
     const projects = await this.prisma.project.findMany({
-      where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) },
+      where: {
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+        ...(scope !== null ? { id: { in: scope } } : {}),
+      },
       select: { id: true, name: true, type: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
-    const eligible = projects.filter((p) => projectTypeHasModule(p.type, 'maintenance'));
+    const eligible = projects.filter((p) =>
+      projectTypeHasModule(p.type, "maintenance"),
+    );
 
     if (eligible.length === 0) {
-      throw new Error('Nenhum projeto com manutenção disponível no seu escopo.');
+      throw new Error(
+        "Nenhum projeto com manutenção disponível no seu escopo.",
+      );
     }
     if (eligible.length === 1) return eligible[0]!;
 
     const focused = eligible.find((p) => p.id === ctx.projectId);
     if (focused) return focused;
 
-    const nomes = eligible.map((p) => `"${p.name}"`).join(', ');
+    const nomes = eligible.map((p) => `"${p.name}"`).join(", ");
     throw new Error(
       `Há mais de um projeto com manutenção (${nomes}). Peça ao usuário para indicar qual (projectId).`,
     );
@@ -1649,12 +2339,12 @@ export class AgentToolsService {
     module: ModuleSlug,
   ): Promise<{ id: string; name: string; type: string }> {
     const projectId =
-      (typeof rawProjectId === 'string' && rawProjectId.trim()) ||
+      (typeof rawProjectId === "string" && rawProjectId.trim()) ||
       ctx.projectId ||
-      '';
+      "";
     if (!projectId) {
       throw new Error(
-        'Não sei em qual projeto registrar. Use list_projects e peça ao usuário para escolher.',
+        "Não sei em qual projeto registrar. Use list_projects e peça ao usuário para escolher.",
       );
     }
 
@@ -1669,18 +2359,18 @@ export class AgentToolsService {
       },
       select: { id: true, name: true, type: true },
     });
-    if (!project) throw new Error('Projeto não encontrado.');
+    if (!project) throw new Error("Projeto não encontrado.");
 
     if (!projectTypeHasModule(project.type, module)) {
       throw new Error(
-        `Projetos do tipo "${project.type}" não suportam ${module === 'receipts' ? 'recebimentos' : 'despesas'}.`,
+        `Projetos do tipo "${project.type}" não suportam ${module === "receipts" ? "recebimentos" : "despesas"}.`,
       );
     }
     if (!isFullAccessRole(ctx.role)) {
       const mods = Array.isArray(ctx.allowedModules) ? ctx.allowedModules : [];
       if (!mods.includes(module)) {
         throw new Error(
-          `Sem permissão para o módulo de ${module === 'receipts' ? 'recebimentos' : 'despesas'}.`,
+          `Sem permissão para o módulo de ${module === "receipts" ? "recebimentos" : "despesas"}.`,
         );
       }
     }
@@ -1698,7 +2388,8 @@ export class AgentToolsService {
     rawId: unknown,
   ): Promise<{ id: string; name: string; type: string }> {
     const scope = ctx.projectScope ?? null;
-    const explicit = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
+    const explicit =
+      typeof rawId === "string" && rawId.trim() ? rawId.trim() : "";
     if (explicit) {
       const p = await this.prisma.project.findFirst({
         where: {
@@ -1709,24 +2400,32 @@ export class AgentToolsService {
         },
         select: { id: true, name: true, type: true },
       });
-      if (!p) throw new Error('Projeto pessoal não encontrado.');
-      if (p.type !== 'PESSOAL') throw new Error('O projeto de caixa informado não é do tipo PESSOAL.');
+      if (!p) throw new Error("Projeto pessoal não encontrado.");
+      if (p.type !== "PESSOAL")
+        throw new Error("O projeto de caixa informado não é do tipo PESSOAL.");
       return p;
     }
 
     const pessoais = await this.prisma.project.findMany({
-      where: { tenantId: ctx.tenantId, deletedAt: null, type: 'PESSOAL', ...(scope !== null ? { id: { in: scope } } : {}) },
+      where: {
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+        type: "PESSOAL",
+        ...(scope !== null ? { id: { in: scope } } : {}),
+      },
       select: { id: true, name: true, type: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
     if (pessoais.length === 0) {
-      throw new Error('Não há projeto PESSOAL para registrar o caixa. Crie um projeto Pessoal primeiro.');
+      throw new Error(
+        "Não há projeto PESSOAL para registrar o caixa. Crie um projeto Pessoal primeiro.",
+      );
     }
     if (pessoais.length === 1) return pessoais[0]!;
 
     const focused = pessoais.find((p) => p.id === ctx.projectId);
     if (focused) return focused;
-    const nomes = pessoais.map((p) => `"${p.name}"`).join(', ');
+    const nomes = pessoais.map((p) => `"${p.name}"`).join(", ");
     throw new Error(
       `Há mais de um projeto Pessoal (${nomes}). Peça ao usuário para indicar em qual registrar (pessoalProjectId).`,
     );
@@ -1770,14 +2469,14 @@ export class AgentToolsService {
   private async resolvePaymentRef(
     ctx: ScopedToolContext,
     rawId: unknown,
-    kind: 'card' | 'account',
+    kind: "card" | "account",
     callerModule: TypeModuleSlug,
   ): Promise<string | undefined> {
-    const id = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
+    const id = typeof rawId === "string" && rawId.trim() ? rawId.trim() : "";
     if (!id) return undefined;
-    const cardScope = kind === 'card' ? await ctx.scopeFor(callerModule) : null;
+    const cardScope = kind === "card" ? await ctx.scopeFor(callerModule) : null;
     const row =
-      kind === 'card'
+      kind === "card"
         ? await this.prisma.creditCard.findFirst({
             where: {
               id,
@@ -1801,7 +2500,11 @@ export class AgentToolsService {
             select: { projectId: true },
           });
     if (!row) {
-      throw new Error(kind === 'card' ? 'Cartão não encontrado.' : 'Conta bancária não encontrada.');
+      throw new Error(
+        kind === "card"
+          ? "Cartão não encontrado."
+          : "Conta bancária não encontrada.",
+      );
     }
     return id;
   }
@@ -1816,7 +2519,7 @@ export class AgentToolsService {
     rawId: unknown,
     currentProjectId: string,
   ): Promise<string | undefined> {
-    const id = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
+    const id = typeof rawId === "string" && rawId.trim() ? rawId.trim() : "";
     if (!id) return undefined;
     const expenseScope = await ctx.scopeFor(EXPENSE_MODULE);
     const row = await this.prisma.expense.findFirst({
@@ -1828,28 +2531,34 @@ export class AgentToolsService {
       },
       select: { projectId: true },
     });
-    if (!row) throw new Error('Despesa para vínculo não encontrada.');
+    if (!row) throw new Error("Despesa para vínculo não encontrada.");
     if (row.projectId === currentProjectId) {
-      throw new Error('O vínculo cross-project exige uma despesa de OUTRO projeto.');
+      throw new Error(
+        "O vínculo cross-project exige uma despesa de OUTRO projeto.",
+      );
     }
     return id;
   }
 
   private optStr(value: unknown): string | undefined {
-    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
   }
 
   /** Valida YYYY-MM-DD; retorna a string ou undefined. */
   private optDate(value: unknown): string | undefined {
-    if (typeof value !== 'string') return undefined;
+    if (typeof value !== "string") return undefined;
     const s = value.trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? undefined : s;
   }
 
-  private pickEnumStr(value: unknown, allowed: string[], fallback: string): string {
-    if (typeof value === 'string') {
+  private pickEnumStr(
+    value: unknown,
+    allowed: string[],
+    fallback: string,
+  ): string {
+    if (typeof value === "string") {
       const up = value.trim().toUpperCase();
       if (allowed.includes(up)) return up;
     }
@@ -1863,7 +2572,7 @@ export class AgentToolsService {
     fallback: string,
   ): string {
     const values = Object.values(enumObj);
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       const up = value.trim().toUpperCase();
       if (values.includes(up)) return up;
     }

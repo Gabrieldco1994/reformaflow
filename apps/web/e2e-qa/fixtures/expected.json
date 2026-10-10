@@ -1,0 +1,47 @@
+{
+  "profile": "CSV_NUBANK",
+  "purchases": [
+    {
+      "title": "Mercado Nebulosa Azul",
+      "amountCents": 12345,
+      "date": "2026-10-01"
+    },
+    {
+      "title": "Livraria Cometa de Papel",
+      "amountCents": 6789,
+      "date": "2026-10-02"
+    },
+    {
+      "title": "Cafe Lua de Acucar",
+      "amountCents": 4500,
+      "date": "2026-10-03"
+    },
+    {
+      "title": "Oficina Girassol Lunar",
+      "amountCents": 1890,
+      "date": "2026-10-04"
+    },
+    {
+      "title": "Loja Aurora Inventada",
+      "amountCents": 25000,
+      "date": "2026-10-05"
+    }
+  ],
+  "selectablePurchaseCount": 5,
+  "purchaseTotalCents": 50524,
+  "ignoredPaymentRow": "Pagamento de fatura",
+  "ignoredPaymentAmountCents": -12000,
+  "declarations": {
+    "invoiceDueMonth": "2026-11",
+    "amountMeaning": "TOTAL_PURCHASE",
+    "installmentCount": 1,
+    "firstDueDate": "2026-11-10",
+    "decision": "CREATE_NEW",
+    "purpose": "Personal purchase; no cross-project allocation"
+  },
+  "notes": [
+    "Entirely synthetic; all five purchases are non-installment.",
+    "CSV cannot prove invoice cycle, total-purchase meaning or purpose. Answer the guided declarations in the UI.",
+    "post-confirm supports an explicit selected count or receipt line IDs; unselected observations may remain in an authorized continuation."
+  ]
+}

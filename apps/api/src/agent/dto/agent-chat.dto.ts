@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty } from "@nestjs/swagger";
 import {
   ArrayNotEmpty,
   IsArray,
@@ -7,13 +7,14 @@ import {
   IsString,
   MaxLength,
   ValidateNested,
-} from 'class-validator';
-import { Type } from 'class-transformer';
+  Allow,
+} from "class-validator";
+import { Type } from "class-transformer";
 
 export class ChatMessageDto {
-  @ApiProperty({ enum: ['user', 'assistant'] })
-  @IsIn(['user', 'assistant'])
-  role!: 'user' | 'assistant';
+  @ApiProperty({ enum: ["user", "assistant"] })
+  @IsIn(["user", "assistant"])
+  role!: "user" | "assistant";
 
   @ApiProperty()
   @IsString()
@@ -22,6 +23,10 @@ export class ChatMessageDto {
 }
 
 export class AgentChatDto {
+  // The contextual guard validates presence (including null) before this whitelist pipe.
+  @Allow()
+  importTurn?: unknown;
+
   @ApiProperty({ type: [ChatMessageDto] })
   @IsArray()
   @ArrayNotEmpty()
@@ -29,7 +34,7 @@ export class AgentChatDto {
   @Type(() => ChatMessageDto)
   messages!: ChatMessageDto[];
 
-  @ApiProperty({ required: false, description: 'Projeto em foco (opcional).' })
+  @ApiProperty({ required: false, description: "Projeto em foco (opcional)." })
   @IsOptional()
   @IsString()
   projectId?: string;

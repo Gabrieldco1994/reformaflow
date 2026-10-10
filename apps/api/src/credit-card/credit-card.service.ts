@@ -53,6 +53,7 @@ import { categorize } from './categorizer';
 import { buildStoredExpenseInstallments, parseDocumentaryCycle, parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
 import { DocumentaryCycle, StoredSourceScheduleV1 } from '../expense/documented-schedule.types';
 import { buildSeriesKey, CARD_PURCHASE_INSPECTION, inspectCardPurchaseCompanions } from './card-purchase-identity';
+import { cardImportConfiguration } from '@reformaflow/domain';
 
 const INVOICE_PAYMENT_LINE_PATTERN = /PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PGTO\s+FAT|FATURA\s+PAG/i;
 const CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS = 2_147_483_647;
@@ -104,11 +105,12 @@ export class CreditCardService {
 
   /** Lista todos os cartões do tenant (independente de projeto). Útil para vínculos cross-project. */
   async listCardsTenant(tenantId: string, scope: string[] | null) {
-    return this.prisma.creditCard.findMany({
+    const cards = await this.prisma.creditCard.findMany({
       where: { tenantId, deletedAt: null, ...(scope ? { projectId: { in: scope } } : {}) },
       orderBy: [{ projectId: 'asc' }, { createdAt: 'asc' }],
       include: { project: { select: { id: true, name: true, type: true } } },
     });
+    return cards.map((card) => ({ ...card, importConfiguration: cardImportConfiguration(card) }));
   }
 
   private async withLimitUsage<T extends {
@@ -117,7 +119,8 @@ export class CreditCardService {
     closingDay: number | null;
     dueDay: number | null;
   }>(tenantId: string, projectId: string, card: T) {
-    if (card.limitTotalCents == null) return card;
+    const importConfiguration = cardImportConfiguration(card);
+    if (card.limitTotalCents == null) return { ...card, importConfiguration };
 
     const { used: limitUsedCents, month: currentOpenInvoiceMonth } =
       await this.computeOpenInvoiceUsed(tenantId, projectId, card);
@@ -127,6 +130,7 @@ export class CreditCardService {
 
     return {
       ...card,
+      importConfiguration,
       limitUsedCents,
       limitAvailableComputedCents: card.limitTotalCents - limitUsedCents,
       limitUsagePercent,

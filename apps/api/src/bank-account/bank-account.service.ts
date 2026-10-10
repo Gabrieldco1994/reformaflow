@@ -2282,13 +2282,15 @@ export class BankAccountService {
     if (scope !== null && scope.length === 0) return 0;
     const inScope = scope !== null ? { id: { in: scope } } : {};
 
-    // Acha projetos CASA/CARRO AUTORIZADOS do tenant (1x cada — primeiro encontrado)
+    // Oldest authorized project wins; the id tie-break is stable across SQLite query plans.
     const houseProj = await this.prisma.project.findFirst({
       where: { tenantId, type: 'CASA', deletedAt: null, ...inScope },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { id: true },
     });
     const carProj = await this.prisma.project.findFirst({
       where: { tenantId, type: 'CARRO', deletedAt: null, ...inScope },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { id: true },
     });
 

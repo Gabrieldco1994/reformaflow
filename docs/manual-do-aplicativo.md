@@ -345,6 +345,30 @@ não muda a ordem nem esconde nenhum módulo autorizado.
 No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
 financeiro em tela própria (chat em tela cheia no mobile).
 
+**Destino automático de recorrências do extrato:** quando a importação bancária
+identifica uma conta recorrente de CASA ou CARRO, o destino é o projeto autorizado
+mais antigo daquele tipo (`createdAt` crescente), com desempate pelo `id`
+crescente. Projetos excluídos ou fora do escopo de `recurringBills` não participam
+da escolha. O critério não depende da ordem de inserção nem do índice do banco.
+
+- **Importação conversacional de fatura (#711):** implementação integrada
+  localmente sobre o main de #714; isso não significa disponibilidade em produção.
+  Quando o vault privado está disponível, peça a importação e escolha explicitamente
+  o cartão e o projeto. Os formatos vêm do servidor: CSV e PDF textual sem imagens
+  no recorte qualificado. O envio exige seleção dos arquivos e consentimento.
+  Um PDF com imagens, inclusive logotipo, exige OCR ainda indisponível; PDFs
+  protegidos por senha ou ilegíveis bloqueiam a análise, sem confirmação financeira.
+  Nas compras, datas `D/M/AAAA` ou `AAAA-MM-DD` são aceitas; `D/M` sem ano exige
+  declaração, sem ano inferido. Datas numéricas não suportadas, como `02/02/26`
+  ou `02.02.2026`, em linhas com descrição podem tornar o documento ilegível
+  mesmo sem valor legível, evitando uma revisão incompleta.
+- A revisão separa compras, declarações e lançamentos ignorados. Pagamento de
+  fatura é evidência informativa: importar compras não quita a fatura. Controles
+  explícitos de data/tipo e declarações documentais guardam apenas a informação
+  revisada, sem interpretação pela IA. A gravação financeira exige uma confirmação
+  separada no resumo; repetir uma execução concluída devolve o mesmo recibo.
+  Sessões podem ser retomadas após recarregar. Trocar de conta limpa a seleção
+  e o contexto privado anterior. Não envie senha de PDF à Maria.
 - Mostra abertura proativa com leitura do mês atual.
 - No cockpit mensal, o CTA **"Ver detalhes"** dos cards de "Maria percebeu" abre
   a mesma tela **Maria** do projeto, para aprofundar o insight.
