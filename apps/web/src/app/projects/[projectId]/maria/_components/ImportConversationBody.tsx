@@ -31,6 +31,7 @@ import {
 import { ImportProposalCard } from "./ImportProposalCard";
 import { ImportLocalDocuments } from "./ImportLocalDocuments";
 import { ImportResumeUpload } from "./ImportResumeUpload";
+import { isPdfDocumentErrorCode } from "../_lib/import-session-errors";
 import { ImportIgnoredObservations } from "./ImportIgnoredObservations";
 import {
   ImportReviewBlockerNotice,
@@ -57,6 +58,7 @@ function Conversation({
   const [cancelPending, setCancelPending] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const busy = conversation.busy || documents.busy;
+  const documentBlocked = isPdfDocumentErrorCode(documents.error?.code);
   const privateContextLost =
     error?.privateContextLost || documents.error?.privateContextLost;
   const guided =
@@ -313,17 +315,33 @@ function Conversation({
             disabled={Boolean(error) || conversation.review}
           />
         )}
-        {ignoredOnly && (
+        {(ignoredOnly || documentBlocked) && (
           <section
-            aria-label="Nenhuma compra importável"
+            aria-label={
+              documentBlocked
+                ? "Substituir documento ou cancelar"
+                : "Nenhuma compra importável"
+            }
             className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm"
           >
-            <h3 className="font-semibold">Nenhuma compra para revisar</h3>
-            <p>
-              Este CSV contém apenas lançamentos ignorados, como pagamentos de
-              fatura. Eles são informativos e não podem ser importados como
-              compras.
-            </p>
+            <h3 className="font-semibold">
+              {documentBlocked
+                ? "Este documento não pode ser analisado"
+                : "Nenhuma compra para revisar"}
+            </h3>
+            {documentBlocked ? (
+              <p>
+                Para substituir o documento, cancele esta importação e peça
+                outra à Maria com um arquivo legível. Não há confirmação
+                financeira nem tentativa de OCR aqui.
+              </p>
+            ) : (
+              <p>
+                Este CSV contém apenas lançamentos ignorados, como pagamentos de
+                fatura. Eles são informativos e não podem ser importados como
+                compras.
+              </p>
+            )}
             {view?.actions.includes("CANCEL") ? (
               <button
                 type="button"
@@ -455,7 +473,7 @@ function Conversation({
             </button>
           </section>
         )}
-        {conversation.review && (
+        {conversation.review && !documents.error && (
           <ImportProposalCard
             sessionId={sessionId}
             selectionPending={

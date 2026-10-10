@@ -360,11 +360,17 @@ não muda a ordem nem esconde nenhum módulo autorizado.
 No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
 financeiro em tela própria (chat em tela cheia no mobile).
 
-- **Importar fatura CSV conversando com a Maria:** peça a importação na conversa
+- **Importar fatura conversando com a Maria:** peça a importação na conversa
   e escolha explicitamente o cartão e o projeto — uma sugestão não escolhe por
   você, mesmo quando só há um cartão. Se não houver cartão, a tela oferece o
-  cadastro existente e retorna à Maria. Selecione um arquivo CSV local; só depois
-  de revisar os arquivos e autorizar o envio os bytes são enviados para análise.
+  cadastro existente e retorna à Maria. A tela mostra os formatos efetivamente
+  habilitados pelo servidor: CSV ou CSV e **PDF textual sem imagens**. Não há
+  promessa de PDF quando apenas CSV está disponível. Documentos com imagens
+  podem exigir OCR, ainda indisponível — inclusive um logotipo de banco pode
+  impedir a análise deste primeiro recorte de PDF. PDFs digitalizados ou mistos
+  não são suportados aqui. Selecione um arquivo local nos formatos disponíveis;
+  só depois de revisar os arquivos e autorizar o envio os bytes são enviados
+  para análise.
   Um CSV com bytes idênticos a outro já enviado na mesma sessão é reconhecido como
   repetido: o segundo vínculo é liberado sem nova análise, e os demais arquivos
   seguem normalmente.
@@ -376,6 +382,13 @@ financeiro em tela própria (chat em tela cheia no mobile).
   A criação ou alteração financeira só acontece no resumo, após sua confirmação
   explícita; importar não quita a fatura. Importações em andamento podem ser
   retomadas na Maria depois de recarregar a página.
+  Se a análise indicar necessidade de OCR, documento ilegível ou PDF protegido
+  por senha, a tela explica o bloqueio sem oferecer confirmação financeira nem
+  repetição de OCR. Cancele a importação e peça outra com um documento legível
+  e sem imagens ou senha; não envie a senha à Maria. Após recarregar, a seleção
+  e o consentimento são exigidos novamente somente quando o servidor ainda
+  autoriza envio; importações encerradas não oferecem envio. Trocar de conta
+  limpa a seleção local e o contexto privado anterior.
 - Mostra abertura proativa com leitura do mês atual.
 - No cockpit mensal, o CTA **"Ver detalhes"** dos cards de "Maria percebeu" abre
   a mesma tela **Maria** do projeto, para aprofundar o insight.

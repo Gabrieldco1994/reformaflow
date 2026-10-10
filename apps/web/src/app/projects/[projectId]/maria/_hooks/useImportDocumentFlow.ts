@@ -6,7 +6,6 @@ import {
   IMPORT_SESSION_CONSENT_POLICY_VERSION,
   IMPORT_SESSION_LIMITS,
   type ImportSessionCreateRequestV1,
-  type ImportSessionEntryV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
 import {
@@ -21,22 +20,23 @@ import { importConversationFailure } from "../_lib/import-conversation-copy";
 import {
   classifyImportFailure,
   describeImportFailure,
+  isPdfDocumentErrorCode,
+  type ImportWireErrorCode,
 } from "../_lib/import-session-errors";
 import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-read";
 import { useImportUserId } from "./useImportSessions";
 import type { ImportEntryCard } from "../_lib/import-session-read";
+import {
+  isSupportedImportFormats,
+  type SupportedImportFormat,
+} from "../_lib/import-entry-action";
+import { IMPORT_FORMAT_MIME } from "../_lib/import-format";
 
-type EntryFormat = Extract<
-  ImportSessionEntryV1,
-  { kind: "CARD_INVOICE" }
->["formats"][number];
-const DECLARED_MIME: Record<EntryFormat, string> = {
-  CSV: "text/csv",
-  OFX: "application/x-ofx",
-  PDF: "application/pdf",
-  XLS: "application/vnd.ms-excel",
-  XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
+type EntryFormat = SupportedImportFormat;
+const terminal = (view: ImportSessionViewV1) =>
+  view.state === "APPLIED" ||
+  view.state === "CANCELLED" ||
+  view.state === "EXPIRED";
 interface Attempt {
   request: ImportSessionCreateRequestV1;
   ownerProjectId: string;
@@ -47,11 +47,13 @@ interface DocumentContext {
   adoptionKey: (sessionId: string) => string;
   publishSession: (sessionId: string) => void;
   recoverList: () => Promise<void>;
+  supportedFormats?: readonly SupportedImportFormat[];
 }
 
 interface DocumentFailure {
   message: string;
   privateContextLost: boolean;
+  code?: ImportWireErrorCode | null;
 }
 interface Generation {
   userId: string | null;
@@ -65,6 +67,7 @@ interface Generation {
   invalidated: boolean;
   attempt: Attempt | null;
   adoption: { attempt: Attempt; id: string; key: string } | null;
+  documentBlocker: DocumentFailure | null;
 }
 interface Feedback {
   pending: boolean;
@@ -88,6 +91,7 @@ const newGeneration = (
   controller: null,
   attempt: null,
   adoption: null,
+  documentBlocker: null,
 });
 
 /** Documentary coordinator only; server actions still own analysis eligibility. */
@@ -102,20 +106,17 @@ export function useImportDocumentFlow(
     newGeneration(userId, requestedSessionId, contextKey),
   );
   const echo = scope.current.adoption;
-  if (
+  const adopting = Boolean(
     scope.current.userId === userId &&
     !scope.current.invalidated &&
     echo &&
     echo.attempt === scope.current.attempt &&
     echo.id === requestedSessionId &&
-    echo.key === contextKey
-  ) {
-    scope.current.contextKey = contextKey;
-    scope.current.adoption = null;
-  }
+    echo.key === contextKey,
+  );
   if (
     scope.current.userId !== userId ||
-    scope.current.contextKey !== contextKey ||
+    (scope.current.contextKey !== contextKey && !adopting) ||
     scope.current.invalidated
   ) {
     scope.current.live = false;
@@ -124,6 +125,14 @@ export function useImportDocumentFlow(
   }
   const generation = scope.current;
   const sessionId = generation.sessionId;
+  useEffect(() => {
+    // URL replacement is concurrent. Do not consume the adoption token during
+    // a speculative render: React may replay the old location before commit.
+    if (adopting && scope.current === generation) {
+      generation.contextKey = contextKey;
+      generation.adoption = null;
+    }
+  }, [adopting, contextKey, generation]);
   useEffect(() => {
     generation.live = scope.current === generation;
     return () => {
@@ -186,16 +195,20 @@ export function useImportDocumentFlow(
   });
   const describe = (error: unknown): DocumentFailure => {
     const context = importConversationFailure(error);
+    const info = describeImportFailure(
+      classifyImportFailure(error),
+      "document",
+    );
     return {
       privateContextLost: context.privateContextLost,
-      message: context.privateContextLost
-        ? context.message
-        : describeImportFailure(classifyImportFailure(error), "document")
-            .message,
+      code: info.code,
+      message: context.privateContextLost ? context.message : info.message,
     };
   };
   const error =
-    feedback.error ?? (query.isError ? describe(query.error) : null);
+    feedback.error ??
+    generation.documentBlocker ??
+    (query.isError ? describe(query.error) : null);
   if (error?.privateContextLost) {
     generation.revoked = true;
     generation.controller?.abort();
@@ -205,6 +218,8 @@ export function useImportDocumentFlow(
   const fail = (error: unknown) => {
     generation.mustRead = true;
     const failure = describe(error);
+    if (isPdfDocumentErrorCode(failure.code))
+      generation.documentBlocker = failure;
     generation.revoked = failure.privateContextLost;
     update({ pending: false, error: failure });
   };
@@ -266,6 +281,7 @@ export function useImportDocumentFlow(
       generation.busy ||
       generation.mustRead ||
       !attempt ||
+      generation.documentBlocker ||
       !context
     )
       return;
@@ -298,6 +314,7 @@ export function useImportDocumentFlow(
       }
       if (
         !latest ||
+        terminal(latest) ||
         latest.cardId !== attempt.request.cardId ||
         latest.ownerProjectId !== attempt.ownerProjectId
       )
@@ -386,7 +403,7 @@ export function useImportDocumentFlow(
         pending: false,
         error: null,
         notice: deduplicated
-          ? "Este CSV idêntico já está guardado nesta importação; o arquivo repetido foi ignorado."
+          ? "Este arquivo idêntico já está guardado nesta importação; o arquivo repetido foi ignorado."
           : null,
       });
     } catch (error) {
@@ -409,7 +426,10 @@ export function useImportDocumentFlow(
         !context ||
         generation.sessionId ||
         !files.length ||
-        files.length > IMPORT_SESSION_LIMITS.filesPerRequest
+        files.length > IMPORT_SESSION_LIMITS.filesPerRequest ||
+        !isSupportedImportFormats([...formats]) ||
+        (context.supportedFormats &&
+          formats.some((format) => !context.supportedFormats?.includes(format)))
       )
         throw new ImportWorkflowResponseError();
       const request: ImportSessionCreateRequestV1 = {
@@ -429,7 +449,11 @@ export function useImportDocumentFlow(
           file.size > IMPORT_SESSION_LIMITS.bytesPerFile
         )
           throw new ImportWorkflowResponseError();
-        return { id: crypto.randomUUID(), file, mime: DECLARED_MIME[format] };
+        return {
+          id: crypto.randomUUID(),
+          file,
+          mime: IMPORT_FORMAT_MIME[format],
+        };
       });
       generation.attempt = {
         request,
@@ -455,6 +479,9 @@ export function useImportDocumentFlow(
     !generation.attempt &&
     !generation.mustRead &&
     !generation.revoked &&
+    !generation.documentBlocker &&
+    Boolean(view && !terminal(view)) &&
+    (context?.supportedFormats?.length ?? 1) > 0 &&
     Boolean(view?.actions.includes("UPLOAD"));
 
   async function resume(
@@ -467,10 +494,14 @@ export function useImportDocumentFlow(
       const current = client.getQueryData<ImportSessionViewV1>(key);
       if (
         !current ||
+        terminal(current) ||
         current.revision !== view?.revision ||
         !current.actions.includes("UPLOAD") ||
         !files.length ||
-        files.length > IMPORT_SESSION_LIMITS.filesPerRequest
+        files.length > IMPORT_SESSION_LIMITS.filesPerRequest ||
+        !isSupportedImportFormats([...formats]) ||
+        (context?.supportedFormats &&
+          formats.some((format) => !context.supportedFormats?.includes(format)))
       )
         throw new ImportWorkflowResponseError();
       const used = new Set<string>();
@@ -496,7 +527,7 @@ export function useImportDocumentFlow(
         return {
           id: reserved?.id ?? crypto.randomUUID(),
           file,
-          mime: DECLARED_MIME[format],
+          mime: IMPORT_FORMAT_MIME[format],
         };
       });
       generation.attempt = {
@@ -522,6 +553,7 @@ export function useImportDocumentFlow(
       generation.busy ||
       !userId ||
       !sessionId ||
+      generation.documentBlocker ||
       generation.mustRead
     )
       return;
@@ -584,11 +616,13 @@ export function useImportDocumentFlow(
   return {
     sessionId,
     hasAttempt: generation.attempt !== null,
+    supportedFormats: context?.supportedFormats ?? (["CSV"] as const),
     canRetry:
       !generation.mustRead &&
       !generation.revoked &&
+      !generation.documentBlocker &&
       Boolean(generation.attempt) &&
-      (!sessionId || Boolean(view && pendingFiles(view))),
+      (!sessionId || Boolean(view && !terminal(view) && pendingFiles(view))),
     view,
     error,
     notice: feedback.notice,

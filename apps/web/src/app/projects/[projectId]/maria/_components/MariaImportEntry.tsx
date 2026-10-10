@@ -18,6 +18,8 @@ import {
 import { importKeys } from "../_lib/import-session-keys";
 import { IMPORT_ENTRY_ERROR } from "../_lib/import-session-read";
 import type { ImportEntryAction } from "../_lib/import-entry-action";
+import { isSupportedImportFormats } from "../_lib/import-entry-action";
+import { importFormatLabel } from "../_lib/import-format";
 import { ImportLocalDocuments } from "./ImportLocalDocuments";
 import { ImportRecoveryEntry } from "./ImportRecoveryEntry";
 import { MariaChatBody } from "./MariaChatBody";
@@ -76,10 +78,18 @@ function Entry({
   const client = useQueryClient();
   const capability =
     action?.kind === "START_CARD_INVOICE_IMPORT" ? action : null;
+  const entryFormats =
+    list.entry?.kind === "VALID" &&
+    list.entry.value.kind === "CARD_INVOICE" &&
+    list.freshness === "fresh" &&
+    isSupportedImportFormats(list.entry.value.formats)
+      ? list.entry.value.formats
+      : [];
   const documents = useImportDocumentFlow(
     selection?.id ?? (invalid ? null : (ids[0] ?? null)),
     {
       key: contextKey,
+      supportedFormats: capability?.formats ?? entryFormats,
       adoptionKey: (id) =>
         JSON.stringify([target(id).location, selection?.nonce ?? null]),
       publishSession: (id) => router.replace(target(id).href),
@@ -295,8 +305,9 @@ function Entry({
                   </div>
                 )}
                 <p>
-                  Selecione o CSV local e autorize a análise. Isso não confirma
-                  lançamentos.
+                  Selecione arquivos locais nos formatos{" "}
+                  {importFormatLabel(capability.formats)} e autorize a análise.
+                  Isso não confirma lançamentos.
                 </p>
                 <ImportLocalDocuments
                   key={`${contextKey}:${actionSequence}`}

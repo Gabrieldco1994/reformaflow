@@ -3,24 +3,16 @@
 import { useId, useRef, useState } from "react";
 import {
   IMPORT_SESSION_LIMITS,
-  type ImportSessionDocumentFormat,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
 import { Button } from "@/components/ui/button";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
 import { useIntentFocus } from "../_hooks/useIntentFocus";
-
-const EXTENSIONS: Record<ImportSessionDocumentFormat, string> = {
-  CSV: ".csv",
-  OFX: ".ofx",
-  PDF: ".pdf",
-  XLS: ".xls",
-  XLSX: ".xlsx",
-  PNG: ".png",
-  JPEG: ".jpeg,.jpg",
-  WEBP: ".webp",
-};
-const ACCEPT = Object.values(EXTENSIONS).join(",");
+import {
+  IMPORT_FORMAT_EXTENSIONS,
+  importFormatLabel,
+} from "../_lib/import-format";
+import type { SupportedImportFormat } from "../_lib/import-entry-action";
 
 export function ImportLocalDocuments({
   onConsent,
@@ -41,7 +33,7 @@ export function ImportLocalDocuments({
   onAnalyze?: (attachmentId?: string) => void;
   onRecover?: () => void;
   remoteError?: string | null;
-  formats?: readonly ImportSessionDocumentFormat[];
+  formats?: readonly SupportedImportFormat[];
   attempted?: boolean;
 }) {
   const id = useId();
@@ -52,13 +44,14 @@ export function ImportLocalDocuments({
   const input = useRef<HTMLInputElement>(null);
   const { scope, request } = useIntentFocus<HTMLFormElement>();
   const consentLocked = attempted ?? consented;
-  const blocked = pending || disabled || consentLocked;
-  const accept = formats
-    ? formats.map((format) => EXTENSIONS[format]).join(",")
-    : ACCEPT;
-  const formatLabel = formats
-    ? formats.join(", ")
-    : "CSV, OFX, PDF, XLS, XLSX, PNG, JPEG ou WEBP";
+  // Fail closed without a capability list; parser formats are not entry authority.
+  const supportedFormats = formats ?? [];
+  const blocked =
+    pending || disabled || consentLocked || supportedFormats.length === 0;
+  const accept = supportedFormats
+    .map((format) => IMPORT_FORMAT_EXTENSIONS[format])
+    .join(",");
+  const formatLabel = importFormatLabel(supportedFormats);
 
   function selectFiles(selected: File[]) {
     if (blocked || sent.current || selected.length === 0) return;
@@ -216,6 +209,14 @@ export function ImportLocalDocuments({
         {IMPORT_SESSION_LIMITS.bytesPerFile} bytes por arquivo. A seleção não
         valida o conteúdo; a análise depende dos formatos habilitados.
       </p>
+      {supportedFormats.includes("PDF") && (
+        <p className="text-sm text-gray-600">
+          PDF textual sem imagens; documentos com imagens podem exigir OCR,
+          ainda indisponível. Isso inclui imagens como logotipos de bancos. Use
+          um arquivo com texto e sem imagens ou cancele; nenhum lançamento será
+          confirmado.
+        </p>
+      )}
       {files.length > 0 && (
         <ul aria-label="Arquivos selecionados" className="space-y-2">
           {files.map((file, index) => (
@@ -249,10 +250,10 @@ export function ImportLocalDocuments({
       <p className="text-sm text-gray-600">
         Ao escolher Analisar e guardar rascunho, você autoriza o envio e
         processamento dos documentos para análise e armazenamento privado do
-        rascunho. O conteúdo necessário poderá ser enviado a OCR/modelo para
-        análise. Não cria despesas, pagamentos ou rateios. O rascunho pendente e
-        sua referência ao original expiram após 7 dias sem edição sua; consultas
-        não renovam esse prazo.
+        rascunho. O conteúdo necessário poderá ser enviado ao modelo para
+        análise. OCR não está disponível nesta importação. Não cria despesas,
+        pagamentos ou rateios. O rascunho pendente e sua referência ao original
+        expiram após 7 dias sem edição sua; consultas não renovam esse prazo.
       </p>
       {error && (
         <p role="alert" className="text-sm text-darc-red">

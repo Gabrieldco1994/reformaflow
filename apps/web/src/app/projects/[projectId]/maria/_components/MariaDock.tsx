@@ -9,9 +9,9 @@ export const MARIA_SUGGESTIONS = [
   { key: "fecho", label: "Como fecho o mês?" },
 ] as const;
 
-export const IMPORT_CSV_CTA_LABEL = "Importar fatura de cartão (CSV)";
+export const IMPORT_CSV_CTA_LABEL = "Importar fatura de cartão";
 /** Pedido comum ao chat: o servidor decide se a importação está disponível. */
-export const IMPORT_CSV_PROMPT = "Quero importar a fatura do cartão em CSV";
+export const IMPORT_CSV_PROMPT = "Quero importar a fatura do cartão";
 
 export const VOICE_LAUNCH_CHIP_LABEL = "🎙 lançar por voz";
 export const VOICE_CONVERSATION_CTA_LABEL = "Iniciar conversa por voz";
@@ -32,7 +32,7 @@ interface Props {
    */
   onOpenVoiceConversation: () => void;
   /**
-   * Entrada explícita da importação CSV. O chamador envia o pedido pelo turno
+   * Descoberta sem prometer formatos. O chamador envia o pedido pelo turno
    * comum do chat; a ação (ou indisponibilidade) vem do servidor.
    */
   onImportStart?: () => void;

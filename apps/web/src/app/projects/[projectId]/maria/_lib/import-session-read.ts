@@ -20,6 +20,7 @@ import {
   type ImportSessionSummaryV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
+import { isSupportedImportFormats } from "./import-entry-action";
 
 /**
  * What the recovery UI actually reads, validated field by field before it reaches a component.
@@ -108,22 +109,7 @@ export function readImportEntry(
     if (entry.kind === "UNAVAILABLE")
       return { kind: "VALID", value: { kind: "UNAVAILABLE" } };
     const formats = entry.formats;
-    if (
-      entry.kind === "CARD_INVOICE" &&
-      Array.isArray(formats) &&
-      formats.length > 0 &&
-      new Set(formats).size === formats.length &&
-      Array.from(formats).every(
-        (
-          format,
-        ): format is Extract<
-          ImportSessionEntryV1,
-          { kind: "CARD_INVOICE" }
-        >["formats"][number] =>
-          typeof format === "string" &&
-          ["CSV", "OFX", "PDF", "XLS", "XLSX"].includes(format),
-      )
-    )
+    if (entry.kind === "CARD_INVOICE" && isSupportedImportFormats(formats))
       return { kind: "VALID", value: { kind: "CARD_INVOICE", formats } };
   }
   return { kind: "ERROR", code: "INVALID_ENTRY" };

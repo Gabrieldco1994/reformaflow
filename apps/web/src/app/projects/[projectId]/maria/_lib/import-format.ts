@@ -1,4 +1,32 @@
 import { formatDateBR } from "@/lib/utils";
+import type { ImportSessionDocumentFormat } from "@reformaflow/domain";
+
+export const IMPORT_FORMAT_EXTENSIONS: Record<
+  ImportSessionDocumentFormat,
+  string
+> = {
+  CSV: ".csv",
+  OFX: ".ofx",
+  PDF: ".pdf",
+  XLS: ".xls",
+  XLSX: ".xlsx",
+  PNG: ".png",
+  JPEG: ".jpeg,.jpg",
+  WEBP: ".webp",
+};
+
+export const IMPORT_FORMAT_MIME = {
+  CSV: "text/csv",
+  PDF: "application/pdf",
+} as const;
+
+export function importFormatLabel(
+  formats: readonly ImportSessionDocumentFormat[],
+) {
+  return formats
+    .map((format) => (format === "PDF" ? "PDF textual sem imagens" : format))
+    .join(", ");
+}
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
