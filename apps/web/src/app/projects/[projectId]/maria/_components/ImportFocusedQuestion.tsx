@@ -16,6 +16,7 @@ import {
 import { moneyDetail } from "@/lib/money";
 import { formatDateOnly } from "../_lib/import-format";
 import { importDeclarationContext } from "../_lib/import-session-read";
+import type { ImportQuestionAnswerInput } from "../_lib/import-session-api";
 import { Button } from "@/components/ui/button";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
 
@@ -24,11 +25,8 @@ type ImportFocusedQuestionProps = {
   lines: readonly Pick<ImportSessionDraftLineV1, "id" | "titulo">[];
   inputLabel: string;
   inputHint: string;
-  /** Local literal answer, not a normalized draft mutation or a transport callback. */
-  onAnswer?: (answer: {
-    id: ImportSessionQuestionV1["id"];
-    text: string;
-  }) => void;
+  /** Local preview acceptance, not a draft mutation or a transport callback. */
+  onAnswer?: (answer: ImportQuestionAnswerInput) => void;
   pending?: boolean;
   disabled?: boolean;
   value?: string;
@@ -505,7 +503,12 @@ function FocusedQuestion({
                 queueMicrotask(() => {
                   sent.current = false;
                 });
-                onAnswer({ id: question.id, text: encoded.literalAnswer });
+                onAnswer({
+                  id: question.id,
+                  text: encoded.literalAnswer,
+                  input: currentPreview.input,
+                  answer: currentPreview.answer,
+                });
               }}
             >
               Guardar informação

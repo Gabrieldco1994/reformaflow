@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { uploadImportSessionAttachment } from "./import-session-api";
+import {
+  answerImportDocumentaryQuestion,
+  uploadImportSessionAttachment,
+} from "./import-session-api";
 import {
   ImportWorkflowResponseError,
   readImportWorkflowView,
@@ -7,10 +10,12 @@ import {
 
 const api = vi.hoisted(() => ({
   putBytes: vi.fn(),
+  post: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
   api: {
     putBytes: api.putBytes,
+    post: api.post,
   },
   ApiResponseError: class ApiResponseError extends Error {},
 }));
@@ -43,6 +48,46 @@ const view = {
   receipt: null,
   actions: ["UPLOAD", "CANCEL"],
 };
+
+describe("answerImportDocumentaryQuestion", () => {
+  const request = {
+    version: 1 as const,
+    answerRequestId: "12345678-1234-4123-8123-123456789abc",
+    expectedRevision: 2,
+    questionId: "question",
+    input: { kind: "VALUE" as const, text: "  LOJA FICTICIA NORTE  " },
+    answer: {
+      field: "merchant" as const,
+      value: "LOJA FICTICIA NORTE",
+      meaningContext: null,
+    },
+  };
+  beforeEach(() => api.post.mockReset());
+
+  it("posts the exact preview contract with authenticated UI headers and signal", async () => {
+    const signal = new AbortController().signal;
+    api.post.mockResolvedValue(view);
+    expect(
+      await answerImportDocumentaryQuestion("session", request, signal),
+    ).toEqual(view);
+    expect(api.post).toHaveBeenCalledWith(
+      "/import-sessions/session/documentary-answer",
+      request,
+      { headers: { "x-rf-import-ui": "1" }, signal },
+    );
+  });
+
+  it.each([
+    { ...view, id: "other" },
+    { ...view, unexpected: true },
+    { ...view, revision: null },
+  ])("rejects foreign or malformed session views", async (response) => {
+    api.post.mockResolvedValue(response);
+    await expect(
+      answerImportDocumentaryQuestion("session", request),
+    ).rejects.toThrow();
+  });
+});
 
 describe("readImportWorkflowView analysisOutcome contract", () => {
   it("accepts historical views without adding analysisOutcome", () => {

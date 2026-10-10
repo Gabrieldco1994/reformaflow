@@ -5,6 +5,8 @@ import {
   readImportChatTurn,
 } from "./import-conversation-read";
 import type {
+  ImportDeclarationAnswerV1,
+  ImportDeclarationUiInputV1,
   ImportSessionCandidateV1,
   ImportSessionChallengeRequestV1,
   ImportSessionConfirmRequestV1,
@@ -57,6 +59,41 @@ function malformed(): never {
 }
 
 const enc = encodeURIComponent;
+
+/** Frozen native contract; move to the domain request type when integrated. */
+export interface ImportDocumentaryAnswerRequestV1 {
+  version: 1;
+  answerRequestId: string;
+  expectedRevision: number;
+  questionId: string;
+  input: ImportDeclarationUiInputV1;
+  answer: ImportDeclarationAnswerV1;
+}
+
+/** The documentary variant carries the exact local preview accepted by the human. */
+export type ImportQuestionAnswerInput =
+  | { id: string; text: string }
+  | {
+      id: string;
+      text: string;
+      input: ImportDeclarationUiInputV1;
+      answer: ImportDeclarationAnswerV1;
+    };
+
+export async function answerImportDocumentaryQuestion(
+  id: string,
+  request: ImportDocumentaryAnswerRequestV1,
+  signal?: AbortSignal,
+): Promise<ImportSessionViewV1> {
+  const view = readImportWorkflowView(
+    await api.post<unknown>(
+      `/import-sessions/${enc(id)}/documentary-answer`,
+      request,
+      { headers: { ...UI_HEADERS }, signal },
+    ),
+  );
+  return view.id === id ? view : malformed();
+}
 
 export async function createImportSession(
   request: ImportSessionCreateRequestV1,

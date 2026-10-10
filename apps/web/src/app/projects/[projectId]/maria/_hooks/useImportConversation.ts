@@ -4,9 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   isPendingImportQuestion,
-  parseImportDeclarationLiteral,
-  type ImportDeclarationAnswerV1,
-  type ImportObservationQuestionV1,
+  normalizeImportDeclaration,
   type ImportFocusV1,
   type ImportChatTurnV1,
   type ImportScopeReviewV1,
@@ -19,8 +17,10 @@ import {
 } from "@/components/agent/useFinancialAgent";
 import {
   editImportSession,
+  answerImportDocumentaryQuestion,
   getFullImportSession,
   getImportResult,
+  type ImportQuestionAnswerInput,
 } from "../_lib/import-session-api";
 import { importKeys, importRoot } from "../_lib/import-session-keys";
 import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-read";
@@ -218,10 +218,6 @@ export function useImportConversation(
   async function dispatch(
     turn: ImportChatTurnV1,
     displayLiteral = turn.literalAnswer,
-    declaration?: {
-      question: ImportObservationQuestionV1;
-      answer: ImportDeclarationAnswerV1;
-    },
   ): Promise<ChatMessage | null> {
     if (!active() || generation.busy) return null;
     const admittedContext = JSON.stringify([
@@ -279,40 +275,6 @@ export function useImportConversation(
       if (!active()) return null;
       if (!visibleContext() || fresh.revision !== outcome.ref.revision)
         throw new ImportWorkflowResponseError();
-      if (declaration && outcome.acknowledgment !== "NONE") {
-        const { question: answered, answer } = declaration;
-        const fact = fresh.declaredFacts.find(
-          (fact) =>
-            fact.questionId === answered.id &&
-            fact.lineId === answered.lineIds[0] &&
-            fact.observationId === answered.subject.observationId &&
-            fact.field === answer.field &&
-            fact.meaningContext === answer.meaningContext,
-        );
-        const previousFact = view?.declaredFacts.find(
-          (fact) =>
-            fact.questionId === answered.id &&
-            fact.lineId === answered.lineIds[0] &&
-            fact.observationId === answered.subject.observationId &&
-            fact.field === answer.field &&
-            fact.meaningContext === answer.meaningContext,
-        );
-        const validRevision =
-          outcome.acknowledgment === "EDITED"
-            ? fresh.revision === turn.expectedRevision + 1
-            : outcome.acknowledgment === "NO_CHANGE" &&
-              fresh.revision === turn.expectedRevision &&
-              fresh.expiresAt === view?.expiresAt &&
-              previousFact?.status === fact?.status &&
-              previousFact?.value === answer.value;
-        if (
-          !validRevision ||
-          !fact ||
-          fact.status !== (answer.value === null ? "UNKNOWN" : "CURRENT") ||
-          fact.value !== answer.value
-        )
-          throw new ImportWorkflowResponseError();
-      }
       const nextQuestion =
         outcome.kind === "QUESTION"
           ? fresh.questions.find(
@@ -370,14 +332,6 @@ export function useImportConversation(
         importRevision: fresh.revision,
       };
       const acknowledged = outcome.acknowledgment !== "NONE";
-      if (declaration && acknowledged) {
-        content =
-          outcome.acknowledgment === "NO_CHANGE"
-            ? "Essa informação já estava guardada. Nenhuma alteração foi feita."
-            : "Resposta documental guardada. Informação fornecida por você; o documento original foi preservado.";
-        assistant.content = content;
-        assistant.speechText = content;
-      }
       client.setQueryData(key, fresh);
       update({
         pending: false,
@@ -473,47 +427,157 @@ export function useImportConversation(
     return dispatch({ ...base, intent, focus: null, scope: null });
   }
 
-  async function saveDeclaration(answer: { id: string; text: string }) {
+  async function saveDeclaration(accepted: ImportQuestionAnswerInput) {
     if (!active() || generation.busy) return null;
     if (
       !view ||
       !sessionId ||
       !question ||
       !("subject" in question) ||
-      answer.id !== question.id ||
+      accepted.id !== question.id ||
+      !("input" in accepted) ||
+      !("answer" in accepted) ||
       failure ||
       !view.actions.includes("RESOLVE")
     ) {
       fail(new ImportWorkflowResponseError());
       return null;
     }
-    const parsed = parseImportDeclarationLiteral(
+    const normalized = normalizeImportDeclaration(
       importDeclarationContext(question, view.declaredFacts),
-      answer.text,
+      accepted.input,
     );
-    if (parsed.kind !== "VALID") {
+    const answer = accepted.answer;
+    if (
+      normalized.kind !== "VALID" ||
+      normalized.answer.field !== answer.field ||
+      normalized.answer.meaningContext !== answer.meaningContext ||
+      normalized.answer.value !== answer.value
+    ) {
       fail(new ImportWorkflowResponseError());
       return null;
     }
-    return dispatch(
-      {
-        version: 1,
-        turnId: crypto.randomUUID(),
+    const expectedRevision = view.revision;
+    const admittedContext = JSON.stringify([
+      view.questions,
+      view.actions,
+      view.declaredFacts,
+    ]);
+    const visibleContext = () => {
+      const cached = client.getQueryData<ImportSessionViewV1>(key);
+      return (
+        snapshotStillCurrent(expectedRevision) &&
+        JSON.stringify([
+          cached?.questions,
+          cached?.actions,
+          cached?.declaredFacts,
+        ]) === admittedContext
+      );
+    };
+    if (!visibleContext()) {
+      fail(new ImportWorkflowResponseError());
+      return null;
+    }
+    const sameSubject = (fact: ImportSessionViewV1["declaredFacts"][number]) =>
+      fact.questionId === question.id &&
+      fact.lineId === question.lineIds[0] &&
+      fact.observationId === question.subject.observationId &&
+      fact.field === answer.field &&
+      fact.meaningContext === answer.meaningContext;
+    const verified = (fresh: ImportSessionViewV1) => {
+      const fact = fresh.declaredFacts.find(sameSubject);
+      const previousFact = view.declaredFacts.find(sameSubject);
+      return (
+        fresh.id === sessionId &&
+        !!fact &&
+        fact.status === (answer.value === null ? "UNKNOWN" : "CURRENT") &&
+        fact.value === answer.value &&
+        (fresh.revision === expectedRevision + 1 ||
+          (fresh.revision === expectedRevision &&
+            fresh.expiresAt === view.expiresAt &&
+            previousFact?.status === fact.status &&
+            previousFact?.value === answer.value))
+      );
+    };
+    generation.busy = true;
+    const controller = new AbortController();
+    generation.controller = controller;
+    const displayLiteral =
+      accepted.input.kind === "VALUE" ? accepted.input.text : literal;
+    const history: ChatMessage[] = [
+      ...local.messages,
+      { role: "user", mode: "IMPORT", content: displayLiteral },
+    ];
+    update({
+      pending: true,
+      failure: null,
+      review: false,
+      result: null,
+      scopeReview: null,
+      scopeRevision: null,
+      messages: history,
+    });
+    try {
+      const fresh = await answerImportDocumentaryQuestion(
         sessionId,
-        expectedRevision: view.revision,
-        channel: local.channel,
-        literalAnswer: answer.text,
-        intent: "ANSWER",
-        focus: {
-          id: question.id,
-          field: question.field,
-          lineIds: [...question.lineIds],
+        {
+          version: 1,
+          answerRequestId: crypto.randomUUID(),
+          expectedRevision,
+          questionId: question.id,
+          input: accepted.input,
+          answer,
         },
-        scope: { kind: "LINES", lineIds: [...question.lineIds] },
-      },
-      literal,
-      { question, answer: parsed.answer },
-    );
+        controller.signal,
+      );
+      if (!active()) return null;
+      if (!visibleContext() || !verified(fresh))
+        throw new ImportWorkflowResponseError();
+      const content =
+        fresh.revision === expectedRevision
+          ? "Essa informação já estava guardada. Nenhuma alteração foi feita."
+          : "Resposta documental guardada. Informação fornecida por você; o documento original foi preservado.";
+      const assistant: ChatMessage = {
+        role: "assistant",
+        mode: "IMPORT",
+        content,
+        speechText: content,
+        importRevision: fresh.revision,
+      };
+      client.setQueryData(key, fresh);
+      update({
+        pending: false,
+        failure: null,
+        literal: "",
+        editingQuestionId: null,
+        focus: fresh.questions.find(isPendingImportQuestion) ?? null,
+        messages: [...history, assistant],
+      });
+      return assistant;
+    } catch (error) {
+      if (!active()) return null;
+      // A lost/malformed response is not permission to resend or announce success.
+      // Consult the authoritative fact only while the original consumer is current.
+      if (
+        !importConversationFailure(error).privateContextLost &&
+        visibleContext()
+      ) {
+        try {
+          const recovered = await readCurrent(controller.signal);
+          if (!active()) return null;
+          if (visibleContext() && verified(recovered))
+            client.setQueryData(key, recovered);
+        } catch {
+          // Keep the original failure visible; recovery never acknowledges a save.
+        }
+      }
+      if (!active()) return null;
+      fail(error);
+      return null;
+    } finally {
+      generation.busy = false;
+      if (generation.controller === controller) generation.controller = null;
+    }
   }
 
   function editQuestion(id: string) {
