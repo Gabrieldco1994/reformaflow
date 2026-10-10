@@ -267,7 +267,9 @@ export function startVaultBoot(
       () => fail("BOOT_TIMEOUT", currentStep),
       VAULT_BOOT_DEADLINE_MS,
     );
-    timer.unref();
+    // Requested-ON bootstrap awaits this verdict before listen. A pending kernel
+    // operation/promise alone does not keep Node alive: retain the deadline until
+    // settle/terminate clears it, so a timed-out launch cannot silently exit zero.
     bootInitialized = true;
     const run = async (): Promise<void> => {
       try {

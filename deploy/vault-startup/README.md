@@ -101,6 +101,13 @@ real `prisma migrate deploy` fail with ENOTDIR. It still requires nonzero exit,
 no API bootstrap, unchanged vault snapshot and released flock; no production
 entrypoint behavior or assertion is weakened. Independent fault/barrier tests
 are top-level so a failing migration test cannot prevent their registration.
+Run `38092729296` passed the corrected migration STOP test and all three actual
+SIGTERM drain cases. It exposed an OFF preload module-resolution error (fixed
+with the image's absolute dependency path) and a real timeout exit defect:
+the canonical boot deadline had been unreferenced, permitting a pending-probe
+process to exit zero before its OFF verdict. A real child-process RED regression
+reproduced exit 0; the deadline now remains referenced until existing
+settle/terminate cleanup clears it. Requested-ON still cannot listen on failure.
 
 ## Release remains separately blocked
 
