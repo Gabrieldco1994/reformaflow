@@ -65,7 +65,29 @@ case "${1:-}" in
     port=$(port_for "$API_URL")
     free_port "$port"
     [[ -f "$ROOT/apps/api/dist/main.js" ]] || fail 'build apps/api before boot'
-    [[ -d "$VAULT_DIR/t" && -d "$VAULT_DIR/.trash" && -f "$VAULT_DIR/.lock" ]] || fail 'create private vault root, t, .trash and .lock first'
+    # Mirror vault-probe.ts/root.ts for ALL required nodes, not just existence.
+    # "trash" has no leading dot; .trash is not the production vault layout.
+    node - <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const vault = process.env.VAULT_DIR;
+const uid = process.geteuid();
+for (const [name, kind, mode] of [['', 'dir', 0o700], ['t', 'dir', 0o700], ['trash', 'dir', 0o700], ['.lock', 'file', 0o600]]) {
+  const target = path.join(vault, name);
+  const stat = fs.lstatSync(target);
+  const correctKind = kind === 'dir' ? stat.isDirectory() : stat.isFile();
+  if (!correctKind || stat.isSymbolicLink() || stat.uid !== uid || (stat.mode & 0o7777) !== mode || fs.realpathSync(target) !== target)
+    throw new Error(`Invalid vault node ${target}: require ${kind}, owner ${uid}, mode ${mode.toString(8)}, canonical and no symlink`);
+  console.log(`Vault preflight: ${name || 'root'} owner=${stat.uid} mode=${(stat.mode & 0o7777).toString(8)}`);
+}
+const related = (a, b) => a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep);
+for (const key of ['UPLOADS_DIR', 'PRIVATE_UPLOADS_DIR']) {
+  const raw = process.env[key];
+  const resolved = fs.realpathSync(raw);
+  if (resolved !== raw || related(vault, resolved))
+    throw new Error(`${key} must be canonical and disjoint from vault`);
+}
+NODE
     printf 'Maria CSV API · db=%s · port=%s · vault=%s · log=%s\n' "$QA_DB_PATH" "$port" "$VAULT_DIR" "$QA_ARTIFACTS_DIR/api.log"
     if [[ $(uname -s) == Linux ]]; then
       command -v flock > /dev/null || fail 'Linux util-linux flock is required'

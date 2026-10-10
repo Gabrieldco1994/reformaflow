@@ -44,10 +44,11 @@ jobs:
           runtime="$RUNNER_TEMP/maria-csv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           mkdir "$runtime"
           runtime=$(cd "$runtime" && pwd -P)
-          mkdir "$runtime/artifacts" "$runtime/vault" "$runtime/vault/t" "$runtime/vault/.trash"
+          # vault-probe.ts requires root/t/trash (not .trash), each owner-only 0700.
+          mkdir "$runtime/artifacts" "$runtime/vault" "$runtime/vault/t" "$runtime/vault/trash"
           mkdir "$runtime/public-uploads" "$runtime/private-uploads"
           touch "$runtime/vault/.lock"
-          chmod 700 "$runtime/vault" "$runtime/vault/t" "$runtime/vault/.trash"
+          chmod 700 "$runtime/vault" "$runtime/vault/t" "$runtime/vault/trash"
           chmod 600 "$runtime/vault/.lock"
           secret=$(node -e 'console.log(require("node:crypto").randomBytes(48).toString("hex"))')
           echo "::add-mask::$secret"
