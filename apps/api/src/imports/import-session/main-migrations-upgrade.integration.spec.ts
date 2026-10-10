@@ -265,3 +265,221 @@ it("main → import migrations preserves IDs, documentary schedules, invoice tra
       rmSync(directory, { recursive: true });
   }
 }, 30000);
+
+/**
+ * Synthetic legacy pattern from the SRE read-only report: 28 active rooms
+ * pointing at two absent projects (14 each, no expenses) plus 4 soft-deleted
+ * cash-flow entries pointing at four distinct absent expenses. The orphans are
+ * seeded FK OFF into a disposable fixture, committed, FK ON restored, and then
+ * the real Prisma 69→72 upgrade must leave all of them (and the valid control
+ * rows) byte-identical. Nothing here repairs or deletes orphans.
+ */
+it("main → import migrations preserves the legacy 32 FK orphans without new violations or financial changes", async () => {
+  const directory = join(
+    ROOT,
+    "prisma",
+    `test-main-import-legacy-orphans-${randomUUID()}`,
+  );
+  mkdirSync(directory);
+  let db: PrismaClient | undefined;
+  try {
+    const file = join(directory, "test-main-import-legacy-orphans.db");
+    const url = `file:${file}`;
+    const guard = require("../../../../../scripts/test-db-env.cjs");
+    expect(guard.forbiddenReason(url)).toBeNull();
+    const migrations = join(directory, "migrations");
+    mkdirSync(migrations);
+    cpSync(
+      join(ROOT, "prisma/migrations/migration_lock.toml"),
+      join(migrations, "migration_lock.toml"),
+    );
+    for (const name of readdirSync(join(ROOT, "prisma/migrations")).sort()) {
+      if (/^\d/.test(name) && name <= MAIN_LAST_MIGRATION) {
+        cpSync(join(ROOT, "prisma/migrations", name), join(migrations, name), {
+          recursive: true,
+        });
+      }
+    }
+    const schema = join(directory, "schema.prisma");
+    writeFileSync(schema, readFileSync(join(ROOT, "prisma/schema.prisma")));
+    const deploy = (): void => {
+      execFileSync(
+        process.execPath,
+        [
+          require.resolve("prisma/build/index.js"),
+          "migrate",
+          "deploy",
+          "--schema",
+          schema,
+        ],
+        {
+          cwd: ROOT,
+          env: { ...process.env, DATABASE_URL: url },
+          stdio: "pipe",
+        },
+      );
+    };
+    const sqlite = (sql: string): string =>
+      execFileSync("sqlite3", [file], { input: sql, encoding: "utf8" }).trim();
+    deploy();
+    expect(sqlite("SELECT count(*) FROM _prisma_migrations")).toBe("69");
+    // Production reality: the four import tables are ABSENT at 69.
+    expect(
+      sqlite(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('import_sessions','import_artifacts','import_session_artifacts','import_observations')",
+      ),
+    ).toBe("0");
+
+    db = new PrismaClient({ datasources: { db: { url } } });
+    const tenantId = (
+      await db.tenant.create({ data: { name: "Legacy orphan fixture" } })
+    ).id;
+    const projectId = (
+      await db.project.create({
+        data: { tenantId, name: "Legacy PESSOAL fixture", type: "PESSOAL" },
+      })
+    ).id;
+    // Valid financial control rows (must be preserved exactly).
+    const roomId = (
+      await db.room.create({ data: { projectId, name: "Control room" } })
+    ).id;
+    const expenseId = (
+      await db.expense.create({
+        data: {
+          tenantId,
+          projectId,
+          roomId,
+          titulo: "Legacy control expense",
+          tipoDespesa: "OUTROS",
+          valor: 20696,
+          quantidade: 1,
+          valorTotal: 20696,
+          formaPagamento: "A_VISTA",
+          status: "PLANEJADO",
+        },
+      })
+    ).id;
+    await db.cashFlowEntry.create({
+      data: {
+        tenantId,
+        projectId,
+        expenseId,
+        tipo: "DESPESA",
+        categoria: "OUTROS",
+        valor: 20696,
+        data: new Date("2026-10-20T12:00:00"),
+        status: "PLANEJADO",
+        formaPagamento: "A_VISTA",
+      },
+    });
+    await db.$disconnect();
+    db = undefined;
+
+    // Disposable fixture only: FK OFF (cannot toggle inside a transaction),
+    // seed + COMMIT the orphans, then FK ON before the upgrade.
+    const ABSENT_PROJECTS = ["absent-project-a", "absent-project-b"];
+    const ABSENT_EXPENSES = [1, 2, 3, 4].map((n) => `absent-expense-${n}`);
+    const T0 = Date.UTC(2026, 0, 5, 15);
+    const roomInserts = ABSENT_PROJECTS.flatMap((p, i) =>
+      Array.from(
+        { length: 14 },
+        (_, n) =>
+          `INSERT INTO rooms (id, project_id, name, "order", created_at) VALUES ('legacy-room-${i}-${n}', '${p}', 'Orphan room ${n}', ${n}, ${T0});`,
+      ),
+    );
+    const cashInserts = ABSENT_EXPENSES.map(
+      (e, n) =>
+        `INSERT INTO cash_flow_entries (id, project_id, tenant_id, receipt_id, expense_id, budget_allocation_id, valor, tipo, data, categoria, forma_pagamento, status, invoice_due_month, created_at, updated_at, deleted_at) VALUES ('legacy-cash-${n}', '${projectId}', '${tenantId}', NULL, '${e}', NULL, ${10000 + n * 101}, 'DESPESA', ${Date.UTC(2026, 1, 3 + n, 15)}, 'OUTROS', 'A_VISTA', 'PLANEJADO', NULL, ${T0}, ${T0}, ${T0 + 1000});`,
+    );
+    sqlite(
+      [
+        "PRAGMA foreign_keys=OFF;",
+        "BEGIN;",
+        ...roomInserts,
+        ...cashInserts,
+        "COMMIT;",
+        "PRAGMA foreign_keys=ON;",
+      ].join("\n"),
+    );
+
+    const fkTuples = (): string[] =>
+      sqlite("PRAGMA foreign_key_check").split("\n").filter(Boolean).sort();
+    const tables = [
+      "tenants",
+      "projects",
+      "rooms",
+      "expenses",
+      "cash_flow_entries",
+      "imported_invoice_liquidations",
+      "bank_statement_imports",
+    ];
+    const snapshot = (): Record<string, string> =>
+      Object.fromEntries(
+        tables.map((t) => [
+          t,
+          sqlite(`.mode json\nSELECT * FROM ${t} ORDER BY id`),
+        ]),
+      );
+
+    const legacyTuples = fkTuples();
+    expect(legacyTuples).toHaveLength(32);
+    expect(legacyTuples.filter((t) => t.startsWith("rooms|"))).toHaveLength(28);
+    expect(
+      legacyTuples.filter((t) => t.startsWith("cash_flow_entries|")),
+    ).toHaveLength(4);
+    expect(
+      sqlite(
+        "SELECT project_id, count(*), sum(deleted_at IS NULL) FROM rooms WHERE project_id LIKE 'absent-project-%' GROUP BY project_id ORDER BY project_id",
+      ),
+    ).toBe("absent-project-a|14|14\nabsent-project-b|14|14");
+    expect(
+      sqlite(
+        `SELECT count(*) FROM expenses WHERE room_id LIKE 'legacy-room-%'`,
+      ),
+    ).toBe("0");
+    expect(
+      sqlite(
+        "SELECT count(DISTINCT expense_id), count(*), sum(deleted_at IS NOT NULL), count(DISTINCT project_id), count(DISTINCT tenant_id), min(tipo), max(tipo), min(status), max(status), min(forma_pagamento), max(forma_pagamento), count(receipt_id), count(budget_allocation_id), count(invoice_due_month) FROM cash_flow_entries WHERE id LIKE 'legacy-cash-%'",
+      ),
+    ).toBe(
+      "4|4|4|1|1|DESPESA|DESPESA|PLANEJADO|PLANEJADO|A_VISTA|A_VISTA|0|0|0",
+    );
+    expect(sqlite("PRAGMA integrity_check")).toBe("ok");
+    const before = snapshot();
+    expect(before.rooms).toContain("legacy-room-1-13");
+    expect(before.expenses).toContain("20696");
+
+    for (const migration of IMPORT_MIGRATIONS) {
+      cpSync(
+        join(ROOT, "prisma/migrations", migration),
+        join(migrations, migration),
+        { recursive: true },
+      );
+    }
+    deploy();
+
+    expect(sqlite("SELECT count(*) FROM _prisma_migrations")).toBe("72");
+    expect(
+      sqlite(
+        "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL",
+      ),
+    ).toBe("0");
+    // Zero NEW violations: exactly the legacy 32 tuples, nothing more/less.
+    expect(fkTuples()).toEqual(legacyTuples);
+    expect(snapshot()).toEqual(before);
+    expect(sqlite("PRAGMA integrity_check")).toBe("ok");
+    // Retention migrations find no legacy import data: tables exist, empty.
+    for (const t of [
+      "import_sessions",
+      "import_artifacts",
+      "import_session_artifacts",
+      "import_observations",
+    ]) {
+      expect(sqlite(`SELECT count(*) FROM ${t}`)).toBe("0");
+    }
+  } finally {
+    await db?.$disconnect();
+    if (realpathSync(directory) === directory)
+      rmSync(directory, { recursive: true });
+  }
+}, 60000);

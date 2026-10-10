@@ -23,6 +23,10 @@ on:
       - apps/api/src/agent/**
       - apps/api/package.json
       - apps/api/nest-cli.json
+      - apps/api/Dockerfile
+      - apps/api/docker-entrypoint.sh
+      - apps/api/src/main.ts
+      - deploy/vault-startup/**
       - packages/domain/src/import-*.ts
       - packages/domain/src/import-session.ts
 
@@ -30,6 +34,40 @@ permissions:
   contents: read
 
 jobs:
+  production-vault-startup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install test tooling for independent canonical legacy fixture
+        run: |
+          npm ci
+          npm --workspace @reformaflow/domain run build
+          npx prisma generate --schema=prisma/schema.prisma
+      - name: Build actual production runtime image (not QA launcher)
+        run: docker build -f apps/api/Dockerfile -t vault-startup:test .
+      - name: Create disposable ext4 mount and exercise actual entrypoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime=$(mktemp -d "$RUNNER_TEMP/vault-image-XXXXXX")
+          mkdir "$runtime/data"
+          truncate -s 2G "$runtime/ext4.img"
+          mkfs.ext4 -q "$runtime/ext4.img"
+          sudo mount -o loop "$runtime/ext4.img" "$runtime/data"
+          trap 'sudo umount "$runtime/data"; rm -f "$runtime/ext4.img"; rmdir "$runtime/data" "$runtime"' EXIT
+          sudo chown "$(id -u):$(id -g)" "$runtime/data"
+          # Container EUID root owns its newly provisioned 0700 tree. Test harness reads
+          # synthetic snapshots as root; no dev.db, production secrets or Fly access.
+          sudo env PATH="$PATH" VAULT_IMAGE_DATA_DIR="$runtime/data" VAULT_STARTUP_IMAGE=vault-startup:test \
+            node --test --test-concurrency=1 deploy/vault-startup/test/production-image.test.mjs
+          sudo env PATH="$PATH" VAULT_IMAGE_DATA_DIR="$runtime/data" VAULT_STARTUP_IMAGE=vault-startup:test \
+            node node_modules/jest/bin/jest.js --runInBand --config apps/api/package.json \
+            apps/api/src/imports/import-session/main-migrations-upgrade.integration.spec.ts \
+            --setupFilesAfterEnv "$PWD/deploy/vault-startup/test/canonical-image.setup.cjs"
   maria-csv-vault:
     runs-on: ubuntu-latest
     timeout-minutes: 60
