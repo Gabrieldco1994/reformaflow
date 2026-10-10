@@ -54,7 +54,7 @@ export class JourneyEvidence {
     await fs.mkdir(this.directory, { recursive: true });
     const filename = `${String(++this.stepNumber).padStart(2, '0')}-${name}.png`;
     const screenshot = path.join(this.directory, filename);
-    await this.page.screenshot({ path: screenshot, fullPage: true });
+    await this.page.screenshot({ path: screenshot, fullPage: true, caret: 'initial' });
     this.steps.push({ name, url: this.page.url(), title: await this.page.title(), screenshot });
     await this.persist();
     const layout = await this.page.evaluate(() => ({

@@ -19,7 +19,7 @@ async function openMaria(page: Page) {
   if (page.viewportSize()!.width < 768) {
     await page.getByRole('link', { name: 'Maria', exact: true }).click();
   } else {
-    await page.getByRole('button', { name: 'Conversar com a Maria', exact: true }).click();
+    await page.getByRole('button', { name: 'Abrir Copiloto Financeiro', exact: true }).click();
     await page.getByRole('link', { name: 'Importar fatura CSV com Maria', exact: true }).click();
   }
   await expect(page).toHaveURL(/\/maria(?:\?|$)/);
@@ -69,13 +69,17 @@ test(phase === 'upload'
 
     await page.goto('/register');
     await expect(page.getByLabel(/^seu nome$/i)).toBeVisible();
+    // Screenshots temporarily style inputs (caret hiding); wait for React hydration first.
+    await expect.poll(() => page.getByLabel(/^seu nome$/i).evaluate(element =>
+      Object.keys(element).some(key => key.startsWith('__reactProps$'))),
+    { message: 'Register inputs must be hydrated before screenshot instrumentation' }).toBe(true);
     await evidence.capture('register');
     await page.getByLabel(/^seu nome$/i).fill('QA Maria CSV');
     await page.getByLabel(/email/i).fill(`qa-maria-${randomUUID()}@example.com`);
     await page.getByLabel(/^senha$/i).fill(`Qa-${randomUUID()}!`);
     await page.getByRole('checkbox', { name: /organizar minha vida financeira/i }).check();
     await page.getByRole('button', { name: /criar minha conta/i }).click();
-    await expect(page).toHaveURL(/\/projects\/?$/);
+    await expect(page).toHaveURL(/\/projects\/[^/]+\/conta(?:\?|$)/);
     token = (await page.context().cookies()).find(cookie => cookie.name === 'rf_token')?.value ?? '';
     expect(token, 'Real signup must issue an authenticated session cookie').not.toBe('');
     evidence.authenticated();
@@ -83,7 +87,8 @@ test(phase === 'upload'
     const personal = projects.filter(project => project.type === 'PESSOAL');
     expect(personal, 'Signup must create exactly one PESSOAL project').toHaveLength(1);
     projectId = personal[0].id;
-    await expect(page.getByText(personal[0].name, { exact: true })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe(`/projects/${projectId}/conta`);
+    await dismissJourney(page);
     await evidence.capture('signup-project-created');
     const cardResponse = await page.request.post(`${apiURL.replace(/\/$/, '')}/projects/${projectId}/credit-cards`, {
       headers: headers(),
@@ -92,8 +97,8 @@ test(phase === 'upload'
     });
     await evidence.checkApi(cardResponse);
     const card: { id: string } = await cardResponse.json();
-    await page.getByText(personal[0].name, { exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/`));
+    // Signup already entered this project; there is no project-hub tile to click.
+    expect(new URL(page.url()).pathname).toBe(`/projects/${projectId}/conta`);
     await dismissJourney(page);
     await evidence.capture('personal-project-card-created');
 
