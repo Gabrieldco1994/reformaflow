@@ -1,5 +1,7 @@
 import {
+  CARD_IMPORT_IGNORED_REASON,
   ExpenseType,
+  IMPORT_SESSION_AUDIT_OUTCOME,
   LaborCategory,
   IMPORT_NO_ELIGIBLE_PURCHASES,
   IMPORT_SESSION_KIND,
@@ -18,6 +20,7 @@ import {
   type ImportSessionConfirmResponseV1,
   type ImportSessionDecisionV1,
   type ImportSessionDraftLineV1,
+  type ImportSessionIgnoredAuditItemV1,
   type ImportSessionObservationViewV1,
   type ImportSessionPageV1,
   type ImportSessionProposalV1,
@@ -48,24 +51,15 @@ export class ImportWorkflowResponseError extends Error {
 export type ImportObservationView = ImportSessionObservationViewV1 & {
   ignoredReason?: "INVOICE_PAYMENT" | null;
 };
-/**
- * Additive receipt metadata owned by the workflow API. Keep this local until
- * the shared domain contract lands; historical stored receipts normalize to [].
- */
-export interface ImportWorkflowAuditItem {
-  observationId: string;
-  outcome: "IGNORED";
-  reason: "INVOICE_PAYMENT";
-  title: string;
-  amountCents: number | null;
-}
-export type ImportWorkflowReceipt = ImportSessionReceiptV1 & {
+export type ImportWorkflowAuditItem = ImportSessionIgnoredAuditItemV1;
+export type ImportWorkflowReceipt = Omit<ImportSessionReceiptV1, "auditItems"> & {
   auditItems: ImportWorkflowAuditItem[];
 };
-export type ImportWorkflowProposal = ImportSessionProposalV1 & {
-  auditItems: ImportWorkflowAuditItem[];
-};
-type ImportWorkflowProposalWire = ImportSessionProposalV1 & {
+export type ImportWorkflowProposal = ImportSessionProposalV1;
+type ImportWorkflowProposalWire = Omit<
+  ImportSessionProposalV1,
+  "auditItems"
+> & {
   auditItems?: ImportWorkflowAuditItem[];
 };
 const invalid = (): never => {
@@ -563,8 +557,8 @@ function workflowAuditItem(v: unknown): v is ImportWorkflowAuditItem {
     isRecord(v) &&
     exact(v, ["observationId", "outcome", "reason", "title", "amountCents"]) &&
     id(v.observationId) &&
-    v.outcome === "IGNORED" &&
-    v.reason === "INVOICE_PAYMENT" &&
+    v.outcome === IMPORT_SESSION_AUDIT_OUTCOME.IGNORED &&
+    v.reason === CARD_IMPORT_IGNORED_REASON.INVOICE_PAYMENT &&
     text(v.title, 1, P.maxTitleLength) &&
     (v.amountCents === null || (cents(v.amountCents) && v.amountCents < 0))
   );
