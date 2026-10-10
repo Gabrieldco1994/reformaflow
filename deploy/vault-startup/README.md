@@ -93,6 +93,14 @@ The existing three Maria browser jobs also provision their own disposable ext4
 does not bypass bootstrap's production layout checks. This fixes the observed
 run `38092337121` boot rejection from its older `$RUNNER_TEMP/vault` layout.
 Their mount is unmounted only after owned servers stop and artifacts upload.
+Run `38092337121` produced 30 passing actual-image tests and one invalid
+migration-failure fixture: Prisma creates missing database parent directories,
+so the supposed failure started successfully. The corrected fixture uses a
+synthetic regular-file parent under disposable `/data`, proven locally to make
+real `prisma migrate deploy` fail with ENOTDIR. It still requires nonzero exit,
+no API bootstrap, unchanged vault snapshot and released flock; no production
+entrypoint behavior or assertion is weakened. Independent fault/barrier tests
+are top-level so a failing migration test cannot prevent their registration.
 
 ## Release remains separately blocked
 
