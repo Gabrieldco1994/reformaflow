@@ -16,6 +16,8 @@ on:
       - apps/web/e2e-qa/**
       - apps/web/playwright.qa.config.ts
       - apps/web/src/app/projects/**/maria/**
+      - apps/web/src/app/register/**
+      - apps/web/src/contexts/journey-runtime-context.tsx
       - apps/api/src/imports/**
       - apps/api/src/credit-card/parsers/**
       - apps/api/src/agent/**
