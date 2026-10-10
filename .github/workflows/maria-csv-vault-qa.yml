@@ -9,6 +9,7 @@ on:
         feat/maria-conversational-csv-20261009,
         feat/maria-pdf-integration-20261010,
         feat/maria-current-main-20261010,
+        feat/maria-vault-startup-20261010,
       ]
     paths:
       - .github/workflows/maria-csv-vault-qa.yml
