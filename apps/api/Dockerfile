@@ -40,8 +40,9 @@ ENV NODE_ENV=production \
     UPLOADS_DIR=/data/uploads
 
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates curl sqlite3 \
+  && apt-get install -y --no-install-recommends openssl ca-certificates curl sqlite3 util-linux bash \
   && sqlite3 --version \
+  && command -v flock && flock --version \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy only what's needed for runtime
@@ -59,9 +60,8 @@ RUN npm ci --omit=dev --no-audit --no-fund --workspaces --include-workspace-root
   && npx prisma generate --schema=prisma/schema.prisma \
   && npm cache clean --force
 
-# Entrypoint: ensure data dir exists, run migrations, then start
-RUN printf '#!/bin/sh\nset -e\nmkdir -p /data/uploads\nnpx prisma migrate deploy --schema=prisma/schema.prisma\nexec node apps/api/dist/main.js\n' > /entrypoint.sh \
-  && chmod +x /entrypoint.sh
+# Tracked production startup contract: lock/validate ON before migrations, then PID1 Node.
+COPY --chmod=755 apps/api/docker-entrypoint.sh /entrypoint.sh
 
 EXPOSE 3001
 
