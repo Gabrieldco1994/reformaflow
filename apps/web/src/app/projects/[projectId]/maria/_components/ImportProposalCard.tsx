@@ -39,7 +39,7 @@ function Money({ cents }: { cents: number }) {
   return (
     <span
       data-workflow-money
-      className="shrink-0 whitespace-nowrap font-semibold tabular-nums"
+      className={`${journeyStyles.money} shrink-0 font-semibold`}
     >
       {moneyDetail(cents)}
     </span>
@@ -184,14 +184,16 @@ export function ImportProposalCard({
             </p>
             <dl className="space-y-2 rounded-xl bg-lifeone-surface p-3 text-sm">
               <div className="flex items-start justify-between gap-3">
-                <dt>Total a criar</dt>
-                <dd>
+                <dt className="min-w-0 flex-1 break-words">Total a criar</dt>
+                <dd className="shrink-0">
                   <Money cents={proposal.createdEconomicTotalCents} />
                 </dd>
               </div>
               <div className="flex items-start justify-between gap-3">
-                <dt>Efeito no caixa do banco</dt>
-                <dd>
+                <dt className="min-w-0 flex-1 break-words">
+                  Efeito no caixa do banco
+                </dt>
+                <dd className="shrink-0">
                   <Money cents={proposal.bankCashDeltaCents} />
                 </dd>
               </div>
@@ -200,10 +202,10 @@ export function ImportProposalCard({
                   key={index}
                   className="flex items-start justify-between gap-3"
                 >
-                  <dt>
+                  <dt className="min-w-0 flex-1 break-words">
                     Efeito na fatura {formatDueMonth(delta.invoiceDueMonth)}
                   </dt>
-                  <dd>
+                  <dd className="shrink-0">
                     <Money cents={delta.amountCents} />
                   </dd>
                 </div>

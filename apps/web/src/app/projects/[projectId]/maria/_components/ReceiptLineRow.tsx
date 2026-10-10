@@ -1,4 +1,5 @@
 import type { ReceiptLineView } from "../_lib/import-receipt-view";
+import journeyStyles from "@/components/import/ImportJourney.module.css";
 
 /** Read-only row over the approved snapshot: same grammar as the financial rows, no Expense fields. */
 export function ReceiptLineRow({ line }: { line: ReceiptLineView }) {
@@ -19,7 +20,10 @@ export function ReceiptLineRow({ line }: { line: ReceiptLineView }) {
           </span>
           <span className="block text-[12px] text-lifeone-ink-3">{meta}</span>
         </span>
-        <span className="shrink-0 whitespace-nowrap text-[15px] font-semibold tabular-nums text-lifeone-ink">
+        <span
+          data-workflow-money
+          className={`${journeyStyles.money} shrink-0 text-[15px] font-semibold text-lifeone-ink`}
+        >
           {line.totalLabel}
         </span>
       </div>
@@ -27,7 +31,7 @@ export function ReceiptLineRow({ line }: { line: ReceiptLineView }) {
         open={openByDefault}
         className="rounded-xl bg-lifeone-surface px-3"
       >
-        <summary className="flex min-h-11 cursor-pointer items-center text-[13px] font-semibold text-lifeone-ink-2">
+        <summary className="flex min-h-11 min-w-11 cursor-pointer items-center text-[13px] font-semibold text-lifeone-ink-2">
           Cronograma aprovado ({line.occurrences.length}{" "}
           {line.occurrences.length === 1 ? "lançamento" : "lançamentos"})
         </summary>
@@ -49,7 +53,10 @@ export function ReceiptLineRow({ line }: { line: ReceiptLineView }) {
                   </span>
                 )}
               </span>
-              <span className="shrink-0 whitespace-nowrap tabular-nums text-lifeone-ink">
+              <span
+                data-workflow-money
+                className={`${journeyStyles.money} shrink-0 text-lifeone-ink`}
+              >
                 {occurrence.valueLabel}
               </span>
             </li>
@@ -66,7 +73,10 @@ export function ReceiptLineRow({ line }: { line: ReceiptLineView }) {
               <span className="min-w-0 flex-1 truncate text-lifeone-ink-2">
                 → {target.name}
               </span>
-              <span className="shrink-0 whitespace-nowrap tabular-nums text-lifeone-ink">
+              <span
+                data-workflow-money
+                className={`${journeyStyles.money} shrink-0 text-lifeone-ink`}
+              >
                 {target.amountLabel}
               </span>
             </li>

@@ -433,9 +433,16 @@ function FocusedQuestion({
           <p>{declarationFieldLabel(currentPreview.answer)}</p>
           <p>
             <span
+              data-workflow-money={
+                currentPreview.answer.field === "amountCents" &&
+                currentPreview.answer.value !== null
+                  ? true
+                  : undefined
+              }
               className={
-                currentPreview.answer.field === "amountCents"
-                  ? "whitespace-nowrap tabular-nums"
+                currentPreview.answer.field === "amountCents" &&
+                currentPreview.answer.value !== null
+                  ? journeyStyles.money
                   : "break-words"
               }
             >

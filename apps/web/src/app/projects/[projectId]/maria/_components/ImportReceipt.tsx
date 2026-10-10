@@ -1,5 +1,6 @@
 import type { ReceiptView } from "../_lib/import-receipt-view";
 import { ReceiptLineRow } from "./ReceiptLineRow";
+import journeyStyles from "@/components/import/ImportJourney.module.css";
 
 export function ImportReceipt({
   view,
@@ -23,14 +24,24 @@ export function ImportReceipt({
 
       <dl className="space-y-1 rounded-2xl border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[14px]">
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-lifeone-ink-2">Total criado</dt>
-          <dd className="whitespace-nowrap font-semibold tabular-nums text-lifeone-ink">
+          <dt className="min-w-0 flex-1 break-words text-lifeone-ink-2">
+            Total criado
+          </dt>
+          <dd
+            data-workflow-money
+            className={`${journeyStyles.money} shrink-0 whitespace-nowrap font-semibold text-lifeone-ink`}
+          >
             {view.createdTotalLabel}
           </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-lifeone-ink-2">Efeito no caixa do banco</dt>
-          <dd className="whitespace-nowrap tabular-nums text-lifeone-ink">
+          <dt className="min-w-0 flex-1 break-words text-lifeone-ink-2">
+            Efeito no caixa do banco
+          </dt>
+          <dd
+            data-workflow-money
+            className={`${journeyStyles.money} shrink-0 whitespace-nowrap text-lifeone-ink`}
+          >
             {view.bankCashDeltaLabel}
           </dd>
         </div>
@@ -39,8 +50,13 @@ export function ImportReceipt({
             key={delta.monthLabel}
             className="flex items-center justify-between gap-3"
           >
-            <dt className="text-lifeone-ink-2">Fatura de {delta.monthLabel}</dt>
-            <dd className="whitespace-nowrap tabular-nums text-lifeone-ink">
+            <dt className="min-w-0 flex-1 break-words text-lifeone-ink-2">
+              Fatura de {delta.monthLabel}
+            </dt>
+            <dd
+              data-workflow-money
+              className={`${journeyStyles.money} shrink-0 whitespace-nowrap text-lifeone-ink`}
+            >
               {delta.amountLabel}
             </dd>
           </div>
@@ -59,7 +75,7 @@ export function ImportReceipt({
           onClick={() =>
             onOpenContinuation(view.continuationSessionId as string)
           }
-          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-lifeone-hairline bg-white px-4 text-[14px] font-semibold text-lifeone-ink"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-lifeone-hairline bg-white px-4 text-[14px] font-semibold text-lifeone-ink"
         >
           Ver rascunho restante
         </button>

@@ -10,6 +10,7 @@ import {
   declarationFieldLabel,
   declarationValueLabel,
 } from "./ImportFocusedQuestion";
+import journeyStyles from "@/components/import/ImportJourney.module.css";
 
 const FACT_LABEL: Record<ImportDeclaredFactViewV1["status"], string> = {
   CURRENT: "Informado por você",
@@ -39,9 +40,14 @@ export function ImportDeclaredFacts({
         <p>{FACT_LABEL[fact.status]}</p>
         <p className="break-words">
           <span
+            data-workflow-money={
+              fact.field === "amountCents" && fact.value !== null
+                ? true
+                : undefined
+            }
             className={
-              fact.field === "amountCents"
-                ? "whitespace-nowrap tabular-nums"
+              fact.field === "amountCents" && fact.value !== null
+                ? journeyStyles.money
                 : undefined
             }
           >
