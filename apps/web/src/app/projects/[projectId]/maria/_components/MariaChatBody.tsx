@@ -26,6 +26,12 @@ interface GenericChatProps {
   onImportEntryAction?: (action: ImportEntryAction) => void;
 }
 
+interface ContinuationFocusProps {
+  continuationFocusSessionId?: string | null;
+  onContinuationRequest?: (sessionId: string) => void;
+  onContinuationFocusComplete?: (sessionId: string) => void;
+}
+
 /**
  * Corpo da conversa com a Maria (mensagens + dock + voz + sheet de edição) —
  * extraído de `maria/page.tsx` para ser reusado tanto na tela cheia do app
@@ -38,13 +44,16 @@ export function MariaChatBody(
   props: GenericChatProps & {
     importSessionId?: string | null;
     documents?: ImportDocumentFlow;
-  },
+  } & ContinuationFocusProps,
 ) {
   if (Object.hasOwn(props, "importSessionId"))
     return (
       <ImportConversationBody
         sessionId={props.importSessionId ?? null}
         documents={props.documents}
+        continuationFocusSessionId={props.continuationFocusSessionId}
+        onContinuationRequest={props.onContinuationRequest}
+        onContinuationFocusComplete={props.onContinuationFocusComplete}
       />
     );
   return <GenericMariaChatBody {...props} />;

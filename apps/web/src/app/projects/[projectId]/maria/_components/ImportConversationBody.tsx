@@ -44,13 +44,15 @@ import { MariaMessageBubble } from "./MariaMessageBubble";
 function Conversation({
   sessionId,
   documents,
-  focusOnMount = false,
+  continuationFocusSessionId,
   onContinuationRequest,
+  onContinuationFocusComplete,
 }: {
   sessionId: string | null;
   documents: ImportDocumentFlow;
-  focusOnMount?: boolean;
+  continuationFocusSessionId?: string | null;
   onContinuationRequest?: (sessionId: string) => void;
+  onContinuationFocusComplete?: (sessionId: string) => void;
 }) {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
@@ -104,9 +106,15 @@ function Conversation({
     [onContinuationRequest, projectId, router],
   );
   const conversationRegion = useRef<HTMLElement>(null);
+  const focusForContinuation =
+    sessionId !== null && continuationFocusSessionId === sessionId;
   useEffect(() => {
-    if (focusOnMount) conversationRegion.current?.focus();
-  }, [focusOnMount]);
+    if (!focusForContinuation || !sessionId) return;
+    const region = conversationRegion.current;
+    region?.focus();
+    if (region && document.activeElement === region)
+      onContinuationFocusComplete?.(sessionId);
+  }, [focusForContinuation, onContinuationFocusComplete, sessionId]);
   const onIgnoredCountChange = useCallback(
     (count: number) => setIgnoredCount(count),
     [],
@@ -241,7 +249,7 @@ function Conversation({
   return (
     <section
       ref={conversationRegion}
-      tabIndex={focusOnMount ? -1 : undefined}
+      tabIndex={focusForContinuation ? -1 : undefined}
       aria-label="Conversa da importação"
       className="flex min-h-0 min-w-0 flex-1 flex-col gap-3"
     >
@@ -665,20 +673,23 @@ function Conversation({
 
 function StandaloneConversation({
   sessionId,
-  focusOnMount,
+  continuationFocusSessionId,
   onContinuationRequest,
+  onContinuationFocusComplete,
 }: {
   sessionId: string | null;
-  focusOnMount: boolean;
-  onContinuationRequest: (sessionId: string) => void;
+  continuationFocusSessionId?: string | null;
+  onContinuationRequest?: (sessionId: string) => void;
+  onContinuationFocusComplete?: (sessionId: string) => void;
 }) {
   const documents = useImportDocumentFlow(sessionId);
   return (
     <Conversation
       sessionId={sessionId}
       documents={documents}
-      focusOnMount={focusOnMount}
+      continuationFocusSessionId={continuationFocusSessionId}
       onContinuationRequest={onContinuationRequest}
+      onContinuationFocusComplete={onContinuationFocusComplete}
     />
   );
 }
@@ -687,31 +698,33 @@ function StandaloneConversation({
 export function ImportConversationBody({
   sessionId,
   documents,
+  continuationFocusSessionId,
+  onContinuationRequest,
+  onContinuationFocusComplete,
 }: {
   sessionId: string | null;
   documents?: ImportDocumentFlow;
+  continuationFocusSessionId?: string | null;
+  onContinuationRequest?: (sessionId: string) => void;
+  onContinuationFocusComplete?: (sessionId: string) => void;
 }) {
   const userId = useImportUserId();
-  const continuationTarget = useRef<string | null>(null);
-  const markContinuationRequest = useCallback((nextSessionId: string) => {
-    continuationTarget.current = nextSessionId;
-  }, []);
-  const focusOnMount =
-    sessionId !== null && continuationTarget.current === sessionId;
   return documents ? (
     <Conversation
       key={JSON.stringify([userId, sessionId])}
       sessionId={sessionId}
       documents={documents}
-      focusOnMount={focusOnMount}
-      onContinuationRequest={markContinuationRequest}
+      continuationFocusSessionId={continuationFocusSessionId}
+      onContinuationRequest={onContinuationRequest}
+      onContinuationFocusComplete={onContinuationFocusComplete}
     />
   ) : (
     <StandaloneConversation
       key={JSON.stringify([userId, sessionId])}
       sessionId={sessionId}
-      focusOnMount={focusOnMount}
-      onContinuationRequest={markContinuationRequest}
+      continuationFocusSessionId={continuationFocusSessionId}
+      onContinuationRequest={onContinuationRequest}
+      onContinuationFocusComplete={onContinuationFocusComplete}
     />
   );
 }

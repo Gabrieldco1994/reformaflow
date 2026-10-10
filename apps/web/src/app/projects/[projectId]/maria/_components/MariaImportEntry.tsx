@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IMPORT_SESSION_PRIMITIVES } from "@reformaflow/domain";
@@ -50,6 +50,18 @@ function Entry({
     to: string;
     nonce: number;
   } | null>(null);
+  const [
+    pendingContinuationFocusSessionId,
+    setPendingContinuationFocusSessionId,
+  ] = useState<string | null>(null);
+  const recordContinuationFocus = useCallback((sessionId: string) => {
+    setPendingContinuationFocusSessionId(sessionId);
+  }, []);
+  const completeContinuationFocus = useCallback((sessionId: string) => {
+    setPendingContinuationFocusSessionId((pending) =>
+      pending === sessionId ? null : pending,
+    );
+  }, []);
   const nextNavigation = useRef(0);
   const selection =
     requested && (requested.from === location || requested.to === location)
@@ -166,6 +178,9 @@ function Entry({
               projectId={projectId}
               importSessionId={documents.sessionId}
               documents={documents}
+              continuationFocusSessionId={pendingContinuationFocusSessionId}
+              onContinuationRequest={recordContinuationFocus}
+              onContinuationFocusComplete={completeContinuationFocus}
             />
           ) : documents.error ? (
             <div role="alert">
