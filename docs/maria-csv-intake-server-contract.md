@@ -72,6 +72,10 @@ aceite; o contrato prospectivo M1/M2 já aprovado não comprova entrega funciona
   com attachment ausente pode reenviar com consentimento válido.
 - Falha, lentidão e recuperação são explícitas. Retry não duplica processamento/aplicação,
   não sobrescreve decisões humanas e respeita isolamento, versão e estado.
+- Um CSV enviado novamente com bytes idênticos na mesma sessão não cria outro anexo
+  analisável: o servidor libera a reserva duplicada, remove sua referência pendente na
+  mesma transação e retorna um resultado explícito de deduplicação; os arquivos únicos
+  da sessão continuam disponíveis para preparação.
 - Rascunho pendente expira após **sete dias sem edição do usuário**; consulta/polling não
   renova. Concluir/cancelar libera referências. Remover o original privado quando não houver
   referência ativa nem retenção autorizada que exija preservação; cumprir também remoção

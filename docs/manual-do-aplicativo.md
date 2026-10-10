@@ -365,6 +365,9 @@ financeiro em tela própria (chat em tela cheia no mobile).
   você, mesmo quando só há um cartão. Se não houver cartão, a tela oferece o
   cadastro existente e retorna à Maria. Selecione um arquivo CSV local; só depois
   de revisar os arquivos e autorizar o envio os bytes são enviados para análise.
+  Um CSV com bytes idênticos a outro já enviado na mesma sessão é reconhecido como
+  repetido: o segundo vínculo é liberado sem nova análise, e os demais arquivos
+  seguem normalmente.
   Dias de fechamento e vencimento não configurados são mostrados no cartão
   selecionado, com acesso para completá-los; isso não escolhe nem substitui sua
   escolha explícita do cartão.
