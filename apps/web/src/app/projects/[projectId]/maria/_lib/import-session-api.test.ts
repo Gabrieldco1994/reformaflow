@@ -61,6 +61,39 @@ describe("answerImportFocusedDraftQuestion", () => {
     answer: { field: "firstDueDate" as const, value: "2025-10-10" },
   };
   beforeEach(() => api.patch.mockReset());
+  it.each([
+    {
+      field: "decision" as const,
+      value: {
+        kind: "CREATE" as const,
+        acceptNaturalDuplicate: false as const,
+      },
+    },
+    { field: "targets" as const, value: [] as [] },
+  ])(
+    "PATCHes the exact native $field payload without adding replacement lines or waiver",
+    async (answer) => {
+      api.patch.mockResolvedValue(view);
+      const signal = new AbortController().signal;
+      const payload = { ...request, answer };
+      await answerImportFocusedDraftQuestion("session", payload, signal);
+      expect(api.patch).toHaveBeenCalledWith(
+        "/import-sessions/session/draft",
+        payload,
+        {
+          headers: { "x-rf-import-ui": "1" },
+          signal,
+        },
+      );
+      expect(Object.keys(api.patch.mock.calls[0][1]).sort()).toEqual([
+        "answer",
+        "answerRequestId",
+        "expectedRevision",
+        "questionId",
+        "version",
+      ]);
+    },
+  );
   it("PATCHes the exact focused variant with UI headers and signal", async () => {
     api.patch.mockResolvedValue(view);
     const signal = new AbortController().signal;

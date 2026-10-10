@@ -611,7 +611,9 @@ function Conversation({
                       (error || documents.error) &&
                       ("subject" in question ||
                         question.field === "firstDueDate" ||
-                        question.field === "tipoDespesa")
+                        question.field === "tipoDespesa" ||
+                        question.field === "decision" ||
+                        question.field === "targets")
                         ? undefined
                         : (answer) => {
                             if ("draftAnswer" in answer)

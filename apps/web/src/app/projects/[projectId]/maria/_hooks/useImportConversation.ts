@@ -38,6 +38,7 @@ import {
 import { useImportUserId } from "./useImportSessions";
 import {
   isFocusedDraftQuestion,
+  sameFocusedValue,
   validFocusedDraftAnswer,
   verifiedFocusedDraftAnswer,
 } from "../_lib/import-focused-draft";
@@ -453,24 +454,27 @@ export function useImportConversation(
     }
     const answer = accepted.draftAnswer;
     const expectedRevision = view.revision;
-    const admitted = JSON.stringify([
+    const admitted = [
       view.questions,
       view.actions,
       view.lines,
       view.selectedLineIds,
       view.declaredFacts,
-    ]);
+    ];
     const visibleContext = () => {
       const cached = client.getQueryData<ImportSessionViewV1>(key);
       return (
         snapshotStillCurrent(expectedRevision) &&
-        JSON.stringify([
-          cached?.questions,
-          cached?.actions,
-          cached?.lines,
-          cached?.selectedLineIds,
-          cached?.declaredFacts,
-        ]) === admitted
+        sameFocusedValue(
+          [
+            cached?.questions,
+            cached?.actions,
+            cached?.lines,
+            cached?.selectedLineIds,
+            cached?.declaredFacts,
+          ],
+          admitted,
+        )
       );
     };
     if (!visibleContext()) {

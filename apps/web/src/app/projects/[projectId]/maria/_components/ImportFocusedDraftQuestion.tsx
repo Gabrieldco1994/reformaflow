@@ -5,7 +5,6 @@ import {
   ExpenseType,
   type ImportSessionQuestionV1,
   type ImportSessionDraftLineV1,
-  type ImportSessionFocusedDraftAnswerV1,
 } from "@reformaflow/domain";
 import { useProject } from "@/contexts/project-context";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,11 @@ import journeyStyles from "@/components/import/ImportJourney.module.css";
 import { getExpenseOptions } from "../../expenses/_types";
 import { tipoLabel } from "@/lib/expense-options";
 import { formatDateOnly } from "../_lib/import-format";
-import { validFocusedDraftAnswer } from "../_lib/import-focused-draft";
+import {
+  FOCUSED_DRAFT_LABEL,
+  validFocusedDraftAnswer,
+} from "../_lib/import-focused-draft";
+import type { FocusedDraftAnswer } from "../_lib/import-focused-draft-types";
 import type { ImportQuestionAnswerInput } from "../_lib/import-session-api";
 
 export interface ImportFocusedDraftQuestionProps {
@@ -25,6 +28,7 @@ export interface ImportFocusedDraftQuestionProps {
   value?: string;
   onTextChange?: (text: string) => void;
   contextKey?: string;
+  onOtherChoice?: () => void;
 }
 
 /** Explicit local draft preview: dates are literal date-only, categories remain separate questions. */
@@ -37,6 +41,7 @@ export function ImportFocusedDraftQuestion({
   value,
   onTextChange,
   contextKey = "",
+  onOtherChoice,
 }: ImportFocusedDraftQuestionProps) {
   const { projectType } = useProject();
   const options = getExpenseOptions(projectType);
@@ -45,11 +50,12 @@ export function ImportFocusedDraftQuestion({
   const text = value ?? local;
   const stamp = JSON.stringify([contextKey, question, projectType]);
   const [preview, setPreview] = useState<{
-    answer: ImportSessionFocusedDraftAnswerV1;
+    answer: FocusedDraftAnswer;
     stamp: string;
     text: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [choiceStamp, setChoiceStamp] = useState<string | null>(null);
   const sent = useRef(false);
   const control = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const wasPending = useRef(pending);
@@ -57,6 +63,9 @@ export function ImportFocusedDraftQuestion({
     setPreview(null);
     setError(null);
   }, [text, stamp, disabled]);
+  useEffect(() => {
+    setChoiceStamp(null);
+  }, [stamp, disabled]);
   useEffect(() => {
     if (wasPending.current && !pending && !disabled) control.current?.focus();
     wasPending.current = pending;
@@ -72,14 +81,29 @@ export function ImportFocusedDraftQuestion({
     !onAnswer;
   const currentPreview =
     preview?.stamp === stamp && preview.text === text ? preview : null;
-  const isDate = question.field === "firstDueDate";
-  const label = isDate ? "Primeiro vencimento" : "Tipo de despesa";
+  function fieldLabel(): string {
+    switch (question.field) {
+      case "firstDueDate":
+        return FOCUSED_DRAFT_LABEL.firstDueDate;
+      case "tipoDespesa":
+        return FOCUSED_DRAFT_LABEL.tipoDespesa;
+      case "decision":
+        return FOCUSED_DRAFT_LABEL.decision;
+      case "targets":
+        return FOCUSED_DRAFT_LABEL.targets;
+      default:
+        return "";
+    }
+  }
+  const label = fieldLabel();
+  const choice = question.field === "decision" || question.field === "targets";
+  const selectedChoice = choiceStamp === stamp;
   function change(text: string) {
     setLocal(text);
     setPreview(null);
     onTextChange?.(text);
   }
-  function check(answer: ImportSessionFocusedDraftAnswerV1 | null) {
+  function check(answer: FocusedDraftAnswer | null) {
     if (blocked) return;
     if (!answer || !validFocusedDraftAnswer(answer)) {
       setPreview(null);
@@ -89,10 +113,121 @@ export function ImportFocusedDraftQuestion({
     setError(null);
     setPreview({ answer, stamp, text });
   }
-  function valueAnswer(): ImportSessionFocusedDraftAnswerV1 | null {
-    if (isDate) return { field: "firstDueDate", value: text };
-    const selected = options.find((option) => option.value === text);
-    return selected ? { field: "tipoDespesa", value: selected.value } : null;
+  function valueAnswer(): FocusedDraftAnswer | null {
+    switch (question.field) {
+      case "firstDueDate":
+        return { field: "firstDueDate", value: text };
+      case "tipoDespesa": {
+        const selected = options.find((option) => option.value === text);
+        return selected
+          ? { field: "tipoDespesa", value: selected.value }
+          : null;
+      }
+      case "decision":
+        return selectedChoice
+          ? {
+              field: "decision",
+              value: { kind: "CREATE", acceptNaturalDuplicate: false },
+            }
+          : null;
+      case "targets":
+        return selectedChoice ? { field: "targets", value: [] } : null;
+      default:
+        return null;
+    }
+  }
+  function unknownAnswer(): FocusedDraftAnswer | null {
+    switch (question.field) {
+      case "firstDueDate":
+        return { field: "firstDueDate", value: null };
+      case "tipoDespesa":
+        return { field: "tipoDespesa", value: null };
+      default:
+        return null;
+    }
+  }
+  function previewLabel(answer: FocusedDraftAnswer): string | null {
+    switch (answer.field) {
+      case "firstDueDate":
+        return answer.value === null
+          ? "Não sei informar"
+          : formatDateOnly(answer.value);
+      case "tipoDespesa":
+        return answer.value === null
+          ? "Não sei informar"
+          : tipoLabel(answer.value);
+      case "decision":
+        return FOCUSED_DRAFT_LABEL.decision;
+      case "targets":
+        return FOCUSED_DRAFT_LABEL.targets;
+    }
+  }
+  function renderControl() {
+    switch (question.field) {
+      case "firstDueDate":
+        return (
+          <input
+            ref={(element) => {
+              control.current = element;
+            }}
+            id={`${id}-input`}
+            type="date"
+            min="1900-01-01"
+            max="2199-12-31"
+            value={text}
+            onChange={(event) => change(event.target.value)}
+            disabled={blocked}
+            aria-describedby={`${id}-hint`}
+            className="w-full rounded-xl border border-darc-linen px-3 py-2"
+          />
+        );
+      case "tipoDespesa":
+        return (
+          <select
+            ref={(element) => {
+              control.current = element;
+            }}
+            id={`${id}-input`}
+            value={text}
+            onChange={(event) => change(event.target.value)}
+            disabled={blocked}
+            aria-describedby={`${id}-hint`}
+            className="w-full rounded-xl border border-darc-linen px-3 py-2"
+          >
+            <option value="">Escolha o tipo de despesa</option>
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        );
+      case "decision":
+      case "targets":
+        return (
+          <label className="flex min-h-11 items-center gap-3 rounded-xl border border-darc-linen p-3">
+            <input
+              ref={(element) => {
+                control.current = element;
+              }}
+              id={`${id}-input`}
+              type="radio"
+              name={`${id}-choice`}
+              checked={selectedChoice}
+              disabled={blocked}
+              aria-describedby={`${id}-hint`}
+              onChange={() => {
+                setChoiceStamp(stamp);
+                change(label);
+              }}
+              className="h-5 w-5 shrink-0"
+            />
+            <span className="min-w-0 break-words text-sm">{label}</span>
+          </label>
+        );
+      default:
+        return null;
+    }
   }
   return (
     <form
@@ -120,49 +255,17 @@ export function ImportFocusedDraftQuestion({
             ),
         )}
       </ul>
-      <label htmlFor={`${id}-input`} className="block text-sm font-medium">
-        {label}
-      </label>
-      {isDate ? (
-        <input
-          ref={(element) => {
-            control.current = element;
-          }}
-          id={`${id}-input`}
-          type="date"
-          min="1900-01-01"
-          max="2199-12-31"
-          value={text}
-          onChange={(event) => change(event.target.value)}
-          disabled={blocked}
-          aria-describedby={`${id}-hint`}
-          className="w-full rounded-xl border border-darc-linen px-3 py-2"
-        />
-      ) : (
-        <select
-          ref={(element) => {
-            control.current = element;
-          }}
-          id={`${id}-input`}
-          value={text}
-          onChange={(event) => change(event.target.value)}
-          disabled={blocked}
-          aria-describedby={`${id}-hint`}
-          className="w-full rounded-xl border border-darc-linen px-3 py-2"
-        >
-          <option value="">Escolha o tipo de despesa</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+      {!choice && (
+        <label htmlFor={`${id}-input`} className="block text-sm font-medium">
+          {label}
+        </label>
       )}
+      {renderControl()}
       <p id={`${id}-hint`} className="text-sm text-gray-600">
         Confira antes de guardar. Este campo atualiza somente o rascunho; não
         confirma lançamentos.
       </p>
-      {text === ExpenseType.MAO_DE_OBRA && !isDate && (
+      {text === ExpenseType.MAO_DE_OBRA && question.field === "tipoDespesa" && (
         <p className="text-sm">
           A categoria de mão de obra será informada na pergunta própria.
         </p>
@@ -183,34 +286,53 @@ export function ImportFocusedDraftQuestion({
           className="space-y-2 rounded-xl bg-lifeone-surface p-3 text-sm"
         >
           <p>{label}</p>
-          <p>
-            {currentPreview.answer.value === null
-              ? "Não sei informar"
-              : currentPreview.answer.field === "firstDueDate"
-                ? formatDateOnly(currentPreview.answer.value)
-                : tipoLabel(currentPreview.answer.value)}
-          </p>
+          <p>{previewLabel(currentPreview.answer)}</p>
+          {choice && (
+            <ul
+              aria-label="Compras afetadas pela escolha"
+              className="space-y-1"
+            >
+              {targets.map(
+                (line) =>
+                  line && (
+                    <li key={line.id} className="break-words">
+                      {line.titulo} — Compra {line.id}
+                    </li>
+                  ),
+              )}
+            </ul>
+          )}
           <p>Esta prévia ainda não foi enviada.</p>
         </div>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" className="min-h-11" disabled={blocked || !text}>
+        <Button
+          type="submit"
+          className="min-h-11"
+          disabled={blocked || (choice ? !selectedChoice : !text)}
+        >
           Conferir informação
         </Button>
-        <Button
-          type="button"
-          className="min-h-11"
-          disabled={blocked}
-          onClick={() =>
-            check(
-              isDate
-                ? { field: "firstDueDate", value: null }
-                : { field: "tipoDespesa", value: null },
-            )
-          }
-        >
-          Não sei informar
-        </Button>
+        {!choice && (
+          <Button
+            type="button"
+            className="min-h-11"
+            disabled={blocked}
+            onClick={() => check(unknownAnswer())}
+          >
+            Não sei informar
+          </Button>
+        )}
+        {choice && onOtherChoice && (
+          <Button
+            type="button"
+            className="min-h-11"
+            disabled={blocked}
+            onClick={onOtherChoice}
+          >
+            Responder outra opção pela conversa
+          </Button>
+        )}
         <Button
           type="button"
           className="min-h-11"

@@ -8,8 +8,6 @@ import type {
   ImportDeclarationAnswerV1,
   ImportDeclarationUiInputV1,
   ImportSessionDocumentaryAnswerRequestV1,
-  ImportSessionFocusedDraftAnswerRequestV1,
-  ImportSessionFocusedDraftAnswerV1,
   ImportSessionCandidateV1,
   ImportSessionChallengeRequestV1,
   ImportSessionConfirmRequestV1,
@@ -34,6 +32,10 @@ import {
   type ImportObservationView,
 } from "./import-session-workflow-read";
 import type { ImportListScope } from "./import-session-keys";
+import type {
+  FocusedDraftAnswer,
+  FocusedDraftAnswerRequest,
+} from "./import-focused-draft-types";
 import {
   isResultRead,
   isRecord,
@@ -66,7 +68,7 @@ const enc = encodeURIComponent;
 /** The documentary variant carries the exact local preview accepted by the human. */
 export type ImportQuestionAnswerInput =
   | { id: string; text: string }
-  | { id: string; text: string; draftAnswer: ImportSessionFocusedDraftAnswerV1 }
+  | { id: string; text: string; draftAnswer: FocusedDraftAnswer }
   | {
       id: string;
       text: string;
@@ -76,7 +78,7 @@ export type ImportQuestionAnswerInput =
 
 export async function answerImportFocusedDraftQuestion(
   id: string,
-  request: ImportSessionFocusedDraftAnswerRequestV1,
+  request: FocusedDraftAnswerRequest,
   signal?: AbortSignal,
 ): Promise<ImportSessionViewV1> {
   const view = readImportWorkflowView(

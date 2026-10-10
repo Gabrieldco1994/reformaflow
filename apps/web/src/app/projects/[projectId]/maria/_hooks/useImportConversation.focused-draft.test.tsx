@@ -10,6 +10,7 @@ import {
 } from "@reformaflow/domain";
 import { useImportConversation } from "./useImportConversation";
 import { importRoot } from "../_lib/import-session-keys";
+import type { FocusedDraftAnswer } from "../_lib/import-focused-draft-types";
 
 const mocks = vi.hoisted(() => ({
   userId: "user-1",
@@ -110,6 +111,231 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+describe("native create and no-allocation choices", () => {
+  const cases: Extract<
+    FocusedDraftAnswer,
+    { field: "decision" | "targets" }
+  >[] = [
+    {
+      field: "decision" as const,
+      value: {
+        kind: "CREATE" as const,
+        acceptNaturalDuplicate: false as const,
+      },
+    },
+    { field: "targets" as const, value: [] as [] },
+  ];
+  it.each(cases)(
+    "PATCHes exact $field answer without agent or financial confirmation",
+    async (draftAnswer) => {
+      const { field, value } = draftAnswer;
+      const question = {
+        id: "q-choice",
+        field,
+        lineIds: [line.id],
+        text: "Escolha",
+      };
+      const view = { ...base, questions: [question] };
+      const { result } = setup(view);
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      const fresh = {
+        ...view,
+        revision: 5,
+        questions: [],
+        lines: [{ ...line, [field]: structuredClone(value) }],
+      };
+      mocks.answerImportFocusedDraftQuestion.mockResolvedValue(fresh);
+      await act(async () => {
+        await result.current.saveFocusedDraft({
+          id: question.id,
+          text: "Escolha explícita",
+          draftAnswer,
+        });
+      });
+      expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenCalledWith(
+        base.id,
+        {
+          version: 1,
+          answerRequestId: expect.any(String),
+          expectedRevision: 4,
+          questionId: question.id,
+          answer: { field, value },
+        },
+        expect.any(AbortSignal),
+      );
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(result.current.error).toBeNull();
+      expect(result.current.review).toBe(false);
+      expect(result.current.view?.confirmation).toBeNull();
+      expect(result.current.view?.receipt).toBeNull();
+    },
+  );
+
+  it.each(cases)(
+    "accepts independently allocated no-op $field values structurally",
+    async (draftAnswer) => {
+      const { field, value } = draftAnswer;
+      const question = {
+        id: "q-choice",
+        field,
+        lineIds: [line.id],
+        text: "Escolha",
+      };
+      const view = {
+        ...base,
+        questions: [question],
+        lines: [{ ...line, [field]: value }],
+      };
+      const { result } = setup(view);
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      mocks.answerImportFocusedDraftQuestion.mockResolvedValue(
+        structuredClone(view),
+      );
+      await act(async () => {
+        await result.current.saveFocusedDraft({
+          id: question.id,
+          text: "Escolha explícita",
+          draftAnswer: structuredClone(draftAnswer),
+        });
+      });
+      expect(result.current.error).toBeNull();
+      expect(result.current.view?.revision).toBe(4);
+    },
+  );
+
+  it.each(["decision", "targets"] as const)(
+    "rejects wrong stored %s without success",
+    async (field) => {
+      const question = {
+        id: "q-choice",
+        field,
+        lineIds: [line.id],
+        text: "Escolha",
+      };
+      const { result, client, key } = setup({ ...base, questions: [question] });
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      const draftAnswer =
+        field === "decision"
+          ? {
+              field,
+              value: {
+                kind: "CREATE" as const,
+                acceptNaturalDuplicate: false as const,
+              },
+            }
+          : { field, value: [] as [] };
+      mocks.answerImportFocusedDraftQuestion.mockResolvedValue({
+        ...base,
+        revision: 5,
+        lines: [
+          {
+            ...line,
+            decision: { kind: "CREATE", acceptNaturalDuplicate: true },
+            targets: [{ projectId: "target", roomId: null, amountCents: 100 }],
+          },
+        ],
+      });
+      await act(async () => {
+        await result.current.saveFocusedDraft({
+          id: question.id,
+          text: "",
+          draftAnswer,
+        });
+      });
+      expect(result.current.error).not.toBeNull();
+      expect(client.getQueryData<ImportSessionViewV1>(key)?.revision).toBe(4);
+      expect(mocks.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(cases)(
+    "reads uncertain $field results without retry or success",
+    async (draftAnswer) => {
+      const question = {
+        id: "q-choice",
+        field: draftAnswer.field,
+        lineIds: [line.id],
+        text: "Escolha",
+      };
+      const view = { ...base, questions: [question] };
+      const { result } = setup(view);
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      mocks.getFullImportSession.mockClear();
+      mocks.getFullImportSession.mockResolvedValue({
+        ...view,
+        revision: 5,
+        questions: [],
+        lines: [{ ...line, [draftAnswer.field]: draftAnswer.value }],
+      });
+      mocks.answerImportFocusedDraftQuestion.mockRejectedValue(
+        new TypeError("Lost response"),
+      );
+      await act(async () => {
+        await result.current.saveFocusedDraft({
+          id: question.id,
+          text: "",
+          draftAnswer,
+        });
+      });
+      expect(mocks.getFullImportSession).toHaveBeenCalledOnce();
+      expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenCalledOnce();
+      expect(result.current.error).not.toBeNull();
+      expect(
+        result.current.messages.some((m) => m.content.includes("guardada")),
+      ).toBe(false);
+      expect(mocks.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(cases)(
+    "discards late $field responses when subject/revision changes",
+    async (draftAnswer) => {
+      const question = {
+        id: "q-choice",
+        field: draftAnswer.field,
+        lineIds: [line.id],
+        text: "Escolha",
+      };
+      const view = { ...base, questions: [question] };
+      const { result, client, key } = setup(view);
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      let resolve!: (view: ImportSessionViewV1) => void;
+      mocks.answerImportFocusedDraftQuestion.mockReturnValue(
+        new Promise<ImportSessionViewV1>((done) => {
+          resolve = done;
+        }),
+      );
+      let pending: Promise<unknown>;
+      act(() => {
+        pending = result.current.saveFocusedDraft({
+          id: question.id,
+          text: "",
+          draftAnswer,
+        });
+      });
+      act(() => {
+        client.setQueryData(key, {
+          ...view,
+          revision: 6,
+          questions: [{ ...question, lineIds: ["another"] }],
+        });
+      });
+      await act(async () => {
+        resolve({
+          ...view,
+          revision: 5,
+          lines: [{ ...line, [draftAnswer.field]: draftAnswer.value }],
+        });
+        await pending;
+      });
+      expect(client.getQueryData<ImportSessionViewV1>(key)?.revision).toBe(6);
+      expect(
+        result.current.messages.some((m) => m.content.includes("guardada")),
+      ).toBe(false);
+    },
+  );
+});
 
 describe("focused draft native answers", () => {
   it("saves the exact date-only value by typed PATCH, without agent or finance", async () => {

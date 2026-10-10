@@ -428,6 +428,13 @@ ciclo da fatura. Escolher **Mão de obra** não preenche sua categoria: ela cont
 uma pergunta separada. **Não sei informar** mantém o campo sem valor; não inventa
 uma resposta. As demais perguntas e a conversa livre mantêm o fluxo existente.
 
+Nas perguntas de decisão e finalidade, as opções **Criar nova compra** e
+**Sem rateio — manter a compra no projeto proprietário** começam desmarcadas.
+Escolha explicitamente, confira as compras afetadas na prévia e toque em
+**Guardar informação**. Isso não dispensa a verificação de duplicatas, não cria
+rateios e não confirma lançamentos. Para outras opções, use **Responder outra
+opção pela conversa**; elas não fazem parte dessas duas escolhas nativas.
+
 Autorizar a análise do documento não autoriza lançamentos. A compra permanece em
 rascunho até **Confirmar lote**; somente a execução confirmada cria despesas
 planejadas, sem débito realizado na conta. Depois de aplicado, o resultado pode ser

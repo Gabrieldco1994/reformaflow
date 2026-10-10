@@ -35,6 +35,8 @@ test.beforeAll(async () => {
             <main className="mx-auto w-full max-w-2xl min-w-0 space-y-4 p-4">
               <ImportFocusedQuestion {...props} question={{id: "q-date", field: "firstDueDate", lineIds: ["line"], text: "Primeiro vencimento"}} />
               <ImportFocusedQuestion {...props} question={{id: "q-type", field: "tipoDespesa", lineIds: ["line"], text: "Tipo de despesa"}} />
+              <ImportFocusedQuestion {...props} question={{id: "q-create", field: "decision", lineIds: ["line"], text: "Criar compra"}} />
+              <ImportFocusedQuestion {...props} question={{id: "q-targets", field: "targets", lineIds: ["line"], text: "Rateio"}} />
             </main>
           </ProjectProvider>
         );
@@ -119,6 +121,47 @@ for (const width of [375, 390, 1280]) {
         draftAnswer: { field: "tipoDespesa", value: "MAO_DE_OBRA" },
       }),
     );
+    for (const choice of [
+      {
+        label: "Criar nova compra",
+        id: "q-create",
+        answer: {
+          field: "decision",
+          value: { kind: "CREATE", acceptNaturalDuplicate: false },
+        },
+      },
+      {
+        label: "Sem rateio — manter a compra no projeto proprietário",
+        id: "q-targets",
+        answer: { field: "targets", value: [] },
+      },
+    ]) {
+      const radio = page.getByRole("radio", {
+        name: choice.label,
+        exact: true,
+      });
+      await expect(radio).not.toBeChecked();
+      const form = page.locator("form").filter({ has: radio });
+      await expect(
+        form.getByRole("button", { name: "Guardar informação" }),
+      ).toBeDisabled();
+      await radio.check();
+      await expect(
+        form.getByRole("button", { name: "Guardar informação" }),
+      ).toBeDisabled();
+      await form.getByRole("button", { name: "Conferir informação" }).click();
+      await expect(
+        form.getByRole("list", { name: "Compras afetadas pela escolha" }),
+      ).toContainText("Compra documental");
+      await form.getByRole("button", { name: "Guardar informação" }).click();
+      await expect(page.locator("#output")).toHaveText(
+        JSON.stringify({
+          id: choice.id,
+          text: choice.label,
+          draftAnswer: choice.answer,
+        }),
+      );
+    }
     for (const control of await page
       .locator("form button, form input, form select")
       .all())

@@ -530,8 +530,22 @@ function FocusedQuestion({
 }
 
 /** Mount only when the user opens the active question; refreshes keep text and keyboard focus. */
+function FocusedDraftOrConversation(props: ImportFocusedQuestionProps) {
+  const [otherChoice, setOtherChoice] = useState(false);
+  if (otherChoice) return <FocusedQuestion {...props} />;
+  return (
+    <ImportFocusedDraftQuestion
+      {...props}
+      onOtherChoice={() => {
+        props.onTextChange?.("");
+        setOtherChoice(true);
+      }}
+    />
+  );
+}
+
 export function ImportFocusedQuestion(props: ImportFocusedQuestionProps) {
   if (isFocusedDraftQuestion(props.question))
-    return <ImportFocusedDraftQuestion key={props.question.id} {...props} />;
+    return <FocusedDraftOrConversation key={props.question.id} {...props} />;
   return <FocusedQuestion key={props.question.id} {...props} />;
 }
