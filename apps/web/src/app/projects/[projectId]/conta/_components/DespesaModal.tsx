@@ -12,6 +12,7 @@ import { RatearCompraModal } from '../../expenses/_components/RatearCompraModal'
 import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutations';
 import { getExpenseOptions } from '../../expenses/_types';
 import { centsToReaisInput, currencyInputToNumber } from '@/lib/currency-input';
+import { expenseMetadataFromForm } from '../../expenses/_lib/expense-metadata';
 
 const EMPTY_VINCULOS: ExpenseFormVinculos = {
   creditCardId: '',
@@ -162,7 +163,7 @@ export function DespesaModal({
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: ExpenseFormData }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<ExpenseFormData> }) =>
       api.patch(`/projects/${effectiveProjectId}/expenses/${id}`, data),
     onSuccess: () => {
       toast.success('Despesa atualizada');
@@ -211,6 +212,10 @@ export function DespesaModal({
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    if (editing?.schedule) {
+      updateMutation.mutate({ id: editing.id, data: expenseMetadataFromForm(form, false) });
+      return;
+    }
     const nullable = (key: string) => {
       const v = form.get(key);
       if (v === null) return null;
@@ -330,6 +335,7 @@ export function DespesaModal({
         tipoDespesaOptions={tipoOptions}
         roomOptions={[]}
         isPending={createMutation.isPending || updateMutation.isPending}
+        error={createMutation.error || updateMutation.error}
         // Ratear só faz sentido para uma compra-fonte PESSOAL "solta"; editando a
         // despesa de OUTRO projeto diretamente, o botão fica desabilitado.
         onRatear={!targetProjectId && isEdit && editing ? () => { setRatearSource(editing); onClose(); } : undefined}

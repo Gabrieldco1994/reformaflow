@@ -49,9 +49,9 @@ it('upgrades the SAME legacy database after a restorable backup, without inline 
       id: 'upgrade-690-expense', tenantId: 'upgrade-690-tenant', projectId: 'upgrade-690-project',
       tipoDespesa: 'OUTROS', valor: 12345, valorTotal: 12345, formaPagamento: 'A_VISTA', status: 'PAGO',
       bankLast4: '0690', importId: 'upgrade-690-import', externalId: 'legacy',
-    } });
+    }, select: { id: true } });
     const before = await db.$queryRawUnsafe<Array<Record<string, unknown>>>('SELECT * FROM bank_statement_imports');
-    const beforeExpenses = await db.expense.findMany();
+    const beforeExpenses = await db.$queryRaw`SELECT * FROM expenses`;
     await db.$disconnect();
     execFileSync('sqlite3', [file, `.backup '${backup}'`], { stdio: 'pipe' });
     cpSync(join(root, 'prisma/migrations', migration), join(migrations, migration), { recursive: true });
@@ -59,7 +59,7 @@ it('upgrades the SAME legacy database after a restorable backup, without inline 
     await db.$connect();
     const after = await db.$queryRawUnsafe<Array<Record<string, unknown>>>('SELECT * FROM bank_statement_imports');
     expect(after).toEqual(before.map(row => ({ ...row, inline_expense_creations: null })));
-    expect(await db.expense.findMany()).toEqual(beforeExpenses);
+    expect(await db.$queryRaw`SELECT * FROM expenses`).toEqual(beforeExpenses);
     expect(await db.rateioAllocation.count()).toBe(0);
     expect(await db.$queryRawUnsafe('PRAGMA foreign_key_check')).toEqual([]);
     expect(execFileSync('sqlite3', [backup, "SELECT count(*) FROM pragma_table_info('bank_statement_imports') WHERE name='inline_expense_creations'"], { encoding: 'utf8' }).trim()).toBe('0');

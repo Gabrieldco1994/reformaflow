@@ -11,6 +11,7 @@ import type {
   ParcelaFundingResult,
 } from "@/types";
 import { invalidateExpenseProjects } from "../_hooks/useExpenseMutations";
+import { installmentLabel } from "../_lib/grouping-by-month";
 
 export const SETTLEMENT_LABELS: Record<
   InstallmentSettlement["settlementStatus"],
@@ -264,13 +265,17 @@ export function ParcelaFundingForm({
         }}
       >
         <option value="">Selecione uma parcela</option>
-        {options.map(({ expense, summary: item, key }) => (
-          <option key={key} value={key}>
-            {expense.project?.name} ·{" "}
-            {expense.titulo || expense.fornecedor || "Despesa"} · parcela{" "}
-            {item.parcelaIndex + 1} · {formatDateBR(item.dueDate)}
-          </option>
-        ))}
+        {options.map(({ expense, summary: item, key }) => {
+          const parcela = installmentLabel(expense, item.parcelaIndex);
+          return (
+            <option key={key} value={key}>
+              {expense.project?.name} ·{" "}
+              {expense.titulo || expense.fornecedor || "Despesa"} ·{" "}
+              {parcela ? `parcela ${parcela}` : "lançamento"} ·{" "}
+              {formatDateBR(item.dueDate)}
+            </option>
+          );
+        })}
       </select>
       {summary && (
         <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-3">
@@ -349,7 +354,8 @@ export function ParcelaFundingForm({
         </p>
       )}
       {Array.from(contributions.values()).map((r) => {
-        const context = `${r.expense.project?.name ?? "Projeto"} · ${r.expense.titulo || r.expense.fornecedor || "Despesa"} · parcela ${r.parcelaIndex + 1}`;
+        const parcela = installmentLabel(r.expense, r.parcelaIndex);
+        const context = `${r.expense.project?.name ?? "Projeto"} · ${r.expense.titulo || r.expense.fornecedor || "Despesa"} · ${parcela ? `parcela ${parcela}` : "lançamento"}`;
         return (
           <div
             key={r.settlementId}

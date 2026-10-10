@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { hasFeature, ProjectType, isNeutralExpenseType } from '@reformaflow/domain';
 import { createRateioTargets } from '../expense/create-rateio-targets';
+import { buildStoredExpenseInstallments } from '../expense/documented-schedule';
 import { serializeInlineSnapshotV1 } from './inline-snapshot-v1';
 import {
   InlineTarget, InlineCreation, validateInlineDecisions, invalidInline,
@@ -79,7 +80,7 @@ import {
   type CardInvoiceCandidate,
   type CardWithEntries,
 } from './card-invoice-match';
-import { buildInstallments, isSinglePaymentForm, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
+import { isSinglePaymentForm, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
 import {
   ACL_NOT_FOUND_MESSAGE,
   BANK_ACCOUNT_MODULE,
@@ -676,14 +677,7 @@ export class BankAccountService {
       const tolerance = Math.max(100, Math.round(txCents * 0.05));
       const scored = plannedExpenses
         .map((p) => {
-          const slices = buildInstallments({
-            valorTotal: p.valorTotal,
-            formaPagamento: p.formaPagamento,
-            dataPagamento: p.dataPagamento,
-            quantidadeParcela: p.quantidadeParcela,
-            dataInicioParcela: p.dataInicioParcela,
-            installmentDateOverrides: p.installmentDateOverrides,
-          });
+          const slices = buildStoredExpenseInstallments(p);
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const isInstallment = !isSinglePaymentForm(p.formaPagamento);
           const candidates = isInstallment
@@ -2440,14 +2434,7 @@ export class BankAccountService {
 
       const matches = planned
         .map((p) => {
-          const slices = buildInstallments({
-            valorTotal: p.valorTotal,
-            formaPagamento: p.formaPagamento,
-            dataPagamento: p.dataPagamento,
-            quantidadeParcela: p.quantidadeParcela,
-            dataInicioParcela: p.dataInicioParcela,
-            installmentDateOverrides: p.installmentDateOverrides,
-          });
+          const slices = buildStoredExpenseInstallments(p);
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const isInstallment = !isSinglePaymentForm(p.formaPagamento);
           const candidates = isInstallment
@@ -3407,7 +3394,12 @@ export class BankAccountService {
         tenantId,
         tipo: 'DESPESA',
         deletedAt: null,
-        data: { gte: from, lte: to },
+        AND: [{
+          OR: [
+            { data: { gte: from, lte: to } },
+            { invoiceDueMonth: { gte: from.toISOString().slice(0, 7), lte: to.toISOString().slice(0, 7) } },
+          ],
+        }],
         OR: cardScopes.map((card) => ({
           projectId: card.projectId,
           expense: {
@@ -3422,17 +3414,18 @@ export class BankAccountService {
         projectId: true,
         valor: true,
         data: true,
+        invoiceDueMonth: true,
         expense: { select: { cardLast4: true } },
       },
     });
 
-    const entriesByCard = new Map<string, Array<{ data: Date; valor: number }>>();
+    const entriesByCard = new Map<string, CardWithEntries['entries']>();
     for (const entry of entries) {
       const last4 = entry.expense?.cardLast4;
       if (!last4) continue;
       const key = `${entry.projectId}:${last4}`;
       const list = entriesByCard.get(key) ?? [];
-      list.push({ data: entry.data, valor: entry.valor });
+      list.push({ data: entry.data, valor: entry.valor, invoiceDueMonth: entry.invoiceDueMonth });
       entriesByCard.set(key, list);
     }
 

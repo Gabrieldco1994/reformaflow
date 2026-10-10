@@ -364,7 +364,7 @@ function MonthlyExpenseViewImpl({
                                     onToggleStatus(e.id, newStatus);
                                   }
                                 }}
-                                className="inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                                 style={{
                                   backgroundColor: e.status === 'PAGO' ? 'rgb(209 250 229)' : 'rgb(254 243 199)',
                                   color: e.status === 'PAGO' ? 'rgb(22 101 52)' : 'rgb(146 64 14)',
@@ -415,9 +415,9 @@ function MonthlyExpenseViewImpl({
                                   </button>
                                 )
                               )}
-                              {e.occTotalParcelas > 1 && (
+                              {(e.schedule ? e.occParcela : e.occTotalParcelas > 1) && (
                                 <span className="text-[10px] font-medium text-darc-raspberry/80 bg-darc-raspberry/10 rounded-full px-1.5 py-0.5 flex-shrink-0">
-                                  {e.formaPagamento === 'QUINZENAL' ? 'quinzena' : 'parcela'} {e.occIndex}/{e.occTotalParcelas}
+                                  {e.formaPagamento === 'QUINZENAL' ? 'quinzena' : 'parcela'} {e.schedule ? e.occParcela : e.occParcela ?? `${e.occIndex}/${e.occTotalParcelas}`}
                                 </span>
                               )}
                               {occurrenceOrigins.map((origin) => (
@@ -456,6 +456,10 @@ function MonthlyExpenseViewImpl({
                             <button
                               type="button"
                               onClick={() => {
+                                if (e.schedule) {
+                                  openEdit(e);
+                                  return;
+                                }
                                 setEditingId(e.occKey);
                                 setEditValor(centsToReais(e.occValue));
                                 setEditData(dateStr.slice(0, 10));

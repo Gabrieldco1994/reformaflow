@@ -14,7 +14,7 @@ describe("tenant financial objective scope", () => {
           ),
       },
       receipt: { findMany: jest.fn() },
-      expense: { findMany: jest.fn() },
+      expense: { findMany: jest.fn().mockResolvedValue([]) },
     };
     return {
       prisma,

@@ -236,6 +236,7 @@ model Expense {
   recorrenciaFim     DateTime? @map("recorrencia_fim") // último mês da recorrência (null = sem fim)
   paidParcelas       String?   @map("paid_parcelas") // JSON array de índices 0-based de parcelas pagas (PARCELADO/QUINZENAL). null = nenhuma parcial
   installmentDateOverrides String? @map("installment_date_overrides") // JSON objeto índice 0-based -> YYYY-MM-DD
+  documentedSchedule String? @map("documented_schedule")
   plannedExpenseId   String?   @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
   settledByExpenseId String?   @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga
   importId           String?   @map("import_id") // id da importação de fatura (CreditCardStatementImport) — opcional
@@ -415,6 +416,7 @@ model RateioAllocation {
   plannedDataInicio    DateTime? @map("planned_data_inicio")
   plannedDataPagamento DateTime? @map("planned_data_pagamento")
   plannedInstallmentDateOverrides String? @map("planned_installment_date_overrides")
+  plannedDocumentedSchedule String? @map("planned_documented_schedule")
   createdAt            DateTime  @default(now()) @map("created_at")
 
   source Expense @relation("RateioSource", fields: [sourceExpenseId], references: [id])
@@ -444,6 +446,7 @@ model CashFlowEntry {
   formaPagamento     String?   @map("forma_pagamento")
   status             String // PAGO | PLANEJADO | PREVISTO | EM_CAIXA
   parcela            String? // ex: "1/3", "2/3"
+  invoiceDueMonth    String? @map("invoice_due_month")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")

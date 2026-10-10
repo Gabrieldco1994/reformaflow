@@ -7,6 +7,18 @@
 - Datas digitadas pelo usuário (`YYYY-MM-DD`) já seguem essa regra.
 - Fallback de "agora" em caminhos financeiros deve usar `todayLocalDateUtc('America/Sao_Paulo')` (domain).
 
+### Ciclo documental de cartão — candidato P01
+
+No candidato #700/#701, uma ocorrência pode informar `invoiceDueMonth`
+(`YYYY-MM`). Esse mês explícito prevalece sobre a inferência por
+`closingDay`/`dueDay`, sem mudar o dia-calendário original da ocorrência.
+Se não informado, permanece a inferência existente; a fronteira de fechamento
+não muda. Isso vale também para uma ocorrência unitária.
+`caixaDateForCardPurchase` projeta o vencimento nesse mês, limitado ao último
+dia válido, sem sobrescrever a data persistida. Referência:
+[card-cash-month.ts](../packages/domain/src/calculations/card-cash-month.ts).
+**Candidato, não comprovação de merge ou implantação.**
+
 ## Inventário (escrita e fronteiras)
 
 | Arquivo:linha | Como a data nasce | Formato | TZ efetiva | Risco |

@@ -883,7 +883,7 @@ export function buildCaixaData(data: MonthlyOverviewResponse): MonthlyOverviewRe
     }
     if (e.tipo === 'DESPESA' && e.cardLast4) {
       const card = cardByLast4.get(e.cardLast4);
-      const d = caixaDateForCardPurchase(e.data, card?.closingDay ?? null, card?.dueDay ?? null);
+      const d = caixaDateForCardPurchase(e.data, card?.closingDay ?? null, card?.dueDay ?? null, e.invoiceDueMonth);
       return { ...e, data: d.toISOString() };
     }
     return e; // conta/recebimento: competência

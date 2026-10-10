@@ -22,6 +22,8 @@ function makePrismaMock() {
     creditCard: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     creditCardStatementImport: {
       create: jest.fn().mockResolvedValue({ id: 'imp1' }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'imp1', createdAt: new Date('2026-01-01') }),
+      findMany: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({}),
     },
     creditCardTransaction: {
@@ -39,6 +41,7 @@ function makePrismaMock() {
     },
     cashFlowEntry: {
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({}),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
       update: jest.fn().mockResolvedValue({}),
@@ -55,6 +58,7 @@ function makePrismaMock() {
     rateioAllocation: {
       count: jest.fn().mockResolvedValue(0),
     },
+    receipt: { findMany: jest.fn().mockResolvedValue([]) },
     // #569 — guarda de settlement (findExpensesWithActivePurchaseTrail) lê a
     // trilha DENTRO da tx; sem claim neste harness ⇒ findMany vazio, não bloqueia.
     importedInvoiceLiquidation: {
@@ -63,6 +67,7 @@ function makePrismaMock() {
       count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(),
+    $executeRaw: jest.fn().mockResolvedValue(1),
     // findExistingExternalIds usa $queryRaw (bypassa o middleware de
     // soft-delete de propósito, ver credit-card.service.ts) — default sem
     // duplicatas; testes que precisam simular "já existe" sobrescrevem.

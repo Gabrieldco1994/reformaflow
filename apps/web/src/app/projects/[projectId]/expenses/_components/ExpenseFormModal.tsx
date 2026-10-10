@@ -8,12 +8,14 @@ import { tipoLabel } from '@/lib/expense-options';
 import { VinculosFields } from './VinculosFields';
 import { DadosDespesaFields } from './DadosDespesaFields';
 import { FormaPagamentoFields } from './FormaPagamentoFields';
+import { DocumentedSchedule } from './DocumentedSchedule';
 import { RateioDetalheSection } from './RateioDetalheSection';
 import { useRateioDetalhe } from '../_hooks/useRateioDetalhe';
 import type { LinkedExpenseDraft } from './CreateLinkedExpenseModal';
 import type { Expense } from '@/types';
 import { ParcelaFundingForm, SETTLEMENT_LABELS } from './ParcelaFundingForm';
 import { formatCurrency } from '@/lib/utils';
+import { installmentLabel } from '../_lib/grouping-by-month';
 
 interface ExpenseOption {
   value: string;
@@ -80,6 +82,7 @@ interface ExpenseFormModalProps {
   tipoDespesaOptions: ExpenseOption[];
   roomOptions: RoomOption[];
   isPending: boolean;
+  error?: Error | null;
   /** Snapshot dos campos atuais — usado para pré-preencher o modal "criar despesa em outro projeto". */
   linkedExpenseDraft?: LinkedExpenseDraft;
   /** Abre o modal "Ratear compra" para a despesa em edição (apenas fonte PESSOAL). */
@@ -120,6 +123,7 @@ export function ExpenseFormModal({
   tipoDespesaOptions,
   roomOptions,
   isPending,
+  error,
   linkedExpenseDraft,
   onRatear,
 }: ExpenseFormModalProps) {
@@ -160,17 +164,20 @@ export function ExpenseFormModal({
       title={editing ? 'Editar Despesa' : formStatus === 'PLANEJADO' ? 'Planejar Despesa' : 'Nova Despesa (Paga)'}
     >
       <form onSubmit={onSubmit} className="space-y-4">
-        {editing?.installmentSettlements?.map((summary) => (
-          <section key={summary.parcelaIndex} aria-label={`Saldo da parcela ${summary.parcelaIndex + 1}`} className="rounded-lg border border-darc-linen p-3 text-sm">
-            <p className="font-semibold">Parcela {summary.parcelaIndex + 1} · {SETTLEMENT_LABELS[summary.settlementStatus]}</p>
-            <div className="mt-1 flex flex-wrap gap-x-3">
-              <span className="whitespace-nowrap">Contratado: {formatCurrency(summary.contractedCents / 100)}</span>
-              <span className="whitespace-nowrap">Pago: {formatCurrency(summary.paidCents / 100)}</span>
-              <span className="whitespace-nowrap">Restante: {formatCurrency(summary.remainingCents / 100)}</span>
-            </div>
-            {summary.paidCents > 0 && <p className="mt-1 text-xs">Para alterar valor, data ou status, desfaça primeiro as contribuições na origem.</p>}
-          </section>
-        ))}
+        {editing?.installmentSettlements?.map((summary) => {
+          const parcela = installmentLabel(editing, summary.parcelaIndex);
+          return (
+            <section key={summary.parcelaIndex} aria-label={parcela ? `Saldo da parcela ${parcela}` : 'Saldo do lançamento'} className="rounded-lg border border-darc-linen p-3 text-sm">
+              <p className="font-semibold">{parcela ? `Parcela ${parcela}` : 'Lançamento'} · {SETTLEMENT_LABELS[summary.settlementStatus]}</p>
+              <div className="mt-1 flex flex-wrap gap-x-3">
+                <span className="whitespace-nowrap">Contratado: {formatCurrency(summary.contractedCents / 100)}</span>
+                <span className="whitespace-nowrap">Pago: {formatCurrency(summary.paidCents / 100)}</span>
+                <span className="whitespace-nowrap">Restante: {formatCurrency(summary.remainingCents / 100)}</span>
+              </div>
+              {summary.paidCents > 0 && <p className="mt-1 text-xs">Para alterar valor, data ou status, desfaça primeiro as contribuições na origem.</p>}
+            </section>
+          );
+        })}
         {sourceExpenseId && (
           <RateioDetalheSection
             isLoading={rateioQuery.isLoading}
@@ -198,19 +205,23 @@ export function ExpenseFormModal({
           setTitulo={setTitulo}
         />
 
-        <FormaPagamentoFields
-          formaPagamento={formaPagamento}
-          setFormaPagamento={setFormaPagamento}
-          dataPagamento={dataPagamento}
-          setDataPagamento={setDataPagamento}
-          dataInicioParcela={dataInicioParcela}
-          setDataInicioParcela={setDataInicioParcela}
-          allowRecorrente={allowRecorrente}
-          editing={editing}
-          recorrente={recorrente}
-          setRecorrente={setRecorrente}
-          valorTotalCents={valorTotal}
-        />
+        {editing?.schedule ? (
+          <DocumentedSchedule expense={editing} />
+        ) : (
+          <FormaPagamentoFields
+            formaPagamento={formaPagamento}
+            setFormaPagamento={setFormaPagamento}
+            dataPagamento={dataPagamento}
+            setDataPagamento={setDataPagamento}
+            dataInicioParcela={dataInicioParcela}
+            setDataInicioParcela={setDataInicioParcela}
+            allowRecorrente={allowRecorrente}
+            editing={editing}
+            recorrente={recorrente}
+            setRecorrente={setRecorrente}
+            valorTotalCents={valorTotal}
+          />
+        )}
 
         {canUseExistingDebit && editing && (
           <ParcelaFundingForm key={editing.id} projectId={projectId} sourceId={editing.id} onPendingChange={setFundingPending} />
@@ -221,7 +232,7 @@ export function ExpenseFormModal({
           <button
             type="button"
             onClick={() => setShowAdvanced((v) => !v)}
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-darc-velvet/70 hover:bg-orange-50/40"
+            className="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-darc-velvet/70 hover:bg-orange-50/40"
           >
             {showAdvanced ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             Mais opções
@@ -237,30 +248,37 @@ export function ExpenseFormModal({
               placeholder="Cole a URL direta da imagem do produto"
               defaultValue={editing?.imageUrl ?? ''}
             />
-            <VinculosFields
-              projectId={projectId}
-              value={formVinculos}
-              onChange={setFormVinculos}
-              onLinkSelected={onLinkSelected}
-              initialCardLast4={editing?.cardLast4 ?? null}
-              initialBankLast4={editing?.bankLast4 ?? null}
-              initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
-              initialSettlesInvoiceKey={editing?.settlesInvoiceKey ?? null}
-              baseDraft={linkedExpenseDraft}
-              lockLinkedExpense={isRateioSource}
-              hideLinkedExpense={canUseExistingDebit}
-            />
+            {!editing?.schedule && (
+              <VinculosFields
+                projectId={projectId}
+                value={formVinculos}
+                onChange={setFormVinculos}
+                onLinkSelected={onLinkSelected}
+                initialCardLast4={editing?.cardLast4 ?? null}
+                initialBankLast4={editing?.bankLast4 ?? null}
+                initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
+                initialSettlesInvoiceKey={editing?.settlesInvoiceKey ?? null}
+                baseDraft={linkedExpenseDraft}
+                lockLinkedExpense={isRateioSource}
+                hideLinkedExpense={canUseExistingDebit}
+              />
+            )}
           </div>
         </div>
 
+        {error && (
+          <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error.message}
+          </p>
+        )}
         <div className="flex justify-end gap-2 pt-2">
-          {editing && onRatear && (
+          {editing && !editing.schedule && onRatear && (
             <Button type="button" variant="ghost" onClick={onRatear} className="mr-auto" disabled={fundingPending}>
               Ratear compra
             </Button>
           )}
           <Button type="button" variant="secondary" className="min-h-[44px]" onClick={onClose} disabled={fundingPending}>Cancelar</Button>
-          <Button type="submit" disabled={isPending || fundingPending}>
+          <Button type="submit" className="min-h-11" disabled={isPending || fundingPending}>
             {editing ? 'Salvar' : 'Criar'}
           </Button>
         </div>

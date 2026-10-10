@@ -142,7 +142,7 @@ export function ExpenseDesktopTable({
                   </tr>
 
                   {!isCatCollapsed && cat.expenses.map((exp) => {
-                    const hasDetail = (exp.formaPagamento === 'PARCELADO' || exp.formaPagamento === 'QUINZENAL') && (exp.quantidadeParcela ?? 0) > 1;
+                    const hasDetail = !!exp.schedule || (exp.formaPagamento === 'PARCELADO' || exp.formaPagamento === 'QUINZENAL') && (exp.quantidadeParcela ?? 0) > 1;
                     const isExpanded = expandedExpenses.has(exp.id);
 
                     return (
@@ -336,6 +336,7 @@ export function ExpenseDesktopTable({
                         )}
 
                         {isExpanded && hasDetail && buildInstallments({
+                          schedule: exp.schedule,
                           valorTotal: exp.valorTotal,
                           formaPagamento: exp.formaPagamento,
                           dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
@@ -343,10 +344,10 @@ export function ExpenseDesktopTable({
                           dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
                           installmentDateOverrides: exp.installmentDateOverrides,
                         }).map((p) => (
-                          <tr key={`${exp.id}-${p.parcela}`} className="bg-gray-50/50">
+                          <tr key={`${exp.id}-${p.index}`} className="bg-gray-50/50">
                             <td />
                             <td className="px-2 py-1 pl-8 text-gray-500">
-                              ↳ Parcela {p.parcela}
+                              ↳ {p.parcela ? `Parcela ${p.parcela}` : 'Lançamento'}
                             </td>
                             <td className="px-2 py-1 text-gray-400 tabular-nums">
                               {formatDateBR(p.data.toISOString().slice(0, 10))}
@@ -354,7 +355,7 @@ export function ExpenseDesktopTable({
                             <td />
                             <td />
                             <td />
-                            <td className="px-2 py-1 text-right text-gray-500 tabular-nums">{formatCurrency(p.valor / 100)}</td>
+                            <td className="px-2 py-1 text-right text-gray-500 tabular-nums whitespace-nowrap">{formatCurrency(p.valor / 100)}</td>
                             <td colSpan={2} />
                           </tr>
                         ))}

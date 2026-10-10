@@ -23,7 +23,7 @@ import { WizardStepPagamento } from './WizardStepPagamento';
 import { WizardStepAcao } from './WizardStepAcao';
 import { VinculoBasket } from './VinculoBasket';
 import { QuitarParcelaModal } from '../../conta/_components/QuitarParcelaModal';
-import { suggestParcelaQuitacao } from '../_lib/quitarParcelaCross';
+import { suggestParcelaQuitacao, type QuitacaoTargetExpense } from '../_lib/quitarParcelaCross';
 
 interface Option {
   value: string;
@@ -49,17 +49,7 @@ interface Props {
 type PagaChoice = null | 'NOVA' | 'PLANEJADA';
 
 /** Despesa planejada de OUTRO projeto (espelhável no PESSOAL). */
-interface CrossPlannedExpense {
-  id: string;
-  titulo?: string | null;
-  fornecedor?: string | null;
-  tipoDespesa: string;
-  valorTotal: number;
-  formaPagamento?: string | null;
-  dataPagamento?: string | null;
-  dataInicioParcela?: string | null;
-  quantidadeParcela?: number | null;
-  paidParcelas?: string | number[] | null;
+interface CrossPlannedExpense extends QuitacaoTargetExpense {
   project?: { id: string; name: string; type: string } | null;
 }
 

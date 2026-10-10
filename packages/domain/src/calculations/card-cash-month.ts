@@ -21,6 +21,8 @@
  *   (degrada para competência sem quebrar).
  */
 
+import { isInvoiceDueMonth } from './expense-schedule';
+
 function toUtcDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
@@ -52,7 +54,12 @@ export function caixaMonthForCardPurchase(
   purchaseDate: Date | string,
   closingDay: number | null | undefined,
   dueDay: number | null | undefined,
+  invoiceDueMonth?: string | null,
 ): string {
+  if (invoiceDueMonth != null) {
+    if (!isInvoiceDueMonth(invoiceDueMonth)) throw new RangeError('Invalid invoice due month');
+    return invoiceDueMonth;
+  }
   const d = toUtcDate(purchaseDate);
   const year = d.getUTCFullYear();
   const month = d.getUTCMonth(); // 0-11
@@ -75,8 +82,16 @@ export function caixaDateForCardPurchase(
   purchaseDate: Date | string,
   closingDay: number | null | undefined,
   dueDay: number | null | undefined,
+  invoiceDueMonth?: string | null,
 ): Date {
   const d = toUtcDate(purchaseDate);
+  if (invoiceDueMonth != null) {
+    const monthKey = caixaMonthForCardPurchase(d, closingDay, dueDay, invoiceDueMonth);
+    const projected = new Date(`${monthKey}-01T00:00:00.000Z`);
+    projected.setUTCMonth(projected.getUTCMonth() + 1, 0);
+    projected.setUTCDate(Math.min(dueDay ?? d.getUTCDate(), projected.getUTCDate()));
+    return projected;
+  }
   const year = d.getUTCFullYear();
   const month = d.getUTCMonth();
   const day = d.getUTCDate();

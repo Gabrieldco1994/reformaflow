@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { ExpenseFormModal } from './ExpenseFormModal';
 import type { RateioDetalhe } from '../_hooks/useRateioDetalhe';
+import type { Expense } from '@/types';
 
 // VinculosFields usa react-query (useQuery) e é irrelevante para o contrato
 // de campos/nomes que este teste de regressão protege — mockamos com um stub
@@ -138,6 +139,46 @@ describe('ExpenseFormModal — contrato de campos (regressão)', () => {
 
     const { container: c2 } = renderModal({ tipoDespesa: 'MATERIAL' });
     expect(names(c2, 'categoriaMaoDeObra').length).toBe(0);
+  });
+  it.each([false, true])('#701 renders documented dates/labels with sparse funding=%s and no financial controls', (withFunding) => {
+    const editing: Expense = {
+      id: 'documented',
+      tipoDespesa: 'MATERIAL',
+      valor: 20004,
+      valorTotal: 20004,
+      quantidade: 1,
+      formaPagamento: 'PARCELADO',
+      quantidadeParcela: 2,
+      status: 'PLANEJADO',
+      installmentDateOverrides: '{"0":"2026-08-25"}',
+      schedule: {
+        version: 1,
+        occurrences: [
+          { index: 0, parcela: '2/3', valor: 10001, data: '2026-08-10', invoiceDueMonth: '2026-11' },
+          { index: 1, parcela: '3/3', valor: 10003, data: '2026-09-28', invoiceDueMonth: null },
+        ],
+      },
+      installmentSettlements: withFunding ? [{
+        parcelaIndex: 1, dueDate: '2026-09-28', contractedCents: 10003,
+        paidCents: 4000, remainingCents: 6003, settlementStatus: 'PARTIAL',
+      }] : undefined,
+    };
+    renderModal({ editing });
+    expect(screen.getByText(/Parcela 2\/3.*25\/08\/2026/)).toBeInTheDocument();
+    expect(screen.getByText(/Parcela 3\/3.*28\/09\/2026/)).toBeInTheDocument();
+    expect(screen.getByText('Fatura 2026-11')).toBeInTheDocument();
+    const schedule = within(screen.getByRole('heading', { name: 'Cronograma documentado' }).parentElement!);
+    expect(schedule.getByText(/R\$\s*100,01/)).toBeInTheDocument();
+    expect(schedule.getByText(/R\$\s*100,03/)).toBeInTheDocument();
+    if (withFunding) {
+      const balance = within(screen.getByRole('region', { name: 'Saldo da parcela 3/3' }));
+      expect(balance.getByText('Parcela 3/3 · Parcialmente pago')).toBeInTheDocument();
+      expect(balance.getByText(/Restante:/)).toHaveTextContent('R$ 60,03');
+    }
+    expect(screen.getByLabelText('Valor (R$)')).toBeDisabled();
+    expect(screen.getByLabelText('Quantidade')).toBeDisabled();
+    expect(screen.queryByLabelText('Forma de Pagamento')).not.toBeInTheDocument();
+    expect(vinculosPropsSpy).not.toHaveBeenCalled();
   });
 });
 

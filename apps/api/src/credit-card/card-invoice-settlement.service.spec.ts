@@ -290,6 +290,7 @@ describe('CardInvoiceSettlementService', () => {
     const entries = [
       { id: 'f0', expenseId: 'e4', status: 'PLANEJADO', parcela: '1/3', data: d('2026-06-10'), deletedAt: null },
       { id: 'f1', expenseId: 'e4', status: 'PLANEJADO', parcela: '2/3', data: d('2026-07-10'), deletedAt: null },
+      { id: 'f2', expenseId: 'e4', status: 'PLANEJADO', parcela: '3/3', data: d('2026-08-10'), deletedAt: null },
     ];
     const imports = [
       { id: 'imp9', cardId: 'card1', tenantId: 't1', totalAmountCents: 48489, deletedAt: null, createdAt: d('2026-06-12') },

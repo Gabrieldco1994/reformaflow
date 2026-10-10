@@ -13,6 +13,7 @@ import {
 } from "@reformaflow/domain";
 import { INCLUDE_SOFT_DELETED, PrismaService } from "../prisma/prisma.service";
 import { RateioRequester } from "../expense/rateio.types";
+import { canonical } from "../common/canonical";
 import {
   ACL_NOT_FOUND_MESSAGE,
   isFullAccessRole,
@@ -58,18 +59,6 @@ function parseRequest(body: unknown): RestoreRequest {
     return { mode: "apply", expectedFingerprint: body.expectedFingerprint };
   }
   throw new BadRequestException("Solicitacao de restauracao invalida");
-}
-
-function canonical(value: unknown): string {
-  if (value instanceof Date) return JSON.stringify(value.toISOString());
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
 }
 
 @Injectable()
@@ -161,6 +150,7 @@ export class RestoreInstallmentLabelsService {
     const { tenantId, projectId, expenseId } = scope;
     if (
       !expense.externalId ||
+      expense.documentedSchedule != null ||
       expense.externalId.startsWith("m1:") ||
       expense.cardLast4 !== card.last4 ||
       expense.bankLast4 ||

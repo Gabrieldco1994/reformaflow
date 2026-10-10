@@ -18,7 +18,7 @@ function makePrismaMock() {
     },
     receipt: { findMany: jest.fn() },
     cashFlowEntry: { findMany: jest.fn() },
-    expense: { findMany: jest.fn() },
+    expense: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 

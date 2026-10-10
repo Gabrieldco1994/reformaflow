@@ -28,6 +28,8 @@ import {
 
 type Tx = Prisma.TransactionClient;
 import { ADDITIVE, LEGACY_REPLACEMENT, guardActiveFunding } from './additive-settlement';
+import { parseStoredExpenseSchedule, toPublicExpenseSchedule } from '../expense/documented-schedule';
+import { StoredProjectionScheduleV1 } from '../expense/documented-schedule.types';
 
 const DUPLICATE_RATEIO_TARGET_MESSAGE = 'Despesa planejada duplicada no rateio.';
 const SOURCE_ALREADY_RATEIO_TARGET_MESSAGE = 'A compra fonte já é alvo de outro rateio.';
@@ -351,6 +353,7 @@ export class ConciliacaoService {
     input._effective = parcelaIndex;
 
     const plannedSlices = buildInstallments({
+      schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(target.documentedSchedule)),
       valorTotal: target.valorTotal,
       formaPagamento: target.formaPagamento,
       dataPagamento: target.dataPagamento,
@@ -359,6 +362,9 @@ export class ConciliacaoService {
       installmentDateOverrides: target.installmentDateOverrides,
     });
     const plannedValor = plannedSlices[parcelaIndex]?.valor ?? target.valorTotal;
+    if (target.documentedSchedule != null && input.realValor !== plannedValor) {
+      throw new ConflictException('O valor documentado da parcela não pode ser substituído por uma conciliação.');
+    }
 
     const existingPaid = new Set(
       target.status === 'PAGO'
@@ -484,6 +490,7 @@ export class ConciliacaoService {
     });
 
     const plannedSlices = buildInstallments({
+      schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(target.documentedSchedule)),
       valorTotal: target.valorTotal,
       formaPagamento: target.formaPagamento,
       dataPagamento: target.dataPagamento,
@@ -531,7 +538,8 @@ export class ConciliacaoService {
       valor: finalValues[idx]!,
       data: slice.data,
       formaPagamento: target.formaPagamento,
-      parcela: singlePayment ? null : slice.parcela,
+      parcela: target.documentedSchedule ? slice.parcela : singlePayment ? null : slice.parcela,
+      invoiceDueMonth: slice.invoiceDueMonth,
     })).filter((_, idx) => !retainedIndexes.has(idx));
 
     if (entries.length > 0) await tx.cashFlowEntry.createMany({ data: entries });
@@ -662,6 +670,7 @@ export class ConciliacaoService {
     if (!source) return;
 
     const slices = buildInstallments({
+      schedule: toPublicExpenseSchedule(parseStoredExpenseSchedule(target.documentedSchedule)),
       valorTotal: alloc.allocation,
       formaPagamento: source.formaPagamento,
       dataPagamento: source.dataPagamento,
@@ -697,7 +706,8 @@ export class ConciliacaoService {
       valor: slice.valor,
       data: slice.data,
       formaPagamento: source.formaPagamento,
-      parcela: singlePayment ? null : slice.parcela,
+      parcela: target.documentedSchedule ? slice.parcela : singlePayment ? null : slice.parcela,
+      invoiceDueMonth: slice.invoiceDueMonth,
     }));
     if (entries.length > 0) await tx.cashFlowEntry.createMany({ data: entries });
   }
@@ -727,6 +737,11 @@ export class ConciliacaoService {
       where: { id: sourceExpenseId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
+    const sourceSchedule = parseStoredExpenseSchedule(source.documentedSchedule);
+    if (sourceSchedule && (sourceSchedule.kind !== 'source' || !requester.id || allocations.length !== 1 ||
+      allocations[0]?.allocation !== source.valorTotal)) {
+      throw new ConflictException('O cronograma documentado exige uma distribuição explícita por ocorrência.');
+    }
     if (allocations.length === 0) {
       throw new BadRequestException('Informe ao menos uma planejada para ratear');
     }
@@ -847,10 +862,13 @@ export class ConciliacaoService {
     const targets: string[] = [];
     for (const item of allocations) {
       const allocation = Math.round(item.allocation);
-      const target = targetById.get(item.targetExpenseId)!;
+      const target = await tx.expense.findFirst({
+        where: { id: item.targetExpenseId, tenantId, deletedAt: null },
+      });
+      if (!target) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
 
       const isSourceParcelado = !isSinglePaymentForm(source.formaPagamento);
-      await tx.rateioAllocation.upsert({
+      const relationship = await tx.rateioAllocation.upsert({
         where: { targetExpenseId: target.id },
         create: {
           tenantId,
@@ -869,9 +887,19 @@ export class ConciliacaoService {
           plannedDataInicio: target.dataInicioParcela,
           plannedDataPagamento: target.dataPagamento,
           plannedInstallmentDateOverrides: target.installmentDateOverrides,
+          plannedDocumentedSchedule: target.documentedSchedule,
         },
         update: { allocation, sourceExpenseId },
       });
+      const projection: StoredProjectionScheduleV1 | null = sourceSchedule ? {
+        version: 1, kind: 'projection', tenantId, sourceExpenseId, sourceProjectId: source.projectId,
+        cardId: sourceSchedule.cardId, recordedByUserId: requester.id!, recordedAt: new Date().toISOString(),
+        targetExpenseId: target.id, targetProjectId: target.projectId, via: 'rateio', allocationId: relationship.id,
+        occurrences: sourceSchedule.occurrences.map((item) => ({
+          index: item.index, sourceIndex: item.index, valor: item.valor, data: item.data, invoiceDueMonth: item.invoiceDueMonth,
+          parcela: isSourceParcelado ? `${item.index + 1}/${sourceSchedule.occurrences.length}` : null,
+        })),
+      } : null;
 
       // Alinha o REGISTRO do alvo ao cronograma da FONTE: valor = alocação,
       // mesma forma/parcelas/datas da compra. Assim a despesa associada mostra
@@ -880,7 +908,7 @@ export class ConciliacaoService {
         where: { id: target.id },
         data: {
           status: source.status === 'PAGO' ? 'PAGO' : 'PLANEJADO',
-          paidParcelas: null,
+          paidParcelas: source.paidParcelas,
           valor: allocation,
           quantidade: 1,
           valorTotal: allocation,
@@ -889,11 +917,19 @@ export class ConciliacaoService {
           dataInicioParcela: isSourceParcelado ? source.dataInicioParcela : null,
           dataPagamento: isSourceParcelado ? null : source.dataPagamento,
           installmentDateOverrides: isSourceParcelado ? source.installmentDateOverrides : null,
+          documentedSchedule: projection ? JSON.stringify(projection) : null,
         },
       });
 
       await this.regenerateRateioTargetCashflow(tx, target.id);
       targets.push(target.id);
+      if (sourceSchedule?.kind === 'source') {
+        sourceSchedule.projections = [{
+          kind: 'rateio', allocationId: relationship.id, targetExpenseId: target.id,
+          occurrenceMap: sourceSchedule.occurrences.map((item) => ({ sourceIndex: item.index, targetIndex: item.index })),
+        }];
+        await tx.expense.update({ where: { id: source.id }, data: { documentedSchedule: JSON.stringify(sourceSchedule) } });
+      }
     }
 
     // a fonte vira espelho (dedupe no consolidado; permanece no caixa PESSOAL).
@@ -956,6 +992,7 @@ export class ConciliacaoService {
           data: {
             status: r.plannedStatus,
             paidParcelas: r.plannedPaid,
+            documentedSchedule: r.plannedDocumentedSchedule,
             // Restaura o cronograma original do alvo (se houver snapshot — rateios
             // criados antes desta feature não têm, então mantemos o valor atual).
             ...(r.plannedValorTotal != null
@@ -979,7 +1016,17 @@ export class ConciliacaoService {
       targets.push(r.targetExpenseId);
     }
 
-    await tx.expense.update({ where: { id: sourceExpenseId }, data: { linkedExpenseId: null } });
+    const source = await tx.expense.update({
+      where: { id: sourceExpenseId, tenantId }, data: { linkedExpenseId: null },
+    });
+    const sourceSchedule = parseStoredExpenseSchedule(source.documentedSchedule);
+    if (sourceSchedule?.kind === 'source') {
+      sourceSchedule.projections = sourceSchedule.projections.filter((ref) =>
+        ref.kind !== 'rateio' || !rows.some((row) => row.id === ref.allocationId));
+    }
+    if (sourceSchedule) await tx.expense.update({
+      where: { id: sourceExpenseId, tenantId }, data: { documentedSchedule: JSON.stringify(sourceSchedule) },
+    });
     return { targets };
   }
 

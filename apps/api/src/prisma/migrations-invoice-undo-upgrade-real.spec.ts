@@ -585,6 +585,9 @@ describe("#569 §6.7 — upgrade legado REAL + restore validado", () => {
     });
     expect({ ...afterMigration, imports: legacyImports }).toEqual({
       ...beforeMigration,
+      expenses: beforeMigration.expenses.map((row) => ({ ...row, documented_schedule: null })),
+      entries: beforeMigration.entries.map((row) => ({ ...row, invoice_due_month: null })),
+      allocations: beforeMigration.allocations.map((row) => ({ ...row, planned_documented_schedule: null })),
       settlements: beforeMigration.settlements.map((row) => ({
         ...row,
         mode: "LEGACY_REPLACEMENT",

@@ -46,6 +46,7 @@ import { VehicleDocumentModule } from './vehicle-document/vehicle-document.modul
 import { PurchasePlannerModule } from './purchase-planner/purchase-planner.module';
 import { JourneysModule } from './journeys/journeys.module';
 import { ActivityLogInterceptor } from './common/interceptors/activity-log.interceptor';
+import { FinancialScheduleResponseInterceptor } from './common/interceptors/financial-schedule-response.interceptor';
 
 const UPLOADS_DIR = (() => {
   const raw = process.env['UPLOADS_DIR'];
@@ -100,6 +101,10 @@ const UPLOADS_DIR = (() => {
     JourneysModule,
   ],
   providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: FinancialScheduleResponseInterceptor,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: ActivityLogInterceptor,

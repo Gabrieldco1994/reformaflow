@@ -14,6 +14,7 @@ import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
 import { AvulsasView } from './AvulsasView';
 import { getAvulsaDisplay, type AvulsaRow } from '../_display';
+import { DocumentedSchedule } from '../../expenses/_components/DocumentedSchedule';
 
 type Expense = AvulsaRow;
 
@@ -113,7 +114,8 @@ export function AvulsasTab({ projectId, projectType }: Props) {
 
   const createMutation = useMutation({
     mutationFn: async (d: DraftForm) => {
-      if (d.id && all.find((expense) => expense.id === d.id)?.installmentSettlements?.some((summary) => summary.paidCents > 0)) {
+      const original = all.find((expense) => expense.id === d.id);
+      if (original?.schedule || original?.installmentSettlements?.some((summary) => summary.paidCents > 0)) {
         return api.patch(`/projects/${projectId}/expenses/${d.id}`, {
           tipoDespesa: d.tipoDespesa,
           titulo: d.titulo || null,
@@ -293,6 +295,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
               desfaça as contribuições antes de alterar valores, datas ou pagamento.
             </p>
           )}
+          {editingExpense?.schedule ? <DocumentedSchedule expense={editingExpense} /> : (
           <fieldset disabled={hasActiveFunding} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Input
@@ -353,6 +356,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
             </div>
           )}
           </fieldset>
+          )}
           {createMutation.error && (
             <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {(createMutation.error as Error).message || 'Erro ao salvar'}

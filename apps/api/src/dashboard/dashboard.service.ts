@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { financialMirrorIds } from '../expense/documented-schedule';
 import {
   ExpenseTypeLabels,
   LaborCategoryLabels,
@@ -22,7 +23,7 @@ export class DashboardService {
 
     const hasBudgetAllocations = budgetAllocations.length > 0;
 
-    const [receipts, cashFlowEntries, expenses] = await Promise.all([
+    const [receipts, allCashFlowEntries, expenses] = await Promise.all([
       // Only fetch receipts if NO budget allocations (replace logic)
       hasBudgetAllocations
         ? Promise.resolve([])
@@ -39,7 +40,7 @@ export class DashboardService {
           deletedAt: null,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null, linkedExpenseId: null } },
+            { expense: { deletedAt: null } },
           ],
           AND: [
             {
@@ -56,6 +57,9 @@ export class DashboardService {
         include: { room: true },
       }),
     ]);
+
+    const mirrors = financialMirrorIds(expenses);
+    const cashFlowEntries = allCashFlowEntries.filter((entry) => !entry.expenseId || !mirrors.has(entry.expenseId));
 
     // Calculate budget received (if using budget allocations)
     const budgetRecebido = hasBudgetAllocations
@@ -116,7 +120,7 @@ export class DashboardService {
     });
     const fundedTargets = new Set(funding.map(row => row.targetExpenseId));
     const expensesForRoomBreakdown = allocateEmpreiteiroExpenses(expensesEff.flatMap(exp => {
-      if (!fundedTargets.has(exp.id)) return [exp];
+      if (!fundedTargets.has(exp.id) && !exp.documentedSchedule) return [exp];
       const entries = cashFlowEntries.filter(e => e.expenseId === exp.id && e.tipo === 'DESPESA');
       return ['PAGO', 'PLANEJADO'].map(status => ({ ...exp, status,
         valorTotal: entries.filter(e => e.status === status).reduce((sum, e) => sum + e.valor, 0),

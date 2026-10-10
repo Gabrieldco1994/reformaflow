@@ -124,6 +124,41 @@ describe("DespesaModal — preserva a origem de pagamento ao editar", () => {
     apiPatch.mockResolvedValue(undefined);
   });
 
+  it("#701 sends only metadata when the expense has a documented schedule", async () => {
+    const schedule = {
+      version: 1,
+      occurrences: [
+        {
+          index: 0,
+          parcela: "2/3",
+          valor: 10001,
+          data: "2026-08-10",
+          invoiceDueMonth: "2026-10",
+        },
+        {
+          index: 1,
+          parcela: "3/3",
+          valor: -1,
+          data: "2026-08-28",
+          invoiceDueMonth: "2026-09",
+        },
+      ],
+    };
+    apiGet.mockResolvedValue({ ...editing, schedule });
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(await screen.findByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(apiPatch).toHaveBeenCalledOnce());
+    expect(apiPatch.mock.calls[0][1]).toEqual({
+      tipoDespesa: "OUTROS",
+      categoriaMaoDeObra: null,
+      titulo: null,
+      fornecedor: null,
+      link: null,
+      imageUrl: null,
+    });
+  });
+
   it("salva somente metadados sem alterar vínculos intocados", async () => {
     const user = userEvent.setup();
     renderModal();

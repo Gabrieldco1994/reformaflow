@@ -38,7 +38,7 @@ export interface CardWithEntries {
   closingDay: number | null;
   dueDay: number | null;
   /** Lançamentos de caixa das COMPRAS do cartão (não-neutras). */
-  entries: Array<{ data: Date; valor: number }>;
+  entries: Array<{ data: Date; valor: number; invoiceDueMonth?: string | null }>;
 }
 
 export interface CardInvoiceCandidate {
@@ -78,7 +78,7 @@ export function aggregateInvoiceTotals(
 ): Map<string, number> {
   const totals = new Map<string, number>();
   for (const entry of card.entries) {
-    const dueMonth = caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay);
+    const dueMonth = caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay, entry.invoiceDueMonth);
     totals.set(dueMonth, (totals.get(dueMonth) ?? 0) + entry.valor);
   }
   return totals;

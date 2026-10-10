@@ -15,6 +15,39 @@
 > `getAccountView` emite `cardId`, `actions`, `fingerprint` em `cartoes[]` e `saidas[]` (fatura),
 > `accountId` em `contas[]`. **#448 permanece OPEN pela fatia B1b.**
 
+## Cronograma documentado — candidato P01
+
+**Implementado no candidato de integração #700/#701; merge e produção ainda
+não verificados.** Não representa a entrega da importação conversacional.
+
+- A resposta pública da despesa expõe `schedule: ExpenseScheduleV1 | null`.
+  Cada ocorrência contém `index` (base zero), `parcela` (rótulo ou `null`),
+  `valor` (centavos inteiros), `data` (`YYYY-MM-DD`) e `invoiceDueMonth`
+  (`YYYY-MM` ou `null`). O JSON privado `Expense.documentedSchedule` não é o
+  contrato público: evidências e metadados internos não vão para o browser.
+- Com `schedule`, `buildInstallments` conserva valores, datas, índices e
+  rótulos documentados. Não redistribui centavos nem renumera um conjunto
+  remanescente como `2/3`, `3/3`. Sem ele, permanece o cálculo convencional.
+- Um `invoiceDueMonth` válido prevalece sobre a inferência pelo fechamento
+  e vencimento do cartão, inclusive numa compra unitária. A data original
+  da ocorrência não é substituída por esse mês. Quando é `null`, continuam
+  as regras existentes de `caixaMonthForCardPurchase`.
+- Listas, expansões e seleção de parcelas para quitação consomem a mesma
+  agenda pública. A edição descritiva preserva as ocorrências; alterações
+  financeiras protegidas pelo serviço retornam conflito e exigem correção
+  assistida, em vez de regenerar silenciosamente o cronograma.
+- P01 não oferece um novo editor assistido na UI nem sessões sucessoras,
+  upload conversacional ou confirmação de lotes pela Maria. Esses fluxos
+  continuam no [plano de importação](experiencia-importacao.md).
+
+Referências do candidato:
+[contrato público](../packages/domain/src/calculations/expense-schedule.ts),
+[mês de fatura](../packages/domain/src/calculations/card-cash-month.ts),
+[projeção privada/pública](../apps/api/src/expense/documented-schedule.ts),
+[teste de ciclo](../packages/domain/__tests__/maria-import-p01.contract.test.ts)
+e [teste de admissão/reimportação](../apps/api/src/credit-card/card-import-new-purchase.regression.spec.ts).
+Comportamento de edição no [manual, §4.2](manual-do-aplicativo.md#42-visão-conta-conta--apenas-pessoal).
+
 ---
 
 ## CONTRATO (normativo — o que nunca pode quebrar)

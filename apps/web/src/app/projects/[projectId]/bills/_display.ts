@@ -73,7 +73,7 @@ export function getRecurringBillDisplay(bill: RecurringBillRow) {
 
 export interface AvulsaRow extends Pick<Expense,
   'installmentSettlements' | 'paidParcelas' | 'installmentDateOverrides' |
-  'recorrente' | 'recorrenciaFim'
+  'recorrente' | 'recorrenciaFim' | 'schedule'
 > {
   id: string;
   tipoDespesa: string;

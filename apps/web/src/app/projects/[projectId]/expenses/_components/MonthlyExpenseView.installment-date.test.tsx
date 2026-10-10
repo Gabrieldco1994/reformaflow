@@ -1,9 +1,62 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { GrupoDespesaPorMes } from '../_lib/grouping-by-month';
+import { groupExpensesByMes, type GrupoDespesaPorMes } from '../_lib/grouping-by-month';
+import type { Expense } from '@/types';
 import { MonthlyExpenseView } from './MonthlyExpenseView';
 
 describe('MonthlyExpenseView — edição de ocorrência parcelada', () => {
+  it('#701 renders documented labels but toggles local indices and opens metadata-only editing', () => {
+    const expense: Expense = {
+      id: 'documented',
+      tipoDespesa: 'OUTROS',
+      valor: 9753,
+      quantidade: 1,
+      valorTotal: 9753,
+      formaPagamento: 'PARCELADO',
+      quantidadeParcela: 2,
+      dataInicioParcela: '2026-08-10',
+      status: 'PLANEJADO',
+      schedule: {
+        version: 1,
+        occurrences: [
+          { index: 0, parcela: '2/3', valor: 10001, data: '2026-08-10', invoiceDueMonth: '2026-10' },
+          { index: 1, parcela: '3/3', valor: -248, data: '2026-08-28', invoiceDueMonth: '2026-09' },
+        ],
+      },
+    };
+    const onToggleParcela = vi.fn();
+    const onQuickUpdate = vi.fn();
+    const openEdit = vi.fn();
+    render(
+      <MonthlyExpenseView
+        grouped={groupExpensesByMes([expense])}
+        collapsedMonths={new Set()}
+        toggleMonth={vi.fn()}
+        tipoLabel={(value) => value}
+        tipoOptions={[]}
+        openEdit={openEdit}
+        onDelete={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onToggleParcela={onToggleParcela}
+        onQuickUpdate={onQuickUpdate}
+        onQuickCreate={vi.fn()}
+        emptyMsg="vazio"
+      />,
+    );
+    expect(screen.getByText('parcela 2/3')).toBeInTheDocument();
+    expect(screen.getByText('parcela 3/3')).toBeInTheDocument();
+    expect(screen.getByText(/-.*2,48/)).toBeInTheDocument();
+    const toggles = screen.getAllByTitle('Clique para alternar entre Planejado e Pago');
+    fireEvent.click(toggles[0]);
+    fireEvent.click(toggles[1]);
+    expect(onToggleParcela.mock.calls).toEqual([
+      ['documented', 0, true], ['documented', 1, true],
+    ]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Editar rápido' })[1]);
+    expect(openEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 'documented', schedule: expense.schedule }));
+    expect(onQuickUpdate).not.toHaveBeenCalled();
+  });
+
   it('abre na occDate e envia índice 0-based sem permitir/enviar valor', () => {
     const onQuickUpdate = vi.fn();
     const grouped: GrupoDespesaPorMes[] = [

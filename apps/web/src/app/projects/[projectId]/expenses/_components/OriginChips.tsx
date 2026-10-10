@@ -7,6 +7,7 @@ import { formatCurrency } from '@/lib/utils';
 import { isNeutralExpenseType } from '@reformaflow/domain';
 import { pickCardGradient, MiniCardChip } from '@/components/CreditCardVisual';
 import type { Expense } from '@/types';
+import type { Occurrence } from '../_lib/grouping-by-month';
 
 export interface OriginChip {
   key: string;
@@ -25,13 +26,11 @@ export function originKeyOf(e: Expense): string | null {
   return null;
 }
 
-/**
- * Valor que efetivamente impacta o período: despesas parceladas pagam só uma
- * parcela por mês, então usamos `valorTotal / quantidadeParcela`. À vista usa o total.
- */
 function periodValue(e: Expense, split: boolean): number {
+  const occurrence = e as Partial<Occurrence>;
+  if (occurrence.occValue != null) return occurrence.occValue;
   const n = e.quantidadeParcela ?? 1;
-  if (split && (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') && n > 1)
+  if (split && !e.schedule && (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') && n > 1)
     return Math.round(e.valorTotal / n);
   return e.valorTotal;
 }

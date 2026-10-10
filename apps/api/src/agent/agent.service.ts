@@ -3,6 +3,7 @@ import { AgentToolsService, normalizeToolContext } from './tools/agent-tools.ser
 import { ChatMessage, LLM_PROVIDER, LlmProvider } from './llm/llm.types';
 import { RateLimitError } from './llm/fallback-llm.provider';
 import { stripEmoji } from '../tts/speech-format';
+import { serializeFinancialScheduleResponse } from '../expense/documented-schedule';
 
 export interface AgentChatInput {
   tenantId: string;
@@ -89,7 +90,7 @@ export class AgentService {
               role: 'tool',
               toolCallId: tc.id,
               name: tc.name,
-              content: JSON.stringify(result),
+              content: JSON.stringify(serializeFinancialScheduleResponse(result)),
             });
           }
           continue;

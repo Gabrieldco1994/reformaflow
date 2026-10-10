@@ -26,6 +26,14 @@ origens e nova consulta ao retornar ao Cockpit. Fórmula e exemplo hipotético n
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
+**Candidato P01 — 2026-09-29:** a integração #700/#701 contém agenda documental
+com valores e rótulos por ocorrência, mês explícito de fatura e consumidores
+web que preservam esses dados na exibição e edição descritiva. **Ainda não
+mergeado nem verificado em produção**; a jornada real mobile/desktop permanece
+um gate. Não entrega a sessão ou o importador conversacional da Maria.
+Ver [contrato do candidato](visao-conta-faturas.md#cronograma-documentado--candidato-p01)
+e [manual, §4.2](manual-do-aplicativo.md#42-visão-conta-conta--apenas-pessoal).
+
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
 
 O [SDD do Centro Financeiro](plano-centro-financeiro-sdd.md) está **aprovado como planejamento**,
