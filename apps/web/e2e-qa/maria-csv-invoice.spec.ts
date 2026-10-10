@@ -5,6 +5,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { isPendingImportQuestion, type ImportSessionViewV1 } from '@reformaflow/domain';
 import { JourneyEvidence, assertReadableMoney, assertTouchable, assertUniqueButtonNames } from './helpers/evidence';
 
+import { csvFixtureAnswers, type CsvExpected } from './helpers/fixture-answers';
+
 const apiURL = process.env.API_URL!;
 const fixtures = path.resolve(__dirname, 'fixtures');
 const csvCTA = 'Importar fatura de cartão (CSV)';
@@ -50,8 +52,9 @@ test(phase === 'upload'
   };
 
   try {
-    const expected: { purchases: { title: string; amountCents: number }[]; ignoredPaymentRow: string; declarations: { firstDueDate: string; installmentCount: number } } =
+    const expected: CsvExpected =
       JSON.parse(await fs.readFile(path.join(fixtures, 'expected.json'), 'utf8'));
+    const answerFromFixture = csvFixtureAnswers(expected);
     const selectedPurchases = expected.purchases.slice(0, 2);
     expect(selectedPurchases).toHaveLength(2);
     const chosen = selectedPurchases.map(purchase => purchase.title);
@@ -193,13 +196,7 @@ test(phase === 'upload'
       await page.getByRole('button', { name: 'Consultar pergunta atual', exact: true }).click();
       const form = page.getByRole('form', { name: question.text, exact: true });
       await expect(form).toBeVisible();
-      const answers: Record<string, string> = {
-        amountMeaning: 'total da compra', installmentCount: String(expected.declarations.installmentCount),
-        firstDueDate: expected.declarations.firstDueDate.split('-').reverse().join('/'),
-        targets: 'sem rateio', decision: 'criar compra nova', tipoDespesa: 'OUTROS',
-      };
-      const answer = answers[question.field];
-      expect(answer, `Unexpected fixture question ${question.field}; do not invent documentary facts`).toBeTruthy();
+      const answer = answerFromFixture(question, current, selectedIds);
       if (question.field === 'amountMeaning' && await form.getByRole('radio', { name: 'Total da compra', exact: true }).count()) {
         await form.getByRole('radio', { name: 'Total da compra', exact: true }).check();
       } else {
