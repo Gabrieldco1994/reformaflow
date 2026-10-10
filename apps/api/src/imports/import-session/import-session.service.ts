@@ -83,6 +83,7 @@ import {
 import {
   importObservationDedupeKeys,
   resolveImportDeclarations,
+  coalesceImportDeclarationQuestions,
 } from "./import-session.declarations";
 import {
   IMPORT_LIST_PAGE_SIZE,
@@ -1561,6 +1562,10 @@ async function renderImportSessionUnchecked(
     ...options,
     documentary: {
       questions: declarations.questions,
+      coalescedQuestions: coalesceImportDeclarationQuestions(
+        draft,
+        declarations,
+      ),
       declaredFacts: declarations.declaredFacts,
       reviewBlockers: declarations.reviewBlockers,
       executableAttachmentIds: attachments

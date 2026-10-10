@@ -8,11 +8,13 @@ import type {
 import {
   IMPORT_SESSION_PRIMITIVES as P,
   ImportSessionErrorCode as Code,
+  ImportSessionAmountMeaning as Meaning,
   encodeImportDeclaration,
   parseImportDeclarationLiteral,
   type ImportDeclarationAnswerV1,
   type ImportDeclarationContextV1,
   type ImportSessionDocumentaryAnswerRequestV1,
+  type ImportSessionQuestionV1,
   type ImportDeclaredFactViewV1,
   type ImportHumanFactFieldV1,
   type ImportHumanFactValuesV1,
@@ -569,12 +571,186 @@ export function recordImportDeclaration(
       ],
     },
   });
-  resolveImportDeclarations(
+  const nextResolution = resolveImportDeclarations(
     { ...session, revision: session.revision + 1 },
     updated,
     material,
   );
-  return updated;
+  return reconcileImportDeclarationDraft(updated, nextResolution, resolution);
+}
+
+type CoveredField =
+  | "dataCompra"
+  | "amountMeaning"
+  | "amountCents"
+  | "installmentCount";
+const COVERED_FIELDS: readonly CoveredField[] = [
+  "dataCompra",
+  "amountMeaning",
+  "amountCents",
+  "installmentCount",
+];
+const coveredField = (field: string): field is CoveredField =>
+  COVERED_FIELDS.some((candidate) => candidate === field);
+
+/**
+ * A draft purchase total is NOT an observed installment charge. Only single-observation
+ * lines have an unambiguous direct documentary-to-draft mapping; grouped lines retain
+ * their explicit draft questions. Never infer a total by multiplying a charge.
+ */
+function compatibleDocumentaryField(
+  line: ImportSessionDraftLineV1,
+  field: CoveredField,
+  facts: EffectiveImportObservationFacts,
+): boolean {
+  if (field === "amountMeaning")
+    return (
+      line.amountMeaning !== Meaning.INSTALLMENT_CHARGE &&
+      facts.amountMeaning !== Meaning.INSTALLMENT_CHARGE
+    );
+  if (field === "amountCents")
+    return (
+      facts.amountMeaning === Meaning.TOTAL_PURCHASE &&
+      line.amountMeaning !== Meaning.INSTALLMENT_CHARGE
+    );
+  return true;
+}
+
+/** Prefer live hashed subjects to duplicate legacy questions, without admitting legacy IDs. */
+export function coalesceImportDeclarationQuestions(
+  draft: ImportSessionStoredDraftV1,
+  resolution: ImportDeclarationResolution,
+): ImportSessionQuestionV1[] {
+  // Historical drafts may predate synchronization. Reads suppress provably covered
+  // tasks without writing; prepare persists this same derivation under its lock.
+  const covered = reconcileImportDeclarationDraft(draft, resolution);
+  const generic = covered.questions.flatMap((question) => {
+    if (!coveredField(question.field) || question.lineIds.length !== 1)
+      return [question];
+    const field = question.field;
+    const lineIds = question.lineIds.filter((lineId) => {
+      const line = covered.lines.find((line) => line.id === lineId);
+      if (!line || line.observationIds.length !== 1) return true;
+      const observationId = line.observationIds[0];
+      const facts = resolution.byLine
+        .get(lineId)
+        ?.get(observationId)?.effective;
+      if (!facts || !compatibleDocumentaryField(line, field, facts))
+        return true;
+      const matching = resolution.questions.some(
+        (q) =>
+          q.field === field &&
+          q.lineIds[0] === lineId &&
+          q.subject.observationId === observationId &&
+          (q.field !== "amountCents" ||
+            q.subject.meaningContext === Meaning.TOTAL_PURCHASE),
+      );
+      // A human draft correction that differs from the documentary fact is a distinct task.
+      const value = line[field];
+      return (
+        !matching ||
+        (value !== null &&
+          value !== Meaning.UNKNOWN &&
+          facts[field] !== null &&
+          facts[field] !== Meaning.UNKNOWN &&
+          value !== facts[field])
+      );
+    });
+    return lineIds.length ? [{ ...question, lineIds }] : [];
+  });
+  return [...resolution.questions, ...generic];
+}
+
+function supportsDraftField(
+  item: ResolvedObservation,
+  field: CoveredField,
+): boolean {
+  return item.validAnswers.some(
+    (answer) =>
+      answer.field === field ||
+      (field === "amountCents" &&
+        answer.field === "amountMeaning" &&
+        answer.value === Meaning.TOTAL_PURCHASE),
+  );
+}
+
+/**
+ * Retire covered legacy tasks in the same edit, not merely in the read projection.
+ * Fill only missing fields with current attested facts. Known source money may fill a
+ * missing total only after an explicit TOTAL_PURCHASE meaning attestation. Preserve
+ * independent human values; subsequent declaration edits update only inherited values.
+ */
+export function reconcileImportDeclarationDraft(
+  draft: ImportSessionStoredDraftV1,
+  resolution: ImportDeclarationResolution,
+  previous?: ImportDeclarationResolution,
+): ImportSessionStoredDraftV1 {
+  const lines = draft.lines.map((line) => {
+    if (line.observationIds.length !== 1) return line;
+    const observationId = line.observationIds[0];
+    const resolved = resolution.byLine.get(line.id)?.get(observationId);
+    if (!resolved) return line;
+    const old = previous?.byLine.get(line.id)?.get(observationId);
+    const updated = { ...line };
+    for (const field of COVERED_FIELDS) {
+      const oldValue = old?.effective[field];
+      const inherited =
+        old && supportsDraftField(old, field) && line[field] === oldValue;
+      const pending = draft.questions.some(
+        (q) => q.field === field && q.lineIds.includes(line.id),
+      );
+      const missing = line[field] === null || line[field] === Meaning.UNKNOWN;
+      if (
+        !compatibleDocumentaryField(updated, field, resolved.effective) ||
+        !(
+          inherited ||
+          (pending && missing && supportsDraftField(resolved, field))
+        )
+      )
+        continue;
+      switch (field) {
+        case "amountMeaning":
+          updated.amountMeaning = resolved.effective.amountMeaning;
+          break;
+        case "amountCents":
+          updated.amountCents = resolved.effective.amountCents;
+          break;
+        case "dataCompra":
+          updated.dataCompra = resolved.effective.dataCompra;
+          break;
+        case "installmentCount":
+          updated.installmentCount = resolved.effective.installmentCount;
+          break;
+      }
+    }
+    return updated;
+  });
+  const questions = draft.questions.flatMap((question) => {
+    if (!coveredField(question.field) || question.lineIds.length !== 1)
+      return [question];
+    const field = question.field;
+    const lineIds = question.lineIds.filter((lineId) => {
+      const line = lines.find((line) => line.id === lineId);
+      if (!line || line.observationIds.length !== 1) return true;
+      const resolved = resolution.byLine
+        .get(lineId)
+        ?.get(line.observationIds[0]);
+      if (
+        !resolved ||
+        !compatibleDocumentaryField(line, field, resolved.effective)
+      )
+        return true;
+      const value = resolved.effective[field];
+      return (
+        value === null ||
+        value === Meaning.UNKNOWN ||
+        line[field] !== value ||
+        !supportsDraftField(resolved, field)
+      );
+    });
+    return lineIds.length ? [{ ...question, lineIds }] : [];
+  });
+  return validateStoredDraft({ ...draft, lines, questions });
 }
 
 /** Resolve hashed question, fingerprint, claim and meaning only from locked server material. */

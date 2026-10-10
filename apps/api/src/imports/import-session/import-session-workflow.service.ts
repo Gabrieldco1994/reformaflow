@@ -107,6 +107,8 @@ import type { ResolvedImportAnswerV1 } from "./import-chat-answer";
 import {
   recordImportDeclaration,
   recordNativeImportDeclaration,
+  reconcileImportDeclarationDraft,
+  resolveImportDeclarations,
 } from "./import-session.declarations";
 import {
   documentaryAnswerScope,
@@ -679,7 +681,11 @@ export class ImportSessionWorkflowService {
         const material = await this.material(tx, row, draft);
         await this.configuredCard(tx, row);
         this.noInFlight(row, material);
-        const locked = mintLockedImportSession(tx, auth, row, draft);
+        const documentaryDraft = reconcileImportDeclarationDraft(
+          draft,
+          resolveImportDeclarations(row, draft, material),
+        );
+        const locked = mintLockedImportSession(tx, auth, row, documentaryDraft);
         let rendered: ImportSessionViewV1;
         try {
           const result = await this.batches.prepareInTx(tx, auth, locked);

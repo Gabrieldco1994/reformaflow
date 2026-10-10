@@ -449,6 +449,169 @@ describe("native documentary answer (real guard, grant and locked writer)", () =
       ]),
     );
   });
+  it("coalesces legacy questions with live documentary subjects and persists covered draft facts", async () => {
+    const stored = await row();
+    const draft = JSON.parse(stored.draftJson);
+    const lineId = draft.lines[0].id;
+    draft.questions = [
+      "dataCompra",
+      "amountMeaning",
+      "amountCents",
+      "installmentCount",
+      "decision",
+      "targets",
+    ].map((field) => ({
+      id: `legacy_${field}`,
+      field,
+      lineIds: [lineId],
+      text: `Confirm ${field}`,
+    }));
+    await prisma.importSession.update({
+      where: { id: sessionId },
+      data: { draftJson: JSON.stringify(draft) },
+    });
+    view = await service.getSession(authenticated().auth, sessionId);
+    expect(view.questions.find((q) => q.field === "dataCompra")).toHaveProperty(
+      "subject",
+    );
+    expect(view.questions.filter((q) => q.field === "dataCompra")).toHaveLength(
+      1,
+    );
+    view = await submit(
+      body("dataCompra", { kind: "VALUE", text: "2025-09-01" }),
+    );
+    view = await submit(
+      body("amountMeaning", { kind: "VALUE", text: "total da compra" }),
+    );
+    view = await submit(
+      body("amountCents", { kind: "VALUE", text: "1.234,56" }),
+    );
+    view = await submit(body("installmentCount", { kind: "VALUE", text: "2" }));
+    expect(view.lines[0]).toMatchObject({
+      dataCompra: "2025-09-01",
+      amountMeaning: "TOTAL_PURCHASE",
+      amountCents: 123456,
+      installmentCount: 2,
+      decision: { kind: "UNRESOLVED" },
+      targets: null,
+    });
+    expect(
+      JSON.parse((await row()).draftJson).questions.map(
+        (q: { field: string }) => q.field,
+      ),
+    ).toEqual(["decision", "targets"]);
+    expect(
+      view.questions.filter((q) => !("subject" in q)).map((q) => q.field),
+    ).toEqual(["decision", "targets"]);
+    const reload = await service.getSession(authenticated().auth, sessionId);
+    expect(reload.questions).toEqual(view.questions);
+  });
+  it("does not coalesce an installment charge with a purchase-total draft question or overwrite a human draft value", async () => {
+    const draft = JSON.parse((await row()).draftJson);
+    const lineId = draft.lines[0].id;
+    draft.lines[0].dataCompra = "2026-10-01";
+    draft.questions = [
+      {
+        id: "legacy_amount",
+        field: "amountCents",
+        lineIds: [lineId],
+        text: "Total",
+      },
+    ];
+    await prisma.importSession.update({
+      where: { id: sessionId },
+      data: { draftJson: JSON.stringify(draft) },
+    });
+    view = await service.getSession(authenticated().auth, sessionId);
+    view = await submit(
+      body("dataCompra", { kind: "VALUE", text: "2025-09-01" }),
+    );
+    expect(view.lines[0].dataCompra).toBe("2026-10-01");
+    view = await submit(
+      body("amountMeaning", { kind: "VALUE", text: "valor da parcela" }),
+    );
+    view = await submit(body("amountCents", { kind: "VALUE", text: "10,01" }));
+    expect(view.lines[0].amountCents).toBeNull();
+    expect(view.questions.find((q) => q.id === "legacy_amount")).toBeDefined();
+  });
+  it("updates only an inherited draft fact on correction and keeps null declarations unresolved", async () => {
+    const draft = JSON.parse((await row()).draftJson);
+    draft.questions = [
+      {
+        id: "legacy_date",
+        field: "dataCompra",
+        lineIds: [draft.lines[0].id],
+        text: "Date",
+      },
+    ];
+    await prisma.importSession.update({
+      where: { id: sessionId },
+      data: { draftJson: JSON.stringify(draft) },
+    });
+    view = await service.getSession(authenticated().auth, sessionId);
+    view = await submit(
+      body("dataCompra", { kind: "VALUE", text: "2025-09-01" }),
+    );
+    view = await submit(
+      body("dataCompra", { kind: "VALUE", text: "2025-09-02" }),
+    );
+    expect(view.lines[0].dataCompra).toBe("2025-09-02");
+    view = await submit(body("dataCompra", { kind: "REMOVE" }));
+    expect(view.lines[0].dataCompra).toBeNull();
+    expect(view.questions.find((q) => q.field === "dataCompra")).toMatchObject({
+      answerState: "UNKNOWN",
+    });
+    expect(
+      view.declaredFacts.find((f) => f.field === "dataCompra"),
+    ).toMatchObject({ value: null, status: "UNKNOWN" });
+  });
+  it("preserves unqualified grouped draft questions without changing their admitted scope", async () => {
+    const draft = JSON.parse((await row()).draftJson);
+    const otherLine = {
+      ...draft.lines[0],
+      id: randomUUID(),
+      observationIds: [...draft.lines[0].observationIds],
+    };
+    // A question can span several lines, but this fixture must not reuse observation ownership.
+    // Use two generic line IDs with only one materialized documentary match by retaining
+    // the second as a legitimate existing line without an applicable date declaration.
+    const observation = await prisma.importObservation.findUniqueOrThrow({
+      where: { id: observationId },
+    });
+    const { id: _id, ...data } = observation;
+    const other = await prisma.importObservation.create({
+      data: {
+        ...data,
+        id: randomUUID(),
+        reference: "other:1",
+        evidenceJson: JSON.stringify({
+          ...JSON.parse(observation.evidenceJson),
+          reference: "other:1",
+        }),
+      },
+    });
+    otherLine.observationIds = [other.id];
+    draft.lines.push(otherLine);
+    draft.scope.observationIds.push(other.id);
+    draft.questions = [
+      {
+        id: "group_date",
+        field: "dataCompra",
+        lineIds: draft.lines.map((l: { id: string }) => l.id),
+        text: "Group date",
+      },
+    ];
+    await prisma.importSession.update({
+      where: { id: sessionId },
+      data: { draftJson: JSON.stringify(draft) },
+    });
+    // Adding an unrelated parser observation to this qualified artifact invalidates its
+    // scoped mutation capability, but authorized projection must preserve the exact group.
+    view = await service.getSession(authenticated().auth, sessionId);
+    expect(view.questions.find((q) => q.id === "group_date")).toMatchObject({
+      lineIds: draft.questions[0].lineIds,
+    });
+  });
   it.each([
     { version: 2 },
     { extra: true },

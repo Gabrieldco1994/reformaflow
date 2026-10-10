@@ -498,6 +498,8 @@ export interface ProjectionOptions {
   readonly qualifiedAnalysisFormats?: readonly string[];
   readonly documentary?: {
     readonly questions: ImportSessionViewV1["questions"];
+    /** Server-resolved legacy task coverage; absent only for legacy projection callers. */
+    readonly coalescedQuestions?: ImportSessionViewV1["questions"];
     readonly declaredFacts: ImportSessionViewV1["declaredFacts"];
     readonly reviewBlockers: ImportSessionViewV1["reviewBlockers"];
     readonly executableAttachmentIds: readonly string[];
@@ -600,7 +602,10 @@ function projectSessionUnchecked(
     selectedLineIds: draft.selectedLineIds,
     questions: terminal
       ? draft.questions
-      : [...draft.questions, ...options.documentary!.questions],
+      : (options.documentary!.coalescedQuestions ?? [
+          ...draft.questions,
+          ...options.documentary!.questions,
+        ]),
     declaredFacts: terminal ? [] : options.documentary!.declaredFacts,
     attachments: hidden
       ? []

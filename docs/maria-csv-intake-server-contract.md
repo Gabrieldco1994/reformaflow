@@ -178,6 +178,28 @@ verificação do fato, nunca reaplicação cega. O teste
 `apps/api/src/imports/import-session/documentary-answer.integration.spec.ts` cobre
 esse caminho com guards, issuer e writer reais e sem compor provider/LLM.
 
+#### Coalescência documental e perguntas legadas
+
+Uma pergunta genérica de rascunho não pode eclipsar a pergunta `oq_…` correspondente.
+O servidor coalesce somente tarefas de uma linha com uma observação, mesmo campo e
+contexto compatível. Perguntas de decisão, destinos, primeiro vencimento e escopos
+agrupados conservam sua autoridade e escopo existentes. Valor de parcela não cobre
+pedido de total da compra; nunca multiplicar parcela por quantidade para inventar total.
+
+Na edição documental, fatos atestados preenchem somente campos de rascunho ausentes
+e compatíveis e retiram as tarefas cobertas na mesma transação. Um significado
+`TOTAL_PURCHASE` explicitamente atestado permite usar o valor original exato já
+extraído como total, sem nova interpretação. Correções independentes do rascunho
+não são sobrescritas; nova declaração atualiza apenas valores herdados da anterior.
+GET coalesce tarefas legadas sem renovar revisão/expiração nem escrever; prepare
+persiste a mesma derivação dentro do writer antes de validar prontidão.
+
+Coalescência não concede prontidão financeira. PDF com data sem ano mantém o
+ordinal original nulo: a atestação de data não inventa identidade de busca. O gate
+`SEARCH_IDENTITY_UNAVAILABLE` existente permanece; removê-lo exige decisão separada.
+`documentary-coalescing.integration.spec.ts` cobre upload/análise CSV/PDF reais,
+resposta nativa, recuperação legada e preparação sem nenhum efeito financeiro.
+
 ### Dependência de modelo na conversa livre (candidato, não prova de entrega)
 
 `AgentService.contextual` encaminha `ANSWER` ao provider construído em
