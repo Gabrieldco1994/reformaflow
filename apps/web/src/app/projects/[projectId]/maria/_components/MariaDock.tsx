@@ -58,16 +58,6 @@ export function MariaDock({
       className={`pessoal-minimal-maria-dock bg-gradient-to-t from-lifeone-surface via-lifeone-surface/95 to-transparent pb-2 pt-3 ${importMode ? "min-w-0" : "sticky bottom-0 z-10 -mx-4 px-4"}`}
     >
       <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
-        <button
-          type="button"
-          onClick={onOpenVoiceConversation}
-          disabled={disabled}
-          aria-label={VOICE_CONVERSATION_CTA_LABEL}
-          className="flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-lifeone-ink px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
-        >
-          <AudioLines className="h-3.5 w-3.5" />
-          {VOICE_CONVERSATION_CTA_LABEL}
-        </button>
         {!importMode && onImportStart && (
           <button
             type="button"
@@ -79,6 +69,16 @@ export function MariaDock({
             {IMPORT_CSV_CTA_LABEL}
           </button>
         )}
+        <button
+          type="button"
+          onClick={onOpenVoiceConversation}
+          disabled={disabled}
+          aria-label={VOICE_CONVERSATION_CTA_LABEL}
+          className="flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-lifeone-ink px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
+        >
+          <AudioLines className="h-3.5 w-3.5" />
+          {VOICE_CONVERSATION_CTA_LABEL}
+        </button>
         {!importMode &&
           MARIA_SUGGESTIONS.map((s) => (
             <button
