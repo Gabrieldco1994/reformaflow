@@ -18,6 +18,11 @@ import {
 import { PdfEvidence, startPdfJourney } from "./helpers/pdf-live-journey";
 import { identicalImportNotice } from "./helpers/supported-import-entry";
 import { nativeDocumentaryContract } from "./helpers/native-documentary-answer";
+import {
+  fillFocusedDraftPreview,
+  focusedDraftContract,
+  isFocusedDraftQuestion,
+} from "./helpers/focused-draft-answer";
 
 let fixtures: string;
 test.beforeAll(async () => {
@@ -209,6 +214,34 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
       const form = page.getByRole("form", { name: question.text, exact: true });
       await expect(form).toBeVisible();
       const answer = pdfFixtureAnswer(question, current, selectedIds);
+      if (isFocusedDraftQuestion(question)) {
+        const typed = await fillFocusedDraftPreview(
+          form,
+          question,
+          pdfExpected.declarations.firstDueDate,
+        );
+        await evidence.capture(
+          `answer-${attempt + 1}-${question.field}-typed-preview`,
+        );
+        const contract = focusedDraftContract(
+          sessionId,
+          question,
+          current,
+          typed,
+        );
+        const response = await evidence.response(
+          `answer-${attempt + 1}-${question.field}-focused-draft`,
+          contract.matches,
+          () =>
+            form
+              .getByRole("button", { name: "Guardar informação", exact: true })
+              .click(),
+        );
+        await contract.assertSaved(response);
+        await journey.noFinance();
+        await evidence.capture(`answer-${attempt + 1}-${question.field}-saved`);
+        continue;
+      }
       const radio = form.getByRole("radio", {
         name: "Total da compra",
         exact: true,

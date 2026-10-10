@@ -182,6 +182,11 @@ export class PdfEvidence {
                 safePath(response.url()).endsWith("/documentary-answer")
                   ? response.request().postDataJSON()
                   : null,
+              focusedDraftAnswer:
+                response.request().method() === "PATCH" &&
+                safePath(response.url()).endsWith("/draft")
+                  ? response.request().postDataJSON()
+                  : null,
             },
             null,
             2,
