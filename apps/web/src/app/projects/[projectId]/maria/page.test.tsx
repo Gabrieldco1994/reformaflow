@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MariaPage from './page';
 import { setPendingMariaPrompt, consumePendingMariaPrompt } from './_lib/pending-prompt';
 import { ProjectProvider } from '@/contexts/project-context';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { IMPORT_CSV_PROMPT, IMPORT_CSV_CTA_LABEL } from './_components/MariaDock';
 
 // Contrato de view: a página Maria reusa `useFinancialAgent`/`useSpeechRecognition`
 // (nenhuma nova instância de STT/TTS aqui) e ganha um CTA explícito e acessível
@@ -19,18 +21,42 @@ import { ProjectProvider } from '@/contexts/project-context';
 const hasModuleMock = vi.fn((_slug: string) => true);
 
 vi.mock('@/contexts/auth-context', () => ({
-  useAuth: () => ({ hasModule: (slug: string) => hasModuleMock(slug) }),
+  useAuth: () => ({ user: { id: 'user-1' }, hasModule: (slug: string) => hasModuleMock(slug) }),
 }));
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ projectId: 'project-1' }),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => '/projects/project-1/maria',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+// A retomada/listagem de importações tem testes próprios; aqui só o contrato da
+// tela Maria (entrada descobrível e única).
+vi.mock('./_hooks/useImportSessions', () => ({
+  useImportUserId: () => 'user-1',
+  useImportSessionList: () => ({ entry: null, failure: null, status: 'ready', restart: vi.fn() }),
+}));
+vi.mock('./_hooks/useImportDocumentFlow', () => ({
+  useImportDocumentFlow: () => ({
+    sessionId: null,
+    hasAttempt: false,
+    canRetry: false,
+    canResume: false,
+    view: null,
+    error: null,
+    busy: false,
+    invalidate: vi.fn(),
+  }),
 }));
 
 function renderMariaPage() {
   return render(
-    <ProjectProvider value={{ projectId: 'project-1', projectType: 'PESSOAL', projectName: 'Pessoal' }}>
-      <MariaPage />
-    </ProjectProvider>,
+    <QueryClientProvider client={new QueryClient()}>
+      <ProjectProvider value={{ projectId: 'project-1', projectType: 'PESSOAL', projectName: 'Pessoal' }}>
+        <MariaPage />
+      </ProjectProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -133,7 +159,9 @@ describe('MariaPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar conversa por voz' }));
 
     expect(screen.getByTestId('voice-assistant-overlay')).toBeInTheDocument();
-    expect(lastVoiceOverlayProps?.send).toBe(agentSend);
+    // `send` é o wrapper da tela (detecta importEntryAction) sobre o mesmo agent.send.
+    void (lastVoiceOverlayProps?.send as (t: string) => unknown)('oi');
+    expect(agentSend).toHaveBeenCalledWith('oi');
     expect(lastVoiceOverlayProps?.autoStart).toBe(true);
   });
 
@@ -181,5 +209,21 @@ describe('MariaPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar conversa por voz' }));
     fireEvent.click(screen.getByRole('button', { name: 'Fechar overlay' }));
     expect(screen.queryByTestId('voice-assistant-overlay')).not.toBeInTheDocument();
+  });
+
+  it('exposes one visible, labeled import CTA without the user having to ask', () => {
+    renderMariaPage();
+    const ctas = screen.getAllByRole('button', { name: IMPORT_CSV_CTA_LABEL });
+    expect(ctas).toHaveLength(1);
+    expect(ctas[0].className).toContain('min-h-[44px]');
+  });
+
+  it('routes the CTA through the ordinary server-gated chat turn (no client-only bypass, no parallel flow)', () => {
+    renderMariaPage();
+    fireEvent.click(screen.getByRole('button', { name: IMPORT_CSV_CTA_LABEL }));
+    expect(agentSend).toHaveBeenCalledTimes(1);
+    expect(agentSend).toHaveBeenCalledWith(IMPORT_CSV_PROMPT);
+    // Nenhum seletor de arquivo antes de o servidor devolver a ação.
+    expect(document.querySelector('input[type="file"]')).toBeNull();
   });
 });

@@ -352,7 +352,7 @@ export function ImportProposalCard({
             </p>
           )}
           <Button
-            className={`w-full ${focusStyle}`}
+            className={`min-h-11 w-full ${focusStyle}`}
             onClick={() => void workflow.act()}
           >
             {financialAction === "CONFIRM"

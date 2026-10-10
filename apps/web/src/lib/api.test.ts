@@ -100,3 +100,48 @@ describe("api.get — corpo vazio vira null", () => {
     });
   });
 });
+
+describe("api — signal do chamador e putBytes", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://localhost:3001");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("encaminha o abort do chamador ao fetch sem virar timeout", async () => {
+    const fetchMock = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            const e = new Error("aborted");
+            e.name = "AbortError";
+            reject(e);
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const caller = new AbortController();
+    const pending = api.get("/x", { signal: caller.signal });
+    caller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("putBytes envia Blob como octet-stream via PUT", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('{"ok":true}'),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const blob = new Blob(["a,b"]);
+    await api.putBytes("/up", blob);
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(init.body).toBe(blob);
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe(
+      "application/octet-stream",
+    );
+  });
+});

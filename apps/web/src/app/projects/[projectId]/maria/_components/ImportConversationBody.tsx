@@ -30,6 +30,7 @@ import {
 } from "./ImportFocusedQuestion";
 import { ImportProposalCard } from "./ImportProposalCard";
 import { ImportLocalDocuments } from "./ImportLocalDocuments";
+import { ImportResumeUpload } from "./ImportResumeUpload";
 import { ImportIgnoredObservations } from "./ImportIgnoredObservations";
 import {
   ImportReviewBlockerNotice,
@@ -303,6 +304,13 @@ function Conversation({
             remoteError={documents.error?.message}
             onAnalyze={(id) => void documents.analyze(id)}
             onRecover={() => void documents.recover()}
+          />
+        )}
+        {view && (
+          <ImportResumeUpload
+            view={view}
+            documents={documents}
+            disabled={Boolean(error) || conversation.review}
           />
         )}
         {ignoredOnly && (

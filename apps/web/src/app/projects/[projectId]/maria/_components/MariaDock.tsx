@@ -1,6 +1,6 @@
 "use client";
 
-import { AudioLines, Mic, Send } from "lucide-react";
+import { AudioLines, FileUp, Mic, Send } from "lucide-react";
 import type { ReactNode } from "react";
 
 export const MARIA_SUGGESTIONS = [
@@ -8,6 +8,10 @@ export const MARIA_SUGGESTIONS = [
   { key: "mercado", label: "Quanto gastei com mercado?" },
   { key: "fecho", label: "Como fecho o mês?" },
 ] as const;
+
+export const IMPORT_CSV_CTA_LABEL = "Importar fatura de cartão (CSV)";
+/** Pedido comum ao chat: o servidor decide se a importação está disponível. */
+export const IMPORT_CSV_PROMPT = "Quero importar a fatura do cartão em CSV";
 
 export const VOICE_LAUNCH_CHIP_LABEL = "🎙 lançar por voz";
 export const VOICE_CONVERSATION_CTA_LABEL = "Iniciar conversa por voz";
@@ -27,6 +31,11 @@ interface Props {
    * fallback quando o overlay não é usado.
    */
   onOpenVoiceConversation: () => void;
+  /**
+   * Entrada explícita da importação CSV. O chamador envia o pedido pelo turno
+   * comum do chat; a ação (ou indisponibilidade) vem do servidor.
+   */
+  onImportStart?: () => void;
   importMode?: boolean;
   composer?: ReactNode;
 }
@@ -40,6 +49,7 @@ export function MariaDock({
   micSupported,
   disabled,
   onOpenVoiceConversation,
+  onImportStart,
   importMode = false,
   composer,
 }: Props) {
@@ -58,6 +68,17 @@ export function MariaDock({
           <AudioLines className="h-3.5 w-3.5" />
           {VOICE_CONVERSATION_CTA_LABEL}
         </button>
+        {!importMode && onImportStart && (
+          <button
+            type="button"
+            onClick={onImportStart}
+            disabled={disabled}
+            className="flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-700 bg-emerald-50 px-4 py-2.5 text-[13px] font-semibold text-emerald-900 disabled:opacity-50"
+          >
+            <FileUp className="h-3.5 w-3.5" aria-hidden />
+            {IMPORT_CSV_CTA_LABEL}
+          </button>
+        )}
         {!importMode &&
           MARIA_SUGGESTIONS.map((s) => (
             <button

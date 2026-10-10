@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { MariaDock, VOICE_LAUNCH_CHIP_LABEL } from './MariaDock';
+import { IMPORT_CSV_CTA_LABEL, IMPORT_CSV_PROMPT, MariaDock, VOICE_LAUNCH_CHIP_LABEL } from './MariaDock';
 
 // Contrato: o dock preserva o microfone one-shot (`onMic`) como fallback e
 // ganha uma ação explícita e acessível "Iniciar conversa por voz" que abre a
@@ -46,5 +46,34 @@ describe('MariaDock', () => {
     setup({ disabled: true });
 
     expect(screen.getByRole('button', { name: 'Iniciar conversa por voz' })).toBeDisabled();
+  });
+
+  it('renders no import CTA unless an import entry handler is provided', () => {
+    setup();
+    expect(screen.queryByRole('button', { name: IMPORT_CSV_CTA_LABEL })).not.toBeInTheDocument();
+  });
+
+  it('import CTA is keyboard-reachable, >=44px, and asks for the import via the chat turn', () => {
+    const onSubmit = vi.fn();
+    setup({ onImportStart: () => onSubmit(IMPORT_CSV_PROMPT) });
+    const cta = screen.getByRole('button', { name: IMPORT_CSV_CTA_LABEL });
+    expect(cta).toHaveAttribute('type', 'button');
+    expect(cta.className).toContain('min-h-[44px]');
+    cta.focus();
+    expect(cta).toHaveFocus();
+    fireEvent.click(cta);
+    expect(onSubmit).toHaveBeenCalledWith(IMPORT_CSV_PROMPT);
+    expect(IMPORT_CSV_PROMPT.toLowerCase()).toMatch(/importar/);
+    expect(IMPORT_CSV_PROMPT.toLowerCase()).toMatch(/fatura/);
+  });
+
+  it('hides the CTA in import mode', () => {
+    setup({ importMode: true, onImportStart: vi.fn() });
+    expect(screen.queryByRole('button', { name: IMPORT_CSV_CTA_LABEL })).not.toBeInTheDocument();
+  });
+
+  it('disables the CTA while the agent is busy', () => {
+    setup({ disabled: true, onImportStart: vi.fn() });
+    expect(screen.getByRole('button', { name: IMPORT_CSV_CTA_LABEL })).toBeDisabled();
   });
 });

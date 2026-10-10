@@ -427,6 +427,80 @@ export function useImportDocumentFlow(
     }
   }
 
+  /**
+   * After reload there is no local File. Only when the SERVER view still allows
+   * UPLOAD may the user re-select and re-consent; it reuses the same authorized
+   * reserve/upload/analyze steps as the first intake (`runIntake`).
+   */
+  const canResume =
+    Boolean(context) &&
+    Boolean(userId && sessionId && view) &&
+    !query.isFetching &&
+    !error &&
+    !generation.attempt &&
+    !generation.mustRead &&
+    !generation.revoked &&
+    Boolean(view?.actions.includes("UPLOAD"));
+
+  async function resume(
+    files: readonly File[],
+    formats: readonly EntryFormat[],
+  ): Promise<void> {
+    if (!active() || generation.busy || generation.attempt || !canResume)
+      return;
+    try {
+      const current = client.getQueryData<ImportSessionViewV1>(key);
+      if (
+        !current ||
+        current.revision !== view?.revision ||
+        !current.actions.includes("UPLOAD") ||
+        !files.length ||
+        files.length > IMPORT_SESSION_LIMITS.filesPerRequest
+      )
+        throw new ImportWorkflowResponseError();
+      const used = new Set<string>();
+      const selected = files.map((file) => {
+        const format = formats.find((f) =>
+          file.name.toUpperCase().endsWith(`.${f}`),
+        );
+        if (
+          !format ||
+          file.size < 1 ||
+          file.size > IMPORT_SESSION_LIMITS.bytesPerFile
+        )
+          throw new ImportWorkflowResponseError();
+        // A reservation left by the interrupted attempt is reused when it is the same file.
+        const reserved = current.attachments.find(
+          (a) =>
+            a.state !== "ATTACHED" &&
+            !used.has(a.id) &&
+            a.fileName === file.name &&
+            a.declaredBytes === file.size,
+        );
+        if (reserved) used.add(reserved.id);
+        return {
+          id: reserved?.id ?? crypto.randomUUID(),
+          file,
+          mime: DECLARED_MIME[format],
+        };
+      });
+      generation.attempt = {
+        request: {
+          version: 1,
+          createRequestId: crypto.randomUUID(),
+          cardId: current.cardId,
+          consentPolicyVersion: IMPORT_SESSION_CONSENT_POLICY_VERSION,
+          consentAnalyze: true,
+        },
+        files: selected,
+        ownerProjectId: current.ownerProjectId,
+      };
+      await runIntake();
+    } catch (error) {
+      if (active()) fail(error);
+    }
+  }
+
   async function analyze(attachmentId?: string): Promise<void> {
     if (
       !active() ||
@@ -506,6 +580,8 @@ export function useImportDocumentFlow(
     analyze,
     recover,
     consent,
+    canResume,
+    resume,
     retry: runIntake,
     invalidate: () => {
       generation.invalidated = true;

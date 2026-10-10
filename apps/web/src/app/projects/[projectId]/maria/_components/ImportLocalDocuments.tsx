@@ -283,6 +283,7 @@ export function ImportLocalDocuments({
         <Button
           type="button"
           variant="ghost"
+          className="min-h-11"
           disabled={blocked || files.length === 0}
           onClick={() => {
             if (blocked || sent.current) return;
@@ -296,6 +297,7 @@ export function ImportLocalDocuments({
         </Button>
         <Button
           type="submit"
+          className="min-h-11"
           disabled={blocked || !onConsent || files.length === 0}
         >
           Analisar e guardar rascunho

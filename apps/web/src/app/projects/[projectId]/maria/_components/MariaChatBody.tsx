@@ -14,7 +14,7 @@ import { useMariaOpening } from "../_hooks/useMariaOpening";
 import { CONFIRM_REPLY } from "../_lib/pending-expense";
 import { consumePendingMariaPrompt } from "../_lib/pending-prompt";
 import { MariaMessageBubble } from "./MariaMessageBubble";
-import { MariaDock } from "./MariaDock";
+import { IMPORT_CSV_PROMPT, MariaDock } from "./MariaDock";
 import { ImportConversationBody } from "./ImportConversationBody";
 import type { ImportDocumentFlow } from "../_hooks/useImportDocumentFlow";
 import type { ImportEntryAction } from "../_lib/import-entry-action";
@@ -254,6 +254,11 @@ function GenericMariaChatBody({
         micSupported={speech.supported}
         disabled={agent.loading || disabled}
         onOpenVoiceConversation={openVoiceConversation}
+        onImportStart={
+          onImportEntryAction && !intake
+            ? () => submit(IMPORT_CSV_PROMPT)
+            : undefined
+        }
       />
 
       {voiceConversationOpen && (

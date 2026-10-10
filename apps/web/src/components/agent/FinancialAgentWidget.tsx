@@ -152,7 +152,7 @@ export function FinancialAgentWidget() {
                 <Link
                   href={mariaHref}
                   onClick={() => setOpen(false)}
-                  className="inline-flex min-h-9 items-center rounded-full border border-white/30 px-3 text-[11px] font-semibold text-white hover:bg-white/15"
+                  className="inline-flex min-h-11 items-center rounded-full border border-white/30 px-3 text-[11px] font-semibold text-white hover:bg-white/15"
                 >
                   Importar fatura CSV com Maria
                 </Link>
@@ -219,7 +219,7 @@ export function FinancialAgentWidget() {
                       <Link
                         href={mariaHref}
                         onClick={() => setOpen(false)}
-                        className="mt-2 block rounded-lg bg-darc-velvet px-3 py-2 text-center text-xs font-semibold text-white hover:opacity-90"
+                        className="mt-2 flex min-h-11 items-center justify-center rounded-lg bg-darc-velvet px-3 py-2 text-center text-xs font-semibold text-white hover:opacity-90"
                       >
                         Continuar importação CSV com a Maria
                       </Link>
