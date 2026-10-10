@@ -16,7 +16,11 @@ inventário de módulos**. Os mapas vivos e autoritativos são
 | **PESSOAL** | Controlador universal de caixa (o *Cockpit*) |
 | **PLANTAS** | Cuidado de plantas |
 
-Inclui a assistente de voz **Maria** (lançamento de despesas por voz, TTS via VibeVoice) e um motor de cronograma com gráfico de Gantt.
+Inclui a assistente **Maria** (consultas, lançamento de despesas por voz e TTS
+via VibeVoice) e um motor de cronograma com gráfico de Gantt. O candidato
+integrado #718 acrescenta importação guiada de faturas por CSV e PDF textual;
+merge, ativação e produção ainda não foram verificados, e scans, fotos ou PDFs
+com raster continuam fora do recorte até a qualificação de OCR da #719.
 
 ## Stack
 

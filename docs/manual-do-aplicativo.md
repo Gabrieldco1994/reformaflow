@@ -357,8 +357,12 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   Quando o vault privado está disponível, peça a importação e escolha explicitamente
   o cartão e o projeto. Os formatos vêm do servidor: CSV e PDF textual sem imagens
   no recorte qualificado. O envio exige seleção dos arquivos e consentimento.
-  Um PDF com imagens, inclusive logotipo, exige OCR ainda indisponível; PDFs
-  protegidos por senha ou ilegíveis bloqueiam a análise, sem confirmação financeira.
+  Um PDF escaneado, misto ou com qualquer imagem raster, inclusive um simples
+  logotipo, recebe `OCR_REQUIRED`: OCR ainda não está disponível nesta importação.
+  O suporte seguro a scans, fotos e PDFs com raster é trabalho futuro,
+  acompanhado separadamente pela #719; ela não amplia a entrega #718. PDFs
+  protegidos por senha ou ilegíveis bloqueiam a análise, sem confirmação
+  financeira.
   Nas compras, datas `D/M/AAAA` ou `AAAA-MM-DD` são aceitas; `D/M` sem ano exige
   declaração, sem ano inferido. Datas numéricas não suportadas, como `02/02/26`
   ou `02.02.2026`, em linhas com descrição podem tornar o documento ilegível
@@ -367,7 +371,9 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   fatura é evidência informativa: importar compras não quita a fatura. Controles
   explícitos de data/tipo e declarações documentais guardam apenas a informação
   revisada, sem interpretação pela IA. A gravação financeira exige uma confirmação
-  separada no resumo; repetir uma execução concluída devolve o mesmo recibo.
+  separada no resumo. O pagamento de fatura ignorado permanece vinculado ao
+  resultado terminal como item de auditoria, sem virar compra nem seguir para o
+  rascunho restante; repetir uma execução concluída devolve o mesmo recibo.
   Se a resposta da aplicação se perder, a tela consulta o estado guardado antes
   de permitir qualquer nova ação. O recibo de um lote parcial oferece **Ver
   rascunho restante**, que abre as compras ainda não aplicadas já selecionadas.
