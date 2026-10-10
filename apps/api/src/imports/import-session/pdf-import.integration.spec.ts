@@ -22,6 +22,7 @@ import { ImportUploadService } from "./vault/import-upload.service";
 import { VaultFdRegistry } from "./vault/vault-fd-registry";
 import { VaultStorage } from "./vault/vault-storage";
 import { PurgeCoordinator } from "./vault/vault-purger";
+import { parseStoredImportObservationEvidence } from "./import-session.observation";
 import type { VaultBootHandle, VaultRuntime } from "./vault/vault-boot";
 
 function invoice(blank = false, pages = 1, marker = ""): Buffer {
@@ -190,6 +191,15 @@ describe("private PDF import native pipeline", () => {
       gate,
       raw,
     );
+    const financialCounts = async () =>
+      Promise.all([
+        prisma.expense.count({ where: { tenantId } }),
+        prisma.cashFlowEntry.count({ where: { tenantId } }),
+        prisma.receipt.count({ where: { tenantId } }),
+        prisma.rateioAllocation.count({ where: { tenantId } }),
+        prisma.crossProjectSettlement.count({ where: { tenantId } }),
+        prisma.importedInvoiceLiquidation.count({ where: { tenantId } }),
+      ]);
     try {
       const created = await sessions.create(
         auth,
@@ -254,6 +264,16 @@ describe("private PDF import native pipeline", () => {
         {},
       );
       expect(analyzed.lines).toHaveLength(2);
+      expect(await financialCounts()).toEqual([0, 0, 0, 0, 0, 0]);
+      const privateState = await prisma.importSession.findUniqueOrThrow({
+        where: { id: analyzed.id },
+      });
+      const privateRef = await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: attachmentId },
+      });
+      const privateArtifact = await prisma.importArtifact.findUniqueOrThrow({
+        where: { id: privateRef.artifactId! },
+      });
       const otherTenantId = (
         await prisma.tenant.create({ data: { name: "PDF outsider" } })
       ).id;
@@ -277,6 +297,19 @@ describe("private PDF import native pipeline", () => {
         sessions.getSession(otherAuth, analyzed.id),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
       await expect(
+        sessions.getObservations(otherAuth, analyzed.id, {}),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
+        uploads.upload(
+          otherAuth,
+          analyzed.id,
+          attachmentId,
+          bytes.length,
+          Readable.from([bytes]),
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
         extraction.analyzeAttached(
           otherAuth,
           analyzed.id,
@@ -285,6 +318,16 @@ describe("private PDF import native pipeline", () => {
           {},
         ),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(
+        await prisma.importSession.findUniqueOrThrow({
+          where: { id: analyzed.id },
+        }),
+      ).toEqual(privateState);
+      expect(
+        await prisma.importArtifact.findUniqueOrThrow({
+          where: { id: privateArtifact.id },
+        }),
+      ).toEqual(privateArtifact);
       await expect(
         uploads.reserve(
           otherAuth,
@@ -310,28 +353,55 @@ describe("private PDF import native pipeline", () => {
         analyzed.id,
         {},
       );
-      expect(JSON.stringify(observations)).toContain("INVOICE_PAYMENT");
-      const edited = await workflow.edit(auth, analyzed.id, {
+      expect(observations.items).toHaveLength(3);
+      expect(observations.nextCursor).toBeNull();
+      const payment = observations.items.filter(
+        (row) => row.ignoredReason === "INVOICE_PAYMENT",
+      );
+      expect(payment).toHaveLength(1);
+      expect(payment[0]).toMatchObject({
+        attachmentId,
+        amountCents: -2002,
+        dataCompra: "2026-02-02",
+        ignoredReason: "INVOICE_PAYMENT",
+      });
+      expect(
+        analyzed.lines.flatMap((line) => line.observationIds),
+      ).not.toContain(payment[0].id);
+      const editRequest = {
         expectedRevision: analyzed.revision,
         questionId: null,
         selectedLineIds: [analyzed.lines[0].id],
         replaceLines: analyzed.lines.map((line) => ({
           ...line,
           firstDueDate: "2026-10-10",
-          amountMeaning: "TOTAL_PURCHASE",
+          amountMeaning: "TOTAL_PURCHASE" as const,
           amountCents: 2002,
           installmentCount: 2,
           tipoDespesa: ExpenseType.OUTROS,
           targets: [],
-          decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+          decision: { kind: "CREATE" as const, acceptNaturalDuplicate: false },
         })),
-      });
+      };
+      await expect(
+        workflow.edit(otherAuth, analyzed.id, editRequest),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      const edited = await workflow.edit(auth, analyzed.id, editRequest);
       const ready = await workflow.prepare(auth, edited.id, {
         expectedRevision: edited.revision,
       });
       expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
       expect(ready.state).toBe("READY");
+      expect(await financialCounts()).toEqual([0, 0, 0, 0, 0, 0]);
       const proposalHash = ready.proposal!.proposalHash;
+      await expect(
+        workflow.challenge(
+          otherAuth,
+          ready.id,
+          { expectedRevision: ready.revision, proposalHash },
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
       const challenge = await workflow.challenge(
         auth,
         ready.id,
@@ -339,6 +409,19 @@ describe("private PDF import native pipeline", () => {
         {},
       );
       const financialRequestId = randomUUID();
+      await expect(
+        workflow.confirm(
+          otherAuth,
+          ready.id,
+          {
+            expectedRevision: ready.revision,
+            proposalHash,
+            financialRequestId,
+            nonce: challenge.nonce,
+          },
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
       await workflow.confirm(
         auth,
         ready.id,
@@ -350,6 +433,10 @@ describe("private PDF import native pipeline", () => {
         },
         {},
       );
+      expect(await financialCounts()).toEqual([0, 0, 0, 0, 0, 0]);
+      await expect(
+        workflow.execute(otherAuth, ready.id, { financialRequestId }, {}),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
       const applied = await workflow.execute(
         auth,
         ready.id,
@@ -364,6 +451,77 @@ describe("private PDF import native pipeline", () => {
       );
       expect(replay).toEqual(applied);
       expect(await prisma.expense.count({ where: { tenantId } })).toBe(1);
+      expect(await financialCounts()).toEqual([1, 2, 0, 0, 0, 0]);
+      const expense = await prisma.expense.findFirstOrThrow({
+        where: { tenantId },
+      });
+      expect(expense).toMatchObject({
+        projectId,
+        valor: 2002,
+        valorTotal: 2002,
+        quantidade: 1,
+        quantidadeParcela: 2,
+        status: "PLANEJADO",
+        settledByExpenseId: null,
+        linkedExpenseId: null,
+      });
+      const flows = await prisma.cashFlowEntry.findMany({
+        where: { tenantId },
+        orderBy: { data: "asc" },
+      });
+      expect(
+        flows.map((flow) => ({
+          expenseId: flow.expenseId,
+          valor: flow.valor,
+          data: flow.data.toISOString().slice(0, 10),
+          parcela: flow.parcela,
+          status: flow.status,
+          tipo: flow.tipo,
+        })),
+      ).toEqual([
+        {
+          expenseId: expense.id,
+          valor: 1001,
+          data: "2026-10-10",
+          parcela: "1/2",
+          status: "PLANEJADO",
+          tipo: "DESPESA",
+        },
+        {
+          expenseId: expense.id,
+          valor: 1001,
+          data: "2026-11-10",
+          parcela: "2/2",
+          status: "PLANEJADO",
+          tipo: "DESPESA",
+        },
+      ]);
+      const retainedPayment = await prisma.importObservation.findUniqueOrThrow({
+        where: { id: payment[0].id },
+      });
+      expect(retainedPayment).toMatchObject({
+        canonicalExpenseId: null,
+        canonicalReceiptId: null,
+        canonicalProjectId: null,
+        claimSessionId: null,
+        claimedAt: null,
+      });
+      expect(
+        parseStoredImportObservationEvidence(retainedPayment.evidenceJson),
+      ).toMatchObject({
+        sourceDescription: "PAGAMENTO DE FATURA",
+        amountCents: -2002,
+      });
+      const unselected = await prisma.importObservation.findMany({
+        where: { id: { in: analyzed.lines[1].observationIds } },
+      });
+      expect(unselected).toHaveLength(1);
+      expect(unselected[0]).toMatchObject({
+        canonicalExpenseId: null,
+        canonicalReceiptId: null,
+        claimSessionId: null,
+        claimedAt: null,
+      });
       const bounded = await sessions.create(
         auth,
         {
@@ -428,6 +586,14 @@ describe("private PDF import native pipeline", () => {
       const rejected = races.findIndex(
         (result) => result.status === "rejected",
       );
+      // Either admission loses the session lease, or publication observes the
+      // winner's revision. Neither is a parser error or a partial publication.
+      const loser = races[rejected];
+      expect(loser.status).toBe("rejected");
+      if (loser.status !== "rejected") throw new Error("Missing rejected race");
+      expect(["LEASE_CONFLICT", "REVISION_CONFLICT"]).toContain(
+        loser.reason.code,
+      );
       boundedView = await sessions.getSession(auth, bounded.view.id);
       await expect(
         extraction.analyzeAttached(
@@ -448,7 +614,42 @@ describe("private PDF import native pipeline", () => {
       expect(
         boundedRefs.filter((ref) => ref.artifact?.extractionJson === null),
       ).toHaveLength(1);
+      const extractedArtifacts = boundedRefs
+        .filter((ref) => ref.artifact?.state === "EXTRACTED")
+        .map((ref) => ref.artifact!);
+      expect(
+        extractedArtifacts.map(
+          (artifact) => JSON.parse(artifact.extractionJson!).metrics.pages,
+        ),
+      ).toEqual([30, 30]);
+      expect(
+        extractedArtifacts.reduce(
+          (sum, artifact) =>
+            sum + JSON.parse(artifact.extractionJson!).metrics.pages,
+          0,
+        ),
+      ).toBe(60);
+      const boundedObservations = await prisma.importObservation.findMany({
+        where: {
+          artifactId: { in: boundedRefs.map((ref) => ref.artifactId!) },
+        },
+      });
+      expect(boundedObservations).toHaveLength(60);
+      const unpublished = boundedRefs.find(
+        (ref) => ref.artifact?.extractionJson === null,
+      )!.artifact!;
+      expect(unpublished).toMatchObject({
+        state: "RAW_READY",
+        leaseSessionId: null,
+        extractionJson: null,
+        parserVersion: null,
+      });
+      expect(
+        boundedObservations.filter((row) => row.artifactId === unpublished.id),
+      ).toEqual([]);
       expect(await prisma.expense.count({ where: { tenantId } })).toBe(1);
+      expect(await financialCounts()).toEqual([1, 2, 0, 0, 0, 0]);
+      expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
       expect(applied.items).toHaveLength(1);
       expect(applied.snapshot.createdEconomicTotalCents).toBe(2002);
       const failed = await sessions.create(
@@ -550,6 +751,21 @@ describe("private PDF import native pipeline", () => {
         }),
       ).toBe(0);
       expect(await prisma.expense.count({ where: { tenantId } })).toBe(1);
+      expect(await financialCounts()).toEqual([1, 2, 0, 0, 0, 0]);
+      expect(
+        await prisma.cashFlowEntry.findMany({
+          where: { tenantId },
+          orderBy: { data: "asc" },
+        }),
+      ).toEqual(flows);
+      expect(
+        await prisma.expense.count({ where: { tenantId: otherTenantId } }),
+      ).toBe(0);
+      expect(
+        await prisma.cashFlowEntry.count({
+          where: { tenantId: otherTenantId },
+        }),
+      ).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
