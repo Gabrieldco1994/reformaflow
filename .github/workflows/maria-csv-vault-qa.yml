@@ -2,6 +2,35 @@ name: Maria CSV + textual PDF private-vault QA
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      [
+        feat/maria-conversational-csv-20261009,
+        feat/maria-pdf-integration-20261010,
+        feat/maria-current-main-20261010,
+        feat/maria-vault-startup-20261010,
+      ]
+    paths:
+      - .github/workflows/maria-csv-vault-qa.yml
+      - scripts/qa/**
+      - apps/web/e2e-qa/**
+      - apps/web/playwright.qa.config.ts
+      - apps/web/src/app/projects/**/maria/**
+      - apps/web/src/app/register/**
+      - apps/web/src/contexts/journey-runtime-context.tsx
+      - apps/api/src/imports/**
+      - apps/api/src/credit-card/parsers/**
+      - apps/api/src/credit-card/invoice-payment-classification.ts
+      - apps/api/src/agent/**
+      - apps/api/package.json
+      - apps/api/nest-cli.json
+      - apps/api/Dockerfile
+      - apps/api/docker-entrypoint.sh
+      - apps/api/src/main.ts
+      - deploy/vault-startup/**
+      - packages/domain/src/import-*.ts
+      - packages/domain/src/import-session.ts
+      - packages/domain/src/types/card-import-review.ts
   pull_request:
     branches: [main]
     paths:
@@ -14,6 +43,7 @@ on:
       - apps/web/src/contexts/journey-runtime-context.tsx
       - apps/api/src/imports/**
       - apps/api/src/credit-card/parsers/**
+      - apps/api/src/credit-card/invoice-payment-classification.ts
       - apps/api/src/agent/**
       - apps/api/package.json
       - apps/api/nest-cli.json
@@ -23,6 +53,7 @@ on:
       - deploy/vault-startup/**
       - packages/domain/src/import-*.ts
       - packages/domain/src/import-session.ts
+      - packages/domain/src/types/card-import-review.ts
 
 permissions:
   contents: read
