@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   answerImportDocumentaryQuestion,
+  answerImportFocusedDraftQuestion,
   uploadImportSessionAttachment,
 } from "./import-session-api";
 import {
@@ -11,11 +12,13 @@ import {
 const api = vi.hoisted(() => ({
   putBytes: vi.fn(),
   post: vi.fn(),
+  patch: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
   api: {
     putBytes: api.putBytes,
     post: api.post,
+    patch: api.patch,
   },
   ApiResponseError: class ApiResponseError extends Error {},
 }));
@@ -48,6 +51,41 @@ const view = {
   receipt: null,
   actions: ["UPLOAD", "CANCEL"],
 };
+
+describe("answerImportFocusedDraftQuestion", () => {
+  const request = {
+    version: 1 as const,
+    answerRequestId: "12345678-1234-4123-8123-123456789abc",
+    expectedRevision: 2,
+    questionId: "question",
+    answer: { field: "firstDueDate" as const, value: "2025-10-10" },
+  };
+  beforeEach(() => api.patch.mockReset());
+  it("PATCHes the exact focused variant with UI headers and signal", async () => {
+    api.patch.mockResolvedValue(view);
+    const signal = new AbortController().signal;
+    expect(
+      await answerImportFocusedDraftQuestion("session", request, signal),
+    ).toEqual(view);
+    expect(api.patch).toHaveBeenCalledWith(
+      "/import-sessions/session/draft",
+      request,
+      {
+        headers: { "x-rf-import-ui": "1" },
+        signal,
+      },
+    );
+  });
+  it.each([
+    { ...view, id: "foreign" },
+    { ...view, extra: true },
+  ])("rejects foreign or malformed views", async (response) => {
+    api.patch.mockResolvedValue(response);
+    await expect(
+      answerImportFocusedDraftQuestion("session", request),
+    ).rejects.toThrow();
+  });
+});
 
 describe("answerImportDocumentaryQuestion", () => {
   const request = {

@@ -420,6 +420,14 @@ ação própria enviada pelo servidor na conversa, não uma instrução livre da
 O recorte aceita somente CSV. Fechamento e vencimento vêm do cadastro do cartão;
 dias ausentes permanecem ausentes, sem datas inventadas.
 
+Nas perguntas de **Primeiro vencimento** e **Tipo de despesa**, use o campo de
+data ou a lista de tipos disponíveis no projeto, confira a prévia e toque em
+**Guardar informação**. O valor escolhido atualiza somente esse campo do
+rascunho, sem interpretação pela IA e sem ajustar automaticamente o ano ou o
+ciclo da fatura. Escolher **Mão de obra** não preenche sua categoria: ela continua
+uma pergunta separada. **Não sei informar** mantém o campo sem valor; não inventa
+uma resposta. As demais perguntas e a conversa livre mantêm o fluxo existente.
+
 Autorizar a análise do documento não autoriza lançamentos. A compra permanece em
 rascunho até **Confirmar lote**; somente a execução confirmada cria despesas
 planejadas, sem débito realizado na conta. Depois de aplicado, o resultado pode ser

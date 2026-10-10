@@ -608,10 +608,15 @@ function Conversation({
                     pending={busy}
                     disabled={!mayAnswer}
                     onAnswer={
-                      "subject" in question && (error || documents.error)
+                      (error || documents.error) &&
+                      ("subject" in question ||
+                        question.field === "firstDueDate" ||
+                        question.field === "tipoDespesa")
                         ? undefined
                         : (answer) => {
-                            if ("subject" in question)
+                            if ("draftAnswer" in answer)
+                              void conversation.saveFocusedDraft(answer);
+                            else if ("subject" in question)
                               void conversation.saveDeclaration(answer);
                             else void send(answer.text);
                           }

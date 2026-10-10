@@ -19,6 +19,8 @@ import { importDeclarationContext } from "../_lib/import-session-read";
 import type { ImportQuestionAnswerInput } from "../_lib/import-session-api";
 import { Button } from "@/components/ui/button";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
+import { ImportFocusedDraftQuestion } from "./ImportFocusedDraftQuestion";
+import { isFocusedDraftQuestion } from "../_lib/import-focused-draft";
 
 type ImportFocusedQuestionProps = {
   question: ImportSessionQuestionV1;
@@ -529,5 +531,7 @@ function FocusedQuestion({
 
 /** Mount only when the user opens the active question; refreshes keep text and keyboard focus. */
 export function ImportFocusedQuestion(props: ImportFocusedQuestionProps) {
+  if (isFocusedDraftQuestion(props.question))
+    return <ImportFocusedDraftQuestion key={props.question.id} {...props} />;
   return <FocusedQuestion key={props.question.id} {...props} />;
 }

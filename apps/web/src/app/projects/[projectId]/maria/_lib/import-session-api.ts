@@ -7,6 +7,9 @@ import {
 import type {
   ImportDeclarationAnswerV1,
   ImportDeclarationUiInputV1,
+  ImportSessionDocumentaryAnswerRequestV1,
+  ImportSessionFocusedDraftAnswerRequestV1,
+  ImportSessionFocusedDraftAnswerV1,
   ImportSessionCandidateV1,
   ImportSessionChallengeRequestV1,
   ImportSessionConfirmRequestV1,
@@ -60,19 +63,10 @@ function malformed(): never {
 
 const enc = encodeURIComponent;
 
-/** Frozen native contract; move to the domain request type when integrated. */
-export interface ImportDocumentaryAnswerRequestV1 {
-  version: 1;
-  answerRequestId: string;
-  expectedRevision: number;
-  questionId: string;
-  input: ImportDeclarationUiInputV1;
-  answer: ImportDeclarationAnswerV1;
-}
-
 /** The documentary variant carries the exact local preview accepted by the human. */
 export type ImportQuestionAnswerInput =
   | { id: string; text: string }
+  | { id: string; text: string; draftAnswer: ImportSessionFocusedDraftAnswerV1 }
   | {
       id: string;
       text: string;
@@ -80,9 +74,23 @@ export type ImportQuestionAnswerInput =
       answer: ImportDeclarationAnswerV1;
     };
 
+export async function answerImportFocusedDraftQuestion(
+  id: string,
+  request: ImportSessionFocusedDraftAnswerRequestV1,
+  signal?: AbortSignal,
+): Promise<ImportSessionViewV1> {
+  const view = readImportWorkflowView(
+    await api.patch<unknown>(`/import-sessions/${enc(id)}/draft`, request, {
+      headers: { ...UI_HEADERS },
+      signal,
+    }),
+  );
+  return view.id === id ? view : malformed();
+}
+
 export async function answerImportDocumentaryQuestion(
   id: string,
-  request: ImportDocumentaryAnswerRequestV1,
+  request: ImportSessionDocumentaryAnswerRequestV1,
   signal?: AbortSignal,
 ): Promise<ImportSessionViewV1> {
   const view = readImportWorkflowView(

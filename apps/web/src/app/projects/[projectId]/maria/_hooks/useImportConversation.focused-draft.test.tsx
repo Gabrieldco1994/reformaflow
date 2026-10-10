@@ -1,0 +1,388 @@
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ExpenseType,
+  ImportSessionAmountMeaning,
+  type ImportSessionDraftLineV1,
+  type ImportSessionViewV1,
+} from "@reformaflow/domain";
+import { useImportConversation } from "./useImportConversation";
+import { importRoot } from "../_lib/import-session-keys";
+
+const mocks = vi.hoisted(() => ({
+  userId: "user-1",
+  getFullImportSession: vi.fn(),
+  answerImportFocusedDraftQuestion: vi.fn(),
+  answerImportDocumentaryQuestion: vi.fn(),
+  editImportSession: vi.fn(),
+  getImportResult: vi.fn(),
+  send: vi.fn(),
+}));
+vi.mock("../_lib/import-session-api", () => ({
+  getFullImportSession: mocks.getFullImportSession,
+  answerImportFocusedDraftQuestion: mocks.answerImportFocusedDraftQuestion,
+  answerImportDocumentaryQuestion: mocks.answerImportDocumentaryQuestion,
+  editImportSession: mocks.editImportSession,
+  getImportResult: mocks.getImportResult,
+}));
+vi.mock("./useImportSessions", () => ({ useImportUserId: () => mocks.userId }));
+vi.mock("@/components/agent/useFinancialAgent", () => ({
+  useFinancialAgent: () => ({ send: mocks.send }),
+}));
+const line: ImportSessionDraftLineV1 = {
+  id: "line-1",
+  observationIds: ["observation-1"],
+  titulo: "Compra documental",
+  fornecedor: null,
+  tipoDespesa: null,
+  categoriaMaoDeObra: null,
+  amountMeaning: ImportSessionAmountMeaning.TOTAL_PURCHASE,
+  amountCents: 123456,
+  installmentCount: 3,
+  dataCompra: "2025-09-01",
+  firstDueDate: null,
+  targets: null,
+  decision: { kind: "UNRESOLVED" },
+};
+const base: ImportSessionViewV1 = {
+  version: 1,
+  id: "session-1",
+  ownerProjectId: "project-1",
+  cardId: "card-1",
+  state: "DRAFT",
+  revision: 4,
+  expiresAt: "2026-10-16T21:00:00.000Z",
+  attachments: [],
+  lines: [line],
+  selectedLineIds: [line.id],
+  questions: [
+    {
+      id: "q-due",
+      field: "firstDueDate",
+      lineIds: [line.id],
+      text: "Qual o primeiro vencimento?",
+    },
+  ],
+  declaredFacts: [],
+  reviewBlockers: [],
+  searchComplete: false,
+  proposal: null,
+  confirmation: null,
+  receipt: null,
+  actions: ["RESOLVE", "CANCEL"],
+};
+const accepted = {
+  id: "q-due",
+  text: "2025-10-10",
+  draftAnswer: { field: "firstDueDate" as const, value: "2025-10-10" },
+};
+const stored = (): ImportSessionViewV1 => ({
+  ...base,
+  revision: 5,
+  lines: [{ ...line, firstDueDate: "2025-10-10" }],
+  questions: [],
+});
+function setup(view = base) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const key = [...importRoot(mocks.userId), "workflow", view.id];
+  client.setQueryData(key, view);
+  mocks.getFullImportSession.mockResolvedValue(view);
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const hook = renderHook(
+    (sessionId: string) => useImportConversation(sessionId),
+    {
+      wrapper,
+      initialProps: view.id,
+    },
+  );
+  return { ...hook, client, key };
+}
+beforeEach(() => {
+  mocks.userId = "user-1";
+  Object.values(mocks).forEach((mock) => {
+    if (vi.isMockFunction(mock)) mock.mockReset();
+  });
+});
+afterEach(cleanup);
+
+describe("focused draft native answers", () => {
+  it("saves the exact date-only value by typed PATCH, without agent or finance", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    mocks.answerImportFocusedDraftQuestion.mockResolvedValue(stored());
+    await act(async () => {
+      await result.current.saveFocusedDraft(accepted);
+    });
+    expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenCalledWith(
+      base.id,
+      {
+        version: 1,
+        answerRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        expectedRevision: 4,
+        questionId: "q-due",
+        answer: { field: "firstDueDate", value: "2025-10-10" },
+      },
+      expect.any(AbortSignal),
+    );
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
+    expect(mocks.editImportSession).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
+    expect(result.current.view?.lines[0].dataCompra).toBe("2025-09-01");
+    expect(result.current.view?.proposal).toBeNull();
+    expect(result.current.review).toBe(false);
+  });
+
+  it("saves the explicit expense enum and leaves MAO_DE_OBRA category unresolved", async () => {
+    const view: ImportSessionViewV1 = {
+      ...base,
+      questions: [
+        {
+          id: "q-type",
+          field: "tipoDespesa",
+          lineIds: [line.id],
+          text: "Qual tipo?",
+        },
+      ],
+    };
+    const { result } = setup(view);
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    const draftAnswer = {
+      field: "tipoDespesa" as const,
+      value: ExpenseType.MAO_DE_OBRA,
+    };
+    mocks.answerImportFocusedDraftQuestion.mockResolvedValue({
+      ...view,
+      revision: 5,
+      lines: [{ ...line, tipoDespesa: ExpenseType.MAO_DE_OBRA }],
+      questions: [
+        {
+          id: "q-category",
+          field: "categoriaMaoDeObra",
+          lineIds: [line.id],
+          text: "Qual categoria?",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.saveFocusedDraft({
+        id: "q-type",
+        text: "Mão de obra",
+        draftAnswer,
+      });
+    });
+    expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenCalledWith(
+      base.id,
+      expect.objectContaining({ questionId: "q-type", answer: draftAnswer }),
+      expect.any(AbortSignal),
+    );
+    expect(result.current.view?.lines[0].categoriaMaoDeObra).toBeNull();
+    expect(result.current.question?.field).toBe("categoriaMaoDeObra");
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each([
+    "value",
+    "subject",
+    "revision",
+    "selection",
+    "unrelatedField",
+    "finance",
+  ] as const)(
+    "rejects mismatched response %s without announcing success",
+    async (kind) => {
+      const { result, client, key } = setup();
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      const wrong = stored();
+      if (kind === "value") wrong.lines[0].firstDueDate = "2026-10-10";
+      if (kind === "subject") wrong.lines[0].id = "other-line";
+      if (kind === "revision") wrong.revision = 6;
+      if (kind === "selection") wrong.selectedLineIds = [];
+      if (kind === "unrelatedField") wrong.lines[0].amountCents = 999;
+      if (kind === "finance") wrong.state = "CONFIRMED";
+      mocks.answerImportFocusedDraftQuestion.mockResolvedValue(wrong);
+      mocks.getFullImportSession.mockResolvedValue(base);
+      await act(async () => {
+        await result.current.saveFocusedDraft(accepted);
+      });
+      expect(result.current.error).not.toBeNull();
+      expect(client.getQueryData(key)).toEqual(base);
+      expect(
+        result.current.messages.some((m) => m.content.includes("guardada")),
+      ).toBe(false);
+      expect(mocks.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a wrong question or field before PATCH", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    await act(async () => {
+      await result.current.saveFocusedDraft({
+        id: "q-due",
+        text: "Outros",
+        draftAnswer: { field: "tipoDespesa", value: ExpenseType.OUTROS },
+      });
+    });
+    expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
+    expect(result.current.error).not.toBeNull();
+  });
+
+  it.each(["2025-02-29", "2025-13-01", "10/10/2025", "2025-10-10T00:00:00Z"])(
+    "rejects invalid date-only input %s before PATCH",
+    async (value) => {
+      const { result } = setup();
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      await act(async () => {
+        await result.current.saveFocusedDraft({
+          ...accepted,
+          draftAnswer: { field: "firstDueDate", value },
+        });
+      });
+      expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(result.current.error).not.toBeNull();
+    },
+  );
+
+  it("explicit null is an unresolved draft answer, never an invented date", async () => {
+    const view = { ...base, lines: [{ ...line, firstDueDate: "2025-10-10" }] };
+    const { result } = setup(view);
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    mocks.answerImportFocusedDraftQuestion.mockResolvedValue({
+      ...base,
+      revision: 5,
+    });
+    await act(async () => {
+      await result.current.saveFocusedDraft({
+        ...accepted,
+        draftAnswer: { field: "firstDueDate", value: null },
+      });
+    });
+    expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenCalledWith(
+      base.id,
+      expect.objectContaining({
+        answer: { field: "firstDueDate", value: null },
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(result.current.view?.lines[0].firstDueDate).toBeNull();
+    expect(result.current.question?.field).toBe("firstDueDate");
+    expect(result.current.error).toBeNull();
+  });
+
+  it("accepts a proven no-op without revision or expiry renewal", async () => {
+    const view = { ...stored(), revision: 4, questions: base.questions };
+    const { result } = setup(view);
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    mocks.answerImportFocusedDraftQuestion.mockResolvedValue(view);
+    await act(async () => {
+      await result.current.saveFocusedDraft(accepted);
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.view?.revision).toBe(4);
+    expect(result.current.view?.expiresAt).toBe(base.expiresAt);
+  });
+
+  it("does not send a same-tick duplicate save", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    mocks.answerImportFocusedDraftQuestion.mockResolvedValue(stored());
+    await act(async () => {
+      await Promise.all([
+        result.current.saveFocusedDraft(accepted),
+        result.current.saveFocusedDraft(accepted),
+      ]);
+    });
+    expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenCalledOnce();
+  });
+  it.each(["user", "session", "revision", "question"] as const)(
+    "discards late answers after %s changes",
+    async (kind) => {
+      const { result, client, key, rerender } = setup();
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      let resolve!: (view: ImportSessionViewV1) => void;
+      mocks.answerImportFocusedDraftQuestion.mockReturnValue(
+        new Promise<ImportSessionViewV1>((done) => {
+          resolve = done;
+        }),
+      );
+      let pending: Promise<unknown>;
+      act(() => {
+        pending = result.current.saveFocusedDraft(accepted);
+      });
+      if (kind === "user") {
+        mocks.userId = "other";
+        rerender(base.id);
+      }
+      if (kind === "session") rerender("other-session");
+      if (kind === "revision")
+        act(() => {
+          client.setQueryData(key, { ...base, revision: 6 });
+        });
+      if (kind === "question")
+        act(() => {
+          client.setQueryData(key, {
+            ...base,
+            questions: [{ ...base.questions[0], lineIds: ["other"] }],
+          });
+        });
+      await act(async () => {
+        resolve(stored());
+        await pending;
+      });
+      expect(client.getQueryData<ImportSessionViewV1>(key)?.revision).not.toBe(
+        5,
+      );
+      expect(
+        result.current.messages.some((m) => m.content.includes("guardada")),
+      ).toBe(false);
+    },
+  );
+
+  it("reads uncertain results once without false success or blind retry", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    mocks.getFullImportSession.mockClear();
+    mocks.getFullImportSession.mockResolvedValue(stored());
+    mocks.answerImportFocusedDraftQuestion.mockRejectedValue(
+      new TypeError("Lost response"),
+    );
+    await act(async () => {
+      await result.current.saveFocusedDraft(accepted);
+    });
+    expect(mocks.getFullImportSession).toHaveBeenCalledOnce();
+    expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenCalledOnce();
+    expect(result.current.error).not.toBeNull();
+    expect(
+      result.current.messages.some((m) => m.content.includes("guardada")),
+    ).toBe(false);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it.each(["targets", "decision", "categoriaMaoDeObra"] as const)(
+    "keeps %s on the existing conversation path",
+    async (field) => {
+      const { result } = setup({
+        ...base,
+        questions: [
+          { id: "q-other", field, lineIds: [line.id], text: "Informe" },
+        ],
+      });
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      mocks.send.mockResolvedValue(null);
+      await act(async () => {
+        await result.current.send("Minha resposta livre");
+      });
+      expect(mocks.send).toHaveBeenCalled();
+      expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
+    },
+  );
+});

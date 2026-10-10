@@ -18,6 +18,7 @@ import {
 import {
   editImportSession,
   answerImportDocumentaryQuestion,
+  answerImportFocusedDraftQuestion,
   getFullImportSession,
   getImportResult,
   type ImportQuestionAnswerInput,
@@ -35,6 +36,11 @@ import {
   type ImportResultRead,
 } from "../_lib/import-session-read";
 import { useImportUserId } from "./useImportSessions";
+import {
+  isFocusedDraftQuestion,
+  validFocusedDraftAnswer,
+  verifiedFocusedDraftAnswer,
+} from "../_lib/import-focused-draft";
 
 interface Generation {
   userId: string | null;
@@ -427,6 +433,130 @@ export function useImportConversation(
     return dispatch({ ...base, intent, focus: null, scope: null });
   }
 
+  async function saveFocusedDraft(accepted: ImportQuestionAnswerInput) {
+    if (!active() || generation.busy) return null;
+    if (
+      !view ||
+      !sessionId ||
+      !question ||
+      failure ||
+      !isFocusedDraftQuestion(question) ||
+      !("draftAnswer" in accepted) ||
+      accepted.id !== question.id ||
+      accepted.draftAnswer.field !== question.field ||
+      !validFocusedDraftAnswer(accepted.draftAnswer) ||
+      !view.actions.includes("RESOLVE") ||
+      !question.lineIds.every((id) => view.lines.some((line) => line.id === id))
+    ) {
+      fail(new ImportWorkflowResponseError());
+      return null;
+    }
+    const answer = accepted.draftAnswer;
+    const expectedRevision = view.revision;
+    const admitted = JSON.stringify([
+      view.questions,
+      view.actions,
+      view.lines,
+      view.selectedLineIds,
+      view.declaredFacts,
+    ]);
+    const visibleContext = () => {
+      const cached = client.getQueryData<ImportSessionViewV1>(key);
+      return (
+        snapshotStillCurrent(expectedRevision) &&
+        JSON.stringify([
+          cached?.questions,
+          cached?.actions,
+          cached?.lines,
+          cached?.selectedLineIds,
+          cached?.declaredFacts,
+        ]) === admitted
+      );
+    };
+    if (!visibleContext()) {
+      fail(new ImportWorkflowResponseError());
+      return null;
+    }
+    generation.busy = true;
+    const controller = new AbortController();
+    generation.controller = controller;
+    const history: ChatMessage[] = [
+      ...local.messages,
+      { role: "user", mode: "IMPORT", content: accepted.text },
+    ];
+    update({
+      pending: true,
+      failure: null,
+      review: false,
+      result: null,
+      scopeReview: null,
+      scopeRevision: null,
+      messages: history,
+    });
+    try {
+      const fresh = await answerImportFocusedDraftQuestion(
+        sessionId,
+        {
+          version: 1,
+          answerRequestId: crypto.randomUUID(),
+          expectedRevision,
+          questionId: question.id,
+          answer,
+        },
+        controller.signal,
+      );
+      if (!active()) return null;
+      if (
+        !visibleContext() ||
+        !verifiedFocusedDraftAnswer(view, fresh, question, answer)
+      )
+        throw new ImportWorkflowResponseError();
+      const content =
+        fresh.revision === expectedRevision
+          ? "Essa informação já estava guardada. Nenhuma alteração foi feita."
+          : "Informação guardada no rascunho. Nenhum lançamento financeiro foi confirmado.";
+      const assistant: ChatMessage = {
+        role: "assistant",
+        mode: "IMPORT",
+        content,
+        speechText: content,
+        importRevision: fresh.revision,
+      };
+      client.setQueryData(key, fresh);
+      update({
+        pending: false,
+        failure: null,
+        literal: "",
+        editingQuestionId: null,
+        focus: fresh.questions.find(isPendingImportQuestion) ?? null,
+        messages: [...history, assistant],
+      });
+      return assistant;
+    } catch (error) {
+      if (!active()) return null;
+      if (
+        !importConversationFailure(error).privateContextLost &&
+        visibleContext()
+      ) {
+        try {
+          const recovered = await readCurrent(controller.signal);
+          if (!active()) return null;
+          if (
+            visibleContext() &&
+            verifiedFocusedDraftAnswer(view, recovered, question, answer)
+          )
+            client.setQueryData(key, recovered);
+        } catch {
+          // Recovery is a read, never an acknowledgment or permission to retry.
+        }
+      }
+      if (active()) fail(error);
+      return null;
+    } finally {
+      generation.busy = false;
+      if (generation.controller === controller) generation.controller = null;
+    }
+  }
   async function saveDeclaration(accepted: ImportQuestionAnswerInput) {
     if (!active() || generation.busy) return null;
     if (
@@ -779,6 +909,7 @@ export function useImportConversation(
     busy: pending,
     send,
     saveDeclaration,
+    saveFocusedDraft,
     editQuestion,
     startGuidedAnswer,
     approveScope,
