@@ -7,7 +7,6 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { PrismaClient } from "@prisma/client";
@@ -22,7 +21,6 @@ const CURRENT_MIGRATION_TAIL = [
   "20261009193000_canonical_import_linkage_retention",
   "20261010100000_retire_unlinked_import_artifacts",
 ];
-const BASE_REVISION = "3d83771c9b60333d3534dc62119f34cc98f62148";
 type TestDbGuard = {
   REPO_ROOT: string;
   forbiddenReason(url: string): string | null;
@@ -62,12 +60,11 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
     const schema = join(fixture, "schema.prisma");
     const migrationRoot = join(fixture, "migrations");
     mkdirSync(migrationRoot);
-    writeFileSync(
-      schema,
-      execFileSync("git", ["show", `${BASE_REVISION}:prisma/schema.prisma`], {
-        cwd: root,
-      }),
-    );
+    // Like claimed-purging-upgrade.integration.spec.ts, deploy a committed
+    // migration prefix. migrate deploy executes SQL, not the schema models:
+    // the first 68 migrations reconstruct the actual legacy structure even
+    // in a depth-one CI checkout, without requiring a historical git object.
+    cpSync(join(root, "prisma/schema.prisma"), schema);
     const committed = join(root, "prisma/migrations");
     const migrations = readdirSync(committed)
       .filter((name) => /^\d/.test(name))
@@ -105,6 +102,28 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
       datasources: { db: { url: `file:${database}` } },
     });
     try {
+      const legacyColumns = await prisma.$queryRaw<
+        Array<{ name: string }>
+      >`PRAGMA table_info(expenses)`;
+      expect(legacyColumns.map(({ name }) => name)).toEqual(
+        expect.arrayContaining([
+          "valor",
+          "valor_total",
+          "paid_parcelas",
+          "installment_date_overrides",
+        ]),
+      );
+      expect(legacyColumns.map(({ name }) => name)).not.toContain(
+        "documented_schedule",
+      );
+      expect(
+        await prisma.$queryRaw`
+          SELECT name FROM sqlite_master WHERE type = 'table'
+            AND name IN ('import_sessions', 'import_artifacts', 'import_observations')`,
+      ).toEqual([]);
+      expect(await prisma.$queryRaw`PRAGMA foreign_keys`).toEqual([
+        { foreign_keys: 1n },
+      ]);
       const tenant = await prisma.tenant.create({
         data: { name: "Legacy structural fixture" },
       });
@@ -125,10 +144,23 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
       const before = await prisma.$queryRaw<
         Record<string, unknown>[]
       >`SELECT * FROM expenses WHERE id = ${expenseId}`;
+      expect(before).toHaveLength(1);
+      expect(before[0]).toMatchObject({
+        id: expenseId,
+        valor: 101,
+        quantidade: 1,
+        valor_total: 101,
+        paid_parcelas: "[0]",
+        installment_date_overrides: '{"0":"2026-09-24"}',
+      });
       const appliedBefore = await prisma.$queryRaw<
-        unknown[]
-      >`SELECT migration_name FROM _prisma_migrations`;
-      expect(appliedBefore).toHaveLength(LEGACY_MIGRATION_COUNT);
+        Array<{ migration_name: string }>
+      >`SELECT migration_name FROM _prisma_migrations
+        WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+        ORDER BY migration_name ASC`;
+      expect(appliedBefore.map(({ migration_name }) => migration_name)).toEqual(
+        migrations.slice(0, LEGACY_MIGRATION_COUNT),
+      );
       await prisma.$disconnect();
       cpSync(join(root, "prisma/schema.prisma"), schema);
       for (const name of migrations.slice(LEGACY_MIGRATION_COUNT))
