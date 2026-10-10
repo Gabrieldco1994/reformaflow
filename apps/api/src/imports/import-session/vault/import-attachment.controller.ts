@@ -16,6 +16,7 @@ import type { Request, Response } from "express";
 import { pipeline } from "node:stream/promises";
 import {
   ImportSessionErrorCode,
+  type ImportSessionUploadResponseV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
 import { ServiceOwnedProjectAccess } from "../../../common/decorators/service-owned-project-access.decorator";
@@ -140,7 +141,7 @@ export class ImportAttachmentController {
     @Param("id") id: string,
     @Param("attachmentId") attachmentId: string,
     @Query() query: unknown,
-  ): Promise<ImportSessionViewV1> {
+  ): Promise<ImportSessionUploadResponseV1> {
     const framing = validateImportUploadFraming(request.headers);
     response.setHeader("Connection", "close");
     response.once("finish", () => request.socket.destroy());
@@ -155,7 +156,7 @@ export class ImportAttachmentController {
       attachmentId,
       uploadGeneration: 1,
     });
-    return this.uploads.upload(
+    return this.uploads.uploadWithOutcome(
       auth,
       id,
       attachmentId,

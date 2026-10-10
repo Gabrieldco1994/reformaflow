@@ -1283,10 +1283,9 @@ export class ImportSessionWorkflowService {
     });
     if (references.length > LIMITS.filesPerSession)
       throw corrupt("attachments");
-    const boundReferences = references.map(({ artifact, ...ref }) => ({
-      ref,
-      artifact,
-    }));
+    const boundReferences = references
+      .filter(({ state }) => state !== ImportSessionAttachmentState.RELEASED)
+      .map(({ artifact, ...ref }) => ({ ref, artifact }));
     if (!forEdit)
       this.noInFlight(row, { references: boundReferences, observations: [] });
     const observations: ImportObservation[] = [];

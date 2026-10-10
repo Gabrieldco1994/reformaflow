@@ -335,6 +335,173 @@ describe("guarded persisted session retention", () => {
       expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
     }));
 
+  it("same-session identical uploads release only the duplicate reservation before preparation", async () =>
+    withVault(async ({ upload, extraction }) => {
+      const bytes = Buffer.from(
+        "date,title,amount\n2026-10-01,Same-session fixture PARC 1/2,1.00\n",
+      );
+      const created = await create();
+      const firstId = randomUUID();
+      await upload.reserve(
+        auth,
+        created.view.id,
+        {
+          expectedRevision: created.view.revision,
+          files: [
+            {
+              id: firstId,
+              fileName: "first.csv",
+              declaredBytes: bytes.length,
+              mime: "text/csv",
+            },
+          ],
+        },
+        {},
+      );
+      const firstUploaded = await upload.upload(
+        auth,
+        created.view.id,
+        firstId,
+        bytes.length,
+        Readable.from([bytes]),
+        {},
+      );
+      const analyzed = await extraction.analyzeAttached(
+        auth,
+        created.view.id,
+        firstId,
+        { expectedRevision: firstUploaded.revision },
+        {},
+      );
+
+      const secondId = randomUUID();
+      await upload.reserve(
+        auth,
+        created.view.id,
+        {
+          expectedRevision: analyzed.revision,
+          files: [
+            {
+              id: secondId,
+              fileName: "second.csv",
+              declaredBytes: bytes.length,
+              mime: "text/csv",
+            },
+          ],
+        },
+        {},
+      );
+      const duplicateResponse = await upload.uploadWithOutcome(
+        auth,
+        created.view.id,
+        secondId,
+        bytes.length,
+        Readable.from([bytes]),
+        {},
+      );
+      const beforeRetry = await prisma.importSession.findUniqueOrThrow({
+        where: { id: created.view.id },
+      });
+      const staleDraft = JSON.parse(beforeRetry.draftJson);
+      staleDraft.scope.pendingAttachmentIds.push(secondId);
+      await prisma.importSession.update({
+        where: { id: beforeRetry.id },
+        data: { draftJson: JSON.stringify(staleDraft) },
+      });
+      // Model the stale pending id left by the pre-fix finalize implementation.
+      const duplicateRetry = await upload.uploadWithOutcome(
+        auth,
+        created.view.id,
+        secondId,
+        bytes.length,
+        Readable.from([bytes]),
+        {},
+      );
+      const firstRef = await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: firstId },
+      });
+      const duplicateRef = await prisma.importSessionArtifact.findUniqueOrThrow(
+        {
+          where: { id: secondId },
+        },
+      );
+      expect(duplicateRef).toMatchObject({
+        state: "RELEASED",
+        verifiedAt: expect.any(Date),
+        artifactId: null,
+      });
+      expect(duplicateResponse).toMatchObject({
+        kind: "DEDUPLICATED",
+        attachmentId: secondId,
+      });
+      expect(duplicateRetry).toMatchObject({
+        kind: "DEDUPLICATED",
+        attachmentId: secondId,
+      });
+      if (!("kind" in duplicateResponse) || !("kind" in duplicateRetry))
+        throw new Error("duplicate upload must return its explicit outcome");
+      expect(duplicateResponse.view.attachments).not.toContainEqual(
+        expect.objectContaining({ id: secondId }),
+      );
+      expect(duplicateRetry.view.revision).toBe(
+        duplicateResponse.view.revision + 1,
+      );
+      expect(
+        await prisma.importObservation.count({
+          where: { artifactId: firstRef.artifactId! },
+        }),
+      ).toBe(1);
+      expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
+
+      const session = await prisma.importSession.findUniqueOrThrow({
+        where: { id: created.view.id },
+      });
+      const draft = JSON.parse(session.draftJson);
+      expect(draft.scope.pendingAttachmentIds).toEqual([]);
+
+      const preparedDraft = {
+        ...draft,
+        questions: [],
+        selectedLineIds: draft.lines.map((line: { id: string }) => line.id),
+        lines: draft.lines.map((line: Record<string, unknown>) => ({
+          ...line,
+          amountMeaning: "TOTAL_PURCHASE",
+          amountCents: 200,
+          installmentCount: 2,
+          firstDueDate: "2026-10-10",
+          targets: [],
+          tipoDespesa: ExpenseType.OUTROS,
+          decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+        })),
+      };
+      await prisma.importSession.update({
+        where: { id: session.id },
+        data: { draftJson: JSON.stringify(preparedDraft) },
+      });
+      const conciliacao = new ConciliacaoService(prisma);
+      const expenses = new ExpenseService(prisma, conciliacao);
+      const workflow = new ImportSessionWorkflowService(
+        prisma,
+        clock,
+        {
+          writesEnabled: () => true,
+          newImportFormats: capability.newImportFormats.bind(capability),
+        },
+        verifier,
+        new CardPurchaseBatchAdapter(expenses, conciliacao, clock),
+        gate as never,
+        raw as never,
+      );
+      const ready = await workflow.prepare(auth, session.id, {
+        expectedRevision: duplicateRetry.view.revision,
+      });
+      expect(ready.state).toBe("READY");
+      expect(
+        await prisma.importObservation.count({ where: { tenantId } }),
+      ).toBe(1);
+      expect(await prisma.expense.count({ where: { tenantId } })).toBe(0);
+    }));
+
   // Port of QA f2d4c90's claimed-PURGING test, using the shared physical fixture.
   // The failed attempt exercises the real coordinator's FD drain outcome.
   it("claimed PURGING finalize retries after fenced drain without duplicating finance or replacing claim identity", async () =>

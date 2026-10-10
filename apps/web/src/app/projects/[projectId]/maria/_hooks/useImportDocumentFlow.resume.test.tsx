@@ -136,4 +136,123 @@ describe("useImportDocumentFlow.resume", () => {
     expect(api.uploadImportSessionAttachment.mock.calls[0][0]).toBe("s1");
     await waitFor(() => expect(result.current.canResume).toBe(false));
   });
+
+  it("skips analysis for a deduplicated file and continues unique files", async () => {
+    api.getFullImportSession.mockResolvedValue(baseView());
+    let reservedIds: string[] = [];
+    api.reserveImportSessionAttachments.mockImplementation(
+      async (
+        _id: string,
+        req: { files: Array<{ id: string; fileName: string }> },
+      ) => {
+        reservedIds = req.files.map((file) => file.id);
+        return baseView({
+          revision: 2,
+          attachments: req.files.map((file) => ({
+            id: file.id,
+            fileName: file.fileName,
+            declaredBytes: 3,
+            state: "RESERVED",
+            materializedInSession: false,
+            canAnalyze: false,
+          })),
+        });
+      },
+    );
+    api.uploadImportSessionAttachment.mockImplementation(
+      async (_id: string, attachmentId: string) =>
+        attachmentId === reservedIds[0]
+          ? {
+              kind: "DEDUPLICATED",
+              attachmentId,
+              view: baseView({
+                revision: 3,
+                actions: ["UPLOAD", "ANALYZE", "CANCEL"],
+                attachments: [
+                  {
+                    id: "source",
+                    fileName: "original.csv",
+                    declaredBytes: 3,
+                    state: "ATTACHED",
+                    materializedInSession: true,
+                    canAnalyze: false,
+                  },
+                  {
+                    id: reservedIds[1],
+                    fileName: "unique.csv",
+                    declaredBytes: 3,
+                    state: "RESERVED",
+                    materializedInSession: false,
+                    canAnalyze: false,
+                  },
+                ],
+              }),
+            }
+          : baseView({
+              revision: 4,
+              actions: ["ANALYZE", "CANCEL"],
+              attachments: [
+                {
+                  id: "source",
+                  fileName: "original.csv",
+                  declaredBytes: 3,
+                  state: "ATTACHED",
+                  materializedInSession: true,
+                  canAnalyze: false,
+                },
+                {
+                  id: attachmentId,
+                  fileName: "unique.csv",
+                  declaredBytes: 3,
+                  state: "ATTACHED",
+                  materializedInSession: false,
+                  canAnalyze: true,
+                },
+              ],
+            }),
+    );
+    api.analyzeImportAttachment.mockImplementation(
+      async (_id: string, attachmentId: string) =>
+        baseView({
+          revision: 5,
+          actions: ["CANCEL"],
+          attachments: [
+            {
+              id: "source",
+              fileName: "original.csv",
+              declaredBytes: 3,
+              state: "ATTACHED",
+              materializedInSession: true,
+              canAnalyze: false,
+            },
+            {
+              id: attachmentId,
+              fileName: "unique.csv",
+              declaredBytes: 3,
+              state: "ATTACHED",
+              materializedInSession: true,
+              canAnalyze: false,
+            },
+          ],
+        }),
+    );
+    const { result } = setup();
+    await waitFor(() => expect(result.current.canResume).toBe(true));
+    await act(async () => {
+      await result.current.resume(
+        [
+          new File(["a;b"], "duplicate.csv", { type: "text/csv" }),
+          new File(["c;d"], "unique.csv", { type: "text/csv" }),
+        ],
+        ["CSV"],
+      );
+    });
+
+    expect(api.uploadImportSessionAttachment).toHaveBeenCalledTimes(2);
+    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(1);
+    expect(api.analyzeImportAttachment.mock.calls[0][1]).toBe(reservedIds[1]);
+    expect(result.current.error).toBeNull();
+    expect(result.current.notice).toBeTruthy();
+    expect(result.current.view?.revision).toBe(5);
+  });
 });

@@ -146,6 +146,11 @@ function Entry({
         </p>
       ) : documents.sessionId ? (
         <>
+          {documents.notice && (
+            <p role="status" className="mt-3 text-sm">
+              {documents.notice}
+            </p>
+          )}
           {documents.view ? (
             <MariaChatBody
               projectId={projectId}

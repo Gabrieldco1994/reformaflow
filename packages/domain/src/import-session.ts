@@ -477,6 +477,15 @@ export interface ImportSessionViewV1 extends Omit<
     | "READ_RESULT"
   >;
 }
+/** Explicit upload-only result when identical bytes already exist in this session. */
+export interface ImportSessionDuplicateUploadV1 {
+  kind: "DEDUPLICATED";
+  attachmentId: ImportSessionId;
+  view: ImportSessionViewV1;
+}
+export type ImportSessionUploadResponseV1 =
+  | ImportSessionViewV1
+  | ImportSessionDuplicateUploadV1;
 /** Recovery-list row (B1b): columns only, no OCR, evidence, file names or private hashes. */
 export interface ImportSessionSummaryV1 {
   id: ImportSessionId;

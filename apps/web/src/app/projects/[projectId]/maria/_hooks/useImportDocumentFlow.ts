@@ -69,8 +69,9 @@ interface Generation {
 interface Feedback {
   pending: boolean;
   error: DocumentFailure | null;
+  notice: string | null;
 }
-const empty = (): Feedback => ({ pending: false, error: null });
+const empty = (): Feedback => ({ pending: false, error: null, notice: null });
 const newGeneration = (
   userId: string | null,
   sessionId: string | null,
@@ -271,7 +272,7 @@ export function useImportDocumentFlow(
     generation.busy = true;
     const controller = new AbortController();
     generation.controller = controller;
-    update({ pending: true, error: null });
+    update({ pending: true, error: null, notice: null });
     try {
       let latest = generation.sessionId
         ? client.getQueryData<ImportSessionViewV1>(keyFor(generation.sessionId))
@@ -334,6 +335,7 @@ export function useImportDocumentFlow(
         publish(fresh, latest.revision);
         latest = fresh;
       }
+      let deduplicated = false;
       for (const { id, file } of attempt.files) {
         if (!active()) return;
         const attachment = latest.attachments.find((a) => a.id === id);
@@ -341,7 +343,7 @@ export function useImportDocumentFlow(
         if (!attachment || !latest.actions.includes("UPLOAD"))
           throw new ImportWorkflowResponseError();
         coherent();
-        const fresh = await uploadImportSessionAttachment(
+        const upload = await uploadImportSessionAttachment(
           latest.id,
           id,
           file,
@@ -349,6 +351,13 @@ export function useImportDocumentFlow(
         );
         if (!active()) return;
         controller.signal.throwIfAborted();
+        let fresh: ImportSessionViewV1;
+        if ("kind" in upload) {
+          deduplicated = true;
+          fresh = upload.view;
+        } else {
+          fresh = upload;
+        }
         publish(fresh, latest.revision);
         latest = fresh;
       }
@@ -373,7 +382,13 @@ export function useImportDocumentFlow(
         publish(fresh, latest.revision);
         latest = fresh;
       }
-      update({ pending: false, error: null });
+      update({
+        pending: false,
+        error: null,
+        notice: deduplicated
+          ? "Este CSV idêntico já está guardado nesta importação; o arquivo repetido foi ignorado."
+          : null,
+      });
     } catch (error) {
       if (active()) fail(error);
     } finally {
@@ -576,6 +591,7 @@ export function useImportDocumentFlow(
       (!sessionId || Boolean(view && pendingFiles(view))),
     view,
     error,
+    notice: feedback.notice,
     busy: feedback.pending || query.isFetching,
     analyze,
     recover,

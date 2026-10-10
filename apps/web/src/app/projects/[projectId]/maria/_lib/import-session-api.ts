@@ -15,6 +15,7 @@ import type {
   ImportSessionReserveRequestV1,
   ImportSessionRevisionRequestV1,
   ImportSessionSummaryV1,
+  ImportSessionUploadResponseV1,
   ImportSessionViewV1,
 } from "@reformaflow/domain";
 import {
@@ -93,14 +94,34 @@ export async function uploadImportSessionAttachment(
   attachmentId: string,
   body: Blob,
   signal?: AbortSignal,
-): Promise<ImportSessionViewV1> {
-  const view = readImportWorkflowView(
-    await api.putBytes<unknown>(
-      `/import-sessions/${enc(id)}/attachments/${enc(attachmentId)}/content`,
-      body,
-      { headers: { ...UI_HEADERS }, signal },
-    ),
+): Promise<ImportSessionUploadResponseV1> {
+  const response = await api.putBytes<unknown>(
+    `/import-sessions/${enc(id)}/attachments/${enc(attachmentId)}/content`,
+    body,
+    { headers: { ...UI_HEADERS }, signal },
   );
+  if (
+    isRecord(response) &&
+    Object.keys(response).length === 3 &&
+    Object.hasOwn(response, "kind") &&
+    Object.hasOwn(response, "attachmentId") &&
+    Object.hasOwn(response, "view")
+  ) {
+    if (
+      response.kind !== "DEDUPLICATED" ||
+      response.attachmentId !== attachmentId
+    )
+      return malformed();
+    const view = readImportWorkflowView(response.view);
+    return view.id === id &&
+      view.attachments.some(
+        (attachment) =>
+          attachment.id !== attachmentId && attachment.state === "ATTACHED",
+      )
+      ? { kind: "DEDUPLICATED", attachmentId, view }
+      : malformed();
+  }
+  const view = readImportWorkflowView(response);
   return view.id === id &&
     view.attachments.some(
       (attachment) =>

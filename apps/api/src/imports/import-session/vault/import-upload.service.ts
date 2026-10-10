@@ -12,6 +12,7 @@ import {
   ImportSessionState,
   ImportSessionArtifactState,
   ImportSessionAttachmentState,
+  type ImportSessionUploadResponseV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
 import { PrismaService } from "../../../prisma/prisma.service";
@@ -220,6 +221,25 @@ export class ImportUploadService {
       throw error(ImportSessionErrorCode.SESSION_EXPIRED);
     if (!IMPORT_SESSION_UPLOAD_EDITABLE_STATES.includes(row.state))
       throw error(ImportSessionErrorCode.LEASE_CONFLICT);
+  }
+  private withoutPendingAttachment(
+    row: ImportSession,
+    attachmentId: string,
+  ): string {
+    const draft = parseStoredDraft(row.draftJson);
+    if (!draft.scope.pendingAttachmentIds.includes(attachmentId))
+      return row.draftJson;
+    return canonical(
+      validateStoredDraft({
+        ...draft,
+        scope: {
+          ...draft.scope,
+          pendingAttachmentIds: draft.scope.pendingAttachmentIds.filter(
+            (id) => id !== attachmentId,
+          ),
+        },
+      }),
+    );
   }
   private async view(
     tx: Tx,
@@ -560,6 +580,25 @@ export class ImportUploadService {
     source: Readable & { aborted?: boolean },
     grant: unknown,
   ): Promise<ImportSessionViewV1> {
+    const result = await this.uploadWithOutcome(
+      auth,
+      id,
+      attachmentId,
+      length,
+      source,
+      grant,
+    );
+    return "kind" in result ? result.view : result;
+  }
+
+  async uploadWithOutcome(
+    auth: AuthenticatedImportContext,
+    id: string,
+    attachmentId: string,
+    length: number,
+    source: Readable & { aborted?: boolean },
+    grant: unknown,
+  ): Promise<ImportSessionUploadResponseV1> {
     this.assertAvailable("UPLOAD");
     assertMintedImportContext(auth);
     assertSessionId(id);
@@ -577,19 +616,55 @@ export class ImportUploadService {
     await this.probe(runtime);
     check();
     let spent = false;
-    const result = await this.write(runtime, auth, async (tx, now) => {
+    const result = await this.write<
+      | { view: ImportSessionViewV1; deduplicated: boolean }
+      | { claim: VaultUploadClaim }
+    >(runtime, auth, async (tx, now) => {
       const claimedAtMonotonicMs = performance.now();
       check();
       const row = await this.authorized(tx, auth, id, now);
       const ref = await this.ref(tx, row, attachmentId);
       this.editable(row, now);
+      if (ref.state === ImportSessionAttachmentState.ATTACHED)
+        return {
+          view: await this.view(tx, row, auth, now),
+          deduplicated: false,
+        };
       if (
-        ref.state === ImportSessionAttachmentState.ATTACHED ||
-        (ref.state === ImportSessionAttachmentState.RELEASED &&
-          ref.verifiedAt &&
-          !ref.artifactId)
-      )
-        return { view: await this.view(tx, row, auth, now) };
+        ref.state === ImportSessionAttachmentState.RELEASED &&
+        ref.verifiedAt &&
+        ref.releasedAt &&
+        !ref.artifactId
+      ) {
+        const draftJson = this.withoutPendingAttachment(row, ref.id);
+        if (draftJson === row.draftJson)
+          return {
+            view: await this.view(tx, row, auth, now),
+            deduplicated: true,
+          };
+        const repaired = await tx.importSession.updateMany({
+          where: {
+            id: row.id,
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+            ownerUserId: row.ownerUserId,
+            revision: row.revision,
+            state: row.state,
+          },
+          data: { draftJson, revision: { increment: 1 } },
+        });
+        if (repaired.count !== 1)
+          throw error(ImportSessionErrorCode.REVISION_CONFLICT);
+        return {
+          view: await this.view(
+            tx,
+            await this.authorized(tx, auth, row.id, now),
+            auth,
+            now,
+          ),
+          deduplicated: true,
+        };
+      }
       if (
         ref.state !== ImportSessionAttachmentState.RESERVED ||
         ref.uploadGeneration !== 1 ||
@@ -689,7 +764,10 @@ export class ImportUploadService {
       });
       return { claim };
     });
-    if (result.view) return result.view;
+    if ("view" in result)
+      return result.deduplicated
+        ? { kind: "DEDUPLICATED", attachmentId, view: result.view }
+        : result.view;
     const claim = result.claim;
     try {
       check();
@@ -719,7 +797,16 @@ export class ImportUploadService {
           }),
       );
       check();
-      return await this.finalize(runtime, auth, claim, stored, check);
+      const finalized = await this.finalize(
+        runtime,
+        auth,
+        claim,
+        stored,
+        check,
+      );
+      return finalized.deduplicated
+        ? { kind: "DEDUPLICATED", attachmentId, view: finalized.view }
+        : finalized.view;
     } catch (failure) {
       // Cleanup authority is the captured claim, never a newly supplied user context.
       if (
@@ -786,14 +873,15 @@ export class ImportUploadService {
     claim: VaultUploadClaim,
     stored: StoredVaultUpload,
     check: () => undefined,
-  ): Promise<ImportSessionViewV1> {
+  ): Promise<{ view: ImportSessionViewV1; deduplicated: boolean }> {
     for (
       let attempt = 0;
       attempt < IMPORT_SESSION_LIMITS.writeAttempts;
       attempt++
     ) {
       const result = await this.write<
-        { needsPurge: string } | { view: ImportSessionViewV1 }
+        | { needsPurge: string }
+        | { view: ImportSessionViewV1; deduplicated: boolean }
       >(runtime, auth, async (tx, now) => {
         check();
         const row = await this.authorized(tx, auth, claim.sessionId, now);
@@ -885,7 +973,7 @@ export class ImportUploadService {
           },
         });
         check();
-        await tx.importSessionArtifact.updateMany({
+        const finalized = await tx.importSessionArtifact.updateMany({
           where: {
             id: claim.refId,
             tenantId: claim.tenantId,
@@ -904,16 +992,26 @@ export class ImportUploadService {
             temporaryPurgePending: !adoption,
           },
         });
+        if (finalized.count !== 1)
+          throw error(ImportSessionErrorCode.LEASE_CONFLICT);
         check();
-        await tx.importSession.updateMany({
+        const updatedSession = await tx.importSession.updateMany({
           where: {
             id: claim.sessionId,
             tenantId: claim.tenantId,
             ownerProjectId: claim.ownerProjectId,
             ownerUserId: auth.userId,
+            revision: row.revision,
           },
-          data: { revision: { increment: 1 } },
+          data: {
+            revision: { increment: 1 },
+            ...(duplicate
+              ? { draftJson: this.withoutPendingAttachment(row, claim.refId) }
+              : {}),
+          },
         });
+        if (updatedSession.count !== 1)
+          throw error(ImportSessionErrorCode.REVISION_CONFLICT);
         return {
           view: await this.view(
             tx,
@@ -921,9 +1019,10 @@ export class ImportUploadService {
             auth,
             now,
           ),
+          deduplicated: duplicate !== null,
         } as const;
       });
-      if ("view" in result) return result.view;
+      if ("view" in result) return result;
       check();
       const purged = await this.gate.requirePurger().purge({
         kind: "artifact",
