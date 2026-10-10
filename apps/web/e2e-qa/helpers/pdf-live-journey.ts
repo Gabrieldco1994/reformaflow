@@ -287,10 +287,15 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
       .click();
   }
   await expect(page).toHaveURL(/\/maria(?:\?|$)/);
+  // Last failed OCR scenarios stopped here, before any upload/analysis. Preserve
+  // the actual entry layout and bound missing-CTA failure before auto-scroll.
+  await evidence.capture("maria-before-entry-cta");
   const cta = page.getByRole("button", {
     name: invoiceImportCTA,
     exact: true,
   });
+  await expect(cta).toHaveCount(1);
+  await expect(cta).toBeVisible();
   await assertTouchable(cta);
   const qualifiedEntry = await evidence.response(
     "entry",

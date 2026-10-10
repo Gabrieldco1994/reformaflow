@@ -167,13 +167,34 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
     await evidence.capture("explicit-two-purchase-subset");
 
     for (let attempt = 0; attempt < 30; attempt++) {
-      const current = await view();
-      const question = current.questions.find(
+      let current = await view();
+      let question = current.questions.find(
         (q) =>
           isPendingImportQuestion(q) &&
           q.lineIds.some((id) => selectedIds.includes(id)),
       );
-      if (!question) break;
+      if (!question) {
+        await evidence.response(
+          `prepare-${attempt + 1}`,
+          chatResponse(sessionId, "OPEN_REVIEW"),
+          () =>
+            page
+              .getByRole("button", {
+                name: "Abrir revisão do lote",
+                exact: true,
+              })
+              .click(),
+        );
+        await journey.noFinance();
+        await evidence.capture(`prepare-${attempt + 1}-response`);
+        current = await view();
+        question = current.questions.find(
+          (q) =>
+            isPendingImportQuestion(q) &&
+            q.lineIds.some((id) => selectedIds.includes(id)),
+        );
+        if (!question) break;
+      }
       await evidence.response(
         `question-${attempt + 1}`,
         chatResponse(sessionId),
@@ -253,11 +274,6 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
           q.lineIds.some((id) => selectedIds.includes(id)),
       ),
     ).toEqual([]);
-    await evidence.response("open-review", chatResponse(sessionId), () =>
-      page
-        .getByRole("button", { name: "Abrir revisão do lote", exact: true })
-        .click(),
-    );
     const review = page.getByRole("region", {
       name: "Revisão do lote",
       exact: true,

@@ -362,13 +362,44 @@ for (const phase of ["upload", "confirmation"] as const) {
 
         // Read-only state identifies the active field; every answer is sent by the actual guided UI.
         for (let attempt = 0; attempt < 30; attempt++) {
-          const current = await view();
-          const question = current.questions.find(
+          let current = await view();
+          let question = current.questions.find(
             (q) =>
               isPendingImportQuestion(q) &&
               q.lineIds.some((id) => selectedIds.includes(id)),
           );
-          if (!question) break;
+          if (!question) {
+            // PREPARE may add decision/targets questions; an empty pre-prepare
+            // question list is not proof that the financial review is ready.
+            const prepared = page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/agent/chat" &&
+                response.request().method() === "POST" &&
+                response.request().postDataJSON()?.importTurn?.sessionId ===
+                  sessionId &&
+                response.request().postDataJSON()?.importTurn?.intent ===
+                  "OPEN_REVIEW",
+              { timeout: 120_000 },
+            );
+            const [response] = await Promise.all([
+              prepared,
+              page
+                .getByRole("button", {
+                  name: "Abrir revisão do lote",
+                  exact: true,
+                })
+                .click(),
+            ]);
+            await evidence.checkApi(response);
+            await evidence.capture(`prepare-${attempt + 1}-response`);
+            current = await view();
+            question = current.questions.find(
+              (q) =>
+                isPendingImportQuestion(q) &&
+                q.lineIds.some((id) => selectedIds.includes(id)),
+            );
+            if (!question) break;
+          }
           await page
             .getByRole("button", {
               name: "Consultar pergunta atual",
@@ -459,9 +490,6 @@ for (const phase of ["upload", "confirmation"] as const) {
               q.lineIds.some((id) => selectedIds.includes(id)),
           ),
         ).toEqual([]);
-        await page
-          .getByRole("button", { name: "Abrir revisão do lote", exact: true })
-          .click();
         const review = page.getByRole("region", {
           name: "Revisão do lote",
           exact: true,
