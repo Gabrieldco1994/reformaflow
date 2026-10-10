@@ -8,9 +8,11 @@ import type {
 import {
   IMPORT_SESSION_PRIMITIVES as P,
   ImportSessionErrorCode as Code,
+  encodeImportDeclaration,
   parseImportDeclarationLiteral,
   type ImportDeclarationAnswerV1,
   type ImportDeclarationContextV1,
+  type ImportSessionDocumentaryAnswerRequestV1,
   type ImportDeclaredFactViewV1,
   type ImportHumanFactFieldV1,
   type ImportHumanFactValuesV1,
@@ -502,6 +504,7 @@ export function recordImportDeclaration(
   questionId: string,
   literal: string,
   actor: { userId: string; turnId: string; now: Date },
+  originalLiteralHash?: string,
 ): ImportSessionStoredDraftV1 {
   const resolution = resolveImportDeclarations(session, draft, material);
   const question = resolution.questions.find(
@@ -546,7 +549,8 @@ export function recordImportDeclaration(
     turnId: actor.turnId,
     attestedByUserId: actor.userId,
     attestedAt: actor.now.toISOString(),
-    literalHash: createHash("sha256").update(literal).digest("hex"),
+    literalHash:
+      originalLiteralHash ?? createHash("sha256").update(literal).digest("hex"),
   };
   const updated = validateStoredDraft({
     ...draft,
@@ -571,4 +575,53 @@ export function recordImportDeclaration(
     material,
   );
   return updated;
+}
+
+/** Resolve hashed question, fingerprint, claim and meaning only from locked server material. */
+export function recordNativeImportDeclaration(
+  session: Session,
+  draft: ImportSessionStoredDraftV1,
+  material: ImportDeclarationMaterial,
+  request: ImportSessionDocumentaryAnswerRequestV1,
+  actor: { userId: string; now: Date },
+): ImportSessionStoredDraftV1 {
+  const resolution = resolveImportDeclarations(session, draft, material);
+  const question = resolution.questions.find(
+    (q) => q.id === request.questionId,
+  );
+  if (!question)
+    throw new ImportSessionError(Code.REVISION_CONFLICT, {
+      sessionId: session.id,
+      currentRevision: session.revision,
+    });
+  const facts = resolution.byLine
+    .get(question.lineIds[0])
+    ?.get(question.subject.observationId);
+  if (!facts) throw invalid();
+  const context = {
+    field: question.field,
+    meaningContext: question.subject.meaningContext,
+    effectiveInstallmentCount: facts.effective.installmentCount,
+  } as ImportDeclarationContextV1;
+  const encoded = encodeImportDeclaration(context, request.input);
+  if (
+    encoded.kind !== "ENCODED" ||
+    canonical(encoded.answer) !== canonical(request.answer)
+  )
+    throw invalid();
+  // Absence controls have no VALUE literal; their exact intent is separately bound
+  // by the grant's request hash. Keep the legacy encoded-literal hash for those.
+  const originalLiteralHash =
+    request.input.kind === "VALUE"
+      ? createHash("sha256").update(request.input.text).digest("hex")
+      : undefined;
+  return recordImportDeclaration(
+    session,
+    draft,
+    material,
+    question.id,
+    encoded.literalAnswer,
+    { ...actor, turnId: request.answerRequestId },
+    originalLiteralHash,
+  );
 }

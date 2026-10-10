@@ -237,6 +237,16 @@ export type ImportHumanFactValuesV1 = {
   installmentIndex: number;
 };
 export type ImportHumanFactFieldV1 = keyof ImportHumanFactValuesV1;
+/** Native guided controls attest documentary facts only, never draft/financial decisions. */
+export interface ImportSessionDocumentaryAnswerRequestV1 {
+  version: 1;
+  answerRequestId: ImportSessionRequestId;
+  expectedRevision: ImportSessionRevision;
+  questionId: ImportSessionId;
+  input: import("./import-declaration").ImportDeclarationUiInputV1;
+  answer: ImportDeclarationAnswerV1;
+}
+
 export type ImportDeclarationAnswerV1 = {
   [F in ImportHumanFactFieldV1]: {
     field: F;

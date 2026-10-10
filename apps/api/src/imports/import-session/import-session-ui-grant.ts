@@ -140,6 +140,8 @@ export class ImportUiGrantIssuer {
     ) {
       throw uiActionRequired();
     }
+    if (scope.operation === "DOCUMENTARY_ANSWER")
+      assertImportAuthForRequest(request, auth);
     const nowMs = this.clock.now().getTime();
     const tokenExpiryMs = Date.parse(auth.tokenExpiresAt);
     // A malformed token expiry yields an already-dead grant (fail closed, no throw here:

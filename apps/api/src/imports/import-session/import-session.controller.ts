@@ -43,6 +43,10 @@ import {
 import { ImportUiGrantIssuer } from "./import-session-ui-grant";
 import { ImportUiGuard } from "./import-session-ui.guard";
 import {
+  documentaryAnswerScope,
+  parseDocumentaryAnswerRequest,
+} from "./import-session.native-answer";
+import {
   ImportSessionWorkflowService,
   parseChallengeRequest,
   parseConfirmRequest,
@@ -152,6 +156,26 @@ export class ImportSessionController {
     @Body() body: unknown,
   ): Promise<ImportSessionViewV1> {
     return this.workflow.edit(auth, id, body);
+  }
+
+  @Post(":id/documentary-answer")
+  @ServiceOwnedProjectAccess()
+  @HttpCode(200)
+  @UseGuards(ImportUiGuard)
+  documentaryAnswer(
+    @Req() request: Request,
+    @ImportAuth() auth: AuthenticatedImportContext,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<ImportSessionViewV1> {
+    assertSessionId(id);
+    const validated = parseDocumentaryAnswerRequest(body);
+    const grant = this.issuer.issue(
+      request,
+      auth,
+      documentaryAnswerScope(id, validated),
+    );
+    return this.workflow.documentaryAnswer(auth, id, validated, grant);
   }
 
   @Post(":id/prepare")

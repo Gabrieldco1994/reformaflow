@@ -30,6 +30,7 @@ import {
   type ImportSessionConfirmRequestV1,
   type ImportSessionConfirmResponseV1,
   type ImportSessionEditRequestV1,
+  type ImportSessionDocumentaryAnswerRequestV1,
   type ImportSessionExecuteRequestV1,
   type ImportSessionProposalV1,
   type ImportSessionReceiptV1,
@@ -60,6 +61,7 @@ import {
   type AuthenticatedImportContext,
   type PreparedCardBatch,
   type UiImportFinancialActionVerifier,
+  type UiImportPersistenceGrantVerifier,
 } from "./import-session.contract";
 import { assertImportSessionOperationAvailable } from "./import-session.disabled";
 import {
@@ -102,7 +104,14 @@ import {
   type ImportConversationWriteBinding,
 } from "./import-chat.admission";
 import type { ResolvedImportAnswerV1 } from "./import-chat-answer";
-import { recordImportDeclaration } from "./import-session.declarations";
+import {
+  recordImportDeclaration,
+  recordNativeImportDeclaration,
+} from "./import-session.declarations";
+import {
+  documentaryAnswerScope,
+  parseDocumentaryAnswerRequest,
+} from "./import-session.native-answer";
 
 type ConversationAnswer =
   | Extract<ResolvedImportAnswerV1, { kind: "VALUE" }>
@@ -290,7 +299,8 @@ export class ImportSessionWorkflowService {
     private readonly prisma: PrismaService,
     private readonly clock: ImportSessionClock,
     private readonly capability: ImportSessionCapability,
-    private readonly verifier: UiImportFinancialActionVerifier,
+    private readonly verifier: UiImportFinancialActionVerifier &
+      Partial<UiImportPersistenceGrantVerifier>,
     private readonly batches: CardPurchaseBatchPort,
     private readonly gate: ImportVaultGate,
     private readonly raw: ImportRawExecutions,
@@ -304,6 +314,27 @@ export class ImportSessionWorkflowService {
     this.identity(auth, sessionId);
     const request = editRequest(body);
     return this.editCore(auth, sessionId, request);
+  }
+
+  async documentaryAnswer(
+    auth: AuthenticatedImportContext,
+    sessionId: string,
+    body: unknown,
+    grant: unknown,
+  ): Promise<ImportSessionViewV1> {
+    this.identity(auth, sessionId);
+    const request = parseDocumentaryAnswerRequest(body);
+    if (!this.verifier.verify)
+      throw new ImportSessionError(Code.UI_ACTION_REQUIRED);
+    // Spend once per invocation, not once per SQLite retry. Locked context below
+    // reauthorizes the actor and stable owner ACL before every attempt's edit.
+    this.verifier.verify(
+      grant,
+      auth,
+      documentaryAnswerScope(sessionId, request),
+      this.clock.now(),
+    );
+    return this.editCore(auth, sessionId, null, undefined, undefined, request);
   }
 
   async editConversationAnswer(
@@ -335,6 +366,7 @@ export class ImportSessionWorkflowService {
     httpRequest: ImportSessionEditRequestV1 | null,
     binding?: ImportConversationWriteBinding,
     command?: ConversationAnswer,
+    nativeRequest?: ImportSessionDocumentaryAnswerRequestV1,
   ): Promise<ImportSessionViewV1> {
     const assertLive = binding
       ? (): undefined =>
@@ -360,7 +392,16 @@ export class ImportSessionWorkflowService {
         const turn = binding?.admission.turn;
         if (binding && (!turn?.focus || !command)) throw invalid();
         let updated: ImportSessionStoredDraftV1;
-        if (command?.kind === "DECLARE_OBSERVATION") {
+        if (nativeRequest) {
+          this.editable(row, now, nativeRequest.expectedRevision);
+          updated = recordNativeImportDeclaration(
+            row,
+            draft,
+            await this.material(tx, row, draft, true),
+            nativeRequest,
+            { userId: actor.userId, now },
+          );
+        } else if (command?.kind === "DECLARE_OBSERVATION") {
           if (
             !binding ||
             turn?.intent !== "ANSWER" ||

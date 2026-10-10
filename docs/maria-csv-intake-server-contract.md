@@ -138,10 +138,51 @@ Fontes complementares: [contrato Maria](maria-ia.md#importação-consentimentos-
 O manual da experiência permanece sob ownership frontend; este documento não substitui sua
 atualização e verificação na entrega funcional.
 
-### Dependência de modelo na resposta guiada (candidato, não prova de entrega)
+### Resposta documental nativa da UI (candidato, não prova de entrega)
+
+`POST /import-sessions/:id/documentary-answer` recebe exatamente:
+
+```ts
+{
+  version: 1;
+  answerRequestId: string; // UUID
+  expectedRevision: number;
+  questionId: string; // oq_… da pergunta documental atual
+  input: ImportDeclarationUiInputV1;
+  answer: ImportDeclarationAnswerV1; // preview aceito pelo usuário
+}
+```
+
+Retorna `ImportSessionViewV1`, sem outcome conversacional novo. Somente os campos
+documentais existentes `dataCompra`, `merchant`, `amountMeaning`, `amountCents`,
+`installmentCount` e `installmentIndex` são admitidos. Não autoriza destinos, seleção,
+decisão, preparação, challenge, confirmação ou execução financeira.
+
+`ImportAuthGuard`, `ImportUiGuard` e acesso de projeto resolvido pelo serviço protegem
+a ação. O controller faz parsing estrito antes de emitir o grant opaco
+`DOCUMENTARY_ANSWER`, vinculado ao ator, sessão, revisão, pergunta e hash canônico
+do pedido. O writer reautoriza dentro da transação bloqueada e resolve a pergunta,
+fingerprint, claim e contexto de significado atuais. Recalcula a declaração a partir
+do input literal; preview divergente, chaves extras e valores inválidos são rejeitados.
+
+O caminho reutiliza normalização/encoding e `recordImportDeclaration`, sem admissão
+de chat fictícia nem substituição genérica de linhas. Para `VALUE`, `literalHash`
+é SHA-256 do `input.text` original exato, não do literal codificado; não há coluna
+extra de texto bruto. `answerRequestId` identifica a atestação no `turnId` existente.
+Chamadas conversacionais conservam seu hash do literal e comportamento anterior.
+
+`UNKNOWN`/`REMOVE` conservam a declaração nula e a pergunta não resolvida; REMOVE
+não vira exclusão. No-op não renova revisão/expiração. Concorrência na mesma revisão
+tem no máximo uma edição vencedora; uma resposta perdida exige GET autorizado e
+verificação do fato, nunca reaplicação cega. O teste
+`apps/api/src/imports/import-session/documentary-answer.integration.spec.ts` cobre
+esse caminho com guards, issuer e writer reais e sem compor provider/LLM.
+
+### Dependência de modelo na conversa livre (candidato, não prova de entrega)
 
 `AgentService.contextual` encaminha `ANSWER` ao provider construído em
-`agent.module.ts`; o parsing determinístico do CSV não elimina essa dependência.
+`agent.module.ts`; a conversa livre continua dependente do provider. Os controles
+documentais explícitos com preview aceito usam o endpoint nativo acima, não `/agent/chat`.
 O padrão atual é Ollama em `http://localhost:11434/v1`: uma URL configurada não
 comprova disponibilidade do serviço/modelo. Falhas reconhecidas de transporte e
 ausência de credenciais retornam `503` com `importOutcome.code = PROVIDER_UNAVAILABLE`,
@@ -150,7 +191,7 @@ distintos (`MODEL_OUTPUT_INVALID`).
 
 O teste `apps/api/src/agent/agent.import-provider.spec.ts` cobre DTO, controller,
 admissão/bridge e provider reais, com persistência representativa e conexão recusada
-em loopback. A jornada Linux completa precisa de Ollama acessível com o modelo
+em loopback. A jornada Linux com interpretação conversacional precisa de Ollama acessível com o modelo
 configurado (`AGENT_MODEL`, padrão `qwen2.5:7b-instruct`), ou de autorização explícita
 para usar um provider externo e enviar o conteúdo mínimo da sessão: por exemplo,
 `AGENT_LLM_PROVIDER=gemini` com `GEMINI_API_KEY` (ou `GOOGLE_API_KEY`) e modelo

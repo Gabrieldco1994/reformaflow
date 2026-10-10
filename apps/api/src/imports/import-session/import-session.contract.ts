@@ -37,6 +37,13 @@ export type UiImportGrantScope =
       consentPolicyVersion: number;
     }
   | {
+      operation: "DOCUMENTARY_ANSWER";
+      sessionId: ImportSessionId;
+      expectedRevision: ImportSessionRevision;
+      questionId: ImportSessionId;
+      requestHash: ImportSessionHash;
+    }
+  | {
       operation: "CANCEL_SESSION";
       sessionId: ImportSessionId;
       expectedRevision: number;
