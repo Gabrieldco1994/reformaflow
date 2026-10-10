@@ -10,6 +10,12 @@ Parent owns push and Linux CI invocation; no local Docker proof is claimed.
   OFF ignores invalid vault settings and does not inspect/open/provision the vault.
   Existing uploads setup and `prisma migrate deploy` still run; OFF is not a
   database-write freeze.
+  **OFF is only partial containment, not a complete financial freeze.**
+  Already materialized qualified CSV/PDF sessions may still prepare, confirm,
+  and execute: `importSessionWritesEnabled` checks persisted extraction/evidence
+  independently of vault runtime. Their existing authorization, revision,
+  review/challenge and financial gates still apply. This preparation does not
+  redesign that authority or promise those actions are disabled.
 - ON requires explicit `VAULT_DIR=/data/import-vault`, idle, headroom, and drain
   values accepted by `parseVaultConfig`. Launcher supplies descriptor 9 only when
   omitted; a different explicit descriptor is rejected. No sizing defaults or
@@ -57,6 +63,12 @@ proof, collision-before-migration, simultaneous creation barriers, private
 synthetic CSV/PDF upload/download/restart, migration failure, filesystem/config
 rejection, missing lock/flock, real gate faults, and real SIGTERM lease drains.
 Test-only preload instrumentation is bind-mounted, never shipped in the image.
+The OFF-after-ON test persists synthetic documents through real ON uploads,
+then restarts the actual entrypoint OFF. It verifies RAW create/reserve/analyze
+are disabled and observes **two real EVERY_MINUTE cron callbacks** (not manually
+invoked ticks), retaining admission fences and unchanged full documentary rows,
+inode/content snapshots, no automated purge/rename, and SIGTERM persistence.
+It does not claim an OFF materialized-session financial-action kill switch.
 OFF Node may allocate an unrelated internal descriptor numbered 9; OFF evidence
 requires no inherited vault flock, not prohibition of Node's internal descriptors.
 
@@ -74,7 +86,8 @@ the actual runtime image CLI version and Prisma engine's `sqlite_version()`.
 CLI and Prisma engine versions are separate evidence. Until that job runs, Linux
 startup/upgrade/runtime-version proof is **pending**, not green by inference.
 Parent must arrange a branch trigger/push; this change does not activate a flag
-or add a release branch trigger.
+or add a release branch trigger. The owned preparation branch
+`feat/maria-vault-startup-20261010` is now in the workflow push list for Linux QA.
 
 ## Release remains separately blocked
 
@@ -92,3 +105,10 @@ WAL/journals/migrations, backup overlap and emergency reserve. Headroom is a
 threshold snapshot, not an atomic disk reservation. Match signal-drain budget to
 Fly kill grace and operation deadlines. The image tests' 1 MiB threshold is
 **disposable QA only**, not production sizing approval.
+SRE's suggested headroom 512 MiB, idle 300000 ms and drain 5000 ms remain
+PO-approval-pending recommendations only; none are production defaults here.
+
+The Linux cleanup trap unmounts only its unique loopback mount, removes only its
+unique backing image, then `rmdir`s the mountpoint/runtime. Fixture content lives
+on the mounted image, so it is not present beneath the mountpoint after unmount.
+No broad directory removal or production volume cleanup is performed.

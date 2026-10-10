@@ -74,6 +74,72 @@ for (const flag of ["false", "TRUE", "1", ""]) {
   });
 }
 
+test("OFF after ON retains persisted bytes and fences RAW/maintenance through two real cron ticks", async () => {
+  await withImageFixture(async (f) => {
+    const on = await f.start(ON);
+    await on.ready();
+    const stored = await on.uploadDocuments();
+    await on.stop();
+    const before = f.snapshotVault();
+    const off = await f.start(
+      {
+        NODE_OPTIONS: "--require=/qa/off-retention.cjs",
+      },
+      [
+        "--mount",
+        `type=bind,src=${resolve("deploy/vault-startup/test/off-retention-preload.cjs")},dst=/qa/off-retention.cjs,readonly`,
+      ],
+    );
+    await off.ready();
+    await off.login();
+    const headers = {
+      authorization: `Bearer ${off.token}`,
+      origin: "http://localhost:3000",
+      "x-rf-import-ui": "1",
+      "content-type": "application/json",
+    };
+    for (const path of [
+      "/import-sessions",
+      `/import-sessions/${stored.sessionId}/attachments`,
+      `/import-sessions/${stored.sessionId}/attachments/${stored.docs[0].id}/analyze`,
+    ]) {
+      const res = await off.request(path, {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+      assert.equal(res.status, 503);
+      assert.equal((await res.json()).code, "CAPABILITY_DISABLED");
+    }
+    const documentarySnapshot = () =>
+      off.exec(
+        "sqlite3",
+        "-json",
+        "/data/test.db",
+        "SELECT * FROM import_sessions ORDER BY id; SELECT * FROM import_artifacts ORDER BY id; SELECT * FROM import_session_artifacts ORDER BY id; SELECT * FROM import_observations ORDER BY id;",
+      );
+    const beforeRows = documentarySnapshot();
+    await until(
+      () => off.logs().includes("QA_OFF_CRON_FENCED_2"),
+      "two real EVERY_MINUTE cron callbacks must retain OFF fences",
+      150000,
+    );
+    assert.doesNotMatch(
+      off.logs(),
+      /QA_OFF_AUTOMATED_REAPER_ENTERED|QA_OFF_FENCE_LOST/,
+    );
+    assert.equal(documentarySnapshot(), beforeRows);
+    assert.deepEqual(
+      f.snapshotVault(),
+      before,
+      "no automated purge, rename or lock replacement",
+    );
+    assert.equal(f.tryLock(), "ACQUIRED", "OFF does not own the vault flock");
+    await off.stop(); // Actual PID1 SIGTERM hooks, existing persisted layout unchanged.
+    assert.deepEqual(f.snapshotVault(), before);
+  });
+});
+
 test("ON API inherits exclusive FD9, migrates, serves private CSV/PDF only authenticated, restarts preserving inode", async () => {
   await withImageFixture(async (f) => {
     const first = await f.start(ON);
