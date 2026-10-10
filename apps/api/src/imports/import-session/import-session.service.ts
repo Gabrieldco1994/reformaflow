@@ -485,7 +485,7 @@ export class ImportSessionService {
       return { kind: "UNAVAILABLE" };
     return {
       kind: "CARD_INVOICE",
-      formats: this.capability.writesEnabled() ? [...formats] : ["CSV"],
+      formats: [...formats],
     };
   }
 
@@ -1353,7 +1353,7 @@ export class ImportSessionService {
   ) {
     return renderImportSession(db, row, now, {
       ...options,
-      csvOnlyAnalysis: !this.capability.writesEnabled(),
+      qualifiedAnalysisFormats: this.capability.newImportFormats(),
       analysisEnabled:
         importIntakeEnabled(this.capability) &&
         !this.gate.boot.stopped.aborted &&
@@ -1533,7 +1533,16 @@ async function renderImportSessionUnchecked(
                 OR: [
                   { state: "EXTRACTED", extractionJson: { not: null } },
                   ...(options.analysisEnabled === true
-                    ? [{ state: "RAW_READY", detectedFormat: "CSV" }]
+                    ? [
+                        {
+                          state: "RAW_READY",
+                          detectedFormat: {
+                            in: [
+                              ...(options.qualifiedAnalysisFormats ?? ["CSV"]),
+                            ],
+                          },
+                        },
+                      ]
                     : []),
                 ],
               },
@@ -1559,11 +1568,16 @@ async function renderImportSessionUnchecked(
           artifacts.some(
             (artifact) =>
               artifact.id === ref.artifactId &&
-              (options.csvOnlyAnalysis !== true ||
-                artifact.detectedFormat === "CSV") &&
+              (options.qualifiedAnalysisFormats
+                ? options.qualifiedAnalysisFormats.includes(
+                    artifact.detectedFormat ?? "",
+                  )
+                : options.csvOnlyAnalysis !== true ||
+                  artifact.detectedFormat === "CSV") &&
               (supportsImportExtraction(artifact) ||
                 (options.analysisEnabled === true &&
-                  artifact.detectedFormat === "CSV" &&
+                  (artifact.detectedFormat === "CSV" ||
+                    artifact.detectedFormat === "PDF") &&
                   artifact.state === "RAW_READY" &&
                   artifact.storageKey !== null &&
                   artifact.verifiedBytes > 0)),

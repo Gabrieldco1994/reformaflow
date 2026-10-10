@@ -4,6 +4,26 @@ import type {
   ImportSessionErrorV1,
 } from "@reformaflow/domain";
 
+/** Exact future wire boundary until the independently owned domain is integrated. */
+export type PdfDocumentErrorCode =
+  | "OCR_REQUIRED"
+  | "DOCUMENT_UNREADABLE"
+  | "PDF_PASSWORD_REQUIRED";
+export type ImportWireErrorCode = ImportSessionErrorCode | PdfDocumentErrorCode;
+export type ImportWireError = Omit<ImportSessionErrorV1, "code"> & {
+  code: ImportWireErrorCode;
+};
+
+export function isPdfDocumentErrorCode(
+  value: unknown,
+): value is PdfDocumentErrorCode {
+  return (
+    value === "OCR_REQUIRED" ||
+    value === "DOCUMENT_UNREADABLE" ||
+    value === "PDF_PASSWORD_REQUIRED"
+  );
+}
+
 export type ImportFailureContext =
   | "list"
   | "detail"
@@ -12,7 +32,7 @@ export type ImportFailureContext =
   | "document";
 
 export type ImportFailure =
-  | { kind: "api"; status: number; error: ImportSessionErrorV1 }
+  | { kind: "api"; status: number; error: ImportWireError }
   /** An HTTP answer that is not a valid ImportSessionErrorV1: generic 404/500, extra-key 400… */
   | { kind: "http"; status: number }
   | { kind: "offline" }
@@ -21,7 +41,13 @@ export type ImportFailure =
   | { kind: "unknown" };
 
 /** Fixed copy per wire code. The server never sends a message and none is ever rendered. */
-export const IMPORT_ERROR_COPY: Record<ImportSessionErrorCode, string> = {
+export const IMPORT_ERROR_COPY: Record<ImportWireErrorCode, string> = {
+  OCR_REQUIRED:
+    "Este PDF contém imagens e pode exigir OCR, ainda indisponível nesta importação. Use um PDF textual sem imagens (inclusive sem logotipos) ou um CSV, conforme os formatos disponíveis, ou cancele a importação.",
+  DOCUMENT_UNREADABLE:
+    "Não foi possível ler este documento. Substitua por um arquivo legível ou cancele a importação.",
+  PDF_PASSWORD_REQUIRED:
+    "Este PDF está protegido por senha. Substitua por uma cópia sem senha ou cancele a importação. Não envie sua senha à Maria.",
   INVALID_INPUT:
     "Não foi possível concluir esta consulta. Volte à lista e tente de novo.",
   UNAUTHENTICATED: "Sua sessão expirou. Entre de novo para continuar.",
@@ -67,7 +93,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Exact-shape guard: an extra key means the body is not ours, so nothing in it is trusted. */
 export function isImportSessionErrorBody(
   value: unknown,
-): value is ImportSessionErrorV1 {
+): value is ImportWireError {
   if (!isRecord(value)) return false;
   const keys = Object.keys(value).sort();
   if (
@@ -110,7 +136,7 @@ export interface ImportFailureInfo {
   retryable: boolean;
   /** A documentary write or cancellation may or may not have taken effect. */
   outcomeUnknown: boolean;
-  code: ImportSessionErrorCode | null;
+  code: ImportWireErrorCode | null;
 }
 
 const OFFLINE =
@@ -132,7 +158,9 @@ export function describeImportFailure(
   if (context === "document") {
     if (failure.kind === "api") {
       return {
-        message: `${IMPORT_ERROR_COPY[failure.error.code]} Consulte o estado guardado antes de tentar a análise novamente.`,
+        message: isPdfDocumentErrorCode(failure.error.code)
+          ? IMPORT_ERROR_COPY[failure.error.code]
+          : `${IMPORT_ERROR_COPY[failure.error.code]} Consulte o estado guardado antes de tentar a análise novamente.`,
         retryable: false,
         outcomeUnknown: false,
         code: failure.error.code,
@@ -151,7 +179,9 @@ export function describeImportFailure(
     case "api":
       return {
         message: IMPORT_ERROR_COPY[failure.error.code],
-        retryable: failure.error.retryable,
+        retryable:
+          !isPdfDocumentErrorCode(failure.error.code) &&
+          failure.error.retryable,
         outcomeUnknown: false,
         code: failure.error.code,
       };

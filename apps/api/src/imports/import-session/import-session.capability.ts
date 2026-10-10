@@ -32,7 +32,7 @@ export class DefaultImportSessionCapability implements ImportSessionCapability {
   }
 
   newImportFormats(): ReturnType<ImportSessionCapability["newImportFormats"]> {
-    return ["CSV"];
+    return ["CSV", "PDF"];
   }
 }
 
@@ -43,7 +43,12 @@ export function csvIntakeEnabled(capability: ImportSessionCapability): boolean {
 export function importIntakeEnabled(
   capability: ImportSessionCapability,
 ): boolean {
-  return capability.writesEnabled() || csvIntakeEnabled(capability);
+  return (
+    capability.writesEnabled() ||
+    capability
+      .newImportFormats()
+      .some((format) => format === "CSV" || format === "PDF")
+  );
 }
 
 /**
@@ -57,7 +62,7 @@ export async function importSessionWritesEnabled(
   capability: ImportSessionCapability,
 ): Promise<boolean> {
   if (capability.writesEnabled()) return true;
-  if (!csvIntakeEnabled(capability)) return false;
+  if (!importIntakeEnabled(capability)) return false;
   const refs = await tx.importSessionArtifact.findMany({
     where: {
       sessionId: session.id,
@@ -76,8 +81,12 @@ export async function importSessionWritesEnabled(
           ref.artifact?.tenantId === session.tenantId &&
           ref.artifact.ownerProjectId === session.ownerProjectId &&
           ref.artifact.state === "EXTRACTED" &&
-          ref.artifact.detectedFormat === "CSV" &&
-          ref.artifact.parserVersion === "card-local-text-v1",
+          ((ref.artifact.detectedFormat === "CSV" &&
+            capability.newImportFormats().includes("CSV") &&
+            ref.artifact.parserVersion === "card-local-text-v1") ||
+            (ref.artifact.detectedFormat === "PDF" &&
+              capability.newImportFormats().includes("PDF") &&
+              ref.artifact.parserVersion === "card-local-pdf-v1")),
       )
     )
   )

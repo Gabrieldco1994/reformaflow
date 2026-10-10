@@ -9,7 +9,7 @@ import { computeImportOrdinals } from "./dedupe-key";
 export type CardStatementDocumentInputV1 = Readonly<{
   version: 1;
   context: "CARD_INVOICE";
-  format: "CSV";
+  format: "CSV" | "PDF";
   profile: "CSV_NUBANK" | "CSV_ITAU";
   bytes: Buffer;
 }>;
@@ -84,7 +84,6 @@ export class DocumentExtractionError extends Error {
     this.name = "DocumentExtractionError";
   }
 }
-
 
 export interface NormalizedTx {
   externalId: string; // hash determinístico para dedup
@@ -442,9 +441,7 @@ export interface CardDocumentCapture {
   readonly diagnostics?: readonly DocumentDiagnosticV1["code"][];
 }
 
-function documentaryDate(
-  raw: string | null,
-): {
+function documentaryDate(raw: string | null): {
   dateOnly: string | null;
   code: "UNKNOWN_DATE" | "INVALID_CALENDAR_DATE" | null;
 } {

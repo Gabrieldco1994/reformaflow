@@ -173,7 +173,7 @@ export class ImportSessionExtractionService {
       await renderImportSession(tx, row, now, {
         includeReceipt: true,
         analysisEnabled: true,
-        csvOnlyAnalysis: !this.capability.writesEnabled(),
+        qualifiedAnalysisFormats: this.capability.newImportFormats(),
         workflow: {
           writesEnabled: await importSessionWritesEnabled(
             tx,
@@ -248,14 +248,16 @@ export class ImportSessionExtractionService {
         throw problem(Code.REVISION_CONFLICT, row);
       // This applies to cached EXTRACTED adoption as well as first RAW extraction.
       // Completed materializations returned above remain read-only replays.
-      if (artifact.detectedFormat !== "CSV")
+      if (
+        (artifact.detectedFormat !== "CSV" &&
+          artifact.detectedFormat !== "PDF") ||
+        !this.capability.newImportFormats().includes(artifact.detectedFormat)
+      )
         throw problem(Code.UNSUPPORTED_DOCUMENT);
       const raw =
         artifact.state === "RAW_READY" || artifact.state === "ANALYZING";
       if (raw) {
-        this.raw.assertAvailable(
-          artifact.detectedFormat === "CSV" ? "CSV" : undefined,
-        );
+        this.raw.assertAvailable(artifact.detectedFormat);
         if (performance.now() >= rawDeadline)
           throw problem(Code.LIMIT_EXCEEDED);
         if (
@@ -354,7 +356,13 @@ export class ImportSessionExtractionService {
     let settlement: ImportCsvSettlement | undefined;
     const publicationLive = (): undefined => {
       live();
-      if (capture.artifact.detectedFormat !== "CSV")
+      if (
+        (capture.artifact.detectedFormat !== "CSV" &&
+          capture.artifact.detectedFormat !== "PDF") ||
+        !this.capability
+          .newImportFormats()
+          .includes(capture.artifact.detectedFormat)
+      )
         throw problem(Code.UNSUPPORTED_DOCUMENT);
       const now = this.clock.now();
       if (now >= capture.row.expiresAt)
@@ -415,8 +423,9 @@ export class ImportSessionExtractionService {
       let projectedArtifact = capture.artifact;
       if (capture.kind === "RAW") {
         admission = this.raw.admit({
-          ...(capture.artifact.detectedFormat === "CSV"
-            ? { documentFormat: "CSV" as const }
+          ...(capture.artifact.detectedFormat === "CSV" ||
+          capture.artifact.detectedFormat === "PDF"
+            ? { documentFormat: capture.artifact.detectedFormat }
             : {}),
           claim: {
             tenantId: auth.tenantId,
@@ -485,7 +494,10 @@ export class ImportSessionExtractionService {
         await authorizedReader();
         publicationLive();
         started = true;
-        const handle = this.raw.startCsv(admission, bytes);
+        const handle =
+          capture.artifact.detectedFormat === "PDF"
+            ? this.raw.startPdf(admission, bytes)
+            : this.raw.startCsv(admission, bytes);
         void handle.settled.then(
           (value) => {
             settlement = value;
@@ -496,7 +508,12 @@ export class ImportSessionExtractionService {
               errorClass: error instanceof Error ? error.name : "Unknown",
             }),
         );
-        const result = await handle.result;
+        let result: Awaited<typeof handle.result>;
+        try {
+          result = await handle.result;
+        } finally {
+          settlement = await handle.settled;
+        }
         publicationLive();
         settlement = await handle.settled;
         publicationLive();
@@ -528,6 +545,27 @@ export class ImportSessionExtractionService {
       });
       return await write(async (tx, now) => {
         const row = await recheck(tx, now);
+        const attached = await tx.importSessionArtifact.findMany({
+          where: {
+            sessionId: row.id,
+            tenantId: row.tenantId,
+            state: "ATTACHED",
+          },
+          include: { artifact: true },
+        });
+        let totalPages = extraction.metrics.pages;
+        for (const ref of attached) {
+          if (
+            ref.artifact &&
+            ref.artifact.id !== capture.artifact.id &&
+            ref.artifact.state === "EXTRACTED" &&
+            ref.artifact.detectedFormat === "PDF"
+          )
+            totalPages += readStoredImportExtraction(ref.artifact).metrics
+              .pages;
+        }
+        if (totalPages > LIMITS.pdfPagesPerSession)
+          throw problem(Code.LIMIT_EXCEEDED);
         if (row.revision >= P.maxRevision)
           throw problem(Code.LIMIT_EXCEEDED, row);
         for (const observation of plan.observations) {

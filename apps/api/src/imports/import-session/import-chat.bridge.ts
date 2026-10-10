@@ -92,7 +92,12 @@ export class ImportChatBridge {
     return {
       version: 1,
       kind: "START_CARD_INVOICE_IMPORT",
-      formats: ["CSV"],
+      formats: this.capability
+        .newImportFormats()
+        .filter(
+          (format): format is "CSV" | "PDF" =>
+            format === "CSV" || format === "PDF",
+        ),
       suggestedCardId: null,
     };
   }

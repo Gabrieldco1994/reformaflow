@@ -559,7 +559,7 @@ export class ImportSessionWorkflowService {
             now,
             {
               includeReceipt: false,
-              csvOnlyAnalysis: !this.capability.writesEnabled(),
+              qualifiedAnalysisFormats: this.capability.newImportFormats(),
               analysisEnabled: this.analysisEnabled(),
               workflow: {
                 writesEnabled: await importSessionWritesEnabled(
@@ -691,7 +691,7 @@ export class ImportSessionWorkflowService {
               now,
               {
                 includeReceipt: false,
-                csvOnlyAnalysis: !this.capability.writesEnabled(),
+                qualifiedAnalysisFormats: this.capability.newImportFormats(),
                 analysisEnabled: this.analysisEnabled(),
                 workflow: {
                   writesEnabled: await importSessionWritesEnabled(
@@ -1133,7 +1133,7 @@ export class ImportSessionWorkflowService {
     await assertReceiptParticipantAccess(tx, actor, [row.ownerProjectId]);
     const { view } = await renderImportSession(tx, row, now, {
       includeReceipt: true,
-      csvOnlyAnalysis: !this.capability.writesEnabled(),
+      qualifiedAnalysisFormats: this.capability.newImportFormats(),
       analysisEnabled: this.analysisEnabled(),
       workflow: {
         writesEnabled: await importSessionWritesEnabled(

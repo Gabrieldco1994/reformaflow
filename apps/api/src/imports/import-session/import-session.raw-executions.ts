@@ -12,6 +12,7 @@ import {
   importIntakeEnabled,
 } from "./import-session.capability";
 import { extractCardStatementDocument } from "../../credit-card/parsers/statement-document";
+import { extractPdfDocument } from "../../credit-card/parsers/pdf-document";
 import {
   DocumentExtractionError,
   type DocumentExtractionV1,
@@ -46,7 +47,7 @@ export type ImportRawAdmission = Readonly<{
   signal: AbortSignal;
 }>;
 export type ImportRawAdmissionInput = Readonly<{
-  documentFormat?: "CSV";
+  documentFormat?: "CSV" | "PDF";
   claim: ImportRawClaim;
   ownerUserId: string;
   runtime: ImportRawRuntime;
@@ -78,9 +79,10 @@ export class ImportRawExecutions {
     private readonly capability: ImportSessionCapability,
   ) {}
 
-  assertAvailable(documentFormat?: "CSV"): undefined {
+  assertAvailable(documentFormat?: "CSV" | "PDF"): undefined {
     if (
-      documentFormat !== "CSV" ||
+      !documentFormat ||
+      !this.capability.newImportFormats().includes(documentFormat) ||
       !importIntakeEnabled(this.capability) ||
       this.gate.boot.stopped.aborted ||
       !this.gate.boot.runtime()
@@ -226,6 +228,26 @@ export class ImportRawExecutions {
       }
     });
     return { result, settled: Promise.resolve({ cleanup: "CLEAN" }) };
+  }
+  startPdf(admission: ImportRawAdmission, bytes: Buffer): ImportCsvRunHandle {
+    this.assertLive(admission);
+    const entry = this.owned(admission);
+    if (entry.started || entry.input.documentFormat !== "PDF")
+      throw new ImportSessionError(Code.LEASE_CONFLICT);
+    entry.started = true;
+    const result = extractPdfDocument(
+      bytes,
+      admission.signal,
+      entry.input.deadlineMonotonicMs - performance.now(),
+    ).then((document) => {
+      this.assertLive(admission);
+      return { kind: "SUCCESS" as const, document };
+    });
+    const settled = result.then(
+      () => ({ cleanup: "CLEAN" as const }),
+      () => ({ cleanup: "CLEAN" as const }),
+    );
+    return { result, settled };
   }
   abortOwned(
     claims: readonly ImportRawClaim[],

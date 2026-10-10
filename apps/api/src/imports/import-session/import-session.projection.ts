@@ -495,6 +495,7 @@ export interface ProjectionOptions {
   readonly analysisEnabled?: boolean;
   /** Broad parser support is not CSV RAW qualification while global writes are OFF. */
   readonly csvOnlyAnalysis?: boolean;
+  readonly qualifiedAnalysisFormats?: readonly string[];
   readonly documentary?: {
     readonly questions: ImportSessionViewV1["questions"];
     readonly declaredFacts: ImportSessionViewV1["declaredFacts"];

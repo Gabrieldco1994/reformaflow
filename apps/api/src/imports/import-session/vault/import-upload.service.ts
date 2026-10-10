@@ -256,7 +256,7 @@ export class ImportUploadService {
     return (
       await renderImportSession(tx, row, now, {
         includeReceipt: true,
-        csvOnlyAnalysis: !this.capability.writesEnabled(),
+        qualifiedAnalysisFormats: this.capability.newImportFormats(),
         analysisEnabled:
           importIntakeEnabled(this.capability) &&
           !this.gate.boot.stopped.aborted &&
@@ -287,8 +287,14 @@ export class ImportUploadService {
     if (
       request.files.some(
         (file) =>
-          !/\.csv$/i.test(file.fileName) ||
-          !MIME_FORMAT[file.mime].includes("CSV"),
+          !(
+            (/\.csv$/i.test(file.fileName) &&
+              this.capability.newImportFormats().includes("CSV") &&
+              MIME_FORMAT[file.mime].includes("CSV")) ||
+            (/\.pdf$/i.test(file.fileName) &&
+              file.mime === "application/pdf" &&
+              this.capability.newImportFormats().includes("PDF"))
+          ),
       )
     )
       throw error(ImportSessionErrorCode.UNSUPPORTED_DOCUMENT);

@@ -9,6 +9,22 @@ aceite; o contrato prospectivo M1/M2 já aprovado não comprova entrega funciona
 
 ### Escopo e composição independente
 
+- Extensão backend PDF textual (2026-10-10): somente `.pdf`/`application/pdf`,
+  no mesmo vault e workflow; CSV qualificado isoladamente permanece compatível.
+  Não habilita OFX, planilhas, imagens, OCR ou o kill switch financeiro amplo.
+  Worker local terminável audita todas as páginas por operadores públicos PDF.js:
+  qualquer raster pintado, inclusive logotipo, exige `OCR_REQUIRED` no arquivo inteiro.
+  Diagnóstico de warning/error retido apenas como booleano, até o cleanup, rejeita
+  `DOCUMENT_UNREADABLE`; senha exige `PDF_PASSWORD_REQUIRED`. Nenhum texto diagnóstico
+  é persistido/emitido. A cerca de diagnósticos é conservadora, não prova matemática
+  de completude de PDFs arbitrários/corrompidos.
+  Limites: 10 MiB/arquivo, 30 páginas/arquivo, 60/sessão recontadas na transação
+  de publicação, deadline e concorrência existentes; limite pós-retorno de operadores
+  e saída textual. Heap V8 de 128 MiB **não limita integralmente buffers externos/nativos**;
+  a lista de operadores não oferece limite pré-alocação. Sem promessa de memória total
+  limitada ou suporte amplo a PDFs. Datas/anos/significado ausentes continuam desconhecidos,
+  ocorrências idênticas não são deduplicadas e pagamento mantém evidência ignorada.
+
 - Somente **CSV suportado de compras de cartão** na conversa Maria. Banco/Carteira, imagens,
   OCR, outros formatos e actions R2 não são parte desta entrega nem requisitos antecipados.
 - A PR nasce de `main`, não da branch da PR #714, e não altera essa PR. Deve conter a fundação
