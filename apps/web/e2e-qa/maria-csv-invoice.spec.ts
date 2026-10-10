@@ -30,6 +30,7 @@ test(phase === 'upload'
   ? 'real signup → visible Maria → CSV consent/dedupe/analysis → reload with no expenses'
   : 'real signup → Maria CSV → explicit subset confirmation → persistent receipt', async ({ page }, info) => {
   const evidence = new JourneyEvidence(page, info);
+  let primaryFailure: { error: unknown } | null = null;
   let token = '';
   let projectId = '';
   let sessionId = '';
@@ -210,7 +211,10 @@ test(phase === 'upload'
         await expect(form.getByLabel('Prévia da informação', { exact: true })).toBeVisible();
         await form.getByRole('button', { name: 'Guardar informação', exact: true }).click();
       } else {
-        await form.getByRole('button', { name: 'Responder à pergunta', exact: true }).click();
+        await evidence.submitAnswer({
+          attempt: attempt + 1, field: question.field, value: answer, sessionId,
+          questionId: question.id, lineIds: question.lineIds, revisionBefore: current.revision,
+        }, () => form.getByRole('button', { name: 'Responder à pergunta', exact: true }).click());
       }
       await expect.poll(async () => (await view()).revision, { message: `Answer ${question.field} must persist` }).toBeGreaterThan(current.revision);
       await noExpenses();
@@ -261,10 +265,11 @@ test(phase === 'upload'
     expect((await expenses()).items.map(item => item.id).sort()).toEqual(applied.items.map(item => item.id).sort());
     await assertReadableMoney(receipt, true);
     await evidence.capture('terminal-receipt-persists-no-reupload');
+  } catch (error) {
+    primaryFailure = { error };
+    throw error;
   } finally {
-    if (!page.isClosed()) await evidence.capture('final-state').catch(() => evidence.persist());
-    await evidence.persist();
-    evidence.assertClean();
+    await evidence.finalize(primaryFailure);
   }
 });
 }

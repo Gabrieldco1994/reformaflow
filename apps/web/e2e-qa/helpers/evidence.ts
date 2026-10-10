@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, type APIResponse, type Response, type Locator, type Page, type TestInfo } from '@playwright/test';
 
+export type AnswerMetadata = { attempt: number; field: string; value: string; sessionId: string; questionId: string; lineIds: string[]; revisionBefore: number };
+
 type HttpFailure = { status: number; method: string; url: string; expected: boolean; reason?: string };
 
 function safeUrl(value: string) {
@@ -12,15 +14,23 @@ function redact(value: string) {
   return value.replace(/eyJ[\w.-]+/g, '[redacted-token]').replace(/[\w.+-]+@[\w.-]+/g, '[redacted-email]');
 }
 
+function safeDiagnosticJson(value: unknown) {
+  return redact(JSON.stringify(value, (key, member: unknown) =>
+    /^(authorization|cookie|set-cookie|token|accessToken|refreshToken|password|apiKey|api_key|secret|credential)$/i.test(key)
+      ? "[redacted]" : member, 2));
+}
+
 export class JourneyEvidence {
   private readonly directory: string;
   private stepNumber = 0;
   private signedIn = false;
   private readonly consoleErrors: string[] = [];
   private readonly httpFailures: HttpFailure[] = [];
+  private readonly answerArtifacts: string[] = [];
+  private readonly failures: { phase: string; message: string; stack?: string }[] = [];
   private readonly steps: { name: string; url: string; title: string; screenshot: string }[] = [];
 
-  constructor(private readonly page: Page, info: TestInfo) {
+  constructor(private readonly page: Page, private readonly info: TestInfo) {
     this.directory = path.resolve(process.env.QA_ARTIFACTS_DIR ?? './qa-artifacts', info.project.name, info.title.includes('explicit subset') ? 'confirmation' : 'upload');
     page.on('console', message => {
       // Chromium also prints its generic network diagnostic for the expected anonymous /auth/me 401.
@@ -42,6 +52,77 @@ export class JourneyEvidence {
   }
 
   authenticated() { this.signedIn = true; }
+
+  /** Only synthetic import turns/bodies; never serialize cookies or request headers. */
+  async submitAnswer(metadata: AnswerMetadata, submit: () => Promise<void>) {
+    const filename = `answer-${metadata.attempt}-${metadata.field}-response.json`;
+    const artifact = path.join(this.directory, filename);
+    const startedAt = new Date().toISOString();
+    const started = Date.now();
+    const diagnostic: Record<string, unknown> = { metadata, startedAt, transportBudgetMs: 120_000 };
+    const save = async () => {
+      await fs.mkdir(this.directory, { recursive: true });
+      await fs.writeFile(artifact, safeDiagnosticJson(diagnostic));
+    };
+    this.answerArtifacts.push(artifact);
+    await save();
+    // Register BEFORE clicking, and bind the response to this synthetic ANSWER.
+    const pending = this.page.waitForResponse(response => {
+      if (response.request().method() !== "POST" || new URL(response.url()).pathname !== "/agent/chat") return false;
+      const turn = response.request().postDataJSON()?.importTurn;
+      return turn?.intent === "ANSWER" && turn.sessionId === metadata.sessionId &&
+        turn.focus?.id === metadata.questionId && turn.literalAnswer === metadata.value;
+    }, { timeout: 120_000 });
+    try {
+      const [response] = await Promise.all([pending, submit()]);
+      diagnostic.elapsedMs = Date.now() - started;
+      diagnostic.status = response.status();
+      diagnostic.url = safeUrl(response.url());
+      const request = response.request().postDataJSON()?.importTurn;
+      // Allowlisted body data only; no account identity, auth headers or cookies.
+      diagnostic.request = request ? {
+        version: request.version, intent: request.intent, sessionId: request.sessionId,
+        expectedRevision: request.expectedRevision, turnId: request.turnId, channel: request.channel,
+        focus: request.focus, scope: request.scope,
+        literalAnswer: request.literalAnswer,
+      } : null;
+      const body = await response.text();
+      try {
+        diagnostic.bodyText = safeDiagnosticJson(JSON.parse(body));
+        diagnostic.bodyJson = JSON.parse(diagnostic.bodyText as string);
+      } catch {
+        diagnostic.bodyText = redact(body);
+        diagnostic.bodyJson = null;
+      }
+      await save();
+      await this.persist();
+      expect(response.ok(), `ANSWER ${metadata.field} HTTP ${response.status()}; evidence: ${artifact}`).toBe(true);
+    } catch (error) {
+      diagnostic.elapsedMs = Date.now() - started;
+      diagnostic.failure = error instanceof Error ? error.message : String(error);
+      await save();
+      throw error;
+    }
+  }
+
+  /** Cleanup evidence is secondary: never replace the original journey exception. */
+  async finalize(primary: { error: unknown } | null) {
+    const record = (phase: string, error: unknown) => {
+      this.failures.push({ phase, message: redact(error instanceof Error ? error.message : String(error)),
+        ...(error instanceof Error && error.stack ? { stack: redact(error.stack) } : {}) });
+    };
+    if (primary) record("journey", primary.error);
+    const secondary: unknown[] = [];
+    try { if (!this.page.isClosed()) await this.capture("final-state"); }
+    catch (error) { record("final-capture", error); secondary.push(error); }
+    try { this.assertClean(); }
+    catch (error) { record("runtime", error); secondary.push(error); }
+    try { await this.persist(); }
+    catch (error) { record("persist", error); secondary.push(error); }
+    if (secondary.length) this.info.annotations.push({ type: "QA secondary failures", description:
+      this.failures.filter(failure => failure.phase !== "journey").map(failure => `${failure.phase}: ${failure.message}`).join("\n") });
+    if (!primary && secondary.length) throw new AggregateError(secondary, "Journey evidence/runtime checks failed");
+  }
 
   async checkApi(response: APIResponse | Response) {
     if (!response.ok()) this.httpFailures.push({ status: response.status(), method: 'API helper',
@@ -69,6 +150,7 @@ export class JourneyEvidence {
     await fs.mkdir(this.directory, { recursive: true });
     await fs.writeFile(path.join(this.directory, 'journey.json'), JSON.stringify({
       steps: this.steps, consoleErrors: this.consoleErrors, httpFailures: this.httpFailures,
+      answerArtifacts: this.answerArtifacts, failures: this.failures,
     }, null, 2));
   }
 
