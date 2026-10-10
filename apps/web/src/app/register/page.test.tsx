@@ -154,7 +154,7 @@ describe("/register form behavior", () => {
     await waitFor(() =>
       expect(mocks.completeSignup).toHaveBeenCalledWith([
         { id: "p1", type: "REFORMA" },
-      ]),
+      ], "u1"),
     );
     expect(mocks.refresh.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.completeSignup.mock.invocationCallOrder[0],
@@ -178,7 +178,7 @@ describe("/register form behavior", () => {
       expect(mocks.completeSignup).toHaveBeenCalledWith([
         { id: "p-reforma", type: "REFORMA" },
         { id: "p-casa", type: "CASA" },
-      ]),
+      ], "u1"),
     );
   });
 

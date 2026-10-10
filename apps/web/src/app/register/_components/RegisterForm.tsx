@@ -52,7 +52,7 @@ export function RegisterForm() {
     submissionLock.current = true;
     setSubmitting(true);
     try {
-      await register(
+      const registeredUser = await register(
         {
           ownerName: ownerName.trim(),
           email: email.trim(),
@@ -76,7 +76,7 @@ export function RegisterForm() {
       await refresh();
       // Runtime owns both the first FULL journey route and the no-journey hub
       // fallback, including submissions made before auth's next render.
-      await completeSignup(created);
+      await completeSignup(created, registeredUser.id);
     } catch (caught) {
       if (caught instanceof ApiResponseError) idempotencyKey.current = newIdempotencyKey();
       setError(caught instanceof Error ? caught.message : 'Não foi possível criar sua conta. Tente novamente.');
