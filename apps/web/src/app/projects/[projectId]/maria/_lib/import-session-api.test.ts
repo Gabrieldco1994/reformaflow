@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   answerImportDocumentaryQuestion,
   answerImportFocusedDraftQuestion,
+  getImportResult,
+  prepareImportSession,
   uploadImportSessionAttachment,
 } from "./import-session-api";
 import {
@@ -15,12 +17,14 @@ const api = vi.hoisted(() => ({
   putBytes: vi.fn(),
   post: vi.fn(),
   patch: vi.fn(),
+  get: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
   api: {
     putBytes: api.putBytes,
     post: api.post,
     patch: api.patch,
+    get: api.get,
   },
   ApiResponseError: class ApiResponseError extends Error {},
 }));
@@ -158,6 +162,7 @@ describe("answerImportFocusedDraftQuestion", () => {
     answerRequestId: "12345678-1234-4123-8123-123456789abc",
     expectedRevision: 2,
     questionId: "question",
+    channel: "VOICE" as const,
     answer: { field: "firstDueDate" as const, value: "2025-10-10" },
   };
   beforeEach(() => api.patch.mockReset());
@@ -188,6 +193,7 @@ describe("answerImportFocusedDraftQuestion", () => {
       expect(Object.keys(api.patch.mock.calls[0][1]).sort()).toEqual([
         "answer",
         "answerRequestId",
+        "channel",
         "expectedRevision",
         "questionId",
         "version",
@@ -226,6 +232,7 @@ describe("answerImportDocumentaryQuestion", () => {
     answerRequestId: "12345678-1234-4123-8123-123456789abc",
     expectedRevision: 2,
     questionId: "question",
+    channel: "TEXT" as const,
     input: { kind: "VALUE" as const, text: "  LOJA FICTICIA NORTE  " },
     answer: {
       field: "merchant" as const,
@@ -257,6 +264,40 @@ describe("answerImportDocumentaryQuestion", () => {
     await expect(
       answerImportDocumentaryQuestion("session", request),
     ).rejects.toThrow();
+  });
+});
+
+describe("direct review and result endpoints", () => {
+  beforeEach(() => {
+    api.post.mockReset();
+    api.get.mockReset();
+  });
+
+  it("prepares the exact admitted revision and preserves the abort signal", async () => {
+    const signal = new AbortController().signal;
+    api.post.mockResolvedValue(view);
+    await expect(
+      prepareImportSession("session", { expectedRevision: 2 }, signal),
+    ).resolves.toEqual(view);
+    expect(api.post).toHaveBeenCalledWith(
+      "/import-sessions/session/prepare",
+      { expectedRevision: 2 },
+      {
+        headers: { "x-rf-import-ui": "1" },
+        signal,
+      },
+    );
+  });
+
+  it("reads the result endpoint without routing through chat", async () => {
+    const signal = new AbortController().signal;
+    const result = { state: "READY", receipt: null };
+    api.get.mockResolvedValue(result);
+    await expect(getImportResult("session", signal)).resolves.toEqual(result);
+    expect(api.get).toHaveBeenCalledWith("/import-sessions/session/result", {
+      signal,
+    });
+    expect(api.post).not.toHaveBeenCalled();
   });
 });
 

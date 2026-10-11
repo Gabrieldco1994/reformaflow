@@ -7,13 +7,8 @@ import {
   type ImportObservationQuestionV1,
 } from "@reformaflow/domain";
 import { useSpeechRecognition } from "@/components/agent/useSpeechRecognition";
-import { VoiceAssistantOverlay } from "@/components/agent/VoiceAssistantOverlay";
-import {
-  isStreamingTtsSupported,
-  streamSpeak,
-  type StreamTtsHandle,
-} from "@/lib/streaming-tts";
 import { useImportConversation } from "../_hooks/useImportConversation";
+import { useImportManualOptions } from "../_hooks/useImportManualOptions";
 import {
   useImportDocumentFlow,
   type ImportDocumentFlow,
@@ -38,9 +33,7 @@ import {
   ImportDeclaredFacts,
 } from "./ImportReviewBlockerNotice";
 import { ImportReceipt } from "./ImportReceipt";
-import { MariaDock } from "./MariaDock";
-import { MariaMessageBubble } from "./MariaMessageBubble";
-import type { AgentChannel } from "@/components/agent/useFinancialAgent";
+type AgentChannel = "TEXT" | "VOICE";
 
 function Conversation({
   sessionId,
@@ -92,6 +85,11 @@ function Conversation({
         )
       : undefined;
   const speech = useSpeechRecognition();
+  const manualOptions = useImportManualOptions(
+    conversation.userId,
+    sessionId ?? "",
+    question,
+  );
   const { names } = useImportCatalog(
     conversation.userId,
     conversation.result !== null,
@@ -128,28 +126,21 @@ function Conversation({
     ignoredCount > 0 &&
     !receipt &&
     !conversation.review;
-  const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceError, setVoiceError] = useState("");
-  const [speaking, setSpeaking] = useState<number | null>(null);
-  const audio = useRef<StreamTtsHandle | null>(null);
+  const [voiceCapture, setVoiceCapture] = useState<{
+    id: number;
+    text: string;
+    questionId: string;
+    revision: number;
+  } | null>(null);
   const captureGeneration = useRef(0);
-  const audioGeneration = useRef(0);
-  const stopAudio = () => {
-    audioGeneration.current++;
-    audio.current?.stop();
-    audio.current = null;
-    setSpeaking(null);
-  };
   useEffect(() => {
     captureGeneration.current++;
     speech.stop();
-    stopAudio();
-    setVoiceOpen(false);
+    setVoiceCapture(null);
     return () => {
       captureGeneration.current++;
-      audioGeneration.current++;
       speech.stop();
-      audio.current?.stop();
     };
     // A new revision invalidates old capture and playback, not just rendered text.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,50 +160,36 @@ function Conversation({
   }
   if (privateContextLost)
     return <p role="alert">{error?.message ?? documents.error?.message}</p>;
-  const send: typeof conversation.send = (...args) => {
-    if (documents.busy || documents.error) {
-      setVoiceError("Consulte o estado dos documentos antes de responder.");
-      return Promise.resolve(null);
-    }
-    return conversation.send(...args);
-  };
   const captureVoice = () => {
     const generation = ++captureGeneration.current;
+    const admittedQuestionId = question?.id ?? null;
+    const admittedRevision = view?.revision ?? null;
     setVoiceError("");
     speech.start({
       onResult: (text) => {
-        if (generation !== captureGeneration.current) return;
-        void send(text, "VOICE");
+        if (
+          generation !== captureGeneration.current ||
+          !admittedQuestionId ||
+          admittedRevision === null
+        )
+          return;
+        conversation.setVoiceLiteral(text);
+        setVoiceCapture({
+          id: generation,
+          text,
+          questionId: admittedQuestionId,
+          revision: admittedRevision,
+        });
       },
       onError: (message) => {
         if (generation === captureGeneration.current) setVoiceError(message);
       },
     });
   };
-  const openVoice = () => {
-    captureGeneration.current++;
-    speech.stop();
-    stopAudio();
-    setVoiceOpen(true);
-  };
   const mayAnswer = Boolean(view?.actions.includes("RESOLVE"));
   const mayReview = Boolean(
     view?.actions.some((a) => ["PREPARE", "CONFIRM", "EXECUTE"].includes(a)),
   );
-  const scopeReview = conversation.scopeReview;
-  const canSpeak = (index: number) => {
-    const message = conversation.messages[index];
-    return (
-      !busy &&
-      !error &&
-      message?.importRevision === view?.revision &&
-      Boolean(message?.speechText)
-    );
-  };
-  const rejectGenericAction = () =>
-    setVoiceError(
-      "A confirmação financeira só está disponível no card de revisão.",
-    );
   const cancelIgnoredOnly = async () => {
     if (
       !sessionId ||
@@ -261,40 +238,6 @@ function Conversation({
           Importação {sessionId}
           {view ? ` · Revisão ${view.revision}` : ""}
         </p>
-        {conversation.messages.map((message, index) => (
-          <MariaMessageBubble
-            key={index}
-            message={message}
-            index={index}
-            precedingUserText=""
-            confirmed={false}
-            onConfirm={rejectGenericAction}
-            onEdit={rejectGenericAction}
-            speaking={speaking === index}
-            ttsSupported={isStreamingTtsSupported() && canSpeak(index)}
-            onToggleSpeak={() => {
-              if (!canSpeak(index)) return;
-              const wasSpeaking = speaking === index;
-              stopAudio();
-              if (wasSpeaking || !message.speechText) return;
-              const generation = audioGeneration.current;
-              setSpeaking(index);
-              audio.current = streamSpeak({
-                text: message.speechText,
-                onEnd: () => {
-                  if (generation === audioGeneration.current) setSpeaking(null);
-                },
-                onError: () => {
-                  if (generation !== audioGeneration.current) return;
-                  setSpeaking(null);
-                  setVoiceError(
-                    "Não foi possível reproduzir o áudio. A resposta continua disponível para leitura.",
-                  );
-                },
-              });
-            }}
-          />
-        ))}
         {busy && <p role="status">Consultando a importação…</p>}
         {error && (
           <div role="alert" className="space-y-2 text-sm text-darc-red">
@@ -460,49 +403,6 @@ function Conversation({
               ))}
           </div>
         )}
-        {scopeReview && view && (
-          <section
-            aria-label="Revisar alcance da resposta"
-            className="space-y-3 rounded-xl border p-4"
-          >
-            <h3 className="font-semibold">
-              Aplicar esta resposta às compras deste anexo?
-            </h3>
-            <p className="break-words">Resposta: {conversation.literal}</p>
-            <p className="break-words">
-              Anexo:{" "}
-              {
-                view.attachments.find((a) => a.id === scopeReview.attachmentId)
-                  ?.fileName
-              }
-            </p>
-            <ul className="space-y-2">
-              {scopeReview.lineIds.map((id) => (
-                <li key={id} className="break-words">
-                  {view.lines.find((line) => line.id === id)?.titulo} — Compra{" "}
-                  {id}
-                </li>
-              ))}
-            </ul>
-            <p className="text-sm">
-              Somente o campo da pergunta será alterado. Isto não confirma
-              lançamentos.
-            </p>
-            <button
-              type="button"
-              disabled={
-                busy ||
-                Boolean(error) ||
-                Boolean(documents.error) ||
-                conversation.scopeRevision !== view.revision
-              }
-              onClick={() => void conversation.approveScope()}
-              className="min-h-11 rounded-xl border px-3"
-            >
-              Aplicar resposta a estas compras
-            </button>
-          </section>
-        )}
         {conversation.review && !documents.error && (
           <ImportProposalCard
             sessionId={sessionId}
@@ -523,21 +423,10 @@ function Conversation({
         )}
         {view && !busy && !error && !documents.error && (
           <div className="flex flex-wrap gap-2">
-            {question && isPendingImportQuestion(question) && (
-              <button
-                type="button"
-                onClick={() => void send("Continuar", undefined, "CONTINUE")}
-                className="min-h-11 rounded-xl border px-3"
-              >
-                Consultar pergunta atual
-              </button>
-            )}
             {mayReview && (
               <button
                 type="button"
-                onClick={() =>
-                  void send("Abrir revisão", undefined, "OPEN_REVIEW")
-                }
+                onClick={() => void conversation.openReview()}
                 className="min-h-11 rounded-xl border px-3"
               >
                 Abrir revisão do lote
@@ -546,7 +435,7 @@ function Conversation({
             {view.actions.includes("READ_RESULT") && (
               <button
                 type="button"
-                onClick={() => void conversation.recover(true)}
+                onClick={() => void conversation.readResult()}
                 className="min-h-11 rounded-xl border px-3"
               >
                 Consultar comprovante
@@ -554,33 +443,8 @@ function Conversation({
             )}
           </div>
         )}
-        {question &&
-          !("subject" in question) &&
-          view &&
-          !error?.privateContextLost && (
-            <label className="block text-sm">
-              Alcance da resposta
-              <select
-                value={conversation.attachmentId ?? ""}
-                disabled={busy || !mayAnswer}
-                onChange={(event) =>
-                  conversation.setAttachmentId(event.target.value || null)
-                }
-                className="mt-1 block min-h-11 w-full min-w-0 rounded-xl border px-3"
-              >
-                <option value="">Compras desta pergunta</option>
-                {view.attachments
-                  .filter((a) => a.state === "ATTACHED")
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      Todas de {a.fileName}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
         {!error?.privateContextLost && (
-          <>
+          <div className="min-w-0 space-y-3">
             {guided && (
               <div className="space-y-1 break-words text-sm">
                 <p>
@@ -590,86 +454,81 @@ function Conversation({
                 <p>{guided.literal}</p>
               </div>
             )}
-            <MariaDock
-              importMode
-              input={conversation.literal}
-              onInputChange={conversation.setLiteral}
-              onSubmit={(text) => {
-                void send(text, "TEXT");
-              }}
-              onMic={captureVoice}
-              listening={speech.listening}
-              micSupported={speech.supported}
-              disabled={
-                busy ||
-                !view ||
-                Boolean(error) ||
-                Boolean(documents.error) ||
-                (Boolean(question) && !mayAnswer)
-              }
-              onOpenVoiceConversation={openVoice}
-              composer={
-                question && view ? (
-                  <ImportFocusedQuestion
-                    question={question}
-                    lines={view.lines}
-                    value={conversation.literal}
-                    onTextChange={conversation.setLiteral}
-                    inputLabel="Sua resposta sobre esta compra"
-                    inputHint={
-                      "subject" in question
-                        ? "Confira esta informação antes de guardar. Digitar ou falar não envia uma declaração."
-                        : "Responda com suas palavras. O servidor verificará a resposta."
-                    }
-                    contextKey={JSON.stringify([
-                      conversation.userId,
-                      sessionId,
-                      view.revision,
-                      view.actions,
-                      Boolean(error),
-                      Boolean(documents.error),
-                    ])}
-                    declaredFacts={view.declaredFacts}
-                    relatedQuestions={relatedQuestions}
-                    guided={
-                      "subject" in question &&
-                      guided?.lineId === question.lineIds[0] &&
-                      guided.observationId === question.subject.observationId
-                    }
-                    onStartGuided={conversation.startGuidedAnswer}
-                    onChooseQuestion={conversation.editQuestion}
-                    pending={busy}
-                    disabled={!mayAnswer}
-                    onAnswer={
-                      (error || documents.error) &&
-                      ("subject" in question ||
-                        question.field === "firstDueDate" ||
-                        question.field === "tipoDespesa" ||
-                        question.field === "decision" ||
-                        question.field === "targets")
-                        ? undefined
-                        : (answer) => {
-                            if ("draftAnswer" in answer)
-                              void conversation.saveFocusedDraft(answer);
-                            else if ("subject" in question)
-                              void conversation.saveDeclaration(answer);
-                            else void send(answer.text, "TEXT");
-                          }
-                    }
-                  />
-                ) : undefined
-              }
-            />
-          </>
+            {question && view && (
+              <>
+                <ImportFocusedQuestion
+                  question={question}
+                  lines={view.lines}
+                  value={conversation.literal}
+                  onTextChange={conversation.setLiteral}
+                  inputLabel="Sua resposta sobre esta compra"
+                  inputHint="Confira esta informação antes de guardar. Digitar ou falar nunca envia automaticamente."
+                  contextKey={JSON.stringify([
+                    conversation.userId,
+                    sessionId,
+                    view.revision,
+                    view.actions,
+                    Boolean(error),
+                    Boolean(documents.error),
+                  ])}
+                  declaredFacts={view.declaredFacts}
+                  relatedQuestions={relatedQuestions}
+                  guided={
+                    "subject" in question &&
+                    guided?.lineId === question.lineIds[0] &&
+                    guided.observationId === question.subject.observationId
+                  }
+                  onStartGuided={conversation.startGuidedAnswer}
+                  onChooseQuestion={conversation.editQuestion}
+                  candidates={manualOptions.candidates}
+                  targetProjects={manualOptions.projects}
+                  optionsPending={manualOptions.pending}
+                  optionsError={manualOptions.error}
+                  voiceCapture={voiceCapture}
+                  revision={view.revision}
+                  onVoiceGuidance={setVoiceError}
+                  pending={busy}
+                  disabled={!mayAnswer}
+                  onAnswer={
+                    error || documents.error
+                      ? undefined
+                      : (answer) => {
+                          if ("draftAnswer" in answer)
+                            void conversation.saveFocusedDraft(answer);
+                          else void conversation.saveDeclaration(answer);
+                        }
+                  }
+                />
+                {manualOptions.error && (
+                  <button
+                    type="button"
+                    className="min-h-11 rounded-xl border px-3"
+                    onClick={() => void manualOptions.retry?.()}
+                  >
+                    Consultar opções novamente
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={captureVoice}
+                  disabled={
+                    busy ||
+                    !mayAnswer ||
+                    !speech.supported ||
+                    Boolean(error) ||
+                    Boolean(documents.error)
+                  }
+                  className="min-h-11 w-full rounded-xl bg-darc-red px-4 font-semibold text-white disabled:opacity-50"
+                >
+                  {speech.listening
+                    ? "Ouvindo…"
+                    : "Responder por voz sem enviar"}
+                </button>
+              </>
+            )}
+          </div>
         )}
       </div>
-      {voiceOpen && !error?.privateContextLost && (
-        <VoiceAssistantOverlay
-          autoStart
-          send={(text) => send(text, "VOICE")}
-          onClose={() => setVoiceOpen(false)}
-        />
-      )}
     </section>
   );
 }

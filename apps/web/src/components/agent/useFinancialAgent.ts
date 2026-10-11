@@ -2,11 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useProject } from "@/contexts/project-context";
-import type {
-  ImportChatOutcomeV1,
-  ImportChatTurnV1,
-} from "@reformaflow/domain";
-import { sendImportChat } from "@/app/projects/[projectId]/maria/_lib/import-session-api";
 import {
   readImportEntryAction,
   type ImportEntryAction,
@@ -18,7 +13,6 @@ export interface ChatMessage {
   toolsUsed?: string[];
   mode?: "IMPORT";
   speechText?: string | null;
-  importOutcome?: ImportChatOutcomeV1;
   importRevision?: number;
   importEntryAction?: ImportEntryAction | null;
 }
@@ -27,7 +21,6 @@ export type AgentChannel = "TEXT" | "VOICE";
 
 export interface FinancialAgentSendContext {
   channel?: AgentChannel;
-  importTurn?: ImportChatTurnV1 | null;
   signal?: AbortSignal;
 }
 
@@ -97,21 +90,6 @@ export function useFinancialAgent() {
       text: string,
       context?: FinancialAgentSendContext,
     ): Promise<ChatMessage | null> => {
-      if (context && Object.hasOwn(context, "importTurn")) {
-        if (context.importTurn?.literalAnswer !== text)
-          throw new Error("Invalid import literal");
-        const importOutcome = await sendImportChat(
-          context.importTurn,
-          context.signal,
-        );
-        return {
-          role: "assistant",
-          mode: "IMPORT",
-          content: "",
-          speechText: null,
-          importOutcome,
-        };
-      }
       const content = text.trim();
       if (!content) return null;
       const channel = context?.channel ?? "TEXT";
@@ -129,7 +107,7 @@ export function useFinancialAgent() {
           "/agent/chat",
           {
             projectId,
-            channel,
+            metadata: { channel },
             messages: history.map((m) => ({
               role: m.role,
               content: m.content,

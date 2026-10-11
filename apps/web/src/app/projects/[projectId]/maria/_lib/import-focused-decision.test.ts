@@ -27,22 +27,26 @@ describe("native choice admission is narrow and exact", () => {
       field: "decision",
       value: { kind: "CREATE", acceptNaturalDuplicate: false },
     },
-    { field: "targets", value: [] },
-  ])("admits exact %j", (answer) => {
-    expect(validFocusedDraftAnswer(answer)).toBe(true);
-  });
-  it.each([
     {
       field: "decision",
       value: { kind: "CREATE", acceptNaturalDuplicate: true },
     },
     {
       field: "decision",
-      value: { kind: "CREATE", acceptNaturalDuplicate: false, extra: true },
+      value: { kind: "KEEP_EXISTING", expenseId: "expense" },
     },
+    { field: "targets", value: [] },
+    {
+      field: "targets",
+      value: [{ projectId: "target", roomId: null, amountCents: 100 }],
+    },
+  ])("admits exact %j", (answer) => {
+    expect(validFocusedDraftAnswer(answer)).toBe(true);
+  });
+  it.each([
     {
       field: "decision",
-      value: { kind: "KEEP_EXISTING", expenseId: "expense" },
+      value: { kind: "CREATE", acceptNaturalDuplicate: false, extra: true },
     },
     { field: "decision", value: { kind: "UNRESOLVED" } },
     { field: "decision", value: null },
@@ -51,7 +55,7 @@ describe("native choice admission is narrow and exact", () => {
     { field: "targets", value: {} },
     { field: "targets", value: [], extra: true },
     { field: "decision", value: { kind: "CREATE" } },
-  ])("rejects unsupported, extra or waived %j", (answer) => {
+  ])("rejects unsupported or structurally inexact %j", (answer) => {
     expect(validFocusedDraftAnswer(answer)).toBe(false);
   });
 });

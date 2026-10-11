@@ -5,29 +5,23 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   isPendingImportQuestion,
   normalizeImportDeclaration,
-  type ImportFocusV1,
-  type ImportChatTurnV1,
   type ImportScopeReviewV1,
   type ImportSessionQuestionV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
-import {
-  useFinancialAgent,
-  type ChatMessage,
-} from "@/components/agent/useFinancialAgent";
 import {
   editImportSession,
   answerImportDocumentaryQuestion,
   answerImportFocusedDraftQuestion,
   getFullImportSession,
   getImportResult,
+  prepareImportSession,
   type ImportQuestionAnswerInput,
 } from "../_lib/import-session-api";
 import { importKeys, importRoot } from "../_lib/import-session-keys";
 import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-read";
 import {
   importConversationFailure,
-  importOutcomeCopy,
   importReceiptSpeech,
   type ConversationFailure,
 } from "../_lib/import-conversation-copy";
@@ -42,6 +36,14 @@ import {
   validFocusedDraftAnswer,
   verifiedFocusedDraftAnswer,
 } from "../_lib/import-focused-draft";
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  mode: "IMPORT";
+  content: string;
+  speechText?: string | null;
+  importRevision?: number;
+}
 
 interface Generation {
   userId: string | null;
@@ -82,7 +84,10 @@ const empty = (channel: "TEXT" | "VOICE" = "TEXT"): Local => ({
   result: null,
   messages: [],
 });
-const sameFocus = (a: ImportFocusV1, b: ImportFocusV1) =>
+const sameFocus = (
+  a: Pick<ImportSessionQuestionV1, "id" | "field" | "lineIds">,
+  b: Pick<ImportSessionQuestionV1, "id" | "field" | "lineIds">,
+) =>
   a.id === b.id &&
   a.field === b.field &&
   a.lineIds.length === b.lineIds.length &&
@@ -96,7 +101,6 @@ export function useImportConversation(
 ) {
   const userId = useImportUserId();
   const client = useQueryClient();
-  const agent = useFinancialAgent();
   const scope = useRef<Generation>({
     userId,
     sessionId,
@@ -231,217 +235,141 @@ export function useImportConversation(
     if (fresh.id !== sessionId) throw new ImportWorkflowResponseError();
     return fresh;
   }
-  async function dispatch(
-    turn: ImportChatTurnV1,
-    displayLiteral = turn.literalAnswer,
-  ): Promise<ChatMessage | null> {
+  const reviewReady = (fresh: ImportSessionViewV1) =>
+    Boolean(
+      fresh.proposal &&
+      ((fresh.state === "READY" && fresh.actions.includes("CONFIRM")) ||
+        (fresh.state === "CONFIRMED" && fresh.actions.includes("EXECUTE"))),
+    );
+  const verifiedPrepared = (
+    previous: ImportSessionViewV1,
+    fresh: ImportSessionViewV1,
+  ) =>
+    fresh.id === previous.id &&
+    fresh.ownerProjectId === previous.ownerProjectId &&
+    fresh.cardId === previous.cardId &&
+    fresh.revision === previous.revision + 1 &&
+    fresh.state === "READY" &&
+    fresh.confirmation === null &&
+    fresh.receipt === null &&
+    reviewReady(fresh) &&
+    sameFocusedValue(fresh.attachments, previous.attachments) &&
+    sameFocusedValue(fresh.lines, previous.lines) &&
+    sameFocusedValue(fresh.selectedLineIds, previous.selectedLineIds) &&
+    sameFocusedValue(fresh.questions, previous.questions) &&
+    sameFocusedValue(fresh.declaredFacts, previous.declaredFacts);
+
+  async function openReview() {
     if (!active() || generation.busy) return null;
-    const admittedContext = JSON.stringify([
-      view?.questions,
-      view?.actions,
-      view?.declaredFacts,
-    ]);
-    const visibleContext = () => {
-      const cached = client.getQueryData<ImportSessionViewV1>(key);
-      return (
-        snapshotStillCurrent(turn.expectedRevision) &&
-        JSON.stringify([
-          cached?.questions,
-          cached?.actions,
-          cached?.declaredFacts,
-        ]) === admittedContext
-      );
-    };
-    if (!visibleContext()) {
+    if (!view || !sessionId || failure) {
+      if (!failure) fail(new ImportWorkflowResponseError());
+      return null;
+    }
+    if (reviewReady(view)) {
+      update({ review: true, failure: null });
+      return view;
+    }
+    if (!view.actions.includes("PREPARE")) {
       fail(new ImportWorkflowResponseError());
       return null;
     }
+    const expectedRevision = view.revision;
     generation.busy = true;
     const controller = new AbortController();
     generation.controller = controller;
-    const history: ChatMessage[] = [
-      ...local.messages,
-      { role: "user", mode: "IMPORT", content: displayLiteral },
-    ];
-    update({
-      literal: displayLiteral,
-      channel: turn.channel,
-      focus: question,
-      pending: true,
-      failure: null,
-      review: false,
-      result: null,
-      messages: history,
-    });
+    update({ pending: true, failure: null, result: null });
     try {
-      const response = await agent.send(turn.literalAnswer, {
-        importTurn: turn,
-        signal: controller.signal,
-      });
-      if (!active()) return null;
-      const outcome = response?.importOutcome;
-      if (!outcome || outcome.kind === "ERROR")
-        throw new ImportWorkflowResponseError();
+      const fresh = await prepareImportSession(
+        sessionId,
+        { expectedRevision },
+        controller.signal,
+      );
       if (
-        outcome.turnId !== turn.turnId ||
-        outcome.ref.sessionId !== turn.sessionId
+        !active() ||
+        !snapshotStillCurrent(expectedRevision) ||
+        !verifiedPrepared(view, fresh)
       )
         throw new ImportWorkflowResponseError();
-      const fresh = await readCurrent(controller.signal);
-      if (!active()) return null;
-      if (!visibleContext() || fresh.revision !== outcome.ref.revision)
-        throw new ImportWorkflowResponseError();
-      const nextQuestion =
-        outcome.kind === "QUESTION"
-          ? fresh.questions.find(
-              (q) => q.id === outcome.questionId && isPendingImportQuestion(q),
-            )
-          : (fresh.questions.find(isPendingImportQuestion) ?? null);
-      if (outcome.kind === "QUESTION" && !nextQuestion)
-        throw new ImportWorkflowResponseError();
-      const scopeReview =
-        outcome.kind === "CLARIFY" ? outcome.scopeReview : null;
-      if (
-        scopeReview &&
-        (!fresh.questions.some(
-          (q) => !("subject" in q) && sameFocus(q, scopeReview.focus),
-        ) ||
-          !fresh.attachments.some(
-            (a) => a.id === scopeReview.attachmentId && a.state === "ATTACHED",
-          ) ||
-          !scopeReview.lineIds.every((id) =>
-            fresh.lines.some((line) => line.id === id),
-          ))
-      )
-        throw new ImportWorkflowResponseError();
-      if (
-        outcome.kind === "OPEN_REVIEW" &&
-        !(
-          fresh.proposal &&
-          ((fresh.state === "READY" && fresh.actions.includes("CONFIRM")) ||
-            (fresh.state === "CONFIRMED" && fresh.actions.includes("EXECUTE")))
-        )
-      )
-        throw new ImportWorkflowResponseError();
-      let result: ImportResultRead | null = null;
-      let speechText: string | null = null;
-      let content =
-        outcome.kind === "QUESTION" && nextQuestion
-          ? nextQuestion.text
-          : importOutcomeCopy(outcome);
-      if (outcome.kind === "READ_RESULT") {
-        result = await getImportResult(turn.sessionId, controller.signal);
-        if (!active()) return null;
-        if (!snapshotStillCurrent(turn.expectedRevision))
-          throw new ImportWorkflowResponseError();
-        speechText = importReceiptSpeech(result);
-        content = speechText ?? "Esta importação ainda não tem comprovante.";
-        client.setQueryData(importKeys.result(userId!, turn.sessionId), result);
-      } else {
-        speechText = content;
-      }
-      const assistant: ChatMessage = {
-        role: "assistant",
-        mode: "IMPORT",
-        content,
-        speechText,
-        importRevision: fresh.revision,
-      };
-      const acknowledged = outcome.acknowledgment !== "NONE";
       client.setQueryData(key, fresh);
       update({
         pending: false,
         failure: null,
-        scopeReview,
-        scopeRevision: scopeReview ? fresh.revision : null,
-        result,
-        review: outcome.kind === "OPEN_REVIEW",
-        literal: acknowledged ? "" : displayLiteral,
-        editingQuestionId: acknowledged ? null : local.editingQuestionId,
-        focus:
-          acknowledged ||
-          (turn.intent !== "ANSWER" &&
-            turn.intent !== "APPROVE_ATTACHMENT_SCOPE")
-            ? (nextQuestion ?? null)
-            : question,
-        messages: [...history, assistant],
+        review: true,
+        focus: null,
+        literal: "",
       });
-      return assistant;
+      return fresh;
     } catch (error) {
       if (!active()) return null;
-      fail(error);
-      return {
-        role: "assistant",
-        mode: "IMPORT",
-        content: importConversationFailure(error).message,
-        speechText: null,
-      };
+      try {
+        const recovered = await readCurrent(controller.signal);
+        if (
+          active() &&
+          snapshotStillCurrent(expectedRevision) &&
+          verifiedPrepared(view, recovered)
+        ) {
+          client.setQueryData(key, recovered);
+          update({
+            pending: false,
+            failure: null,
+            review: true,
+            focus: null,
+            literal: "",
+          });
+          return recovered;
+        }
+      } catch {
+        // A lost mutation response authorizes one read, never a blind retry.
+      }
+      if (active()) fail(error);
+      return null;
     } finally {
       generation.busy = false;
       if (generation.controller === controller) generation.controller = null;
     }
   }
 
+  async function readResult() {
+    if (!active() || generation.busy || !view || !sessionId || !userId)
+      return null;
+    const expectedRevision = view.revision;
+    generation.busy = true;
+    const controller = new AbortController();
+    generation.controller = controller;
+    update({ pending: true, failure: null });
+    try {
+      const result = await getImportResult(sessionId, controller.signal);
+      if (!active() || !snapshotStillCurrent(expectedRevision))
+        throw new ImportWorkflowResponseError();
+      importReceiptSpeech(result);
+      client.setQueryData(importKeys.result(userId, sessionId), result);
+      update({ pending: false, failure: null, result });
+      return result;
+    } catch (error) {
+      if (active()) fail(error);
+      return null;
+    } finally {
+      generation.busy = false;
+      if (generation.controller === controller) generation.controller = null;
+    }
+  }
+
+  /** Compatibility adapter for controls migrating off the conversational route. */
   async function send(
     literal: string,
     channel?: "TEXT" | "VOICE",
     explicit?: "CONTINUE" | "OPEN_REVIEW" | "READ_RESULT",
   ) {
     if (!active() || generation.busy) return null;
-    const requestChannel = channel ?? local.channel;
-    update({ literal, channel: requestChannel, focus: question });
-    if (!view || !userId || !sessionId || failure) {
-      if (!failure) fail(new ImportWorkflowResponseError());
-      return null;
-    }
-    if (!explicit && question && "subject" in question) return null;
-    const mayOpenReview = view.actions.some((action) =>
-      ["PREPARE", "CONFIRM", "EXECUTE"].includes(action),
-    );
-    const intent =
-      explicit ??
-      (question
-        ? "ANSWER"
-        : view.actions.includes("READ_RESULT")
-          ? "READ_RESULT"
-          : literal.trim().toLocaleLowerCase("pt-BR") === "sim" && mayOpenReview
-            ? "OPEN_REVIEW"
-            : "CONTINUE");
-    const base = {
-      version: 1 as const,
-      turnId: crypto.randomUUID(),
-      sessionId,
-      expectedRevision: view.revision,
-      channel: requestChannel,
-      literalAnswer: literal,
-    };
-    if (intent === "ANSWER") {
-      if (
-        !question ||
-        !view.actions.includes("RESOLVE") ||
-        !view.questions.some((q) => sameFocus(q, question))
-      ) {
-        fail(new ImportWorkflowResponseError());
-        return null;
-      }
-      return dispatch({
-        ...base,
-        intent,
-        focus: {
-          id: question.id,
-          field: question.field,
-          lineIds: [...question.lineIds],
-        },
-        scope: local.attachmentId
-          ? { kind: "ATTACHMENT", attachmentId: local.attachmentId }
-          : { kind: "LINES", lineIds: [...question.lineIds] },
-      });
-    }
-    if (intent === "OPEN_REVIEW" && !mayOpenReview) {
-      fail(new ImportWorkflowResponseError());
-      return null;
-    }
-    return dispatch({ ...base, intent, focus: null, scope: null });
+    update({
+      literal,
+      channel: channel ?? local.channel,
+      focus: question,
+      scopeReview: null,
+    });
+    if (explicit === "OPEN_REVIEW") return openReview();
+    if (explicit === "READ_RESULT") return readResult();
+    return null;
   }
 
   async function saveFocusedDraft(accepted: ImportQuestionAnswerInput) {
@@ -515,6 +443,7 @@ export function useImportConversation(
           answerRequestId: crypto.randomUUID(),
           expectedRevision,
           questionId: question.id,
+          channel: local.channel,
           answer,
         },
         controller.signal,
@@ -669,6 +598,7 @@ export function useImportConversation(
           answerRequestId: crypto.randomUUID(),
           expectedRevision,
           questionId: question.id,
+          channel: local.channel,
           input: accepted.input,
           answer,
         },
@@ -775,37 +705,9 @@ export function useImportConversation(
   }
 
   async function approveScope() {
-    const review = local.scopeReview;
     if (!active() || generation.busy) return null;
-    if (
-      !review ||
-      !view ||
-      !sessionId ||
-      failure ||
-      view.revision !== local.scopeRevision ||
-      !view.actions.includes("RESOLVE") ||
-      !question ||
-      "subject" in question ||
-      !sameFocus(question, review.focus)
-    ) {
-      fail(new ImportWorkflowResponseError());
-      return null;
-    }
-    return dispatch({
-      version: 1,
-      turnId: crypto.randomUUID(),
-      sessionId,
-      expectedRevision: view.revision,
-      channel: local.channel,
-      literalAnswer: local.literal,
-      intent: "APPROVE_ATTACHMENT_SCOPE",
-      focus: review.focus,
-      scope: {
-        kind: "ATTACHMENT",
-        attachmentId: review.attachmentId,
-        approvedLineIds: [...review.lineIds],
-      },
-    });
+    fail(new ImportWorkflowResponseError());
+    return null;
   }
 
   async function recover(readResult = false) {
@@ -922,6 +824,8 @@ export function useImportConversation(
     error: failure,
     busy: pending,
     send,
+    openReview,
+    readResult,
     saveDeclaration,
     saveFocusedDraft,
     editQuestion,
@@ -934,6 +838,13 @@ export function useImportConversation(
       update({
         literal,
         channel: "TEXT",
+        focus: question,
+        scopeReview: null,
+      }),
+    setVoiceLiteral: (literal: string) =>
+      update({
+        literal,
+        channel: "VOICE",
         focus: question,
         scopeReview: null,
       }),

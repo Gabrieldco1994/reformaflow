@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   encodeImportDeclaration,
-  type ImportChatTurnV1,
   type ImportDeclarationAnswerV1,
   type ImportDeclarationUiInputV1,
   type ImportObservationQuestionV1,
@@ -229,7 +228,12 @@ describe("native documentary preview contract", () => {
       });
       expect(mocks.answerImportDocumentaryQuestion).toHaveBeenCalledWith(
         base.id,
-        expect.objectContaining({ questionId: focused.id, input, answer }),
+        expect.objectContaining({
+          questionId: focused.id,
+          channel: "TEXT",
+          input,
+          answer,
+        }),
         expect.any(AbortSignal),
       );
       expect(result.current.error).toBeNull();
@@ -268,7 +272,11 @@ describe("native documentary preview contract", () => {
       });
       expect(mocks.answerImportDocumentaryQuestion).toHaveBeenCalledWith(
         base.id,
-        expect.objectContaining({ input: { kind }, answer: nullAnswer }),
+        expect.objectContaining({
+          channel: "TEXT",
+          input: { kind },
+          answer: nullAnswer,
+        }),
         expect.any(AbortSignal),
       );
       expect(result.current.error).toBeNull();
@@ -293,6 +301,7 @@ describe("native documentary preview contract", () => {
       answerRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       expectedRevision: 4,
       questionId: question.id,
+      channel: "TEXT",
       input,
       answer,
     });
@@ -510,62 +519,40 @@ describe("native documentary preview contract", () => {
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it("free_conversation_still_uses_llm_path", async () => {
+  it("free text in an active import never uses the LLM path", async () => {
     const view: ImportSessionViewV1 = { ...base, questions: [] };
     const { result } = setup(view);
     await waitFor(() => expect(result.current.busy).toBe(false));
-    mocks.send.mockResolvedValue(null);
     await act(async () => {
       await result.current.send("Como funciona esta importação?");
     });
-    expect(mocks.send).toHaveBeenCalledWith(
-      "Como funciona esta importação?",
-      expect.objectContaining({
-        importTurn: expect.objectContaining({ intent: "CONTINUE" }),
-      }),
-    );
+    expect(mocks.send).not.toHaveBeenCalled();
     expect(mocks.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
   });
 
-  it("inherits the entry origin for non-keyboard turns until typed input changes modality", async () => {
-    const view: ImportSessionViewV1 = {
-      ...base,
-      questions: [],
-      actions: [],
-    };
-    mocks.send.mockImplementation(
-      async (_literal: string, context: { importTurn: ImportChatTurnV1 }) => {
-        const turn = context.importTurn;
-        return {
-          role: "assistant",
-          mode: "IMPORT",
-          content: "",
-          importOutcome: {
-            version: 1,
-            turnId: turn.turnId,
-            ref: { sessionId: turn.sessionId, revision: turn.expectedRevision },
-            acknowledgment: "NONE",
-            kind: "REVISED_SESSION",
-          },
-        };
-      },
-    );
-    const { result } = setup(view, "VOICE");
+  it("sends voice provenance to the direct endpoint and manual editing resets it to TEXT", async () => {
+    const { result } = setup(base, "VOICE");
     await waitFor(() => expect(result.current.busy).toBe(false));
-
+    mocks.answerImportDocumentaryQuestion.mockResolvedValue(stored());
     await act(async () => {
-      await result.current.send("Continuar", undefined, "CONTINUE");
+      await result.current.saveDeclaration(accepted);
     });
-    expect(mocks.send.mock.calls.at(-1)?.[1].importTurn.channel).toBe("VOICE");
+    expect(
+      mocks.answerImportDocumentaryQuestion.mock.calls.at(-1)?.[1].channel,
+    ).toBe("VOICE");
 
+    const second = setup(base, "VOICE");
+    await waitFor(() => expect(second.result.current.busy).toBe(false));
+    mocks.answerImportDocumentaryQuestion.mockResolvedValue(stored());
     await act(async () => {
-      await result.current.send("resposta digitada", "TEXT", "CONTINUE");
+      second.result.current.setLiteral("LOJA FICTICIA NORTE");
     });
-    expect(mocks.send.mock.calls.at(-1)?.[1].importTurn.channel).toBe("TEXT");
-
     await act(async () => {
-      await result.current.send("Abrir próxima etapa", undefined, "CONTINUE");
+      await second.result.current.saveDeclaration(accepted);
     });
-    expect(mocks.send.mock.calls.at(-1)?.[1].importTurn.channel).toBe("TEXT");
+    expect(
+      mocks.answerImportDocumentaryQuestion.mock.calls.at(-1)?.[1].channel,
+    ).toBe("TEXT");
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 });

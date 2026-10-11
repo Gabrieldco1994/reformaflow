@@ -1,12 +1,8 @@
-import { api, ApiResponseError } from "@/lib/api";
-import {
-  ImportConversationHttpError,
-  readImportChatOutcome,
-  readImportChatTurn,
-} from "./import-conversation-read";
+import { api } from "@/lib/api";
 import type {
   ImportDeclarationAnswerV1,
   ImportDeclarationUiInputV1,
+  ImportChatChannel,
   ImportSessionDocumentaryAnswerRequestV1,
   ImportSessionCandidateV1,
   ImportSessionChallengeRequestV1,
@@ -28,7 +24,6 @@ import {
   readImportObservationPage,
   readImportWorkflowReceipt,
   readImportWorkflowView,
-  ImportWorkflowResponseError,
   type ImportObservationView,
 } from "./import-session-workflow-read";
 import type { ImportListScope } from "./import-session-keys";
@@ -92,7 +87,9 @@ export async function answerImportFocusedDraftQuestion(
 
 export async function answerImportDocumentaryQuestion(
   id: string,
-  request: ImportSessionDocumentaryAnswerRequestV1,
+  request: ImportSessionDocumentaryAnswerRequestV1 & {
+    channel: ImportChatChannel;
+  },
   signal?: AbortSignal,
 ): Promise<ImportSessionViewV1> {
   const view = readImportWorkflowView(
@@ -200,47 +197,6 @@ export async function analyzeImportAttachment(
     : malformed();
 }
 
-export async function sendImportChat(value: unknown, signal?: AbortSignal) {
-  const turn = readImportChatTurn(value);
-  let response: unknown;
-  try {
-    response = await api.post<unknown>(
-      "/agent/chat",
-      {
-        messages: [{ role: "user", content: turn.literalAnswer }],
-        importTurn: turn,
-      },
-      { headers: { ...UI_HEADERS }, timeoutMs: 120_000, signal },
-    );
-  } catch (error) {
-    if (
-      error instanceof ApiResponseError &&
-      isRecord(error.body) &&
-      Object.hasOwn(error.body, "importOutcome")
-    ) {
-      let outcome;
-      try {
-        outcome = readImportChatOutcome(error.body.importOutcome, turn);
-      } catch (invalid) {
-        if (invalid instanceof ImportWorkflowResponseError) throw error;
-        throw invalid;
-      }
-      if (
-        outcome.kind !== "ERROR" ||
-        ([401, 404].includes(error.status) &&
-          (outcome.ref !== null || outcome.acknowledgment !== "NONE"))
-      )
-        throw error;
-      throw new ImportConversationHttpError(error.status, outcome);
-    }
-    throw error;
-  }
-  if (!isRecord(response)) return malformed();
-  const outcome = readImportChatOutcome(response.importOutcome, turn);
-  if (outcome.kind === "ERROR") return malformed();
-  return outcome;
-}
-
 export async function listImportSessions(
   scope: ImportListScope,
   cursor?: string | null,
@@ -314,10 +270,12 @@ export async function editImportSession(
 export async function prepareImportSession(
   id: string,
   request: ImportSessionRevisionRequestV1,
+  signal?: AbortSignal,
 ) {
   const view = readImportWorkflowView(
     await api.post<unknown>(`/import-sessions/${enc(id)}/prepare`, request, {
       headers: { ...UI_HEADERS },
+      signal,
     }),
   );
   return view.id === id ? view : malformed();

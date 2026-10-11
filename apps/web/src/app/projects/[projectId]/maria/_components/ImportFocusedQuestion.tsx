@@ -10,6 +10,7 @@ import {
   type ImportDeclarationUiInputV1,
   type ImportDeclaredFactViewV1,
   type ImportObservationQuestionV1,
+  type ImportSessionCandidateV1,
   type ImportSessionDraftLineV1,
   type ImportSessionQuestionV1,
 } from "@reformaflow/domain";
@@ -21,10 +22,17 @@ import { Button } from "@/components/ui/button";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
 import { ImportFocusedDraftQuestion } from "./ImportFocusedDraftQuestion";
 import { isFocusedDraftQuestion } from "../_lib/import-focused-draft";
+import { deterministicVoiceAnswer } from "../_lib/import-manual-answer";
+import type {
+  ImportTargetProjectOption,
+  ImportVoiceCapture,
+} from "./ImportFocusedDraftQuestion";
 
 type ImportFocusedQuestionProps = {
   question: ImportSessionQuestionV1;
-  lines: readonly Pick<ImportSessionDraftLineV1, "id" | "titulo">[];
+  lines: readonly (Pick<ImportSessionDraftLineV1, "id" | "titulo"> & {
+    amountCents?: number | null;
+  })[];
   inputLabel: string;
   inputHint: string;
   /** Local preview acceptance, not a draft mutation or a transport callback. */
@@ -39,6 +47,13 @@ type ImportFocusedQuestionProps = {
   guided?: boolean;
   onStartGuided?: () => void;
   onChooseQuestion?: (id: string) => void;
+  candidates?: readonly ImportSessionCandidateV1[];
+  targetProjects?: readonly ImportTargetProjectOption[];
+  optionsPending?: boolean;
+  optionsError?: string | null;
+  voiceCapture?: ImportVoiceCapture | null;
+  revision?: number;
+  onVoiceGuidance?: (message: string) => void;
 };
 
 export const IMPORT_QUESTION_FIELD_LABEL: Record<
@@ -98,6 +113,9 @@ function FocusedQuestion({
   guided = false,
   onStartGuided,
   onChooseQuestion,
+  voiceCapture,
+  revision,
+  onVoiceGuidance,
 }: ImportFocusedQuestionProps) {
   const id = useId();
   const [localText, setText] = useState("");
@@ -146,6 +164,7 @@ function FocusedQuestion({
     onTextChange?.(value);
   };
   const sent = useRef(false);
+  const handledVoice = useRef<number | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const wasPending = useRef(pending);
   const restoreFocus = useRef(false);
@@ -176,6 +195,42 @@ function FocusedQuestion({
         : null,
     );
   };
+  useEffect(() => {
+    if (
+      !documentary ||
+      !voiceCapture ||
+      handledVoice.current === voiceCapture.id ||
+      voiceCapture.questionId !== documentary.id ||
+      voiceCapture.revision !== revision ||
+      voiceCapture.text !== text ||
+      blocked
+    )
+      return;
+    handledVoice.current = voiceCapture.id;
+    const answer = deterministicVoiceAnswer(
+      documentary.field,
+      voiceCapture.text,
+    );
+    if (answer?.field === documentary.field && normalized?.kind === "VALID") {
+      previewInput({ kind: "VALUE", text: voiceCapture.text });
+      return;
+    }
+    const guidance =
+      "A fala foi mantida como rascunho. Confira este campo manualmente; nada foi enviado.";
+    setPreview(null);
+    setPreviewError(guidance);
+    onVoiceGuidance?.(guidance);
+    input.current?.focus();
+  }, [
+    blocked,
+    documentary,
+    onVoiceGuidance,
+    normalized,
+    revision,
+    stamp,
+    text,
+    voiceCapture,
+  ]);
 
   return (
     <form
@@ -472,7 +527,10 @@ function FocusedQuestion({
               type="button"
               className="min-h-11"
               disabled={blocked || !onAnswer}
-              onClick={() => previewInput({ kind: "UNKNOWN" })}
+              onClick={() => {
+                onTextChange?.(text);
+                previewInput({ kind: "UNKNOWN" });
+              }}
             >
               Não sei informar
             </Button>
@@ -480,7 +538,10 @@ function FocusedQuestion({
               type="button"
               className="min-h-11"
               disabled={blocked || !onAnswer}
-              onClick={() => previewInput({ kind: "REMOVE" })}
+              onClick={() => {
+                onTextChange?.(text);
+                previewInput({ kind: "REMOVE" });
+              }}
             >
               Remover informação
             </Button>
@@ -529,23 +590,8 @@ function FocusedQuestion({
   );
 }
 
-/** Mount only when the user opens the active question; refreshes keep text and keyboard focus. */
-function FocusedDraftOrConversation(props: ImportFocusedQuestionProps) {
-  const [otherChoice, setOtherChoice] = useState(false);
-  if (otherChoice) return <FocusedQuestion {...props} />;
-  return (
-    <ImportFocusedDraftQuestion
-      {...props}
-      onOtherChoice={() => {
-        props.onTextChange?.("");
-        setOtherChoice(true);
-      }}
-    />
-  );
-}
-
 export function ImportFocusedQuestion(props: ImportFocusedQuestionProps) {
   if (isFocusedDraftQuestion(props.question))
-    return <FocusedDraftOrConversation key={props.question.id} {...props} />;
+    return <ImportFocusedDraftQuestion key={props.question.id} {...props} />;
   return <FocusedQuestion key={props.question.id} {...props} />;
 }

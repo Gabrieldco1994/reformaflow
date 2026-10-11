@@ -1,5 +1,9 @@
 import {
+  IMPORT_SESSION_LIMITS,
+  IMPORT_SESSION_PRIMITIVES,
   ExpenseType,
+  ImportSessionAmountMeaning,
+  LaborCategory,
   parseInstallmentDateOnlyUtc,
   type ImportSessionQuestionV1,
   type ImportSessionViewV1,
@@ -7,10 +11,15 @@ import {
 import type { FocusedDraftAnswer } from "./import-focused-draft-types";
 
 export const FOCUSED_DRAFT_LABEL = {
+  amountMeaning: "Significado do valor",
+  amountCents: "Valor da compra",
+  installmentCount: "Quantidade de parcelas",
+  dataCompra: "Data da compra",
   firstDueDate: "Primeiro vencimento",
   tipoDespesa: "Tipo de despesa",
-  decision: "Criar nova compra",
-  targets: "Sem rateio — manter a compra no projeto proprietário",
+  categoriaMaoDeObra: "Categoria de mão de obra",
+  decision: "Destino da compra",
+  targets: "Finalidade da compra",
 } as const;
 
 export function isFocusedDraftQuestion(
@@ -33,6 +42,27 @@ export function validFocusedDraftAnswer(
 ): answer is FocusedDraftAnswer {
   if (!record(answer) || !exact(answer, ["field", "value"])) return false;
   switch (answer.field) {
+    case "amountMeaning":
+      return Object.values(ImportSessionAmountMeaning).some(
+        (value) => value === answer.value,
+      );
+    case "amountCents":
+      return (
+        answer.value === null ||
+        (typeof answer.value === "number" &&
+          Number.isSafeInteger(answer.value) &&
+          answer.value >= IMPORT_SESSION_PRIMITIVES.minPurchaseCents &&
+          answer.value <= IMPORT_SESSION_PRIMITIVES.maxCents)
+      );
+    case "installmentCount":
+      return (
+        answer.value === null ||
+        (typeof answer.value === "number" &&
+          Number.isSafeInteger(answer.value) &&
+          answer.value >= 1 &&
+          answer.value <= IMPORT_SESSION_LIMITS.installmentsPerPurchase)
+      );
+    case "dataCompra":
     case "firstDueDate":
       return (
         answer.value === null ||
@@ -45,18 +75,50 @@ export function validFocusedDraftAnswer(
         answer.value === null ||
         Object.values(ExpenseType).some((type) => type === answer.value)
       );
-    case "decision":
+    case "categoriaMaoDeObra":
       return (
-        record(answer.value) &&
-        exact(answer.value, ["kind", "acceptNaturalDuplicate"]) &&
-        answer.value.kind === "CREATE" &&
-        answer.value.acceptNaturalDuplicate === false
+        answer.value === null ||
+        Object.values(LaborCategory).some(
+          (category) => category === answer.value,
+        )
+      );
+    case "decision":
+      if (!record(answer.value)) return false;
+      if (answer.value.kind === "CREATE")
+        return (
+          exact(answer.value, ["kind", "acceptNaturalDuplicate"]) &&
+          typeof answer.value.acceptNaturalDuplicate === "boolean"
+        );
+      return (
+        answer.value.kind === "KEEP_EXISTING" &&
+        exact(answer.value, ["kind", "expenseId"]) &&
+        typeof answer.value.expenseId === "string" &&
+        new RegExp(IMPORT_SESSION_PRIMITIVES.idPattern).test(
+          answer.value.expenseId,
+        )
       );
     case "targets":
       return (
         Array.isArray(answer.value) &&
-        answer.value.length === 0 &&
-        Reflect.ownKeys(answer.value).length === 1
+        answer.value.length <= 1 &&
+        answer.value.every(
+          (target) =>
+            record(target) &&
+            exact(target, ["projectId", "roomId", "amountCents"]) &&
+            typeof target.projectId === "string" &&
+            new RegExp(IMPORT_SESSION_PRIMITIVES.idPattern).test(
+              target.projectId,
+            ) &&
+            (target.roomId === null ||
+              (typeof target.roomId === "string" &&
+                new RegExp(IMPORT_SESSION_PRIMITIVES.idPattern).test(
+                  target.roomId,
+                ))) &&
+            typeof target.amountCents === "number" &&
+            Number.isSafeInteger(target.amountCents) &&
+            target.amountCents >= IMPORT_SESSION_PRIMITIVES.minPurchaseCents &&
+            target.amountCents <= IMPORT_SESSION_PRIMITIVES.maxCents,
+        )
       );
     default:
       return false;

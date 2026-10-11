@@ -2,21 +2,15 @@ import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ImportChatTurnV1 } from "@reformaflow/domain";
 import { ProjectProvider } from "@/contexts/project-context";
 import { useFinancialAgent, type ChatMessage } from "./useFinancialAgent";
 
 const mocks = vi.hoisted(() => ({
   post: vi.fn(),
-  sendImportChat: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   api: { post: mocks.post },
-}));
-
-vi.mock("@/app/projects/[projectId]/maria/_lib/import-session-api", () => ({
-  sendImportChat: mocks.sendImportChat,
 }));
 
 function deferred<T>() {
@@ -50,7 +44,6 @@ function setup() {
 describe("useFinancialAgent channel contract", () => {
   beforeEach(() => {
     mocks.post.mockReset();
-    mocks.sendImportChat.mockReset();
   });
 
   it("sends exact per-request TEXT and VOICE bodies and keeps concurrent response origins isolated", async () => {
@@ -93,7 +86,7 @@ describe("useFinancialAgent channel contract", () => {
       "/agent/chat",
       {
         projectId: "project-1",
-        channel: "TEXT",
+        metadata: { channel: "TEXT" },
         messages: [{ role: "user", content: "pedido digitado" }],
       },
       { timeoutMs: 120_000 },
@@ -103,7 +96,7 @@ describe("useFinancialAgent channel contract", () => {
       "/agent/chat",
       {
         projectId: "project-1",
-        channel: "VOICE",
+        metadata: { channel: "VOICE" },
         messages: [{ role: "user", content: "pedido falado" }],
       },
       { timeoutMs: 120_000 },
@@ -146,35 +139,26 @@ describe("useFinancialAgent channel contract", () => {
     ).toBe("TEXT");
   });
 
-  it("keeps contextual importTurn.channel authoritative and skips the generic endpoint", async () => {
-    const turn: ImportChatTurnV1 = {
-      version: 1,
-      turnId: "turn-1",
-      sessionId: "session-1",
-      expectedRevision: 1,
-      channel: "VOICE",
-      literalAnswer: "continuar",
-      intent: "CONTINUE",
-      focus: null,
-      scope: null,
-    };
-    mocks.sendImportChat.mockResolvedValue({
-      version: 1,
-      turnId: turn.turnId,
-      ref: { sessionId: turn.sessionId, revision: 1 },
-      acknowledgment: "NONE",
-      kind: "REVISED_SESSION",
+  it("defaults the generic endpoint to nested TEXT metadata", async () => {
+    mocks.post.mockResolvedValue({
+      reply: "ok",
+      toolsUsed: [],
+      provider: "test",
     });
     const { result } = setup();
 
     await act(async () => {
-      await result.current.send(turn.literalAnswer, {
-        channel: "TEXT",
-        importTurn: turn,
-      });
+      await result.current.send("continuar");
     });
 
-    expect(mocks.sendImportChat).toHaveBeenCalledWith(turn, undefined);
-    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.post).toHaveBeenCalledWith(
+      "/agent/chat",
+      {
+        projectId: "project-1",
+        metadata: { channel: "TEXT" },
+        messages: [{ role: "user", content: "continuar" }],
+      },
+      { timeoutMs: 120_000 },
+    );
   });
 });

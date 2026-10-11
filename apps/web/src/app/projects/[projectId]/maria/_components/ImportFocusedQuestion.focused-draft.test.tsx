@@ -1,13 +1,33 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { ExpenseType } from "@reformaflow/domain";
+import {
+  ExpenseType,
+  ImportSessionAmountMeaning,
+  LaborCategory,
+  type ImportSessionCandidateV1,
+  type ImportSessionQuestionV1,
+} from "@reformaflow/domain";
 import { ProjectProvider } from "@/contexts/project-context";
 import { ImportFocusedQuestion } from "./ImportFocusedQuestion";
 
 afterEach(cleanup);
 function setup(
-  field: "firstDueDate" | "tipoDespesa" | "decision" | "targets",
+  field: Exclude<ImportSessionQuestionV1, { subject: unknown }>["field"],
   projectType = "REFORMA",
+  options: {
+    candidates?: readonly ImportSessionCandidateV1[];
+    targetProjects?: readonly {
+      id: string;
+      name: string;
+      rooms: readonly { id: string; name: string }[];
+    }[];
+  } = {},
 ) {
   const onAnswer = vi.fn();
   render(
@@ -21,10 +41,11 @@ function setup(
           field,
           text: "Informe o campo",
         }}
-        lines={[{ id: "line", titulo: "Compra" }]}
+        lines={[{ id: "line", titulo: "Compra", amountCents: 10_000 }]}
         inputLabel="Sua resposta"
         inputHint="Confira antes de guardar"
         onAnswer={onAnswer}
+        {...options}
       />
     </ProjectProvider>,
   );
@@ -83,16 +104,18 @@ it.each([
   {
     field: "decision" as const,
     label: "Criar nova compra",
+    text: "CREATE",
     value: { kind: "CREATE", acceptNaturalDuplicate: false },
   },
   {
     field: "targets" as const,
-    label: "Sem rateio — manter a compra no projeto proprietário",
+    label: "Sem rateio — manter no projeto proprietário",
+    text: "NO_TARGETS",
     value: [],
   },
 ])(
   "requires an unselected $field choice, preview, and human save",
-  ({ field, label, value }) => {
+  ({ field, label, text, value }) => {
     const onAnswer = setup(field);
     const choice = screen.getByRole("radio", { name: label });
     expect(choice).not.toBeChecked();
@@ -109,29 +132,258 @@ it.each([
     fireEvent.click(screen.getByRole("button", { name: "Guardar informação" }));
     expect(onAnswer).toHaveBeenCalledWith({
       id: "question",
-      text: label,
+      text,
       draftAnswer: { field, value },
     });
   },
 );
 
-it.each(["decision", "targets"] as const)(
-  "keeps unsupported %s choices on the existing conversation route",
-  (field) => {
-    const onAnswer = setup(field);
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Responder outra opção pela conversa",
-      }),
-    );
-    const input = screen.getByLabelText("Sua resposta");
-    fireEvent.change(input, { target: { value: "Minha outra escolha" } });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Responder à pergunta" }),
-    );
-    expect(onAnswer).toHaveBeenCalledWith({
-      id: "question",
-      text: "Minha outra escolha",
-    });
+it("offers explicit duplicate waiver and only an authorized keep candidate", () => {
+  const candidate: ImportSessionCandidateV1 = {
+    lineId: "line",
+    kind: "EXPENSE",
+    id: "expense-1",
+    projectId: "project",
+    description: "Compra existente",
+    amountCents: 10_000,
+    date: "2026-10-10",
+    reason: "NATURAL_MATCH",
+    canKeepExisting: true,
+  };
+  const denied = { ...candidate, id: "expense-2", canKeepExisting: false };
+  const onAnswer = setup("decision", "REFORMA", {
+    candidates: [candidate, denied],
+  });
+  expect(
+    screen.queryByRole("radio", { name: /expense-2/i }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("radio", {
+      name: "Criar outra compra — são compras distintas",
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Conferir informação" }));
+  fireEvent.click(screen.getByRole("button", { name: "Guardar informação" }));
+  expect(onAnswer).toHaveBeenCalledWith({
+    id: "question",
+    text: "CREATE_ACCEPT_NATURAL_DUPLICATE",
+    draftAnswer: {
+      field: "decision",
+      value: { kind: "CREATE", acceptNaturalDuplicate: true },
+    },
+  });
+});
+
+it("builds one project-room integral target using the purchase amount", () => {
+  const onAnswer = setup("targets", "REFORMA", {
+    targetProjects: [
+      {
+        id: "project-2",
+        name: "Casa",
+        rooms: [{ id: "room-2", name: "Cozinha" }],
+      },
+    ],
+  });
+  fireEvent.click(
+    screen.getByRole("radio", {
+      name: "Enviar o valor integral para outro projeto",
+    }),
+  );
+  fireEvent.change(screen.getByLabelText("Projeto de destino"), {
+    target: { value: "project-2" },
+  });
+  fireEvent.change(screen.getByLabelText("Cômodo (opcional)"), {
+    target: { value: "room-2" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Conferir informação" }));
+  fireEvent.click(screen.getByRole("button", { name: "Guardar informação" }));
+  expect(onAnswer).toHaveBeenCalledWith({
+    id: "question",
+    text: "target",
+    draftAnswer: {
+      field: "targets",
+      value: [
+        {
+          projectId: "project-2",
+          roomId: "room-2",
+          amountCents: 10_000,
+        },
+      ],
+    },
+  });
+});
+
+it.each([
+  {
+    field: "amountCents" as const,
+    label: "Valor da compra",
+    value: "1.234,56",
+    answer: { field: "amountCents", value: 123456 },
   },
-);
+  {
+    field: "installmentCount" as const,
+    label: "Quantidade de parcelas",
+    value: "3",
+    answer: { field: "installmentCount", value: 3 },
+  },
+  {
+    field: "dataCompra" as const,
+    label: "Data da compra",
+    value: "2026-10-11",
+    answer: { field: "dataCompra", value: "2026-10-11" },
+  },
+])("previews and saves strict $field", ({ field, label, value, answer }) => {
+  const onAnswer = setup(field);
+  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  fireEvent.click(screen.getByRole("button", { name: "Conferir informação" }));
+  expect(screen.getByLabelText("Prévia da informação")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Guardar informação" }));
+  expect(onAnswer).toHaveBeenCalledWith({
+    id: "question",
+    text: value,
+    draftAnswer: answer,
+  });
+});
+
+it("uses amount-meaning radios and labor-category enum options", () => {
+  const meaningAnswer = setup("amountMeaning");
+  fireEvent.click(screen.getByRole("radio", { name: "Total da compra" }));
+  fireEvent.click(screen.getByRole("button", { name: "Conferir informação" }));
+  fireEvent.click(screen.getByRole("button", { name: "Guardar informação" }));
+  expect(meaningAnswer).toHaveBeenCalledWith({
+    id: "question",
+    text: ImportSessionAmountMeaning.TOTAL_PURCHASE,
+    draftAnswer: {
+      field: "amountMeaning",
+      value: ImportSessionAmountMeaning.TOTAL_PURCHASE,
+    },
+  });
+  cleanup();
+  const laborAnswer = setup("categoriaMaoDeObra");
+  fireEvent.change(screen.getByLabelText("Categoria de mão de obra"), {
+    target: { value: LaborCategory.EMPREITEIRO },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Conferir informação" }));
+  fireEvent.click(screen.getByRole("button", { name: "Guardar informação" }));
+  expect(laborAnswer).toHaveBeenCalledWith({
+    id: "question",
+    text: LaborCategory.EMPREITEIRO,
+    draftAnswer: {
+      field: "categoriaMaoDeObra",
+      value: LaborCategory.EMPREITEIRO,
+    },
+  });
+});
+
+it("voice fills an unambiguous preview without submitting", async () => {
+  const onAnswer = vi.fn();
+  render(
+    <ProjectProvider
+      value={{
+        projectId: "project",
+        projectName: "Projeto",
+        projectType: "REFORMA",
+      }}
+    >
+      <ImportFocusedQuestion
+        question={{
+          id: "question",
+          lineIds: ["line"],
+          field: "amountCents",
+          text: "Qual valor?",
+        }}
+        lines={[{ id: "line", titulo: "Compra", amountCents: 10_000 }]}
+        inputLabel="Valor"
+        inputHint="Confira"
+        value="1.234,56"
+        revision={7}
+        voiceCapture={{
+          id: 1,
+          text: "1.234,56",
+          questionId: "question",
+          revision: 7,
+        }}
+        onAnswer={onAnswer}
+      />
+    </ProjectProvider>,
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Prévia da informação")).toHaveTextContent(
+      "R$ 1.234,56",
+    ),
+  );
+  expect(onAnswer).not.toHaveBeenCalled();
+});
+
+it("ambiguous voice keeps the transcript, announces guidance, focuses manual control, and ignores late revisions", async () => {
+  const onAnswer = vi.fn();
+  const onVoiceGuidance = vi.fn();
+  const question = {
+    id: "question",
+    lineIds: ["line"],
+    field: "decision" as const,
+    text: "Criar ou manter?",
+  };
+  const view = render(
+    <ProjectProvider
+      value={{
+        projectId: "project",
+        projectName: "Projeto",
+        projectType: "REFORMA",
+      }}
+    >
+      <ImportFocusedQuestion
+        question={question}
+        lines={[{ id: "line", titulo: "Compra", amountCents: 10_000 }]}
+        inputLabel="Decisão"
+        inputHint="Confira"
+        value="criar talvez"
+        revision={7}
+        voiceCapture={{
+          id: 2,
+          text: "criar talvez",
+          questionId: "question",
+          revision: 7,
+        }}
+        onVoiceGuidance={onVoiceGuidance}
+        onAnswer={onAnswer}
+      />
+    </ProjectProvider>,
+  );
+  await waitFor(() => expect(onVoiceGuidance).toHaveBeenCalledOnce());
+  expect(screen.getByText("criar talvez")).toBeInTheDocument();
+  expect(
+    screen.getByRole("radio", { name: "Criar nova compra" }),
+  ).toHaveFocus();
+  expect(onAnswer).not.toHaveBeenCalled();
+
+  onVoiceGuidance.mockClear();
+  view.rerender(
+    <ProjectProvider
+      value={{
+        projectId: "project",
+        projectName: "Projeto",
+        projectType: "REFORMA",
+      }}
+    >
+      <ImportFocusedQuestion
+        question={question}
+        lines={[{ id: "line", titulo: "Compra", amountCents: 10_000 }]}
+        inputLabel="Decisão"
+        inputHint="Confira"
+        value="criar talvez"
+        revision={8}
+        voiceCapture={{
+          id: 3,
+          text: "criar talvez",
+          questionId: "question",
+          revision: 7,
+        }}
+        onVoiceGuidance={onVoiceGuidance}
+        onAnswer={onAnswer}
+      />
+    </ProjectProvider>,
+  );
+  expect(onVoiceGuidance).not.toHaveBeenCalled();
+  expect(onAnswer).not.toHaveBeenCalled();
+});

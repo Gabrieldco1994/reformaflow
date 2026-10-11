@@ -1,0 +1,125 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import type {
+  ImportSessionCandidateV1,
+  ImportSessionQuestionV1,
+} from "@reformaflow/domain";
+import { api } from "@/lib/api";
+import { getImportCandidates } from "../_lib/import-session-api";
+import { isRecord } from "../_lib/import-session-read";
+import { importRoot } from "../_lib/import-session-keys";
+import type { ImportTargetProjectOption } from "../_components/ImportFocusedDraftQuestion";
+
+const named = (value: unknown): value is { id: string; name: string } =>
+  isRecord(value) &&
+  typeof value.id === "string" &&
+  typeof value.name === "string" &&
+  value.name.trim().length > 0;
+
+async function readTargetProjects(): Promise<ImportTargetProjectOption[]> {
+  const list = await api.get<unknown>("/projects");
+  if (!Array.isArray(list) || !list.every(named))
+    throw new Error("Import target catalog unavailable");
+  return Promise.all(
+    list.map(async (project) => {
+      const detail = await api.get<unknown>(
+        `/projects/${encodeURIComponent(project.id)}`,
+      );
+      if (
+        !isRecord(detail) ||
+        detail.id !== project.id ||
+        !Array.isArray(detail.rooms)
+      )
+        throw new Error("Import target catalog unavailable");
+      const rooms = detail.rooms.filter(
+        (room): room is { id: string; name: string; deletedAt: null } =>
+          isRecord(room) &&
+          named(room) &&
+          Object.hasOwn(room, "deletedAt") &&
+          (room as Record<string, unknown>).deletedAt === null,
+      );
+      return {
+        id: project.id,
+        name: project.name,
+        rooms: rooms.map(({ id, name }) => ({ id, name })),
+      };
+    }),
+  );
+}
+
+export function useImportManualOptions(
+  userId: string | null,
+  sessionId: string,
+  question: ImportSessionQuestionV1 | null,
+) {
+  const decision = question?.field === "decision" && !("subject" in question);
+  const targets = question?.field === "targets" && !("subject" in question);
+  const candidates = useQuery({
+    queryKey: [
+      ...importRoot(userId ?? "anonymous"),
+      "manual-candidates",
+      sessionId,
+      question?.id,
+      question?.lineIds[0],
+    ],
+    enabled: Boolean(userId && decision && question?.lineIds.length === 1),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+    networkMode: "always",
+    refetchOnWindowFocus: false,
+    queryFn: async (): Promise<ImportSessionCandidateV1[]> => {
+      if (!question || question.lineIds.length !== 1) return [];
+      const items: ImportSessionCandidateV1[] = [];
+      const seen = new Set<string>();
+      const cursors = new Set<string>();
+      let cursor: string | null = null;
+      do {
+        if (cursor !== null) {
+          if (cursors.has(cursor))
+            throw new Error("Repeated import candidate cursor");
+          cursors.add(cursor);
+        }
+        const page = await getImportCandidates(
+          sessionId,
+          question.lineIds[0],
+          cursor,
+        );
+        for (const candidate of page.items) {
+          if (seen.has(candidate.id))
+            throw new Error("Duplicate import candidate");
+          seen.add(candidate.id);
+          items.push(candidate);
+        }
+        cursor = page.nextCursor;
+      } while (cursor !== null);
+      return items;
+    },
+  });
+  const projects = useQuery({
+    queryKey: [
+      ...importRoot(userId ?? "anonymous"),
+      "manual-target-projects",
+      sessionId,
+      question?.id,
+    ],
+    enabled: Boolean(userId && targets),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+    networkMode: "always",
+    refetchOnWindowFocus: false,
+    queryFn: readTargetProjects,
+  });
+  const active = decision ? candidates : targets ? projects : null;
+  return {
+    candidates: decision ? (candidates.data ?? []) : [],
+    projects: targets ? (projects.data ?? []) : [],
+    pending: Boolean(active?.isFetching),
+    error: active?.isError
+      ? "Não foi possível consultar as opções autorizadas. Consulte novamente antes de guardar."
+      : null,
+    retry: active?.refetch,
+  };
+}

@@ -3,35 +3,85 @@
 import { useEffect, useId, useRef, useState } from "react";
 import {
   ExpenseType,
-  type ImportSessionQuestionV1,
+  IMPORT_SESSION_LIMITS,
+  IMPORT_SESSION_PRIMITIVES,
+  ImportSessionAmountMeaning,
+  type LaborCategory,
+  type ImportSessionCandidateV1,
   type ImportSessionDraftLineV1,
+  type ImportSessionQuestionV1,
 } from "@reformaflow/domain";
 import { useProject } from "@/contexts/project-context";
 import { Button } from "@/components/ui/button";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
 import { getExpenseOptions } from "../../expenses/_types";
-import { tipoLabel } from "@/lib/expense-options";
+import {
+  CATEGORIA_MAO_DE_OBRA_OPTIONS,
+  catMaoLabel,
+  tipoLabel,
+} from "@/lib/expense-options";
+import { moneyDetail } from "@/lib/money";
 import { formatDateOnly } from "../_lib/import-format";
 import {
   FOCUSED_DRAFT_LABEL,
   validFocusedDraftAnswer,
 } from "../_lib/import-focused-draft";
+import {
+  deterministicVoiceAnswer,
+  strictDraftAnswer,
+} from "../_lib/import-manual-answer";
 import type { FocusedDraftAnswer } from "../_lib/import-focused-draft-types";
 import type { ImportQuestionAnswerInput } from "../_lib/import-session-api";
 
+export interface ImportTargetProjectOption {
+  id: string;
+  name: string;
+  rooms: readonly { id: string; name: string }[];
+}
+
+export interface ImportVoiceCapture {
+  id: number;
+  text: string;
+  questionId: string;
+  revision: number;
+}
+
 export interface ImportFocusedDraftQuestionProps {
   question: ImportSessionQuestionV1;
-  lines: readonly Pick<ImportSessionDraftLineV1, "id" | "titulo">[];
+  lines: readonly (Pick<ImportSessionDraftLineV1, "id" | "titulo"> & {
+    amountCents?: number | null;
+  })[];
   onAnswer?: (answer: ImportQuestionAnswerInput) => void;
   pending?: boolean;
   disabled?: boolean;
   value?: string;
   onTextChange?: (text: string) => void;
   contextKey?: string;
-  onOtherChoice?: () => void;
+  candidates?: readonly ImportSessionCandidateV1[];
+  targetProjects?: readonly ImportTargetProjectOption[];
+  optionsPending?: boolean;
+  optionsError?: string | null;
+  voiceCapture?: ImportVoiceCapture | null;
+  revision?: number;
+  onVoiceGuidance?: (message: string) => void;
 }
 
-/** Explicit local draft preview: dates are literal date-only, categories remain separate questions. */
+const MEANING_OPTIONS = [
+  {
+    value: ImportSessionAmountMeaning.TOTAL_PURCHASE,
+    label: "Total da compra",
+  },
+  {
+    value: ImportSessionAmountMeaning.INSTALLMENT_CHARGE,
+    label: "Valor da parcela",
+  },
+] as const;
+
+const DECISION_CREATE = "CREATE";
+const DECISION_WAIVER = "CREATE_ACCEPT_NATURAL_DUPLICATE";
+const TARGET_NONE = "NO_TARGETS";
+const TARGET_INTEGRAL = "target";
+
 export function ImportFocusedDraftQuestion({
   question,
   lines,
@@ -41,10 +91,16 @@ export function ImportFocusedDraftQuestion({
   value,
   onTextChange,
   contextKey = "",
-  onOtherChoice,
+  candidates = [],
+  targetProjects = [],
+  optionsPending = false,
+  optionsError = null,
+  voiceCapture = null,
+  revision,
+  onVoiceGuidance,
 }: ImportFocusedDraftQuestionProps) {
   const { projectType } = useProject();
-  const options = getExpenseOptions(projectType);
+  const expenseOptions = getExpenseOptions(projectType);
   const id = useId();
   const [local, setLocal] = useState("");
   const text = value ?? local;
@@ -55,146 +111,298 @@ export function ImportFocusedDraftQuestion({
     text: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [choiceStamp, setChoiceStamp] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState("");
+  const [roomId, setRoomId] = useState("");
   const sent = useRef(false);
-  const control = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
+  const control = useRef<
+    HTMLInputElement | HTMLSelectElement | HTMLButtonElement | null
+  >(null);
+  const handledVoice = useRef<number | null>(null);
   const wasPending = useRef(pending);
+  const targets = question.lineIds.map((lineId) =>
+    lines.find((line) => line.id === lineId),
+  );
+  const targetLine = targets.length === 1 ? targets[0] : null;
+  const targetAmount = targetLine?.amountCents ?? null;
+  const selectedProject = targetProjects.find(
+    (project) => project.id === projectId,
+  );
+  const authorizedCandidates = candidates.filter(
+    (candidate) =>
+      candidate.kind === "EXPENSE" &&
+      candidate.canKeepExisting &&
+      question.lineIds.includes(candidate.lineId),
+  );
+  const requiresOptions =
+    question.field === "decision" || question.field === "targets";
+  const complete =
+    targets.length > 0 &&
+    targets.every(Boolean) &&
+    (!requiresOptions || (!optionsPending && !optionsError));
+  const blocked = pending || disabled || !complete || !onAnswer;
+  const currentPreview =
+    preview?.stamp === stamp && preview.text === text ? preview : null;
+
   useEffect(() => {
     setPreview(null);
     setError(null);
   }, [text, stamp, disabled]);
   useEffect(() => {
-    setChoiceStamp(null);
-  }, [stamp, disabled]);
+    setProjectId("");
+    setRoomId("");
+  }, [stamp]);
   useEffect(() => {
     if (wasPending.current && !pending && !disabled) control.current?.focus();
     wasPending.current = pending;
   }, [pending, disabled]);
-  const targets = question.lineIds.map((lineId) =>
-    lines.find((line) => line.id === lineId),
-  );
-  const blocked =
-    pending ||
-    disabled ||
-    !targets.length ||
-    targets.some((line) => !line) ||
-    !onAnswer;
-  const currentPreview =
-    preview?.stamp === stamp && preview.text === text ? preview : null;
-  function fieldLabel(): string {
-    switch (question.field) {
-      case "firstDueDate":
-        return FOCUSED_DRAFT_LABEL.firstDueDate;
-      case "tipoDespesa":
-        return FOCUSED_DRAFT_LABEL.tipoDespesa;
-      case "decision":
-        return FOCUSED_DRAFT_LABEL.decision;
-      case "targets":
-        return FOCUSED_DRAFT_LABEL.targets;
-      default:
-        return "";
-    }
-  }
-  const label = fieldLabel();
-  const choice = question.field === "decision" || question.field === "targets";
-  const selectedChoice = choiceStamp === stamp;
-  function change(text: string) {
-    setLocal(text);
+
+  function change(next: string) {
+    setLocal(next);
     setPreview(null);
-    onTextChange?.(text);
+    setError(null);
+    onTextChange?.(next);
   }
+
+  function answerForCurrentValue(): FocusedDraftAnswer | null {
+    if ("subject" in question) return null;
+    if (question.field === "tipoDespesa") {
+      const selected = expenseOptions.find((option) => option.value === text);
+      return selected ? { field: "tipoDespesa", value: selected.value } : null;
+    }
+    if (question.field === "categoriaMaoDeObra") {
+      const selected = CATEGORIA_MAO_DE_OBRA_OPTIONS.find(
+        (option) => option.value === text,
+      );
+      return selected
+        ? {
+            field: "categoriaMaoDeObra",
+            value: selected.value as LaborCategory,
+          }
+        : null;
+    }
+    return strictDraftAnswer(question.field, text, {
+      amountCents: targetAmount,
+      projectId,
+      roomId: roomId || null,
+      candidateExpenseIds: authorizedCandidates.map(
+        (candidate) => candidate.id,
+      ),
+    });
+  }
+
   function check(answer: FocusedDraftAnswer | null) {
     if (blocked) return;
     if (!answer || !validFocusedDraftAnswer(answer)) {
       setPreview(null);
-      setError("Confira o campo antes de guardar.");
+      setError("Confira somente o campo solicitado antes de guardar.");
+      control.current?.focus();
       return;
     }
     setError(null);
     setPreview({ answer, stamp, text });
   }
-  function valueAnswer(): FocusedDraftAnswer | null {
-    switch (question.field) {
-      case "firstDueDate":
-        return { field: "firstDueDate", value: text };
-      case "tipoDespesa": {
-        const selected = options.find((option) => option.value === text);
-        return selected
-          ? { field: "tipoDespesa", value: selected.value }
-          : null;
-      }
-      case "decision":
-        return selectedChoice
-          ? {
-              field: "decision",
-              value: { kind: "CREATE", acceptNaturalDuplicate: false },
-            }
-          : null;
-      case "targets":
-        return selectedChoice ? { field: "targets", value: [] } : null;
-      default:
-        return null;
+
+  useEffect(() => {
+    if (
+      !voiceCapture ||
+      handledVoice.current === voiceCapture.id ||
+      voiceCapture.questionId !== question.id ||
+      voiceCapture.revision !== revision ||
+      voiceCapture.text !== text ||
+      blocked ||
+      "subject" in question
+    )
+      return;
+    handledVoice.current = voiceCapture.id;
+    const answer = deterministicVoiceAnswer(question.field, voiceCapture.text);
+    if (answer && validFocusedDraftAnswer(answer)) {
+      setError(null);
+      setPreview({ answer, stamp, text });
+      return;
     }
-  }
+    const guidance =
+      "A fala foi mantida como rascunho. Confira este campo manualmente; nada foi enviado.";
+    setPreview(null);
+    setError(guidance);
+    onVoiceGuidance?.(guidance);
+    control.current?.focus();
+  }, [blocked, onVoiceGuidance, question, stamp, text, voiceCapture]);
+
   function unknownAnswer(): FocusedDraftAnswer | null {
+    if ("subject" in question) return null;
     switch (question.field) {
+      case "amountCents":
+      case "installmentCount":
+      case "dataCompra":
       case "firstDueDate":
-        return { field: "firstDueDate", value: null };
       case "tipoDespesa":
-        return { field: "tipoDespesa", value: null };
+      case "categoriaMaoDeObra":
+        return { field: question.field, value: null } as FocusedDraftAnswer;
       default:
         return null;
     }
   }
-  function previewLabel(answer: FocusedDraftAnswer): string | null {
+
+  function previewLabel(answer: FocusedDraftAnswer): string {
     switch (answer.field) {
+      case "amountMeaning":
+        return answer.value === ImportSessionAmountMeaning.TOTAL_PURCHASE
+          ? "Total da compra"
+          : "Valor da parcela";
+      case "amountCents":
+        return answer.value === null
+          ? "Não sei informar"
+          : moneyDetail(answer.value);
+      case "installmentCount":
+        return answer.value === null
+          ? "Não sei informar"
+          : `${answer.value} parcelas`;
+      case "dataCompra":
       case "firstDueDate":
         return answer.value === null
           ? "Não sei informar"
-          : formatDateOnly(answer.value);
+          : (formatDateOnly(answer.value) ?? "Data inválida");
       case "tipoDespesa":
         return answer.value === null
           ? "Não sei informar"
           : tipoLabel(answer.value);
+      case "categoriaMaoDeObra":
+        return answer.value === null
+          ? "Não sei informar"
+          : catMaoLabel(answer.value);
       case "decision":
-        return FOCUSED_DRAFT_LABEL.decision;
+        if (answer.value.kind === "KEEP_EXISTING") {
+          const expenseId = answer.value.expenseId;
+          return `Manter compra existente: ${
+            authorizedCandidates.find((candidate) => candidate.id === expenseId)
+              ?.description ?? expenseId
+          }`;
+        }
+        return answer.value.acceptNaturalDuplicate
+          ? "Criar outra compra e confirmar que são compras distintas"
+          : "Criar nova compra";
       case "targets":
-        return FOCUSED_DRAFT_LABEL.targets;
+        if (!answer.value.length)
+          return "Sem rateio — manter no projeto proprietário";
+        return `${selectedProject?.name ?? answer.value[0].projectId}${
+          roomId
+            ? ` · ${
+                selectedProject?.rooms.find((room) => room.id === roomId)
+                  ?.name ?? roomId
+              }`
+            : ""
+        } · ${moneyDetail(answer.value[0].amountCents)}`;
     }
   }
+
   function renderControl() {
+    if ("subject" in question) return null;
+    const describedBy = `${id}-hint`;
+    const common =
+      "block min-h-11 w-full min-w-0 rounded-xl border border-darc-linen bg-white px-3 text-base text-darc-velvet focus-visible:outline focus-visible:outline-2 focus-visible:outline-darc-red";
     switch (question.field) {
+      case "amountCents":
+        return (
+          <input
+            ref={control as React.RefObject<HTMLInputElement>}
+            id={`${id}-input`}
+            type="text"
+            inputMode="decimal"
+            placeholder="R$ 100,00"
+            value={text}
+            onChange={(event) => change(event.currentTarget.value)}
+            disabled={blocked}
+            aria-describedby={describedBy}
+            className={common}
+          />
+        );
+      case "installmentCount":
+        return (
+          <input
+            ref={control as React.RefObject<HTMLInputElement>}
+            id={`${id}-input`}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={IMPORT_SESSION_LIMITS.installmentsPerPurchase}
+            step={1}
+            value={text}
+            onChange={(event) => change(event.currentTarget.value)}
+            disabled={blocked}
+            aria-describedby={describedBy}
+            className={common}
+          />
+        );
+      case "dataCompra":
       case "firstDueDate":
         return (
           <input
-            ref={(element) => {
-              control.current = element;
-            }}
+            ref={control as React.RefObject<HTMLInputElement>}
             id={`${id}-input`}
             type="date"
-            min="1900-01-01"
-            max="2199-12-31"
+            min={`${IMPORT_SESSION_PRIMITIVES.minYear}-01-01`}
+            max={`${IMPORT_SESSION_PRIMITIVES.maxYear}-12-31`}
             value={text}
-            onChange={(event) => change(event.target.value)}
+            onChange={(event) => change(event.currentTarget.value)}
             disabled={blocked}
-            aria-describedby={`${id}-hint`}
-            className="w-full rounded-xl border border-darc-linen px-3 py-2"
+            aria-describedby={describedBy}
+            className={common}
           />
         );
+      case "amountMeaning":
+        return (
+          <fieldset
+            disabled={blocked}
+            aria-describedby={describedBy}
+            className="space-y-2"
+          >
+            <legend className="sr-only">
+              {FOCUSED_DRAFT_LABEL.amountMeaning}
+            </legend>
+            {MEANING_OPTIONS.map((option, index) => (
+              <label
+                key={option.value}
+                className="flex min-h-11 items-center gap-3 rounded-xl border border-darc-linen p-3"
+              >
+                <input
+                  ref={
+                    index === 0
+                      ? (control as React.RefObject<HTMLInputElement>)
+                      : undefined
+                  }
+                  type="radio"
+                  name={`${id}-meaning`}
+                  value={option.value}
+                  checked={text === option.value}
+                  onChange={(event) => change(event.currentTarget.value)}
+                  className="h-5 w-5 shrink-0"
+                />
+                {option.label}
+              </label>
+            ))}
+          </fieldset>
+        );
       case "tipoDespesa":
+      case "categoriaMaoDeObra": {
+        const options =
+          question.field === "tipoDespesa"
+            ? expenseOptions
+            : CATEGORIA_MAO_DE_OBRA_OPTIONS;
         return (
           <select
-            ref={(element) => {
-              control.current = element;
-            }}
+            ref={control as React.RefObject<HTMLSelectElement>}
             id={`${id}-input`}
             value={text}
-            onChange={(event) => change(event.target.value)}
+            onChange={(event) => change(event.currentTarget.value)}
             disabled={blocked}
-            aria-describedby={`${id}-hint`}
-            className="w-full rounded-xl border border-darc-linen px-3 py-2"
+            aria-describedby={describedBy}
+            className={common}
           >
-            <option value="">Escolha o tipo de despesa</option>
+            <option value="">
+              {question.field === "tipoDespesa"
+                ? "Escolha o tipo de despesa"
+                : "Escolha a categoria de mão de obra"}
+            </option>
             {options.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -202,41 +410,153 @@ export function ImportFocusedDraftQuestion({
             ))}
           </select>
         );
-      case "decision":
+      }
+      case "decision": {
+        const choices = [
+          { value: DECISION_CREATE, label: "Criar nova compra" },
+          {
+            value: DECISION_WAIVER,
+            label: "Criar outra compra — são compras distintas",
+          },
+          ...authorizedCandidates.map((candidate) => ({
+            value: candidate.id,
+            label: `Manter compra existente: ${candidate.description} · ${moneyDetail(candidate.amountCents)}`,
+          })),
+        ];
+        return (
+          <fieldset
+            disabled={blocked}
+            aria-describedby={describedBy}
+            className="space-y-2"
+          >
+            <legend className="sr-only">{FOCUSED_DRAFT_LABEL.decision}</legend>
+            {choices.map((choice, index) => (
+              <label
+                key={choice.value}
+                className="flex min-h-11 min-w-0 items-center gap-3 rounded-xl border border-darc-linen p-3"
+              >
+                <input
+                  ref={
+                    index === 0
+                      ? (control as React.RefObject<HTMLInputElement>)
+                      : undefined
+                  }
+                  type="radio"
+                  name={`${id}-decision`}
+                  value={choice.value}
+                  checked={text === choice.value}
+                  onChange={(event) => change(event.currentTarget.value)}
+                  className="h-5 w-5 shrink-0"
+                />
+                <span className="min-w-0 break-words">{choice.label}</span>
+              </label>
+            ))}
+          </fieldset>
+        );
+      }
       case "targets":
         return (
-          <label className="flex min-h-11 items-center gap-3 rounded-xl border border-darc-linen p-3">
-            <input
-              ref={(element) => {
-                control.current = element;
-              }}
-              id={`${id}-input`}
-              type="radio"
-              name={`${id}-choice`}
-              checked={selectedChoice}
-              disabled={blocked}
-              aria-describedby={`${id}-hint`}
-              onChange={() => {
-                setChoiceStamp(stamp);
-                change(label);
-              }}
-              className="h-5 w-5 shrink-0"
-            />
-            <span className="min-w-0 break-words text-sm">{label}</span>
-          </label>
+          <fieldset
+            disabled={blocked}
+            aria-describedby={describedBy}
+            className="min-w-0 space-y-3"
+          >
+            <legend className="sr-only">{FOCUSED_DRAFT_LABEL.targets}</legend>
+            {[
+              {
+                value: TARGET_NONE,
+                label: "Sem rateio — manter no projeto proprietário",
+              },
+              {
+                value: TARGET_INTEGRAL,
+                label: "Enviar o valor integral para outro projeto",
+              },
+            ].map((choice, index) => (
+              <label
+                key={choice.value}
+                className="flex min-h-11 min-w-0 items-center gap-3 rounded-xl border border-darc-linen p-3"
+              >
+                <input
+                  ref={
+                    index === 0
+                      ? (control as React.RefObject<HTMLInputElement>)
+                      : undefined
+                  }
+                  type="radio"
+                  name={`${id}-targets`}
+                  value={choice.value}
+                  checked={text === choice.value}
+                  onChange={(event) => change(event.currentTarget.value)}
+                  className="h-5 w-5 shrink-0"
+                />
+                <span className="min-w-0 break-words">{choice.label}</span>
+              </label>
+            ))}
+            {text === TARGET_INTEGRAL && (
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <label className="min-w-0 text-sm">
+                  Projeto de destino
+                  <select
+                    value={projectId}
+                    onChange={(event) => {
+                      setProjectId(event.currentTarget.value);
+                      setRoomId("");
+                      setPreview(null);
+                    }}
+                    className={`${common} mt-1`}
+                  >
+                    <option value="">Escolha o projeto</option>
+                    {targetProjects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="min-w-0 text-sm">
+                  Cômodo (opcional)
+                  <select
+                    value={roomId}
+                    disabled={!selectedProject}
+                    onChange={(event) => {
+                      setRoomId(event.currentTarget.value);
+                      setPreview(null);
+                    }}
+                    className={`${common} mt-1`}
+                  >
+                    <option value="">Sem cômodo</option>
+                    {selectedProject?.rooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="min-w-0 text-sm sm:col-span-2">
+                  Valor integral:{" "}
+                  <span data-workflow-money className={journeyStyles.money}>
+                    {targetAmount === null
+                      ? "Valor indisponível"
+                      : moneyDetail(targetAmount)}
+                  </span>
+                </p>
+              </div>
+            )}
+          </fieldset>
         );
-      default:
-        return null;
     }
   }
+
+  if ("subject" in question) return null;
+  const label = FOCUSED_DRAFT_LABEL[question.field];
   return (
     <form
       aria-labelledby={`${id}-question`}
       aria-busy={pending}
-      className={`${journeyStyles.journey} space-y-3 rounded-xl border border-darc-linen bg-white p-4`}
+      className={`${journeyStyles.journey} min-w-0 space-y-3 rounded-xl border border-darc-linen bg-white p-4`}
       onSubmit={(event) => {
         event.preventDefault();
-        check(valueAnswer());
+        check(answerForCurrentValue());
       }}
     >
       <h3
@@ -255,7 +575,7 @@ export function ImportFocusedDraftQuestion({
             ),
         )}
       </ul>
-      {!choice && (
+      {!["amountMeaning", "decision", "targets"].includes(question.field) && (
         <label htmlFor={`${id}-input`} className="block text-sm font-medium">
           {label}
         </label>
@@ -265,9 +585,18 @@ export function ImportFocusedDraftQuestion({
         Confira antes de guardar. Este campo atualiza somente o rascunho; não
         confirma lançamentos.
       </p>
-      {text === ExpenseType.MAO_DE_OBRA && question.field === "tipoDespesa" && (
-        <p className="text-sm">
-          A categoria de mão de obra será informada na pergunta própria.
+      {voiceCapture?.text === text && text.trim() && (
+        <div className="min-w-0 space-y-1 text-sm">
+          <p className="font-medium">Transcrição preservada</p>
+          <p className="break-words">{text}</p>
+        </div>
+      )}
+      {!complete && (
+        <p role="alert" className="text-sm text-darc-red">
+          {optionsError ??
+            (optionsPending
+              ? "Consultando opções autorizadas…"
+              : "A pergunta e a compra completas são necessárias para responder.")}
         </p>
       )}
       {error && (
@@ -283,54 +612,37 @@ export function ImportFocusedDraftQuestion({
       {currentPreview && (
         <div
           aria-label="Prévia da informação"
-          className="space-y-2 rounded-xl bg-lifeone-surface p-3 text-sm"
+          className="min-w-0 space-y-2 rounded-xl bg-lifeone-surface p-3 text-sm"
         >
           <p>{label}</p>
-          <p>{previewLabel(currentPreview.answer)}</p>
-          {choice && (
-            <ul
-              aria-label="Compras afetadas pela escolha"
-              className="space-y-1"
-            >
-              {targets.map(
-                (line) =>
-                  line && (
-                    <li key={line.id} className="break-words">
-                      {line.titulo} — Compra {line.id}
-                    </li>
-                  ),
-              )}
-            </ul>
-          )}
+          <p
+            className={
+              currentPreview.answer.field === "amountCents" ||
+              currentPreview.answer.field === "targets"
+                ? journeyStyles.money
+                : "break-words"
+            }
+          >
+            {previewLabel(currentPreview.answer)}
+          </p>
           <p>Esta prévia ainda não foi enviada.</p>
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="submit"
-          className="min-h-11"
-          disabled={blocked || (choice ? !selectedChoice : !text)}
-        >
+      <div className="flex min-w-0 flex-wrap gap-2">
+        <Button type="submit" className="min-h-11" disabled={blocked || !text}>
           Conferir informação
         </Button>
-        {!choice && (
+        {unknownAnswer() && (
           <Button
             type="button"
             className="min-h-11"
             disabled={blocked}
-            onClick={() => check(unknownAnswer())}
+            onClick={() => {
+              onTextChange?.(text);
+              check(unknownAnswer());
+            }}
           >
             Não sei informar
-          </Button>
-        )}
-        {choice && onOtherChoice && (
-          <Button
-            type="button"
-            className="min-h-11"
-            disabled={blocked}
-            onClick={onOtherChoice}
-          >
-            Responder outra opção pela conversa
           </Button>
         )}
         <Button

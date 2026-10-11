@@ -160,6 +160,7 @@ describe("native create and no-allocation choices", () => {
           answerRequestId: expect.any(String),
           expectedRevision: 4,
           questionId: question.id,
+          channel: "TEXT",
           answer: { field, value },
         },
         expect.any(AbortSignal),
@@ -352,6 +353,7 @@ describe("focused draft native answers", () => {
         answerRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         expectedRevision: 4,
         questionId: "q-due",
+        channel: "TEXT",
         answer: { field: "firstDueDate", value: "2025-10-10" },
       },
       expect.any(AbortSignal),
@@ -593,22 +595,13 @@ describe("focused draft native answers", () => {
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it.each(["targets", "decision", "categoriaMaoDeObra"] as const)(
-    "keeps %s on the existing conversation path",
-    async (field) => {
-      const { result } = setup({
-        ...base,
-        questions: [
-          { id: "q-other", field, lineIds: [line.id], text: "Informe" },
-        ],
-      });
-      await waitFor(() => expect(result.current.busy).toBe(false));
-      mocks.send.mockResolvedValue(null);
-      await act(async () => {
-        await result.current.send("Minha resposta livre");
-      });
-      expect(mocks.send).toHaveBeenCalled();
-      expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
-    },
-  );
+  it("does not route free text from an active import to the financial agent", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.busy).toBe(false));
+    await act(async () => {
+      await result.current.send("Minha resposta livre");
+    });
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
+  });
 });
