@@ -3,9 +3,11 @@
 import { useEffect, useId, useRef, useState } from "react";
 import {
   ExpenseType,
+  hasFeature,
   IMPORT_SESSION_LIMITS,
   IMPORT_SESSION_PRIMITIVES,
   ImportSessionAmountMeaning,
+  ProjectType,
   type LaborCategory,
   type ImportSessionCandidateV1,
   type ImportSessionDraftLineV1,
@@ -36,6 +38,10 @@ import type { ImportQuestionAnswerInput } from "../_lib/import-session-api";
 export interface ImportTargetProjectOption {
   id: string;
   name: string;
+  projectType?: string;
+  eligible?: boolean;
+  active?: boolean;
+  deletedAt?: string | null;
   rooms: readonly { id: string; name: string }[];
 }
 
@@ -57,6 +63,7 @@ export interface ImportFocusedDraftQuestionProps {
   value?: string;
   onTextChange?: (text: string) => void;
   contextKey?: string;
+  ownerProjectId?: string;
   candidates?: readonly ImportSessionCandidateV1[];
   targetProjects?: readonly ImportTargetProjectOption[];
   optionsPending?: boolean;
@@ -91,6 +98,7 @@ export function ImportFocusedDraftQuestion({
   value,
   onTextChange,
   contextKey = "",
+  ownerProjectId: suppliedOwnerProjectId,
   candidates = [],
   targetProjects = [],
   optionsPending = false,
@@ -99,7 +107,8 @@ export function ImportFocusedDraftQuestion({
   revision,
   onVoiceGuidance,
 }: ImportFocusedDraftQuestionProps) {
-  const { projectType } = useProject();
+  const { projectId: contextProjectId, projectType } = useProject();
+  const ownerProjectId = suppliedOwnerProjectId ?? contextProjectId;
   const expenseOptions = getExpenseOptions(projectType);
   const id = useId();
   const [local, setLocal] = useState("");
@@ -124,7 +133,16 @@ export function ImportFocusedDraftQuestion({
   );
   const targetLine = targets.length === 1 ? targets[0] : null;
   const targetAmount = targetLine?.amountCents ?? null;
-  const selectedProject = targetProjects.find(
+  const eligibleTargetProjects = targetProjects.filter(
+    (project) =>
+      project.id !== ownerProjectId &&
+      project.active !== false &&
+      (project.deletedAt === undefined || project.deletedAt === null) &&
+      project.eligible &&
+      project.projectType === ProjectType.REFORMA &&
+      hasFeature(project.projectType as ProjectType, "expenses"),
+  );
+  const selectedProject = eligibleTargetProjects.find(
     (project) => project.id === projectId,
   );
   const authorizedCandidates = candidates.filter(
@@ -182,8 +200,11 @@ export function ImportFocusedDraftQuestion({
     }
     return strictDraftAnswer(question.field, text, {
       amountCents: targetAmount,
-      projectId,
-      roomId: roomId || null,
+      projectId: selectedProject?.id ?? null,
+      roomId:
+        selectedProject?.rooms.some((room) => room.id === roomId) && roomId
+          ? roomId
+          : null,
       candidateExpenseIds: authorizedCandidates.map(
         (candidate) => candidate.id,
       ),
@@ -505,7 +526,7 @@ export function ImportFocusedDraftQuestion({
                     className={`${common} mt-1`}
                   >
                     <option value="">Escolha o projeto</option>
-                    {targetProjects.map((project) => (
+                    {eligibleTargetProjects.map((project) => (
                       <option key={project.id} value={project.id}>
                         {project.name}
                       </option>

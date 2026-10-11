@@ -23,9 +23,11 @@ export const IMPORT_FORMAT_MIME = {
 export function importFormatLabel(
   formats: readonly ImportSessionDocumentFormat[],
 ) {
-  return formats
-    .map((format) => (format === "PDF" ? "PDF textual sem imagens" : format))
-    .join(", ");
+  const labels = formats.map((format) =>
+    format === "PDF" ? "PDF textual sem imagens" : format,
+  );
+  if (labels.length < 2) return labels.join("");
+  return `${labels.slice(0, -1).join(", ")} e ${labels.at(-1)}`;
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;

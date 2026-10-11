@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  hasFeature,
   isPendingImportQuestion,
+  ProjectType,
   type ImportObservationQuestionV1,
 } from "@reformaflow/domain";
 import { useSpeechRecognition } from "@/components/agent/useSpeechRecognition";
@@ -472,6 +474,7 @@ function Conversation({
                     Boolean(error),
                     Boolean(documents.error),
                   ])}
+                  ownerProjectId={view.ownerProjectId}
                   declaredFacts={view.declaredFacts}
                   relatedQuestions={relatedQuestions}
                   guided={
@@ -482,7 +485,12 @@ function Conversation({
                   onStartGuided={conversation.startGuidedAnswer}
                   onChooseQuestion={conversation.editQuestion}
                   candidates={manualOptions.candidates}
-                  targetProjects={manualOptions.projects}
+                  targetProjects={manualOptions.projects.map((project) => ({
+                    ...project,
+                    projectType: ProjectType.REFORMA,
+                    eligible: hasFeature(ProjectType.REFORMA, "expenses"),
+                    active: true,
+                  }))}
                   optionsPending={manualOptions.pending}
                   optionsError={manualOptions.error}
                   voiceCapture={voiceCapture}

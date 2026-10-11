@@ -249,12 +249,15 @@ export function ImportLocalDocuments({
       </p>
       <p className="text-sm text-gray-600">
         Ao escolher Analisar e guardar rascunho, você autoriza o envio e
-        processamento dos documentos por parsers determinísticos locais e do
-        servidor, além do armazenamento privado do rascunho. No fluxo ativo de
-        CSV e PDF textual, nenhum documento é enviado a LLM ou OCR. OCR não está
-        disponível nesta importação. Não cria despesas, pagamentos ou rateios. O
-        rascunho pendente e sua referência ao original expiram após 7 dias sem
-        edição sua; consultas não renovam esse prazo.
+        processamento dos documentos para análise e armazenamento privado do
+        rascunho. OCR não está disponível nesta importação. Não cria despesas,
+        pagamentos ou rateios. O rascunho pendente e sua referência ao original
+        expiram após 7 dias sem edição sua; consultas não renovam esse prazo.
+      </p>
+      <p className="text-sm text-gray-600">
+        Esta análise privada usa parsers determinísticos locais e do servidor.
+        No fluxo ativo de CSV e PDF textual, nenhum documento é enviado a LLM ou
+        OCR. Qualquer lançamento financeiro exige confirmação separada.
       </p>
       {error && (
         <p role="alert" className="text-sm text-darc-red">

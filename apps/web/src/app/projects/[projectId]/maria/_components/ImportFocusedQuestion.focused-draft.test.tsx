@@ -25,6 +25,8 @@ function setup(
     targetProjects?: readonly {
       id: string;
       name: string;
+      projectType: string;
+      eligible: boolean;
       rooms: readonly { id: string; name: string }[];
     }[];
   } = {},
@@ -180,6 +182,8 @@ it("builds one project-room integral target using the purchase amount", () => {
       {
         id: "project-2",
         name: "Casa",
+        projectType: "REFORMA",
+        eligible: true,
         rooms: [{ id: "room-2", name: "Cozinha" }],
       },
     ],
@@ -219,11 +223,15 @@ it("clears the room when the selected destination project changes", () => {
       {
         id: "project-2",
         name: "Reforma 2",
+        projectType: "REFORMA",
+        eligible: true,
         rooms: [{ id: "room-2", name: "Cozinha" }],
       },
       {
         id: "project-3",
         name: "Reforma 3",
+        projectType: "REFORMA",
+        eligible: true,
         rooms: [{ id: "room-3", name: "Quarto" }],
       },
     ],

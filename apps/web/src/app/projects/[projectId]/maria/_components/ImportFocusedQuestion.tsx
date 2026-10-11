@@ -42,6 +42,7 @@ type ImportFocusedQuestionProps = {
   value?: string;
   onTextChange?: (text: string) => void;
   contextKey?: string;
+  ownerProjectId?: string;
   declaredFacts?: readonly ImportDeclaredFactViewV1[];
   relatedQuestions?: readonly ImportObservationQuestionV1[];
   guided?: boolean;
