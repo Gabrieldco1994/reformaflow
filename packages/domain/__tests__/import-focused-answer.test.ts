@@ -1,7 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { ImportSessionAmountMeaning, parseImportFocusedLiteral } from "../src";
+import {
+  ImportSessionAmountMeaning,
+  isPendingImportQuestion,
+  parseImportFocusedLiteral,
+} from "../src";
 
 describe("deterministic focused import literals", () => {
+  it("keeps pending-question projection with the focused import helpers", () => {
+    expect(
+      isPendingImportQuestion({
+        id: "question-draft",
+        lineIds: ["line-1"],
+        field: "firstDueDate",
+        text: "Qual é o primeiro vencimento?",
+      }),
+    ).toBe(true);
+    expect(
+      isPendingImportQuestion({
+        id: "question-observation",
+        lineIds: ["line-1"],
+        field: "merchant",
+        text: "Qual é o estabelecimento?",
+        subject: {
+          kind: "OBSERVATION",
+          observationId: "observation-1",
+          meaningContext: null,
+        },
+        answerState: "DECLARED",
+      }),
+    ).toBe(false);
+  });
+
   it.each([
     ["amountCents", "o valor é R$ 206,96", 20696],
     ["installmentCount", "foram 3 parcelas", 3],

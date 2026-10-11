@@ -18,7 +18,6 @@ const mocks = vi.hoisted(() => ({
   answerImportFocusedDraftQuestion: vi.fn(),
   answerImportDocumentaryQuestion: vi.fn(),
   editImportSession: vi.fn(),
-  agentSend: vi.fn(),
 }));
 
 vi.mock("../_lib/import-session-api", () => ({
@@ -31,9 +30,6 @@ vi.mock("../_lib/import-session-api", () => ({
 }));
 vi.mock("./useImportSessions", () => ({
   useImportUserId: () => mocks.userId,
-}));
-vi.mock("@/components/agent/useFinancialAgent", () => ({
-  useFinancialAgent: () => ({ send: mocks.agentSend }),
 }));
 
 const base: ImportSessionViewV1 = {
@@ -167,7 +163,6 @@ describe("active import deterministic controls", () => {
       "session-1",
       expect.any(AbortSignal),
     );
-    expect(mocks.agentSend).not.toHaveBeenCalled();
   });
 
   it("after a lost prepare response performs an authorized read and never retries the mutation", async () => {
@@ -188,7 +183,6 @@ describe("active import deterministic controls", () => {
 
     expect(mocks.prepareImportSession).toHaveBeenCalledOnce();
     expect(mocks.getFullImportSession).toHaveBeenCalled();
-    expect(mocks.agentSend).not.toHaveBeenCalled();
   });
 
   it("caches a valid NEEDS_INPUT prepare result and returns to its search-derived manual question", async () => {
@@ -207,7 +201,6 @@ describe("active import deterministic controls", () => {
     expect(result.current.question?.id).toBe("question-search");
     expect(result.current.view?.confirmation).toBeNull();
     expect(result.current.view?.receipt).toBeNull();
-    expect(mocks.agentSend).not.toHaveBeenCalled();
   });
 
   it("recovers the same valid NEEDS_INPUT outcome after a lost prepare response without retrying", async () => {

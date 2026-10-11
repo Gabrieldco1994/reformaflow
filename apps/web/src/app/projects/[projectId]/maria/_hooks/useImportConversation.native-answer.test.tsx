@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
   answerImportDocumentaryQuestion: vi.fn(),
   editImportSession: vi.fn(),
   getImportResult: vi.fn(),
-  send: vi.fn(),
 }));
 vi.mock("../_lib/import-session-api", () => ({
   getFullImportSession: mocks.getFullImportSession,
@@ -30,9 +29,6 @@ vi.mock("../_lib/import-session-api", () => ({
 }));
 vi.mock("./useImportSessions", () => ({
   useImportUserId: () => mocks.userId,
-}));
-vi.mock("@/components/agent/useFinancialAgent", () => ({
-  useFinancialAgent: () => ({ send: mocks.send }),
 }));
 
 const question: ImportObservationQuestionV1 = {
@@ -237,7 +233,6 @@ describe("native documentary preview contract", () => {
         expect.any(AbortSignal),
       );
       expect(result.current.error).toBeNull();
-      expect(mocks.send).not.toHaveBeenCalled();
     },
   );
 
@@ -280,7 +275,6 @@ describe("native documentary preview contract", () => {
         expect.any(AbortSignal),
       );
       expect(result.current.error).toBeNull();
-      expect(mocks.send).not.toHaveBeenCalled();
     },
   );
 
@@ -291,7 +285,6 @@ describe("native documentary preview contract", () => {
     await act(async () => {
       await result.current.saveDeclaration(accepted);
     });
-    expect(mocks.send).not.toHaveBeenCalled();
     expect(mocks.answerImportDocumentaryQuestion).toHaveBeenCalledOnce();
     const [id, request, signal] =
       mocks.answerImportDocumentaryQuestion.mock.calls[0];
@@ -339,7 +332,6 @@ describe("native documentary preview contract", () => {
         result.current.messages.some((m) => m.content.includes("guardada")),
       ).toBe(false);
       expect(client.getQueryData(key)).toEqual(base);
-      expect(mocks.send).not.toHaveBeenCalled();
     },
   );
 
@@ -353,7 +345,6 @@ describe("native documentary preview contract", () => {
       });
     });
     expect(mocks.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
-    expect(mocks.send).not.toHaveBeenCalled();
     expect(result.current.error).not.toBeNull();
   });
 
@@ -516,17 +507,14 @@ describe("native documentary preview contract", () => {
     expect(
       result.current.messages.some((m) => m.content.includes("guardada")),
     ).toBe(false);
-    expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it("free text in an active import never uses the LLM path", async () => {
+  it("does not expose contextual free-text or scope approval ports in an active import", async () => {
     const view: ImportSessionViewV1 = { ...base, questions: [] };
     const { result } = setup(view);
     await waitFor(() => expect(result.current.busy).toBe(false));
-    await act(async () => {
-      await result.current.send("Como funciona esta importação?");
-    });
-    expect(mocks.send).not.toHaveBeenCalled();
+    expect(result.current).not.toHaveProperty("send");
+    expect(result.current).not.toHaveProperty("approveScope");
     expect(mocks.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
   });
 
@@ -553,6 +541,5 @@ describe("native documentary preview contract", () => {
     expect(
       mocks.answerImportDocumentaryQuestion.mock.calls.at(-1)?.[1].channel,
     ).toBe("TEXT");
-    expect(mocks.send).not.toHaveBeenCalled();
   });
 });

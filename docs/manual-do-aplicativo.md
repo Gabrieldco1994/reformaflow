@@ -367,13 +367,14 @@ mais antigo daquele tipo (`createdAt` crescente), com desempate pelo `id`
 crescente. Projetos excluídos ou fora do escopo de `recurringBills` não participam
 da escolha. O critério não depende da ordem de inserção nem do índice do banco.
 
-- **Importação conversacional de fatura (#711):** implementação integrada
+- **Importação guiada de fatura na Maria (#711/#718):** implementação integrada
   localmente sobre o main de #714; isso não significa disponibilidade em produção.
   Quando o vault privado está disponível, peça a importação e escolha explicitamente
-  o cartão e o projeto. Os formatos vêm do servidor: CSV e PDF textual sem imagens
-  no recorte qualificado. O envio exige seleção dos arquivos e consentimento. Nesse
-  fluxo ativo, parsers determinísticos locais e do servidor processam o documento;
-  nenhum documento é enviado a LLM ou OCR.
+  o cartão e o arquivo. O projeto proprietário vem do cartão; um eventual destino
+  em outra reforma é escolhido depois, na revisão. Os formatos habilitados vêm do
+  servidor: CSV e PDF textual sem imagens no recorte qualificado. O envio exige
+  seleção dos arquivos e consentimento. Nesse fluxo, parsers determinísticos locais
+  e do servidor processam o documento; nenhum documento é enviado a LLM ou OCR.
   Um PDF escaneado, misto ou com qualquer imagem raster, inclusive um simples
   logotipo, recebe `OCR_REQUIRED`: OCR ainda não está disponível nesta importação.
   O suporte seguro a scans, fotos e PDFs com raster é trabalho futuro,

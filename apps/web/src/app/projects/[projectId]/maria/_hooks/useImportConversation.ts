@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   isPendingImportQuestion,
   normalizeImportDeclaration,
-  type ImportScopeReviewV1,
   type ImportSessionQuestionV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
@@ -61,8 +60,6 @@ interface Local {
   editingQuestionId: string | null;
   guided: { lineId: string; observationId: string; literal: string } | null;
   attachmentId: string | null;
-  scopeReview: ImportScopeReviewV1 | null;
-  scopeRevision: number | null;
   channel: "TEXT" | "VOICE";
   failure: ImportWorkflowFailure | null;
   pending: boolean;
@@ -76,8 +73,6 @@ const empty = (channel: "TEXT" | "VOICE" = "TEXT"): Local => ({
   editingQuestionId: null,
   guided: null,
   attachmentId: null,
-  scopeReview: null,
-  scopeRevision: null,
   channel,
   failure: null,
   pending: false,
@@ -225,7 +220,6 @@ export function useImportConversation(
             failure,
             review: false,
             result: null,
-            scopeReview: null,
           },
     );
   };
@@ -373,24 +367,6 @@ export function useImportConversation(
     }
   }
 
-  /** Compatibility adapter for controls migrating off the conversational route. */
-  async function send(
-    literal: string,
-    channel?: "TEXT" | "VOICE",
-    explicit?: "CONTINUE" | "OPEN_REVIEW" | "READ_RESULT",
-  ) {
-    if (!active() || generation.busy) return null;
-    update({
-      literal,
-      channel: channel ?? local.channel,
-      focus: question,
-      scopeReview: null,
-    });
-    if (explicit === "OPEN_REVIEW") return openReview();
-    if (explicit === "READ_RESULT") return readResult();
-    return null;
-  }
-
   async function saveFocusedDraft(accepted: ImportQuestionAnswerInput) {
     if (!active() || generation.busy) return null;
     if (
@@ -462,8 +438,6 @@ export function useImportConversation(
       failure: null,
       review: false,
       result: null,
-      scopeReview: null,
-      scopeRevision: null,
       messages: history,
     });
     try {
@@ -610,8 +584,6 @@ export function useImportConversation(
       failure: null,
       review: false,
       result: null,
-      scopeReview: null,
-      scopeRevision: null,
       messages: history,
     });
     try {
@@ -695,7 +667,6 @@ export function useImportConversation(
       editingQuestionId: selected.id,
       literal: "",
       attachmentId: null,
-      scopeReview: null,
       guided:
         local.guided?.lineId === selected.lineIds[0] &&
         local.guided.observationId === selected.subject.observationId
@@ -724,14 +695,7 @@ export function useImportConversation(
       },
       literal: "",
       attachmentId: null,
-      scopeReview: null,
     });
-  }
-
-  async function approveScope() {
-    if (!active() || generation.busy) return null;
-    fail(new ImportWorkflowResponseError());
-    return null;
   }
 
   async function recover(readResult = false) {
@@ -770,7 +734,6 @@ export function useImportConversation(
         pending: false,
         failure: null,
         result,
-        scopeReview: null,
         editingQuestionId: null,
       });
     } catch (error) {
@@ -821,8 +784,6 @@ export function useImportConversation(
         failure: null,
         review: false,
         result: null,
-        scopeReview: null,
-        scopeRevision: null,
       });
     } catch (error) {
       if (active()) fail(error);
@@ -843,18 +804,14 @@ export function useImportConversation(
     view,
     question,
     literal: generation.revoked ? "" : literal,
-    scopeReview:
-      local.scopeRevision === view?.revision ? local.scopeReview : null,
     error: failure,
     busy: pending,
-    send,
     openReview,
     readResult,
     saveDeclaration,
     saveFocusedDraft,
     editQuestion,
     startGuidedAnswer,
-    approveScope,
     recover,
     addToSelection,
     removeFromSelection,
@@ -863,14 +820,12 @@ export function useImportConversation(
         literal,
         channel: "TEXT",
         focus: question,
-        scopeReview: null,
       }),
     setVoiceLiteral: (literal: string) =>
       update({
         literal,
         channel: "VOICE",
         focus: question,
-        scopeReview: null,
       }),
     setAttachmentId: (attachmentId: string | null) => {
       if (
@@ -882,7 +837,7 @@ export function useImportConversation(
         fail(new ImportWorkflowResponseError());
         return;
       }
-      update({ attachmentId, scopeReview: null });
+      update({ attachmentId });
     },
   };
 }

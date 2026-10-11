@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
   answerImportDocumentaryQuestion: vi.fn(),
   editImportSession: vi.fn(),
   getImportResult: vi.fn(),
-  send: vi.fn(),
 }));
 vi.mock("../_lib/import-session-api", () => ({
   getFullImportSession: mocks.getFullImportSession,
@@ -30,9 +29,6 @@ vi.mock("../_lib/import-session-api", () => ({
   getImportResult: mocks.getImportResult,
 }));
 vi.mock("./useImportSessions", () => ({ useImportUserId: () => mocks.userId }));
-vi.mock("@/components/agent/useFinancialAgent", () => ({
-  useFinancialAgent: () => ({ send: mocks.send }),
-}));
 const line: ImportSessionDraftLineV1 = {
   id: "line-1",
   observationIds: ["observation-1"],
@@ -169,7 +165,6 @@ describe("native create and no-allocation choices", () => {
         },
         expect.any(AbortSignal),
       );
-      expect(mocks.send).not.toHaveBeenCalled();
       expect(result.current.error).toBeNull();
       expect(result.current.review).toBe(false);
       expect(result.current.view?.confirmation).toBeNull();
@@ -250,7 +245,6 @@ describe("native create and no-allocation choices", () => {
       });
       expect(result.current.error).not.toBeNull();
       expect(client.getQueryData<ImportSessionViewV1>(key)?.revision).toBe(4);
-      expect(mocks.send).not.toHaveBeenCalled();
     },
   );
 
@@ -289,7 +283,6 @@ describe("native create and no-allocation choices", () => {
       expect(
         result.current.messages.some((m) => m.content.includes("guardada")),
       ).toBe(false);
-      expect(mocks.send).not.toHaveBeenCalled();
     },
   );
 
@@ -366,7 +359,6 @@ describe("focused draft native answers", () => {
       },
       expect.any(AbortSignal),
     );
-    expect(mocks.send).not.toHaveBeenCalled();
     expect(mocks.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
     expect(mocks.editImportSession).not.toHaveBeenCalled();
     expect(result.current.error).toBeNull();
@@ -420,7 +412,6 @@ describe("focused draft native answers", () => {
     );
     expect(result.current.view?.lines[0].categoriaMaoDeObra).toBeNull();
     expect(result.current.question?.field).toBe("categoriaMaoDeObra");
-    expect(mocks.send).not.toHaveBeenCalled();
     expect(result.current.error).toBeNull();
   });
 
@@ -453,7 +444,6 @@ describe("focused draft native answers", () => {
       expect(
         result.current.messages.some((m) => m.content.includes("guardada")),
       ).toBe(false);
-      expect(mocks.send).not.toHaveBeenCalled();
     },
   );
 
@@ -483,7 +473,6 @@ describe("focused draft native answers", () => {
         });
       });
       expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
-      expect(mocks.send).not.toHaveBeenCalled();
       expect(result.current.error).not.toBeNull();
     },
   );
@@ -499,7 +488,6 @@ describe("focused draft native answers", () => {
       });
     });
     expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
-    expect(mocks.send).not.toHaveBeenCalled();
     expect(result.current.view?.lines[0].firstDueDate).toBe("2025-10-10");
     expect(result.current.question?.field).toBe("firstDueDate");
     expect(result.current.error).not.toBeNull();
@@ -598,7 +586,6 @@ describe("focused draft native answers", () => {
         },
         expect.any(AbortSignal),
       );
-      expect(mocks.send).not.toHaveBeenCalled();
       unmount();
       mocks.answerImportFocusedDraftQuestion.mockClear();
     }
@@ -690,16 +677,13 @@ describe("focused draft native answers", () => {
     expect(
       result.current.messages.some((m) => m.content.includes("guardada")),
     ).toBe(false);
-    expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it("does not route free text from an active import to the financial agent", async () => {
+  it("does not expose contextual free-text or scope approval ports in an active import", async () => {
     const { result } = setup();
     await waitFor(() => expect(result.current.busy).toBe(false));
-    await act(async () => {
-      await result.current.send("Minha resposta livre");
-    });
-    expect(mocks.send).not.toHaveBeenCalled();
+    expect(result.current).not.toHaveProperty("send");
+    expect(result.current).not.toHaveProperty("approveScope");
     expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
   });
 });

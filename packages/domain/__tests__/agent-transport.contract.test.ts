@@ -1,5 +1,4 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { ImportChatTurnV1 } from "../src/import-conversation";
 import type { ImportEntryActionV1 } from "../src/import-session";
 
 type TransportOrigin = "TEXT" | "VOICE";
@@ -8,13 +7,10 @@ type StartAction = Extract<
   { kind: "START_CARD_INVOICE_IMPORT" }
 >;
 
-describe("Maria generic/contextual transport contract", () => {
-  it("keeps the same closed TEXT/VOICE vocabulary on generic START and contextual turns", () => {
+describe("Maria generic transport contract", () => {
+  it("keeps a closed TEXT/VOICE vocabulary on generic START", () => {
     expectTypeOf<
       StartAction["originChannel"]
-    >().toEqualTypeOf<TransportOrigin>();
-    expectTypeOf<
-      ImportChatTurnV1["channel"]
     >().toEqualTypeOf<TransportOrigin>();
     expect(["TEXT", "VOICE"]).toEqual(["TEXT", "VOICE"]);
   });

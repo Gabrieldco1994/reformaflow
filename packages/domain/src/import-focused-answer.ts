@@ -5,6 +5,8 @@ import {
 import {
   ImportSessionAmountMeaning,
   type ImportSessionDateOnly,
+  type ImportSessionDraftQuestionV1,
+  type ImportObservationQuestionV1,
 } from "./import-session";
 import { parseInstallmentDateOnlyUtc } from "./calculations/local-date-utc";
 import { parseSpokenMoney } from "./money-parse";
@@ -24,6 +26,12 @@ export type ImportFocusedLiteralValue<F extends ImportFocusedLiteralField> =
     : F extends "amountCents" | "installmentCount"
       ? number
       : ImportSessionDateOnly;
+
+export function isPendingImportQuestion(
+  question: ImportSessionDraftQuestionV1 | ImportObservationQuestionV1,
+): boolean {
+  return !("subject" in question) || question.answerState === "UNANSWERED";
+}
 
 const MONEY_TOKEN =
   /(?<![\p{L}\p{N}_-])(?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[,.]\d{1,2})?)(?![\p{L}\p{N}_])/giu;
