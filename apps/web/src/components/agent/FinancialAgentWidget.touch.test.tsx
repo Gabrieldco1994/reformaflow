@@ -48,6 +48,7 @@ describe("FinancialAgentWidget touch targets", () => {
         importEntryAction: {
           version: 1,
           kind: "START_CARD_INVOICE_IMPORT",
+          originChannel: "TEXT",
           formats: ["CSV"],
           suggestedCardId: null,
         },

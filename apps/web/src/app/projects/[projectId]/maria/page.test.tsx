@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MariaPage from "./page";
 import {
@@ -198,8 +198,13 @@ describe("MariaPage", () => {
 
     expect(screen.getByTestId("voice-assistant-overlay")).toBeInTheDocument();
     // `send` é o wrapper da tela (detecta importEntryAction) sobre o mesmo agent.send.
-    void (lastVoiceOverlayProps?.send as (t: string) => unknown)("oi");
-    expect(agentSend).toHaveBeenCalledWith("oi");
+    void (
+      lastVoiceOverlayProps?.send as (
+        t: string,
+        context: { channel: "VOICE" },
+      ) => unknown
+    )("oi", { channel: "VOICE" });
+    expect(agentSend).toHaveBeenCalledWith("oi", { channel: "VOICE" });
     expect(lastVoiceOverlayProps?.autoStart).toBe(true);
   });
 
@@ -232,6 +237,40 @@ describe("MariaPage", () => {
     expect(agentSend).not.toHaveBeenCalled();
   });
 
+  it("bridges typed composer and suggestion requests as independent TEXT sends", () => {
+    renderMariaPage();
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Pergunte ou lance… “paguei 30 de uber”"),
+      { target: { value: "pedido digitado" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Quanto gastei com mercado?" }),
+    );
+
+    expect(agentSend).toHaveBeenNthCalledWith(1, "pedido digitado", {
+      channel: "TEXT",
+    });
+    expect(agentSend).toHaveBeenNthCalledWith(2, "Quanto gastei com mercado?", {
+      channel: "TEXT",
+    });
+  });
+
+  it("bridges a one-shot transcript as VOICE", () => {
+    renderMariaPage();
+    fireEvent.click(screen.getByRole("button", { name: "Falar" }));
+    const callbacks = speechStart.mock.calls[0]?.[0] as {
+      onResult: (text: string) => void;
+    };
+
+    act(() => callbacks.onResult("pedido falado"));
+
+    expect(agentSend).toHaveBeenCalledWith("pedido falado", {
+      channel: "VOICE",
+    });
+  });
+
   it("auto-envia o prompt pendente do onboarding uma vez e limpa a ponte", () => {
     setPendingMariaPrompt("Quanto já gastei em Supermercado este mês?");
 
@@ -240,6 +279,7 @@ describe("MariaPage", () => {
     expect(agentSend).toHaveBeenCalledTimes(1);
     expect(agentSend).toHaveBeenCalledWith(
       "Quanto já gastei em Supermercado este mês?",
+      { channel: "TEXT" },
     );
     // Ponte consumida → refresh não re-dispara.
     expect(consumePendingMariaPrompt()).toBeNull();
@@ -272,7 +312,9 @@ describe("MariaPage", () => {
     renderMariaPage();
     fireEvent.click(screen.getByRole("button", { name: IMPORT_CSV_CTA_LABEL }));
     expect(agentSend).toHaveBeenCalledTimes(1);
-    expect(agentSend).toHaveBeenCalledWith(IMPORT_CSV_PROMPT);
+    expect(agentSend).toHaveBeenCalledWith(IMPORT_CSV_PROMPT, {
+      channel: "TEXT",
+    });
     // Nenhum seletor de arquivo antes de o servidor devolver a ação.
     expect(document.querySelector('input[type="file"]')).toBeNull();
   });

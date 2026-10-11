@@ -19,7 +19,10 @@ type VoiceState =
 
 interface VoiceAssistantOverlayProps {
   onClose: () => void;
-  send: (text: string) => Promise<ChatMessage | null>;
+  send: (
+    text: string,
+    context: { channel: "VOICE" },
+  ) => Promise<ChatMessage | null>;
   /**
    * Inicia a captura de voz assim que o overlay monta — usado quando a
    * abertura já partiu do gesto de clique do usuário (ex.: CTA "Iniciar
@@ -104,7 +107,7 @@ export function VoiceAssistantOverlay({
     const generation = generationRef.current;
     setLastUser(text);
     setState("thinking");
-    const assistant = await send(text);
+    const assistant = await send(text, { channel: "VOICE" });
     if (!activeRef.current || generation !== generationRef.current) return;
     if (!assistant) {
       setState("idle");

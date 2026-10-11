@@ -15,6 +15,7 @@ describe("textual PDF capability contract", () => {
       const action = {
         version: 1,
         kind: "START_CARD_INVOICE_IMPORT",
+        originChannel: "TEXT",
         formats,
         suggestedCardId: null,
       };
@@ -42,6 +43,7 @@ describe("textual PDF capability contract", () => {
       readImportEntryAction({
         version: 1,
         kind: "START_CARD_INVOICE_IMPORT",
+        originChannel: "TEXT",
         formats,
         suggestedCardId: null,
       }),
@@ -52,6 +54,58 @@ describe("textual PDF capability contract", () => {
       kind: "ERROR",
       code: "INVALID_ENTRY",
     });
+  });
+
+  it.each([undefined, null, "SMS", "voice"])(
+    "rejects missing or unknown response origin %j without downgrading",
+    (originChannel) => {
+      expect(
+        readImportEntryAction({
+          version: 1,
+          kind: "START_CARD_INVOICE_IMPORT",
+          ...(originChannel === undefined ? {} : { originChannel }),
+          formats: ["CSV"],
+          suggestedCardId: null,
+        }),
+      ).toBeNull();
+      expect(
+        readImportEntryAction({
+          version: 1,
+          kind: "IMPORT_UNAVAILABLE",
+          ...(originChannel === undefined ? {} : { originChannel }),
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it.each(["TEXT", "VOICE"] as const)(
+    "preserves the exact %s response origin for unavailable actions",
+    (originChannel) => {
+      const action = {
+        version: 1,
+        kind: "IMPORT_UNAVAILABLE",
+        originChannel,
+      };
+      expect(readImportEntryAction(action)).toEqual(action);
+    },
+  );
+
+  it("rejects future or widened action shapes instead of silently downgrading", () => {
+    expect(
+      readImportEntryAction({
+        version: 2,
+        kind: "IMPORT_UNAVAILABLE",
+        originChannel: "VOICE",
+      }),
+    ).toBeNull();
+    expect(
+      readImportEntryAction({
+        version: 1,
+        kind: "IMPORT_UNAVAILABLE",
+        originChannel: "VOICE",
+        legacyChannel: "TEXT",
+      }),
+    ).toBeNull();
   });
 
   it.each(["OCR_REQUIRED", "DOCUMENT_UNREADABLE", "PDF_PASSWORD_REQUIRED"])(

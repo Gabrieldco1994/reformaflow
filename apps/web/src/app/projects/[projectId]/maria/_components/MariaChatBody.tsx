@@ -18,6 +18,7 @@ import { IMPORT_CSV_PROMPT, MariaDock } from "./MariaDock";
 import { ImportConversationBody } from "./ImportConversationBody";
 import type { ImportDocumentFlow } from "../_hooks/useImportDocumentFlow";
 import type { ImportEntryAction } from "../_lib/import-entry-action";
+import type { AgentChannel } from "@/components/agent/useFinancialAgent";
 
 interface GenericChatProps {
   projectId: string;
@@ -32,6 +33,10 @@ interface ContinuationFocusProps {
   onContinuationFocusComplete?: (sessionId: string) => void;
 }
 
+interface ImportOriginProps {
+  originChannel?: AgentChannel;
+}
+
 /**
  * Corpo da conversa com a Maria (mensagens + dock + voz + sheet de edição) —
  * extraído de `maria/page.tsx` para ser reusado tanto na tela cheia do app
@@ -44,7 +49,8 @@ export function MariaChatBody(
   props: GenericChatProps & {
     importSessionId?: string | null;
     documents?: ImportDocumentFlow;
-  } & ContinuationFocusProps,
+  } & ContinuationFocusProps &
+    ImportOriginProps,
 ) {
   if (Object.hasOwn(props, "importSessionId"))
     return (
@@ -54,6 +60,7 @@ export function MariaChatBody(
         continuationFocusSessionId={props.continuationFocusSessionId}
         onContinuationRequest={props.onContinuationRequest}
         onContinuationFocusComplete={props.onContinuationFocusComplete}
+        originChannel={props.originChannel}
       />
     );
   return <GenericMariaChatBody {...props} />;
@@ -145,12 +152,12 @@ function GenericMariaChatBody({
     });
   };
 
-  const submit = (text: string) => {
+  const submit = (text: string, channel: AgentChannel = "TEXT") => {
     const content = text.trim();
     if (!content || agent.loading || disabled) return;
     setInput("");
     setVoiceError("");
-    void send(content);
+    void send(content, { channel });
   };
 
   // Ponte do onboarding: se um passo anterior gravou um prompt pré-formatado,
@@ -172,7 +179,7 @@ function GenericMariaChatBody({
       onResult: (text) => {
         if (voiceConversationOpenRef.current) return;
         setInput(text);
-        submit(text);
+        submit(text, "VOICE");
       },
       onError: (message) => setVoiceError(message),
     });
@@ -193,7 +200,7 @@ function GenericMariaChatBody({
   const confirmPending = (index: number) => {
     if (disabled) return;
     setConfirmedIndexes((prev) => new Set(prev).add(index));
-    void send(CONFIRM_REPLY);
+    void send(CONFIRM_REPLY, { channel: "TEXT" });
   };
 
   return (

@@ -23,6 +23,19 @@ export interface ChatMessage {
   importEntryAction?: ImportEntryAction | null;
 }
 
+export type AgentChannel = "TEXT" | "VOICE";
+
+export interface FinancialAgentSendContext {
+  channel?: AgentChannel;
+  importTurn?: ImportChatTurnV1 | null;
+  signal?: AbortSignal;
+}
+
+export type FinancialAgentSend = (
+  text: string,
+  context?: FinancialAgentSendContext,
+) => Promise<ChatMessage | null>;
+
 interface AgentResponse {
   reply: string;
   toolsUsed: string[];
@@ -79,10 +92,10 @@ export function useFinancialAgent() {
     messagesRef.current = messages;
   }, [messages]);
 
-  const send = useCallback(
+  const send: FinancialAgentSend = useCallback(
     async (
       text: string,
-      context?: { importTurn: ImportChatTurnV1 | null; signal?: AbortSignal },
+      context?: FinancialAgentSendContext,
     ): Promise<ChatMessage | null> => {
       if (context && Object.hasOwn(context, "importTurn")) {
         if (context.importTurn?.literalAnswer !== text)
@@ -101,6 +114,7 @@ export function useFinancialAgent() {
       }
       const content = text.trim();
       if (!content) return null;
+      const channel = context?.channel ?? "TEXT";
 
       const history: ChatMessage[] = [
         ...messagesRef.current,
@@ -115,6 +129,7 @@ export function useFinancialAgent() {
           "/agent/chat",
           {
             projectId,
+            channel,
             messages: history.map((m) => ({
               role: m.role,
               content: m.content,

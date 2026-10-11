@@ -24,6 +24,7 @@ import { useCopilotStore } from "@/stores/copilot-store";
 import { useFinancialAgent } from "./useFinancialAgent";
 import { useSpeechRecognition } from "./useSpeechRecognition";
 import { VoiceAssistantOverlay } from "./VoiceAssistantOverlay";
+import type { AgentChannel } from "./useFinancialAgent";
 
 const TOOL_LABELS: Record<string, string> = {
   list_projects: "projetos",
@@ -118,12 +119,12 @@ export function FinancialAgentWidget() {
     });
   };
 
-  const submit = (text: string) => {
+  const submit = (text: string, channel: AgentChannel = "TEXT") => {
     const content = text.trim();
     if (!content || agent.loading) return;
     setInput("");
     setVoiceError("");
-    void agent.send(content);
+    void agent.send(content, { channel });
   };
 
   // Experiência 1: microfone no chat → transcreve e envia. A resposta é só texto.
@@ -133,7 +134,7 @@ export function FinancialAgentWidget() {
     speech.start({
       onResult: (text) => {
         setInput(text);
-        submit(text);
+        submit(text, "VOICE");
       },
       onError: (message) => setVoiceError(message),
     });

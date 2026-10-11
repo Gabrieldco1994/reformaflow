@@ -46,6 +46,7 @@ import {
 interface Generation {
   userId: string | null;
   sessionId: string | null;
+  initialChannel: "TEXT" | "VOICE";
   live: boolean;
   busy: boolean;
   controller: AbortController | null;
@@ -66,7 +67,7 @@ interface Local {
   result: ImportResultRead | null;
   messages: ChatMessage[];
 }
-const empty = (): Local => ({
+const empty = (channel: "TEXT" | "VOICE" = "TEXT"): Local => ({
   literal: "",
   focus: undefined,
   editingQuestionId: null,
@@ -74,7 +75,7 @@ const empty = (): Local => ({
   attachmentId: null,
   scopeReview: null,
   scopeRevision: null,
-  channel: "TEXT",
+  channel,
   failure: null,
   pending: false,
   review: false,
@@ -91,6 +92,7 @@ const sameFocus = (a: ImportFocusV1, b: ImportFocusV1) =>
 export function useImportConversation(
   sessionId: string | null,
   documentaryRead = false,
+  initialChannel: "TEXT" | "VOICE" = "TEXT",
 ) {
   const userId = useImportUserId();
   const client = useQueryClient();
@@ -98,6 +100,7 @@ export function useImportConversation(
   const scope = useRef<Generation>({
     userId,
     sessionId,
+    initialChannel,
     live: true,
     busy: false,
     controller: null,
@@ -112,6 +115,7 @@ export function useImportConversation(
     scope.current = {
       userId,
       sessionId,
+      initialChannel,
       live: true,
       busy: false,
       controller: null,
@@ -127,9 +131,12 @@ export function useImportConversation(
     };
   }, [generation]);
   const [state, setState] = useState<{ generation: Generation; local: Local }>(
-    () => ({ generation, local: empty() }),
+    () => ({ generation, local: empty(generation.initialChannel) }),
   );
-  const local = state.generation === generation ? state.local : empty();
+  const local =
+    state.generation === generation
+      ? state.local
+      : empty(generation.initialChannel);
   const active = () =>
     scope.current === generation && generation.live && !generation.revoked;
   const update = (patch: Partial<Local>) => {
@@ -137,7 +144,9 @@ export function useImportConversation(
       setState((previous) => ({
         generation,
         local: {
-          ...(previous.generation === generation ? previous.local : empty()),
+          ...(previous.generation === generation
+            ? previous.local
+            : empty(generation.initialChannel)),
           ...patch,
         },
       }));
@@ -205,7 +214,7 @@ export function useImportConversation(
     const failure = importConversationFailure(error);
     update(
       failure.privateContextLost
-        ? { ...empty(), failure }
+        ? { ...empty(generation.initialChannel), failure }
         : {
             pending: false,
             failure,
@@ -375,11 +384,12 @@ export function useImportConversation(
 
   async function send(
     literal: string,
-    channel: "TEXT" | "VOICE" = "TEXT",
+    channel?: "TEXT" | "VOICE",
     explicit?: "CONTINUE" | "OPEN_REVIEW" | "READ_RESULT",
   ) {
     if (!active() || generation.busy) return null;
-    update({ literal, channel, focus: question });
+    const requestChannel = channel ?? local.channel;
+    update({ literal, channel: requestChannel, focus: question });
     if (!view || !userId || !sessionId || failure) {
       if (!failure) fail(new ImportWorkflowResponseError());
       return null;
@@ -402,7 +412,7 @@ export function useImportConversation(
       turnId: crypto.randomUUID(),
       sessionId,
       expectedRevision: view.revision,
-      channel,
+      channel: requestChannel,
       literalAnswer: literal,
     };
     if (intent === "ANSWER") {
@@ -902,7 +912,7 @@ export function useImportConversation(
   }
 
   return {
-    ...(generation.revoked ? empty() : local),
+    ...(generation.revoked ? empty(generation.initialChannel) : local),
     userId,
     view,
     question,
@@ -921,7 +931,12 @@ export function useImportConversation(
     addToSelection,
     removeFromSelection,
     setLiteral: (literal: string) =>
-      update({ literal, focus: question, scopeReview: null }),
+      update({
+        literal,
+        channel: "TEXT",
+        focus: question,
+        scopeReview: null,
+      }),
     setAttachmentId: (attachmentId: string | null) => {
       if (
         attachmentId !== null &&

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   encodeImportDeclaration,
+  type ImportChatTurnV1,
   type ImportDeclarationAnswerV1,
   type ImportDeclarationUiInputV1,
   type ImportObservationQuestionV1,
@@ -103,7 +104,7 @@ const stored = (): ImportSessionViewV1 => ({
     },
   ],
 });
-function setup(view = base) {
+function setup(view = base, initialChannel: "TEXT" | "VOICE" = "TEXT") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -114,10 +115,11 @@ function setup(view = base) {
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
   const hook = renderHook(
-    (sessionId: string) => useImportConversation(sessionId),
+    (props: { sessionId: string; initialChannel: "TEXT" | "VOICE" }) =>
+      useImportConversation(props.sessionId, false, props.initialChannel),
     {
       wrapper,
-      initialProps: view.id,
+      initialProps: { sessionId: view.id, initialChannel },
     },
   );
   return { ...hook, client, key };
@@ -463,9 +465,9 @@ describe("native documentary preview contract", () => {
       });
       if (change === "user") {
         mocks.userId = "user-2";
-        rerender(base.id);
+        rerender({ sessionId: base.id, initialChannel: "TEXT" });
       } else if (change === "session") {
-        rerender("session-2");
+        rerender({ sessionId: "session-2", initialChannel: "TEXT" });
       } else {
         act(() => {
           client.setQueryData(key, { ...base, revision: 6 });
@@ -523,5 +525,47 @@ describe("native documentary preview contract", () => {
       }),
     );
     expect(mocks.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
+  });
+
+  it("inherits the entry origin for non-keyboard turns until typed input changes modality", async () => {
+    const view: ImportSessionViewV1 = {
+      ...base,
+      questions: [],
+      actions: [],
+    };
+    mocks.send.mockImplementation(
+      async (_literal: string, context: { importTurn: ImportChatTurnV1 }) => {
+        const turn = context.importTurn;
+        return {
+          role: "assistant",
+          mode: "IMPORT",
+          content: "",
+          importOutcome: {
+            version: 1,
+            turnId: turn.turnId,
+            ref: { sessionId: turn.sessionId, revision: turn.expectedRevision },
+            acknowledgment: "NONE",
+            kind: "REVISED_SESSION",
+          },
+        };
+      },
+    );
+    const { result } = setup(view, "VOICE");
+    await waitFor(() => expect(result.current.busy).toBe(false));
+
+    await act(async () => {
+      await result.current.send("Continuar", undefined, "CONTINUE");
+    });
+    expect(mocks.send.mock.calls.at(-1)?.[1].importTurn.channel).toBe("VOICE");
+
+    await act(async () => {
+      await result.current.send("resposta digitada", "TEXT", "CONTINUE");
+    });
+    expect(mocks.send.mock.calls.at(-1)?.[1].importTurn.channel).toBe("TEXT");
+
+    await act(async () => {
+      await result.current.send("Abrir próxima etapa", undefined, "CONTINUE");
+    });
+    expect(mocks.send.mock.calls.at(-1)?.[1].importTurn.channel).toBe("TEXT");
   });
 });

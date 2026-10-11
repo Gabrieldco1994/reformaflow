@@ -63,6 +63,9 @@ function Entry({
     );
   }, []);
   const nextNavigation = useRef(0);
+  const sessionOriginChannels = useRef(
+    new Map<string, ImportEntryAction["originChannel"]>(),
+  );
   const selection =
     requested && (requested.from === location || requested.to === location)
       ? requested
@@ -104,7 +107,11 @@ function Entry({
       supportedFormats: capability?.formats ?? entryFormats,
       adoptionKey: (id) =>
         JSON.stringify([target(id).location, selection?.nonce ?? null]),
-      publishSession: (id) => router.replace(target(id).href),
+      publishSession: (id) => {
+        if (capability)
+          sessionOriginChannels.current.set(id, capability.originChannel);
+        router.replace(target(id).href);
+      },
       recoverList: async () => {
         await list.restart();
         const state = client.getQueryState(
@@ -115,6 +122,9 @@ function Entry({
       },
     },
   );
+  const activeOriginChannel = documents.sessionId
+    ? (sessionOriginChannels.current.get(documents.sessionId) ?? "TEXT")
+    : "TEXT";
   const cards = useQuery({
     queryKey: importKeys.entryCards(userId ?? "anonymous"),
     queryFn: ({ signal }) => listImportEntryCards(signal),
@@ -181,6 +191,7 @@ function Entry({
               continuationFocusSessionId={pendingContinuationFocusSessionId}
               onContinuationRequest={recordContinuationFocus}
               onContinuationFocusComplete={completeContinuationFocus}
+              originChannel={activeOriginChannel}
             />
           ) : documents.error ? (
             <div role="alert">

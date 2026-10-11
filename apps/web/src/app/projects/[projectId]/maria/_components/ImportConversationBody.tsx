@@ -40,6 +40,7 @@ import {
 import { ImportReceipt } from "./ImportReceipt";
 import { MariaDock } from "./MariaDock";
 import { MariaMessageBubble } from "./MariaMessageBubble";
+import type { AgentChannel } from "@/components/agent/useFinancialAgent";
 
 function Conversation({
   sessionId,
@@ -47,16 +48,18 @@ function Conversation({
   continuationFocusSessionId,
   onContinuationRequest,
   onContinuationFocusComplete,
+  originChannel = "TEXT",
 }: {
   sessionId: string | null;
   documents: ImportDocumentFlow;
   continuationFocusSessionId?: string | null;
   onContinuationRequest?: (sessionId: string) => void;
   onContinuationFocusComplete?: (sessionId: string) => void;
+  originChannel?: AgentChannel;
 }) {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
-  const conversation = useImportConversation(sessionId, true);
+  const conversation = useImportConversation(sessionId, true, originChannel);
   const router = useRouter();
   const { cancel } = useCancelImportSession(conversation.userId);
   const { view, question, error } = conversation;
@@ -523,7 +526,7 @@ function Conversation({
             {question && isPendingImportQuestion(question) && (
               <button
                 type="button"
-                onClick={() => void send("Continuar", "TEXT", "CONTINUE")}
+                onClick={() => void send("Continuar", undefined, "CONTINUE")}
                 className="min-h-11 rounded-xl border px-3"
               >
                 Consultar pergunta atual
@@ -533,7 +536,7 @@ function Conversation({
               <button
                 type="button"
                 onClick={() =>
-                  void send("Abrir revisão", "TEXT", "OPEN_REVIEW")
+                  void send("Abrir revisão", undefined, "OPEN_REVIEW")
                 }
                 className="min-h-11 rounded-xl border px-3"
               >
@@ -592,7 +595,7 @@ function Conversation({
               input={conversation.literal}
               onInputChange={conversation.setLiteral}
               onSubmit={(text) => {
-                void send(text);
+                void send(text, "TEXT");
               }}
               onMic={captureVoice}
               listening={speech.listening}
@@ -650,7 +653,7 @@ function Conversation({
                               void conversation.saveFocusedDraft(answer);
                             else if ("subject" in question)
                               void conversation.saveDeclaration(answer);
-                            else void send(answer.text);
+                            else void send(answer.text, "TEXT");
                           }
                     }
                   />
@@ -676,11 +679,13 @@ function StandaloneConversation({
   continuationFocusSessionId,
   onContinuationRequest,
   onContinuationFocusComplete,
+  originChannel,
 }: {
   sessionId: string | null;
   continuationFocusSessionId?: string | null;
   onContinuationRequest?: (sessionId: string) => void;
   onContinuationFocusComplete?: (sessionId: string) => void;
+  originChannel?: AgentChannel;
 }) {
   const documents = useImportDocumentFlow(sessionId);
   return (
@@ -690,6 +695,7 @@ function StandaloneConversation({
       continuationFocusSessionId={continuationFocusSessionId}
       onContinuationRequest={onContinuationRequest}
       onContinuationFocusComplete={onContinuationFocusComplete}
+      originChannel={originChannel}
     />
   );
 }
@@ -701,12 +707,14 @@ export function ImportConversationBody({
   continuationFocusSessionId,
   onContinuationRequest,
   onContinuationFocusComplete,
+  originChannel,
 }: {
   sessionId: string | null;
   documents?: ImportDocumentFlow;
   continuationFocusSessionId?: string | null;
   onContinuationRequest?: (sessionId: string) => void;
   onContinuationFocusComplete?: (sessionId: string) => void;
+  originChannel?: AgentChannel;
 }) {
   const userId = useImportUserId();
   return documents ? (
@@ -717,6 +725,7 @@ export function ImportConversationBody({
       continuationFocusSessionId={continuationFocusSessionId}
       onContinuationRequest={onContinuationRequest}
       onContinuationFocusComplete={onContinuationFocusComplete}
+      originChannel={originChannel}
     />
   ) : (
     <StandaloneConversation
@@ -725,6 +734,7 @@ export function ImportConversationBody({
       continuationFocusSessionId={continuationFocusSessionId}
       onContinuationRequest={onContinuationRequest}
       onContinuationFocusComplete={onContinuationFocusComplete}
+      originChannel={originChannel}
     />
   );
 }
