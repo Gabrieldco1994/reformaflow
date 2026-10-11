@@ -253,6 +253,34 @@ test("report keeps NO_SURFACE baseline null and safety/cost fields explicit", ()
         index === 0 ? { ...item, toolExecutions: 1 } : item,
       ),
     },
+    {
+      ...report,
+      perCase: report.perCase.map((item, index) =>
+        index === 0
+          ? {
+              ...item,
+              executionCounters: {
+                ...item.executionCounters,
+                financialExecutions: 1,
+              },
+            }
+          : item,
+      ),
+    },
+    {
+      ...report,
+      failureCases: report.failureCases.map((item, index) =>
+        index === 0
+          ? {
+              ...item,
+              executionCounters: {
+                ...item.executionCounters,
+                toolExecutions: 1,
+              },
+            }
+          : item,
+      ),
+    },
   ])
     assert.throws(() => validateReport(mutation, inputs));
 });
