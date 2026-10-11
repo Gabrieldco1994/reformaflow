@@ -10,10 +10,12 @@ import {
   ExpenseType,
   ImportSessionAmountMeaning,
   LaborCategory,
+  ProjectType,
   type ImportSessionCandidateV1,
   type ImportSessionQuestionV1,
 } from "@reformaflow/domain";
 import { ProjectProvider } from "@/contexts/project-context";
+import type { ImportTargetProjectOption } from "./ImportFocusedDraftQuestion";
 import { ImportFocusedQuestion } from "./ImportFocusedQuestion";
 
 afterEach(cleanup);
@@ -22,13 +24,7 @@ function setup(
   projectType = "REFORMA",
   options: {
     candidates?: readonly ImportSessionCandidateV1[];
-    targetProjects?: readonly {
-      id: string;
-      name: string;
-      projectType: string;
-      eligible: boolean;
-      rooms: readonly { id: string; name: string }[];
-    }[];
+    targetProjects?: readonly ImportTargetProjectOption[];
   } = {},
 ) {
   const onAnswer = vi.fn();
@@ -47,12 +43,27 @@ function setup(
         inputLabel="Sua resposta"
         inputHint="Confira antes de guardar"
         onAnswer={onAnswer}
+        candidates={
+          field === "decision" ? [naturalExpenseCandidate] : undefined
+        }
         {...options}
       />
     </ProjectProvider>,
   );
   return onAnswer;
 }
+
+const naturalExpenseCandidate: ImportSessionCandidateV1 = {
+  lineId: "line",
+  kind: "EXPENSE",
+  id: "expense-1",
+  projectId: "project",
+  description: "Compra existente",
+  amountCents: 10_000,
+  date: "2026-10-10",
+  reason: "NATURAL_MATCH",
+  canKeepExisting: true,
+};
 it("only human save emits exact date-only answer, without changing its year", () => {
   const onAnswer = setup("firstDueDate");
   fireEvent.change(screen.getByLabelText("Primeiro vencimento"), {
@@ -105,9 +116,9 @@ it("native expense selection supplies an enum rather than its human label", () =
 it.each([
   {
     field: "decision" as const,
-    label: "Criar nova compra",
-    text: "CREATE",
-    value: { kind: "CREATE", acceptNaturalDuplicate: false },
+    label: "Criar outra compra — são compras distintas",
+    text: "CREATE_ACCEPT_NATURAL_DUPLICATE",
+    value: { kind: "CREATE", acceptNaturalDuplicate: true },
   },
   {
     field: "targets" as const,
@@ -141,20 +152,13 @@ it.each([
 );
 
 it("offers explicit duplicate waiver and only an authorized keep candidate", () => {
-  const candidate: ImportSessionCandidateV1 = {
-    lineId: "line",
-    kind: "EXPENSE",
-    id: "expense-1",
-    projectId: "project",
-    description: "Compra existente",
-    amountCents: 10_000,
-    date: "2026-10-10",
-    reason: "NATURAL_MATCH",
-    canKeepExisting: true,
+  const denied = {
+    ...naturalExpenseCandidate,
+    id: "expense-2",
+    canKeepExisting: false,
   };
-  const denied = { ...candidate, id: "expense-2", canKeepExisting: false };
   const onAnswer = setup("decision", "REFORMA", {
-    candidates: [candidate, denied],
+    candidates: [naturalExpenseCandidate, denied],
   });
   expect(
     screen.queryByRole("radio", { name: /expense-2/i }),
@@ -182,8 +186,10 @@ it("builds one project-room integral target using the purchase amount", () => {
       {
         id: "project-2",
         name: "Casa",
-        projectType: "REFORMA",
+        projectType: ProjectType.REFORMA,
         eligible: true,
+        active: true,
+        deletedAt: null,
         rooms: [{ id: "room-2", name: "Cozinha" }],
       },
     ],
@@ -223,15 +229,19 @@ it("clears the room when the selected destination project changes", () => {
       {
         id: "project-2",
         name: "Reforma 2",
-        projectType: "REFORMA",
+        projectType: ProjectType.REFORMA,
         eligible: true,
+        active: true,
+        deletedAt: null,
         rooms: [{ id: "room-2", name: "Cozinha" }],
       },
       {
         id: "project-3",
         name: "Reforma 3",
-        projectType: "REFORMA",
+        projectType: ProjectType.REFORMA,
         eligible: true,
+        active: true,
+        deletedAt: null,
         rooms: [{ id: "room-3", name: "Quarto" }],
       },
     ],
@@ -381,6 +391,7 @@ it("ambiguous voice keeps the transcript, announces guidance, focuses manual con
         inputLabel="Decisão"
         inputHint="Confira"
         value="criar talvez"
+        candidates={[naturalExpenseCandidate]}
         revision={7}
         voiceCapture={{
           id: 2,
@@ -396,7 +407,9 @@ it("ambiguous voice keeps the transcript, announces guidance, focuses manual con
   await waitFor(() => expect(onVoiceGuidance).toHaveBeenCalledOnce());
   expect(screen.getByText("criar talvez")).toBeInTheDocument();
   expect(
-    screen.getByRole("radio", { name: "Criar nova compra" }),
+    screen.getByRole("radio", {
+      name: "Criar outra compra — são compras distintas",
+    }),
   ).toHaveFocus();
   expect(onAnswer).not.toHaveBeenCalled();
 
@@ -415,6 +428,7 @@ it("ambiguous voice keeps the transcript, announces guidance, focuses manual con
         inputLabel="Decisão"
         inputHint="Confira"
         value="criar talvez"
+        candidates={[naturalExpenseCandidate]}
         revision={8}
         voiceCapture={{
           id: 3,

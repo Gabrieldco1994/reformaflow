@@ -49,7 +49,7 @@ async function readTargetProjects(
     ): project is {
       id: string;
       name: string;
-      type: string;
+      type: typeof ProjectType.REFORMA;
       deletedAt: null;
     } =>
       activeProject(project) &&
@@ -82,6 +82,10 @@ async function readTargetProjects(
       return {
         id: project.id,
         name: project.name,
+        projectType: project.type,
+        active: true,
+        deletedAt: detail.deletedAt,
+        eligible: true,
         rooms: rooms.map(({ id, name }) => ({ id, name })),
       };
     }),
@@ -166,6 +170,7 @@ export function useImportManualOptions(
   return {
     candidates: decision ? (candidates.data ?? []) : [],
     projects: targets ? (projects.data ?? []) : [],
+    ownerProjectId: targets ? ownerProjectId : null,
     pending: Boolean(active?.isFetching),
     error: active?.isError
       ? "Não foi possível consultar as opções autorizadas. Consulte novamente antes de guardar."

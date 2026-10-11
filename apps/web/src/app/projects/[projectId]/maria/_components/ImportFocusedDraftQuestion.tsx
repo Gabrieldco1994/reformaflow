@@ -38,10 +38,10 @@ import type { ImportQuestionAnswerInput } from "../_lib/import-session-api";
 export interface ImportTargetProjectOption {
   id: string;
   name: string;
-  projectType?: string;
-  eligible?: boolean;
-  active?: boolean;
-  deletedAt?: string | null;
+  projectType: ProjectType;
+  eligible: boolean;
+  active: boolean;
+  deletedAt: string | null;
   rooms: readonly { id: string; name: string }[];
 }
 
@@ -84,10 +84,78 @@ const MEANING_OPTIONS = [
   },
 ] as const;
 
-const DECISION_CREATE = "CREATE";
 const DECISION_WAIVER = "CREATE_ACCEPT_NATURAL_DUPLICATE";
 const TARGET_NONE = "NO_TARGETS";
 const TARGET_INTEGRAL = "target";
+
+type DecisionAnswer = Extract<
+  FocusedDraftAnswer,
+  { field: "decision" }
+>["value"];
+
+interface DecisionChoice {
+  value: string;
+  label: string;
+  answer: DecisionAnswer;
+}
+
+function keepExistingChoice(
+  candidate: ImportSessionCandidateV1 & { kind: "EXPENSE" },
+): DecisionChoice {
+  return {
+    value: candidate.id,
+    label: `Manter compra existente: ${candidate.description} · ${moneyDetail(candidate.amountCents)}`,
+    answer: { kind: "KEEP_EXISTING", expenseId: candidate.id },
+  };
+}
+
+function supportedDecisionChoices(
+  candidates: readonly ImportSessionCandidateV1[],
+  lineIds: readonly string[],
+): DecisionChoice[] {
+  const visible = candidates.filter((candidate) =>
+    lineIds.includes(candidate.lineId),
+  );
+  const strong = visible.filter(
+    (candidate) => candidate.reason === "STRONG_IDENTITY",
+  );
+  if (strong.length > 0) {
+    if (
+      strong.some(
+        (candidate) =>
+          candidate.kind !== "EXPENSE" || !candidate.canKeepExisting,
+      )
+    )
+      return [];
+    return strong
+      .filter(
+        (
+          candidate,
+        ): candidate is ImportSessionCandidateV1 & { kind: "EXPENSE" } =>
+          candidate.kind === "EXPENSE",
+      )
+      .map(keepExistingChoice);
+  }
+
+  const choices: DecisionChoice[] = [];
+  if (visible.some((candidate) => candidate.reason === "NATURAL_MATCH"))
+    choices.push({
+      value: DECISION_WAIVER,
+      label: "Criar outra compra — são compras distintas",
+      answer: { kind: "CREATE", acceptNaturalDuplicate: true },
+    });
+  choices.push(
+    ...visible
+      .filter(
+        (
+          candidate,
+        ): candidate is ImportSessionCandidateV1 & { kind: "EXPENSE" } =>
+          candidate.kind === "EXPENSE" && candidate.canKeepExisting,
+      )
+      .map(keepExistingChoice),
+  );
+  return choices;
+}
 
 export function ImportFocusedDraftQuestion({
   question,
@@ -113,7 +181,14 @@ export function ImportFocusedDraftQuestion({
   const id = useId();
   const [local, setLocal] = useState("");
   const text = value ?? local;
-  const stamp = JSON.stringify([contextKey, question, projectType]);
+  const stamp = JSON.stringify([
+    contextKey,
+    question,
+    projectType,
+    ownerProjectId,
+    candidates,
+    targetProjects,
+  ]);
   const [preview, setPreview] = useState<{
     answer: FocusedDraftAnswer;
     stamp: string;
@@ -136,27 +211,31 @@ export function ImportFocusedDraftQuestion({
   const eligibleTargetProjects = targetProjects.filter(
     (project) =>
       project.id !== ownerProjectId &&
-      project.active !== false &&
-      (project.deletedAt === undefined || project.deletedAt === null) &&
+      project.active &&
+      project.deletedAt === null &&
       project.eligible &&
       project.projectType === ProjectType.REFORMA &&
-      hasFeature(project.projectType as ProjectType, "expenses"),
+      hasFeature(project.projectType, "expenses"),
   );
   const selectedProject = eligibleTargetProjects.find(
     (project) => project.id === projectId,
   );
-  const authorizedCandidates = candidates.filter(
-    (candidate) =>
-      candidate.kind === "EXPENSE" &&
-      candidate.canKeepExisting &&
-      question.lineIds.includes(candidate.lineId),
+  const decisionChoices = supportedDecisionChoices(
+    candidates,
+    question.lineIds,
   );
+  const decisionRecovery =
+    question.field === "decision" &&
+    !optionsPending &&
+    !optionsError &&
+    decisionChoices.length === 0;
   const requiresOptions =
     question.field === "decision" || question.field === "targets";
   const complete =
     targets.length > 0 &&
     targets.every(Boolean) &&
-    (!requiresOptions || (!optionsPending && !optionsError));
+    (!requiresOptions || (!optionsPending && !optionsError)) &&
+    !decisionRecovery;
   const blocked = pending || disabled || !complete || !onAnswer;
   const currentPreview =
     preview?.stamp === stamp && preview.text === text ? preview : null;
@@ -183,6 +262,10 @@ export function ImportFocusedDraftQuestion({
 
   function answerForCurrentValue(): FocusedDraftAnswer | null {
     if ("subject" in question) return null;
+    if (question.field === "decision") {
+      const choice = decisionChoices.find((option) => option.value === text);
+      return choice ? { field: "decision", value: choice.answer } : null;
+    }
     if (question.field === "tipoDespesa") {
       const selected = expenseOptions.find((option) => option.value === text);
       return selected ? { field: "tipoDespesa", value: selected.value } : null;
@@ -205,9 +288,6 @@ export function ImportFocusedDraftQuestion({
         selectedProject?.rooms.some((room) => room.id === roomId) && roomId
           ? roomId
           : null,
-      candidateExpenseIds: authorizedCandidates.map(
-        (candidate) => candidate.id,
-      ),
     });
   }
 
@@ -294,7 +374,7 @@ export function ImportFocusedDraftQuestion({
         if (answer.value.kind === "KEEP_EXISTING") {
           const expenseId = answer.value.expenseId;
           return `Manter compra existente: ${
-            authorizedCandidates.find((candidate) => candidate.id === expenseId)
+            candidates.find((candidate) => candidate.id === expenseId)
               ?.description ?? expenseId
           }`;
         }
@@ -382,6 +462,7 @@ export function ImportFocusedDraftQuestion({
             {MEANING_OPTIONS.map((option, index) => (
               <label
                 key={option.value}
+                htmlFor={`${id}-meaning-${index}`}
                 className="flex min-h-11 items-center gap-3 rounded-xl border border-darc-linen p-3"
               >
                 <input
@@ -390,6 +471,7 @@ export function ImportFocusedDraftQuestion({
                       ? (control as React.RefObject<HTMLInputElement>)
                       : undefined
                   }
+                  id={`${id}-meaning-${index}`}
                   type="radio"
                   name={`${id}-meaning`}
                   value={option.value}
@@ -432,17 +514,13 @@ export function ImportFocusedDraftQuestion({
         );
       }
       case "decision": {
-        const choices = [
-          { value: DECISION_CREATE, label: "Criar nova compra" },
-          {
-            value: DECISION_WAIVER,
-            label: "Criar outra compra — são compras distintas",
-          },
-          ...authorizedCandidates.map((candidate) => ({
-            value: candidate.id,
-            label: `Manter compra existente: ${candidate.description} · ${moneyDetail(candidate.amountCents)}`,
-          })),
-        ];
+        if (decisionRecovery)
+          return (
+            <p role="alert" className="text-sm text-darc-red">
+              Não há uma decisão segura disponível para este conflito. Revise a
+              compra manualmente; nada foi enviado.
+            </p>
+          );
         return (
           <fieldset
             disabled={blocked}
@@ -450,9 +528,11 @@ export function ImportFocusedDraftQuestion({
             className="space-y-2"
           >
             <legend className="sr-only">{FOCUSED_DRAFT_LABEL.decision}</legend>
-            {choices.map((choice, index) => (
+            {decisionChoices.map((choice, index) => (
               <label
                 key={choice.value}
+                htmlFor={`${id}-decision-${index}`}
+                data-testid={`decision-choice-label-${choice.value}`}
                 className="flex min-h-11 min-w-0 items-center gap-3 rounded-xl border border-darc-linen p-3"
               >
                 <input
@@ -461,6 +541,7 @@ export function ImportFocusedDraftQuestion({
                       ? (control as React.RefObject<HTMLInputElement>)
                       : undefined
                   }
+                  id={`${id}-decision-${index}`}
                   type="radio"
                   name={`${id}-decision`}
                   value={choice.value}
@@ -494,6 +575,7 @@ export function ImportFocusedDraftQuestion({
             ].map((choice, index) => (
               <label
                 key={choice.value}
+                htmlFor={`${id}-target-${index}`}
                 className="flex min-h-11 min-w-0 items-center gap-3 rounded-xl border border-darc-linen p-3"
               >
                 <input
@@ -502,6 +584,7 @@ export function ImportFocusedDraftQuestion({
                       ? (control as React.RefObject<HTMLInputElement>)
                       : undefined
                   }
+                  id={`${id}-target-${index}`}
                   type="radio"
                   name={`${id}-targets`}
                   value={choice.value}
@@ -611,7 +694,7 @@ export function ImportFocusedDraftQuestion({
           <p className="break-words">{text}</p>
         </div>
       )}
-      {!complete && (
+      {!complete && !decisionRecovery && (
         <p role="alert" className="text-sm text-darc-red">
           {optionsError ??
             (optionsPending
