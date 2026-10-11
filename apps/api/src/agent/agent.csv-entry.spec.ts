@@ -4,8 +4,25 @@ import { AgentToolsService } from "./tools/agent-tools.service";
 import { LLM_PROVIDER } from "./llm/llm.types";
 import { ImportChatBridge } from "../imports/import-session/import-chat.bridge";
 import { DefaultImportSessionCapability } from "../imports/import-session/import-session.capability";
+import { PrismaService } from "../prisma/prisma.service";
 
 describe("server-owned Maria CSV entry action", () => {
+  const prisma = new PrismaService();
+  beforeAll(async () => {
+    expect(process.env.DATABASE_URL).toMatch(/test(?:-worker-\d+)?\.db/);
+    await prisma.$connect();
+  });
+  afterAll(async () => prisma.$disconnect());
+  const finance = () =>
+    Promise.all([
+      prisma.expense.count({ where: { tenantId: "tenant-entry" } }),
+      prisma.cashFlowEntry.count({ where: { tenantId: "tenant-entry" } }),
+      prisma.receipt.count({ where: { tenantId: "tenant-entry" } }),
+      prisma.rateioAllocation.count({ where: { tenantId: "tenant-entry" } }),
+      prisma.crossProjectSettlement.count({
+        where: { tenantId: "tenant-entry" },
+      }),
+    ]);
   const make = async (available = true) => {
     const bridge = new ImportChatBridge(
       {} as never,
@@ -29,41 +46,54 @@ describe("server-owned Maria CSV entry action", () => {
         toolCalls: [],
       }),
     };
+    const tools = {
+      getToolDefs: () => [],
+      buildPrimer: async () => "",
+      execute: jest.fn(),
+    };
     const module = await Test.createTestingModule({
       providers: [
         AgentService,
         { provide: LLM_PROVIDER, useValue: llm },
         {
           provide: AgentToolsService,
-          useValue: { getToolDefs: () => [], buildPrimer: async () => "" },
+          useValue: tools,
         },
         { provide: ImportChatBridge, useValue: bridge },
       ],
     }).compile();
-    return { module, llm, service: module.get(AgentService) };
+    return { module, llm, tools, service: module.get(AgentService) };
   };
 
-  it("emits exactly START_CARD_INVOICE_IMPORT with qualified CSV/PDF from the server turn, without calling the LLM", async () => {
-    const { module, llm, service } = await make();
-    try {
-      const result = await service.chat({
-        tenantId: "tenant-entry",
-        userId: "user-entry",
-        messages: [{ role: "user", content: "Quero importar minha fatura" }],
-      });
-      expect(result.importEntryAction).toEqual({
-        version: 1,
-        kind: "START_CARD_INVOICE_IMPORT",
-        formats: ["CSV", "PDF"],
-        suggestedCardId: null,
-      });
-      expect(result.provider).toBe("import-session");
-      expect(result.toolsUsed).toEqual([]);
-      expect(llm.chat).not.toHaveBeenCalled();
-    } finally {
-      await module.close();
-    }
-  });
+  it.each(["TEXT", "VOICE"] as const)(
+    "emits START_CARD_INVOICE_IMPORT with the authoritative %s origin and no LLM/tool call",
+    async (origin) => {
+      const { module, llm, tools, service } = await make();
+      try {
+        const beforeFinance = await finance();
+        const result = await service.chat({
+          tenantId: "tenant-entry",
+          userId: "user-entry",
+          origin,
+          messages: [{ role: "user", content: "Quero importar minha fatura" }],
+        } as Parameters<AgentService["chat"]>[0] & { origin: typeof origin });
+        expect(result.importEntryAction).toEqual({
+          version: 1,
+          kind: "START_CARD_INVOICE_IMPORT",
+          formats: ["CSV", "PDF"],
+          suggestedCardId: null,
+          origin,
+        });
+        expect(result.provider).toBe("import-session");
+        expect(result.toolsUsed).toEqual([]);
+        expect(llm.chat).not.toHaveBeenCalled();
+        expect(tools.execute).not.toHaveBeenCalled();
+        expect(await finance()).toEqual(beforeFinance);
+      } finally {
+        await module.close();
+      }
+    },
+  );
 
   it.each(["Olá", "Não quero importar a fatura"])(
     "cannot promote ordinary model text into controls (%s)",

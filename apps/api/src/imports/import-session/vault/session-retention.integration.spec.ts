@@ -1174,6 +1174,464 @@ describe("guarded persisted session retention", () => {
     return { session, artifact, ref, material, extraction };
   };
 
+  const confirmedAtEffectiveExpiry = async () => {
+    const created = await create();
+    const attached = await attachCsv(
+      created.view.id,
+      Buffer.from(
+        "date,title,amount\n2026-10-01,Expiry lifecycle fixture,7.77\n",
+      ),
+    );
+    const financialRequestId = randomUUID();
+    await prisma.importArtifact.update({
+      where: { id: attached.artifact.id },
+      data: {
+        state: "ANALYZING",
+        parseGeneration: 5,
+        leaseSessionId: created.view.id,
+        leaseSessionVersion: 0,
+        leaseTokenExpiresAt: new Date(current.getTime() + 60_000),
+        leaseExpiresAt: new Date(current.getTime() + 60_000),
+      },
+    });
+    await prisma.importSessionArtifact.update({
+      where: { id: attached.ref.id },
+      data: {
+        uploadGeneration: 7,
+        uploadSessionVersion: 0,
+        uploadTokenExpiresAt: new Date(current.getTime() + 60_000),
+        uploadLeaseExpiresAt: new Date(current.getTime() + 60_000),
+      },
+    });
+    const confirmed = await prisma.importSession.update({
+      where: { id: created.view.id },
+      data: {
+        state: "CONFIRMED",
+        revision: 9,
+        expiresAt: current,
+        draftJson: JSON.stringify(attached.material.draft),
+        searchJson: '{"kind":"private-search"}',
+        proposalJson: '{"kind":"private-proposal"}',
+        proposalHash: "a".repeat(64),
+        preflightHash: "b".repeat(64),
+        challengeJson: '{"kind":"private-challenge"}',
+        prepareLeaseJson: '{"kind":"private-lease"}',
+        prepareGeneration: 11,
+        financialRequestId,
+        confirmedRevision: 8,
+        confirmedSessionVersion: 0,
+        confirmedAt: new Date(current.getTime() - 1),
+      },
+    });
+    const workflow = new ImportSessionWorkflowService(
+      prisma,
+      clock,
+      {
+        writesEnabled: () => true,
+        newImportFormats: capability.newImportFormats.bind(capability),
+      },
+      verifier,
+      new CardPurchaseBatchAdapter(
+        new ExpenseService(prisma, new ConciliacaoService(prisma)),
+        new ConciliacaoService(prisma),
+        clock,
+      ),
+      gate as never,
+      raw as never,
+    );
+    return { ...attached, confirmed, financialRequestId, workflow };
+  };
+
+  const financialInventory = () =>
+    Promise.all([
+      prisma.expense.count({ where: { tenantId } }),
+      prisma.cashFlowEntry.count({ where: { tenantId } }),
+      prisma.receipt.count({ where: { tenantId } }),
+      prisma.rateioAllocation.count({ where: { tenantId } }),
+      prisma.crossProjectSettlement.count({ where: { tenantId } }),
+      prisma.importedInvoiceLiquidation.count({ where: { tenantId } }),
+    ]);
+
+  it("execute at the exact CONFIRMED expiry commits the complete terminal lifecycle before SESSION_EXPIRED", async () => {
+    raw.abortOwned.mockClear();
+    const fixture = await confirmedAtEffectiveExpiry();
+    const beforeFinance = await financialInventory();
+    const exactClaim = {
+      tenantId,
+      ownerProjectId: projectId,
+      sessionId: fixture.confirmed.id,
+      artifactId: fixture.artifact.id,
+      parseGeneration: 5,
+    };
+
+    await expect(
+      fixture.workflow.execute(
+        auth,
+        fixture.confirmed.id,
+        { financialRequestId: fixture.financialRequestId },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      code: "SESSION_EXPIRED",
+      sessionId: fixture.confirmed.id,
+      currentRevision: 9,
+      retryable: false,
+    });
+
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: fixture.confirmed.id },
+      }),
+    ).toMatchObject({
+      state: "EXPIRED",
+      revision: 10,
+      closedAt: current,
+      draftJson: EMPTY_DRAFT_JSON,
+      searchJson: null,
+      proposalJson: null,
+      proposalHash: "a".repeat(64),
+      preflightHash: null,
+      challengeJson: null,
+      prepareLeaseJson: null,
+      prepareGeneration: 12,
+      financialRequestId: fixture.financialRequestId,
+      confirmedRevision: 8,
+      confirmedSessionVersion: 0,
+      confirmedAt: new Date(current.getTime() - 1),
+      receiptJson: null,
+    });
+    expect(
+      await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: fixture.ref.id },
+      }),
+    ).toMatchObject({
+      state: "RELEASED",
+      fileName: "document",
+      releasedAt: current,
+      uploadGeneration: 8,
+      uploadSessionVersion: null,
+      uploadTokenExpiresAt: null,
+      uploadLeaseExpiresAt: null,
+    });
+    expect(
+      await prisma.importArtifact.findUniqueOrThrow({
+        where: { id: fixture.artifact.id },
+      }),
+    ).toMatchObject({
+      state: "RAW_READY",
+      parseGeneration: 6,
+      leaseSessionId: null,
+      leaseSessionVersion: null,
+      leaseTokenExpiresAt: null,
+      leaseExpiresAt: null,
+    });
+    expect(
+      await prisma.importObservation.count({
+        where: { artifactId: fixture.artifact.id },
+      }),
+    ).toBe(0);
+    expect(await financialInventory()).toEqual(beforeFinance);
+    expect(raw.abortOwned).toHaveBeenCalledTimes(1);
+    expect(raw.abortOwned).toHaveBeenCalledWith([exactClaim], "EXPIRE");
+  });
+
+  it("rolls the expiry transition back when terminal attachment cleanup fails", async () => {
+    raw.abortOwned.mockClear();
+    const fixture = await confirmedAtEffectiveExpiry();
+    const trigger = `qa_expiry_cleanup_${fixture.ref.id.replaceAll("-", "_")}`;
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER "${trigger}"
+      BEFORE UPDATE OF state ON import_session_artifacts
+      WHEN OLD.id = '${fixture.ref.id}'
+      BEGIN
+        SELECT RAISE(ABORT, 'qa forced expiry cleanup failure');
+      END
+    `);
+    try {
+      await expect(
+        fixture.workflow.execute(
+          auth,
+          fixture.confirmed.id,
+          { financialRequestId: fixture.financialRequestId },
+          {},
+        ),
+      ).rejects.toThrow(/qa forced expiry cleanup failure/);
+      expect(
+        await prisma.importSession.findUniqueOrThrow({
+          where: { id: fixture.confirmed.id },
+        }),
+      ).toEqual(fixture.confirmed);
+      expect(
+        await prisma.importSessionArtifact.findUniqueOrThrow({
+          where: { id: fixture.ref.id },
+        }),
+      ).toMatchObject({ state: "ATTACHED", uploadGeneration: 7 });
+      expect(
+        await prisma.importArtifact.findUniqueOrThrow({
+          where: { id: fixture.artifact.id },
+        }),
+      ).toMatchObject({
+        state: "ANALYZING",
+        parseGeneration: 5,
+        leaseSessionId: fixture.confirmed.id,
+      });
+      expect(
+        await prisma.importObservation.count({
+          where: { artifactId: fixture.artifact.id },
+        }),
+      ).toBe(1);
+      expect(raw.abortOwned).not.toHaveBeenCalled();
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${trigger}"`);
+    }
+  });
+
+  it("execute/reaper concurrency and execute retry converge on one cleanup and one exact post-commit abort", async () => {
+    raw.abortOwned.mockClear();
+    const fixture = await confirmedAtEffectiveExpiry();
+    const reaper = new VaultReaper(prisma, clock, gate as never, raw as never);
+    const execute = () =>
+      fixture.workflow
+        .execute(
+          auth,
+          fixture.confirmed.id,
+          { financialRequestId: fixture.financialRequestId },
+          {},
+        )
+        .catch((error) => error);
+
+    const [executeError] = await Promise.all([
+      execute(),
+      reaper.runCycle({
+        tenantId,
+        ownerProjectId: projectId,
+        limit: 16,
+      }),
+    ]);
+    expect(executeError).toMatchObject({ code: "SESSION_EXPIRED" });
+    const settled = await prisma.importSession.findUniqueOrThrow({
+      where: { id: fixture.confirmed.id },
+    });
+    expect(settled).toMatchObject({
+      state: "EXPIRED",
+      revision: 10,
+      draftJson: EMPTY_DRAFT_JSON,
+      searchJson: null,
+      proposalJson: null,
+      preflightHash: null,
+      prepareGeneration: 12,
+    });
+    const callsAfterRace = raw.abortOwned.mock.calls.slice();
+    await expect(
+      fixture.workflow.execute(
+        auth,
+        fixture.confirmed.id,
+        { financialRequestId: fixture.financialRequestId },
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: fixture.confirmed.id },
+      }),
+    ).toEqual(settled);
+    expect(raw.abortOwned.mock.calls).toEqual(callsAfterRace);
+    expect(callsAfterRace).toEqual([
+      [
+        [
+          {
+            tenantId,
+            ownerProjectId: projectId,
+            sessionId: fixture.confirmed.id,
+            artifactId: fixture.artifact.id,
+            parseGeneration: 5,
+          },
+        ],
+        "EXPIRE",
+      ],
+    ]);
+  });
+
+  it("physically purges temporary bytes and restores quota after execute-time expiry", async () =>
+    withVault(async ({ root, reaper }) => {
+      raw.abortOwned.mockClear();
+      const fixture = await confirmedAtEffectiveExpiry();
+      const storageKey = `t/${fixture.ref.id}/g7/blob`;
+      mkdirSync(join(root, "t", fixture.ref.id, "g7"), {
+        recursive: true,
+        mode: 0o700,
+      });
+      writeFileSync(join(root, storageKey), Buffer.from("private bytes"), {
+        mode: 0o600,
+      });
+      await prisma.importSessionArtifact.update({
+        where: { id: fixture.ref.id },
+        data: {
+          temporaryStorageKey: storageKey,
+          reservedBytes: 13,
+        },
+      });
+
+      await expect(
+        fixture.workflow.execute(
+          auth,
+          fixture.confirmed.id,
+          { financialRequestId: fixture.financialRequestId },
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+      expect(
+        await prisma.importSessionArtifact.findUniqueOrThrow({
+          where: { id: fixture.ref.id },
+        }),
+      ).toMatchObject({
+        state: "RELEASED",
+        temporaryPurgePending: true,
+        reservedBytes: 13,
+      });
+      expect(existsSync(join(root, storageKey))).toBe(true);
+
+      const cycle = await reaper.runCycle({
+        tenantId,
+        ownerProjectId: projectId,
+        limit: 16,
+      });
+      expect(cycle.purges).toContainEqual({
+        target: {
+          kind: "ref",
+          tenantId,
+          ownerProjectId: projectId,
+          id: fixture.ref.id,
+        },
+        outcome: "PURGED",
+      });
+      expect(existsSync(join(root, storageKey))).toBe(false);
+      expect(
+        await prisma.importSessionArtifact.findUnique({
+          where: { id: fixture.ref.id },
+        }),
+      ).toBeNull();
+      expect(
+        await prisma.importSessionArtifact.aggregate({
+          where: { tenantId },
+          _sum: { reservedBytes: true },
+        }),
+      ).toEqual({ _sum: { reservedBytes: 0 } });
+    }));
+
+  it("retains shared artifact evidence while releasing only the expired session reference", async () => {
+    raw.abortOwned.mockClear();
+    const fixture = await confirmedAtEffectiveExpiry();
+    const active = await create();
+    const shared = await prisma.importSessionArtifact.create({
+      data: {
+        tenantId,
+        ownerProjectId: projectId,
+        sessionId: active.view.id,
+        artifactId: fixture.artifact.id,
+        position: 0,
+        fileName: "shared.csv",
+        declaredMime: "text/csv",
+        declaredBytes: fixture.ref.declaredBytes,
+        reservedBytes: 0,
+        state: "ATTACHED",
+        verifiedAt: current,
+      },
+    });
+
+    await expect(
+      fixture.workflow.execute(
+        auth,
+        fixture.confirmed.id,
+        { financialRequestId: fixture.financialRequestId },
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+    expect(
+      await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: fixture.ref.id },
+      }),
+    ).toMatchObject({ state: "RELEASED", uploadGeneration: 8 });
+    expect(
+      await prisma.importSessionArtifact.findUniqueOrThrow({
+        where: { id: shared.id },
+      }),
+    ).toMatchObject({
+      state: "ATTACHED",
+      uploadGeneration: 0,
+      artifactId: fixture.artifact.id,
+    });
+    expect(
+      await prisma.importObservation.count({
+        where: { artifactId: fixture.artifact.id },
+      }),
+    ).toBe(1);
+  });
+
+  it("expires a confirmed empty attachment/lease set without inventing claims or finance", async () => {
+    raw.abortOwned.mockClear();
+    const fixture = await confirmedAtEffectiveExpiry();
+    await prisma.importArtifact.update({
+      where: { id: fixture.artifact.id },
+      data: {
+        leaseSessionId: null,
+        leaseSessionVersion: null,
+        leaseTokenExpiresAt: null,
+        leaseExpiresAt: null,
+      },
+    });
+    await prisma.importObservation.deleteMany({
+      where: { artifactId: fixture.artifact.id },
+    });
+    await prisma.importSessionArtifact.delete({
+      where: { id: fixture.ref.id },
+    });
+    expect(
+      await prisma.importArtifact.findUnique({
+        where: { id: fixture.artifact.id },
+      }),
+    ).toBeNull();
+    await prisma.importSession.update({
+      where: { id: fixture.confirmed.id },
+      data: {
+        state: "CONFIRMED",
+        revision: 9,
+        draftJson: EMPTY_DRAFT_JSON,
+        searchJson: fixture.confirmed.searchJson,
+        proposalJson: fixture.confirmed.proposalJson,
+        proposalHash: fixture.confirmed.proposalHash,
+        preflightHash: fixture.confirmed.preflightHash,
+        challengeJson: fixture.confirmed.challengeJson,
+        prepareLeaseJson: fixture.confirmed.prepareLeaseJson,
+        prepareGeneration: 11,
+        closedAt: null,
+      },
+    });
+    const beforeFinance = await financialInventory();
+
+    await expect(
+      fixture.workflow.execute(
+        auth,
+        fixture.confirmed.id,
+        { financialRequestId: fixture.financialRequestId },
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: fixture.confirmed.id },
+      }),
+    ).toMatchObject({
+      state: "EXPIRED",
+      revision: 10,
+      draftJson: EMPTY_DRAFT_JSON,
+      prepareGeneration: 12,
+    });
+    expect(await financialInventory()).toEqual(beforeFinance);
+    expect(raw.abortOwned).toHaveBeenCalledTimes(1);
+    expect(raw.abortOwned).toHaveBeenCalledWith([], "EXPIRE");
+  });
+
   it.each([
     { kind: "Expense", deletion: "soft" },
     { kind: "Expense", deletion: "hard" },

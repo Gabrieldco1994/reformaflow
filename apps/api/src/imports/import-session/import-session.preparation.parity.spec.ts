@@ -668,14 +668,24 @@ describe("import preparation parity", () => {
     },
   );
 
-  it("does not create a continuation when only terminal ignored evidence remains", () => {
+  it("keeps Maria audit order and does not create a continuation when only terminal ignored evidence remains", () => {
+    const ignored = [
+      ["obs-payment-1", "PAGAMENTO EFETUADO", -101],
+      ["obs-payment-2", "Pagamento PIX", -202],
+      ["obs-payment-3", "PAGAMENTO DE FATURA", -303],
+      ["obs-payment-4", "PGTO FAT", -404],
+      ["obs-payment-5", "FATURA PAGA", -505],
+    ] as const;
     const draft: ImportSessionStoredDraftV1 = {
       version: 1,
       lines: [line("line-selected", "obs-selected")],
       selectedLineIds: ["line-selected"],
       questions: [],
       scope: {
-        observationIds: ["obs-selected", "obs-payment"],
+        observationIds: [
+          "obs-selected",
+          ...ignored.map(([observationId]) => observationId),
+        ],
         pendingAttachmentIds: [],
       },
     };
@@ -686,11 +696,20 @@ describe("import preparation parity", () => {
       proposalBody: proposalBody(),
       observations: [
         observation("obs-selected"),
-        observation("obs-payment", "Pagamento de fatura", -12000),
+        ...ignored.map(([id, title, amount]) => observation(id, title, amount)),
       ],
       references: [reference()],
     });
 
+    expect(plan.proposal.auditItems).toEqual(
+      ignored.map(([observationId, title, amountCents]) => ({
+        observationId,
+        outcome: "IGNORED",
+        reason: "INVOICE_PAYMENT",
+        title,
+        amountCents,
+      })),
+    );
     expect(plan.proposal.deferredObservationIds).toEqual([]);
     expect(plan.continuationDraft).toBeNull();
     expect(plan.transferRefIds).toEqual([]);

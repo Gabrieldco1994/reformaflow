@@ -37,6 +37,122 @@ const apiURL = process.env.API_URL!;
 const fixtures = path.resolve(__dirname, "fixtures");
 const execFileAsync = promisify(execFile);
 
+async function installDeterministicWebSpeech(page: Page) {
+  await page.addInitScript(() => {
+    const transcripts: string[] = [];
+    class DeterministicSpeechRecognition {
+      lang = "";
+      interimResults = false;
+      maxAlternatives = 1;
+      continuous = false;
+      onstart: (() => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror: ((event: { error: string }) => void) | null = null;
+      onresult:
+        | ((event: {
+            results: ArrayLike<ArrayLike<{ transcript: string }>>;
+          }) => void)
+        | null = null;
+      start() {
+        this.onstart?.();
+        queueMicrotask(() => {
+          const transcript = transcripts.shift();
+          if (!transcript) {
+            this.onerror?.({ error: "no-speech" });
+            this.onend?.();
+            return;
+          }
+          this.onresult?.({
+            results: {
+              0: { 0: { transcript }, length: 1 },
+              length: 1,
+            },
+          });
+          this.onend?.();
+        });
+      }
+      stop() {
+        this.onend?.();
+      }
+      abort() {
+        this.onend?.();
+      }
+    }
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: DeterministicSpeechRecognition,
+    });
+    Object.defineProperty(window, "webkitSpeechRecognition", {
+      configurable: true,
+      value: DeterministicSpeechRecognition,
+    });
+    Object.defineProperty(window, "__qaSpeechTranscript", {
+      configurable: false,
+      value: (transcript: string) => transcripts.push(transcript),
+    });
+  });
+}
+
+async function enqueueSpeech(page: Page, transcript: string) {
+  await page.evaluate((value) => {
+    (
+      window as unknown as Window & {
+        __qaSpeechTranscript: (transcript: string) => void;
+      }
+    ).__qaSpeechTranscript(value);
+  }, transcript);
+}
+
+async function assertPrimaryVoiceCtaBeforeScroll(
+  page: Page,
+  evidence: JourneyEvidence,
+) {
+  const cta = page.getByRole("button", {
+    name: "Iniciar conversa por voz",
+    exact: true,
+  });
+  await expect(cta).toBeVisible();
+  await expect(cta).toBeEnabled();
+  const measurement = await cta.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    const hit = document.elementFromPoint(center.x, center.y);
+    return {
+      rect: {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      },
+      testPoint: center,
+      elementFromPoint: {
+        tagName: hit?.tagName ?? null,
+        id: hit?.id || null,
+        role: hit?.getAttribute("role") ?? null,
+        ariaLabel: hit?.getAttribute("aria-label") ?? null,
+        testId: hit?.getAttribute("data-testid") ?? null,
+        hitsTarget: Boolean(hit && (hit === element || element.contains(hit))),
+      },
+      viewport: { width: innerWidth, height: innerHeight },
+      documentScroll: { x: scrollX, y: scrollY },
+    };
+  });
+  expect(measurement.documentScroll).toEqual({ x: 0, y: 0 });
+  expect(measurement.rect.width).toBeGreaterThanOrEqual(44);
+  expect(measurement.rect.height).toBeGreaterThanOrEqual(44);
+  expect(measurement.rect.x).toBeGreaterThanOrEqual(0);
+  expect(measurement.rect.y).toBeGreaterThanOrEqual(0);
+  expect(measurement.rect.x + measurement.rect.width).toBeLessThanOrEqual(
+    measurement.viewport.width,
+  );
+  expect(measurement.rect.y + measurement.rect.height).toBeLessThanOrEqual(
+    measurement.viewport.height,
+  );
+  expect(measurement.elementFromPoint.hitsTarget).toBe(true);
+  await evidence.recordTouchTarget(measurement);
+  return cta;
+}
+
 async function assertDisposableInventory(
   sessionId: string,
   selectedLineIds: string[],
@@ -140,6 +256,7 @@ for (const phase of ["upload", "confirmation"] as const) {
       };
 
       try {
+        await installDeterministicWebSpeech(page);
         const expected: CsvExpected = JSON.parse(
           await fs.readFile(path.join(fixtures, "expected.json"), "utf8"),
         );
@@ -252,25 +369,35 @@ for (const phase of ["upload", "confirmation"] as const) {
         await evidence.capture("personal-project-card-created");
 
         await openMaria(page);
+        const voiceCta = await assertPrimaryVoiceCtaBeforeScroll(
+          page,
+          evidence,
+        );
         const cta = page.getByRole("button", {
           name: invoiceImportCTA,
           exact: true,
         });
-        await assertTouchable(cta, evidence);
         await expect(cta).toHaveCount(1);
         await assertUniqueButtonNames(page);
-        await evidence.capture("maria-visible-csv-cta");
+        await evidence.capture("maria-visible-primary-voice-cta");
         const entryResponse = page.waitForResponse(
           (response) =>
             new URL(response.url()).pathname === "/agent/chat" &&
             response.request().method() === "POST",
           { timeout: 120_000 },
         );
-        await cta.click();
+        await enqueueSpeech(page, "Quero importar a fatura do cartão");
+        await voiceCta.click();
         const qualifiedEntry = await entryResponse;
         await evidence.checkApi(qualifiedEntry);
+        expect(qualifiedEntry.request().postDataJSON()).toMatchObject({
+          origin: "VOICE",
+          messages: [
+            { role: "user", content: "Quero importar a fatura do cartão" },
+          ],
+        });
         await assertSupportedImportEntry(page, qualifiedEntry, "CSV");
-        await evidence.capture("csv-entry-response");
+        await evidence.capture("voice-csv-entry-response");
         const cardPicker = page.getByRole("combobox", {
           name: "Cartão da fatura",
           exact: true,
@@ -406,6 +533,7 @@ for (const phase of ["upload", "confirmation"] as const) {
         await noExpenses();
         await evidence.capture("ignored-payment-and-human-subset");
 
+        let voiceReviewTransition = false;
         // Read-only state identifies the active field; every answer is sent by the actual guided UI.
         for (let attempt = 0; attempt < 30; attempt++) {
           let current = await view();
@@ -427,15 +555,38 @@ for (const phase of ["upload", "confirmation"] as const) {
                   "OPEN_REVIEW",
               { timeout: 120_000 },
             );
-            const [response] = await Promise.all([
-              prepared,
-              page
-                .getByRole("button", {
-                  name: "Abrir revisão do lote",
-                  exact: true,
-                })
-                .click(),
-            ]);
+            let response;
+            if (!voiceReviewTransition) {
+              await enqueueSpeech(page, "sim");
+              await evidence.captureImportTurn(
+                {
+                  name: `voice-open-review-${attempt + 1}`,
+                  sessionId,
+                  intent: "OPEN_REVIEW",
+                  literalAnswer: "sim",
+                  channel: "VOICE",
+                },
+                () =>
+                  page
+                    .getByRole("button", {
+                      name: "Responder por voz",
+                      exact: true,
+                    })
+                    .click(),
+              );
+              response = await prepared;
+              voiceReviewTransition = true;
+            } else {
+              [response] = await Promise.all([
+                prepared,
+                page
+                  .getByRole("button", {
+                    name: "Abrir revisão do lote",
+                    exact: true,
+                  })
+                  .click(),
+              ]);
+            }
             await evidence.checkApi(response);
             await evidence.capture(`prepare-${attempt + 1}-response`);
             current = await view();
@@ -567,6 +718,7 @@ for (const phase of ["upload", "confirmation"] as const) {
               q.lineIds.some((id) => selectedIds.includes(id)),
           ),
         ).toEqual([]);
+        expect(voiceReviewTransition).toBe(true);
         const review = page.getByRole("region", {
           name: "Revisão do lote",
           exact: true,

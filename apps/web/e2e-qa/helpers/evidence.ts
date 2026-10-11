@@ -389,6 +389,73 @@ export class JourneyEvidence {
     }
   }
 
+  /** Allowlisted contextual-turn evidence only; never serialize auth or cookies. */
+  async captureImportTurn(
+    metadata: {
+      name: string;
+      sessionId: string;
+      intent: "ANSWER" | "CONTINUE" | "OPEN_REVIEW" | "READ_RESULT";
+      literalAnswer: string;
+      channel: "TEXT" | "VOICE";
+    },
+    submit: () => Promise<void>,
+  ) {
+    const artifact = path.join(
+      this.directory,
+      `turn-${metadata.name}-response.json`,
+    );
+    const diagnostic: Record<string, unknown> = {
+      metadata,
+      startedAt: new Date().toISOString(),
+    };
+    const pending = this.page.waitForResponse(
+      (response) => {
+        if (
+          response.request().method() !== "POST" ||
+          new URL(response.url()).pathname !== "/agent/chat"
+        )
+          return false;
+        const turn = response.request().postDataJSON()?.importTurn;
+        return (
+          turn?.sessionId === metadata.sessionId &&
+          turn.intent === metadata.intent &&
+          turn.literalAnswer === metadata.literalAnswer
+        );
+      },
+      { timeout: 120_000 },
+    );
+    this.answerArtifacts.push(artifact);
+    try {
+      const [response] = await Promise.all([pending, submit()]);
+      const turn = response.request().postDataJSON()?.importTurn;
+      diagnostic.status = response.status();
+      diagnostic.url = safeUrl(response.url());
+      diagnostic.importTurn = turn
+        ? {
+            version: turn.version,
+            turnId: turn.turnId,
+            sessionId: turn.sessionId,
+            expectedRevision: turn.expectedRevision,
+            channel: turn.channel,
+            literalAnswer: turn.literalAnswer,
+            intent: turn.intent,
+            focus: turn.focus,
+            scope: turn.scope,
+          }
+        : null;
+      expect(turn?.channel).toBe(metadata.channel);
+      expect(response.ok()).toBe(true);
+    } catch (error) {
+      diagnostic.failure =
+        error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      await fs.mkdir(this.directory, { recursive: true });
+      await fs.writeFile(artifact, safeDiagnosticJson(diagnostic));
+      await this.persist();
+    }
+  }
+
   /** Cleanup evidence is secondary: never replace the original journey exception. */
   async finalize(primary: { error: unknown } | null) {
     const record = (phase: string, error: unknown) => {
