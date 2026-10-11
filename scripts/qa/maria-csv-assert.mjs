@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { QA_VAULT_PURGE_WAIT_MS } from "./maria-csv-vault-timing.mjs";
 
 const fixtureDir = fileURLToPath(
   new URL("../../apps/web/e2e-qa/fixtures/", import.meta.url),
@@ -138,7 +139,7 @@ function options(argv) {
   );
   if (selectedIds)
     assert.equal(count, selectedIds.length, "Selected IDs/count disagree");
-  const purgeWaitMs = Number(args["--purge-wait-ms"] ?? 75000);
+  const purgeWaitMs = Number(args["--purge-wait-ms"] ?? QA_VAULT_PURGE_WAIT_MS);
   assert(
     Number.isSafeInteger(purgeWaitMs) &&
       purgeWaitMs >= 0 &&

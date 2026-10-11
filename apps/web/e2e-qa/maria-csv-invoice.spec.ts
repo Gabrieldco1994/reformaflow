@@ -8,6 +8,7 @@ import {
   isPendingImportQuestion,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
+import { QA_VAULT_PURGE_WAIT_MS } from "../../../scripts/qa/maria-csv-vault-timing.mjs";
 import {
   JourneyEvidence,
   assertReadableMoney,
@@ -59,7 +60,7 @@ async function assertDisposableInventory(
     "--selected-ids",
     selectedLineIds.join(","),
     "--purge-wait-ms",
-    "30000",
+    String(QA_VAULT_PURGE_WAIT_MS),
   ]);
 }
 
