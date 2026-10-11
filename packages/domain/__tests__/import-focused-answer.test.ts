@@ -74,4 +74,26 @@ describe("deterministic focused import literals", () => {
       expect(parseImportFocusedLiteral(field, literal)).toBeNull();
     },
   );
+
+  it.each([
+    ["amountCents", "-1"],
+    ["amountCents", " -1 "],
+    ["amountCents", "- 1"],
+    ["amountCents", "R$ -1,00"],
+    ["amountCents", "R$-1,00"],
+    ["amountCents", "-R$ 1,00"],
+    ["amountCents", "−1,00"],
+    ["installmentCount", "-1"],
+    ["installmentCount", " -1 "],
+    ["installmentCount", "- 1"],
+    ["installmentCount", "R$ -1"],
+    ["installmentCount", "R$-1"],
+    ["installmentCount", "-R$ 1"],
+    ["installmentCount", "−1"],
+  ] as const)(
+    "rejects every signed/whitespace/currency negative %s literal: %j",
+    (field, literal) => {
+      expect(parseImportFocusedLiteral(field, literal)).toBeNull();
+    },
+  );
 });

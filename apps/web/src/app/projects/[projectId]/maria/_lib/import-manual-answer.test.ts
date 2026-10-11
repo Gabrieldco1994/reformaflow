@@ -65,4 +65,42 @@ describe("strict deterministic manual answers", () => {
       ],
     });
   });
+
+  it.each([
+    ["amountCents", "-1"],
+    ["amountCents", " -1 "],
+    ["amountCents", "- 1"],
+    ["amountCents", "R$ -1,00"],
+    ["amountCents", "R$-1,00"],
+    ["amountCents", "-R$ 1,00"],
+    ["amountCents", "−1,00"],
+    ["installmentCount", "-1"],
+    ["installmentCount", " -1 "],
+    ["installmentCount", "- 1"],
+    ["installmentCount", "R$ -1"],
+    ["installmentCount", "R$-1"],
+    ["installmentCount", "-R$ 1"],
+    ["installmentCount", "−1"],
+  ] as const)(
+    "rejects signed/whitespace/currency negative %s manual literal %j",
+    (field, literal) => {
+      expect(strictDraftAnswer(field, literal, {})).toBeNull();
+      expect(deterministicVoiceAnswer(field, literal)).toBeNull();
+    },
+  );
+
+  it("accepts one clear merchant and rejects alternatives, unknowns and multiple values", () => {
+    expect(deterministicVoiceAnswer("merchant", "Mercado Central")).toEqual({
+      field: "merchant",
+      value: "Mercado Central",
+    });
+    for (const transcript of [
+      "Mercado Central ou Loja Sul",
+      "Mercado Central / Loja Sul",
+      "não sei",
+      "Mercado Central; Loja Sul",
+      "Mercado Central\nLoja Sul",
+    ])
+      expect(deterministicVoiceAnswer("merchant", transcript)).toBeNull();
+  });
 });

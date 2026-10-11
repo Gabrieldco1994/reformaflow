@@ -38,6 +38,7 @@ const MONEY_TOKEN =
 const DATE_TOKEN =
   /(?<![\p{L}\p{N}_])(?:\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})(?![\p{L}\p{N}_])/gu;
 const COUNT_TOKEN = /(?<![\p{L}\p{N}_-])\d+(?![\p{L}\p{N}_])/gu;
+const NEGATIVE_NUMERIC_TOKEN = /[\p{Dash_Punctuation}\u2212]\s*(?:R\$\s*)?\d/u;
 
 function only<T>(values: readonly T[]): T | null {
   return values.length === 1 ? values[0]! : null;
@@ -48,6 +49,7 @@ function normalized(value: string): string {
 }
 
 function parseMoney(literal: string): number | null {
+  if (NEGATIVE_NUMERIC_TOKEN.test(literal)) return null;
   const token = only(
     [...literal.matchAll(MONEY_TOKEN)].map((match) => match[0]),
   );
@@ -63,6 +65,7 @@ function parseMoney(literal: string): number | null {
 }
 
 function parseCount(literal: string): number | null {
+  if (NEGATIVE_NUMERIC_TOKEN.test(literal)) return null;
   const token = only(
     [...literal.matchAll(COUNT_TOKEN)].map((match) => match[0]),
   );

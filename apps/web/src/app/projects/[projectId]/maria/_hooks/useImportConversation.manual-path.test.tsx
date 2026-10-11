@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   answerImportFocusedDraftQuestion: vi.fn(),
   answerImportDocumentaryQuestion: vi.fn(),
   editImportSession: vi.fn(),
+  agentSend: vi.fn(),
 }));
 
 vi.mock("../_lib/import-session-api", () => ({
@@ -30,6 +31,9 @@ vi.mock("../_lib/import-session-api", () => ({
 }));
 vi.mock("./useImportSessions", () => ({
   useImportUserId: () => mocks.userId,
+}));
+vi.mock("@/components/agent/useFinancialAgent", () => ({
+  useFinancialAgent: () => ({ send: mocks.agentSend }),
 }));
 
 const base: ImportSessionViewV1 = {
@@ -68,6 +72,38 @@ const base: ImportSessionViewV1 = {
   receipt: null,
   actions: ["PREPARE", "CANCEL"],
 };
+const unresolvedLine: ImportSessionViewV1["lines"][number] = {
+  id: "line-1",
+  observationIds: ["observation-1"],
+  titulo: "Compra documental",
+  fornecedor: "Loja Exemplo",
+  tipoDespesa: ExpenseType.OUTROS,
+  categoriaMaoDeObra: null,
+  amountMeaning: ImportSessionAmountMeaning.TOTAL_PURCHASE,
+  amountCents: 20_696,
+  installmentCount: 1,
+  dataCompra: "2026-09-01",
+  firstDueDate: "2026-10-10",
+  targets: [],
+  decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+};
+const needsDecision = (): ImportSessionViewV1 => ({
+  ...base,
+  state: "NEEDS_INPUT",
+  revision: 5,
+  lines: [unresolvedLine],
+  selectedLineIds: [unresolvedLine.id],
+  questions: [
+    {
+      id: "question-decision",
+      field: "decision",
+      lineIds: [unresolvedLine.id],
+      text: "Escolha a compra existente ou autorize uma nova.",
+    },
+  ],
+  searchComplete: true,
+  actions: ["RESOLVE", "CANCEL"],
+});
 
 function setup(view = base) {
   const client = new QueryClient({
@@ -166,23 +202,31 @@ describe("active import deterministic controls", () => {
   });
 
   it("after a lost prepare response performs an authorized read and never retries the mutation", async () => {
-    mocks.prepareImportSession.mockRejectedValue(new TypeError("network"));
-    mocks.getFullImportSession.mockResolvedValue({
+    const ready: ImportSessionViewV1 = {
       ...base,
       state: "READY",
       revision: 5,
       proposal: {} as ImportSessionViewV1["proposal"],
       actions: ["CONFIRM", "CANCEL"],
-    });
+    };
+    mocks.prepareImportSession.mockRejectedValue(new TypeError("network"));
     const { result } = setup();
     await waitFor(() => expect(result.current.busy).toBe(false));
+    mocks.getFullImportSession.mockResolvedValue(ready);
 
+    let recovered: ImportSessionViewV1 | null = null;
     await act(async () => {
-      await result.current.openReview();
+      recovered = await result.current.openReview();
     });
 
     expect(mocks.prepareImportSession).toHaveBeenCalledOnce();
     expect(mocks.getFullImportSession).toHaveBeenCalled();
+    expect(recovered).toEqual(
+      expect.objectContaining({ state: "READY", revision: 5 }),
+    );
+    expect(result.current.review).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(mocks.agentSend).not.toHaveBeenCalled();
   });
 
   it("caches a valid NEEDS_INPUT prepare result and returns to its search-derived manual question", async () => {
@@ -246,6 +290,40 @@ describe("active import deterministic controls", () => {
       expect(result.current.error).not.toBeNull();
       expect(result.current.review).toBe(false);
       expect(result.current.view?.revision).toBe(4);
+    },
+  );
+
+  it.each(["direct response", "lost response recovery"] as const)(
+    "accepts legitimate NEEDS_INPUT with an added decision question from %s",
+    async (path) => {
+      const initial: ImportSessionViewV1 = {
+        ...base,
+        lines: [unresolvedLine],
+        selectedLineIds: [unresolvedLine.id],
+      };
+      const prepared = needsDecision();
+      if (path === "direct response") {
+        mocks.prepareImportSession.mockResolvedValue(prepared);
+      } else {
+        mocks.prepareImportSession.mockRejectedValue(new TypeError("network"));
+      }
+      const { result } = setup(initial);
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      if (path === "lost response recovery")
+        mocks.getFullImportSession.mockResolvedValue(prepared);
+
+      let returned: ImportSessionViewV1 | null = null;
+      await act(async () => {
+        returned = await result.current.openReview();
+      });
+
+      expect(returned).toEqual(prepared);
+      expect(result.current.view).toEqual(prepared);
+      expect(result.current.question).toEqual(prepared.questions[0]);
+      expect(result.current.review).toBe(false);
+      expect(result.current.error).toBeNull();
+      expect(mocks.prepareImportSession).toHaveBeenCalledOnce();
+      expect(mocks.agentSend).not.toHaveBeenCalled();
     },
   );
 });

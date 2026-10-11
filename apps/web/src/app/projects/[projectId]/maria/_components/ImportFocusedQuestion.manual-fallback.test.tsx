@@ -42,9 +42,25 @@ const candidate: ImportSessionCandidateV1 = {
 };
 const targetProjects = [
   {
+    id: "project-owner",
+    name: "Projeto proprietário",
+    projectType: "PESSOAL",
+    eligible: true,
+    rooms: [{ id: "room-owner", name: "Carteira" }],
+  },
+  {
     id: "project-reforma",
     name: "Reforma autorizada",
+    projectType: "REFORMA",
+    eligible: true,
     rooms: [{ id: "room-reforma", name: "Cozinha" }],
+  },
+  {
+    id: "project-carro",
+    name: "Destino não elegível",
+    projectType: "CARRO",
+    eligible: false,
+    rooms: [],
   },
 ];
 
@@ -283,5 +299,18 @@ describe("complete deterministic manual fallback", () => {
         },
       }),
     );
+  });
+
+  it("offers only an eligible REFORMA destination distinct from the owner", () => {
+    const { form } = setup("targets");
+    fireEvent.click(
+      within(form).getByRole("radio", {
+        name: "Enviar o valor integral para outro projeto",
+      }),
+    );
+    const options = within(within(form).getByLabelText("Projeto de destino"))
+      .getAllByRole("option")
+      .map((option) => (option as HTMLOptionElement).value);
+    expect(options).toEqual(["", "project-reforma"]);
   });
 });

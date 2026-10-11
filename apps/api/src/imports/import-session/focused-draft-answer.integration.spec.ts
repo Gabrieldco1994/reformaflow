@@ -376,6 +376,7 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       replaceLines: [],
       selectedLineIds: [readyLines[0].id],
     });
+    view = await service.getSession(actor.auth, sessionId);
     for (const [field, text] of [
       ["amountMeaning", "total da compra"],
     ] as const) {
@@ -512,6 +513,272 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     await expect(
       controller.getResult(authenticated().auth, sessionId),
     ).resolves.toEqual({ state: "READY", receipt: null });
+  });
+  it.each([
+    "pending-question replacement",
+    "questionId null nonempty replacement",
+    "duplicate waiver",
+    "owner-project target",
+    "non-REFORMA target",
+    "cross-project room target",
+  ] as const)("rejects legacy PATCH %s without mutation", async (attack) => {
+    const first = view.lines[0];
+    const question = view.questions.find(
+      (item) =>
+        !("subject" in item) &&
+        item.lineIds.includes(first.id) &&
+        item.field === "firstDueDate",
+    );
+    if (!question) throw Error("Missing pending first-due-date question");
+    const temporaryProjectIds: string[] = [];
+    let targetProjectId: string = randomUUID();
+    let targetRoomId: string | null = null;
+    if (attack === "non-REFORMA target") {
+      targetProjectId = (
+        await prisma.project.create({
+          data: {
+            tenantId,
+            name: "Ineligible car target",
+            type: ProjectType.CARRO,
+          },
+        })
+      ).id;
+      temporaryProjectIds.push(targetProjectId);
+    }
+    if (attack === "cross-project room target") {
+      const target = await prisma.project.create({
+        data: {
+          tenantId,
+          name: "Eligible target",
+          type: ProjectType.REFORMA,
+        },
+      });
+      const roomOwner = await prisma.project.create({
+        data: {
+          tenantId,
+          name: "Different room owner",
+          type: ProjectType.REFORMA,
+        },
+      });
+      targetProjectId = target.id;
+      targetRoomId = (
+        await prisma.room.create({
+          data: { projectId: roomOwner.id, name: "Foreign room" },
+        })
+      ).id;
+      temporaryProjectIds.push(target.id, roomOwner.id);
+    }
+    const questionId =
+      attack === "pending-question replacement" ? question.id : null;
+    const line =
+      attack === "pending-question replacement"
+        ? { ...first, firstDueDate: "2026-10-10" }
+        : attack === "questionId null nonempty replacement"
+          ? { ...first, titulo: "Caller-controlled title" }
+          : attack === "duplicate waiver"
+            ? {
+                ...first,
+                decision: {
+                  kind: "CREATE" as const,
+                  acceptNaturalDuplicate: true,
+                },
+              }
+            : {
+                ...first,
+                targets: [
+                  {
+                    projectId:
+                      attack === "owner-project target"
+                        ? projectId
+                        : targetProjectId,
+                    roomId: targetRoomId,
+                    amountCents: first.amountCents!,
+                  },
+                ],
+              };
+    const before = await row();
+    try {
+      await expect(
+        workflow.edit(authenticated().auth, sessionId, {
+          expectedRevision: before.revision,
+          questionId,
+          replaceLines: [line],
+          selectedLineIds: view.selectedLineIds,
+        }),
+      ).rejects.toMatchObject({ code: Code.INVALID_INPUT });
+      expect(await row()).toEqual(before);
+      expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+    } finally {
+      if (targetRoomId)
+        await prisma.$executeRaw`DELETE FROM rooms WHERE id = ${targetRoomId}`;
+      for (const id of temporaryProjectIds)
+        await prisma.$executeRaw`DELETE FROM projects WHERE id = ${id}`;
+    }
+  });
+  it("keeps legacy PATCH selection-only with an empty replaceLines array", async () => {
+    const second = view.lines[1];
+    const beforeSelection = await row();
+    const selected = await workflow.edit(authenticated().auth, sessionId, {
+      expectedRevision: beforeSelection.revision,
+      questionId: null,
+      replaceLines: [],
+      selectedLineIds: [second.id],
+    });
+    expect(selected.revision).toBe(beforeSelection.revision + 1);
+    expect(selected.selectedLineIds).toEqual([second.id]);
+    expect(selected.lines).toEqual(view.lines);
+    expect(JSON.parse((await row()).draftJson).lines).toEqual(view.lines);
+    expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+  it("reimports a mixed claimed/unclaimed artifact through the direct workflow only", async () => {
+    const claimedLine = view.lines[0];
+    const eligibleLine = view.lines[1];
+    const canonicalExpense = await prisma.expense.create({
+      data: {
+        tenantId,
+        projectId,
+        tipoDespesa: ExpenseType.OUTROS,
+        valor: claimedLine.amountCents!,
+        valorTotal: claimedLine.amountCents!,
+        quantidade: 1,
+        titulo: "Already applied",
+        fornecedor: claimedLine.fornecedor,
+        formaPagamento: PaymentForm.A_VISTA,
+        dataCompra: new Date(`${claimedLine.dataCompra}T00:00:00.000Z`),
+        dataPagamento: new Date("2026-10-10T00:00:00.000Z"),
+        status: ExpenseStatus.PLANEJADO,
+      },
+    });
+    const claimed = await prisma.importObservation.update({
+      where: { id: claimedLine.observationIds[0] },
+      data: {
+        evidenceJson: "{}",
+        claimVersion: 1,
+        canonicalProjectId: projectId,
+        canonicalExpenseId: canonicalExpense.id,
+        canonicalIndex: 0,
+        claimSessionId: sessionId,
+        claimReceiptJson: JSON.stringify({
+          kind: "SESSION",
+          sessionId,
+          financialRequestId: randomUUID(),
+        }),
+        claimedAt: now,
+      },
+    });
+    const actor = authenticated();
+    ui.canActivate(context(actor.request));
+    const createRequestId = randomUUID();
+    const reimport = await service.create(
+      actor.auth,
+      {
+        version: 1,
+        createRequestId,
+        cardId,
+        consentPolicyVersion: IMPORT_SESSION_CONSENT_POLICY_VERSION,
+        consentAnalyze: true,
+      },
+      issuer.issue(actor.request, actor.auth, {
+        operation: "CREATE_SESSION",
+        cardId,
+        createRequestId,
+        consentPolicyVersion: IMPORT_SESSION_CONSENT_POLICY_VERSION,
+      }),
+    );
+    const reimportRow = await prisma.importSession.findUniqueOrThrow({
+      where: { id: reimport.view.id },
+    });
+    const sourceArtifact = await prisma.importArtifact.findUniqueOrThrow({
+      where: { id: artifactId },
+    });
+    const ref = await prisma.importSessionArtifact.create({
+      data: {
+        tenantId,
+        ownerProjectId: projectId,
+        sessionId: reimport.view.id,
+        artifactId,
+        position: 0,
+        fileName: "mixed-reimport.csv",
+        declaredMime: "text/csv",
+        declaredBytes: sourceArtifact.verifiedBytes!,
+        reservedBytes: 0,
+        state: "ATTACHED",
+        verifiedAt: now,
+      },
+    });
+    const observations = await prisma.importObservation.findMany({
+      where: { artifactId },
+    });
+    const extraction = JSON.parse(sourceArtifact.extractionJson!);
+    const material = buildImportMaterialization({
+      session: reimportRow,
+      attachment: ref,
+      artifact: sourceArtifact,
+      extraction,
+      observations,
+      draft: {
+        ...JSON.parse(EMPTY_DRAFT_JSON),
+        scope: { observationIds: [], pendingAttachmentIds: [ref.id] },
+      },
+      newIds: new Map(
+        extraction.occurrences.map((occurrence: { reference: string }) => [
+          occurrence.reference,
+          { observationId: randomUUID(), lineId: randomUUID() },
+        ]),
+      ),
+    });
+    expect(material.observations).toEqual([]);
+    expect(material.draft.lines).toHaveLength(1);
+    expect(material.draft.lines[0].observationIds).toEqual(
+      eligibleLine.observationIds,
+    );
+    expect(JSON.stringify(material.draft)).not.toContain(claimed.id);
+    await prisma.importSession.update({
+      where: { id: reimport.view.id },
+      data: { draftJson: JSON.stringify(material.draft) },
+    });
+
+    const directView = await service.getSession(actor.auth, reimport.view.id);
+    const selected = await workflow.edit(actor.auth, reimport.view.id, {
+      expectedRevision: directView.revision,
+      questionId: null,
+      replaceLines: [],
+      selectedLineIds: [directView.lines[0].id],
+    });
+    expect(selected.lines).toEqual(directView.lines);
+    expect(selected.selectedLineIds).toEqual([directView.lines[0].id]);
+    const beforeAttack = await prisma.importSession.findUniqueOrThrow({
+      where: { id: reimport.view.id },
+    });
+    await expect(
+      workflow.edit(actor.auth, reimport.view.id, {
+        expectedRevision: selected.revision,
+        questionId: null,
+        replaceLines: [
+          {
+            ...directView.lines[0],
+            id: claimedLine.id,
+            observationIds: [claimed.id],
+          },
+        ],
+        selectedLineIds: [claimedLine.id],
+      }),
+    ).rejects.toMatchObject({ code: Code.INVALID_INPUT });
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: reimport.view.id },
+      }),
+    ).toEqual(beforeAttack);
+    expect(
+      await prisma.importObservation.findUniqueOrThrow({
+        where: { id: claimed.id },
+      }),
+    ).toEqual(claimed);
+    expect(
+      await prisma.expense.findUniqueOrThrow({
+        where: { id: canonicalExpense.id },
+      }),
+    ).toEqual(canonicalExpense);
   });
   it("preserves an explicitly entered bad cycle and lets preparation reject it without adjustment", async () => {
     view = await submit(payload("tipoDespesa", ExpenseType.OUTROS));
@@ -1109,10 +1376,11 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
   async function pendingChoices(): Promise<void> {
     // Fixture-only setup for tests whose subject is the focused decision/target port.
     // Production clients cannot write these fields through generic PATCH.
+    const lineId = view.selectedLineIds[0];
     const stored = await row();
     const draft = JSON.parse(stored.draftJson);
     draft.lines = draft.lines.map((line: { id: string }) =>
-      line.id === view.selectedLineIds[0]
+      line.id === lineId
         ? {
             ...line,
             firstDueDate: "2026-10-10",
@@ -1124,12 +1392,63 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     );
     await prisma.importSession.update({
       where: { id: sessionId },
-      data: { draftJson: JSON.stringify(draft) },
+      data: {
+        state: "NEEDS_INPUT",
+        draftJson: JSON.stringify(draft),
+        searchJson: null,
+        proposalJson: null,
+        proposalHash: null,
+        preflightHash: null,
+        challengeJson: null,
+      },
     });
+    view = await service.getSession(authenticated().auth, sessionId);
     view = await workflow.prepare(authenticated().auth, sessionId, {
       expectedRevision: view.revision,
     });
   }
+  it("rejects the owner project as a focused target before prepare or confirmation", async () => {
+    await pendingChoices();
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { type: ProjectType.REFORMA },
+    });
+    try {
+      const before = await row();
+      const beforeFinance = await finance();
+      const targetQuestion = view.questions.find(
+        (item) => !("subject" in item) && item.field === "targets",
+      );
+      if (!targetQuestion) throw Error("Missing target question");
+      const amountCents = view.lines[0].amountCents!;
+      await expect(
+        submit({
+          version: 1,
+          answerRequestId: randomUUID(),
+          expectedRevision: view.revision,
+          questionId: targetQuestion.id,
+          channel: "TEXT",
+          answer: {
+            field: "targets",
+            value: {
+              kind: "TARGET",
+              projectId,
+              roomId: null,
+              amountCents,
+              literal: moneyLiteral(amountCents),
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: Code.INVALID_INPUT });
+      expect(await row()).toEqual(before);
+      expect(await finance()).toEqual(beforeFinance);
+    } finally {
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { type: ProjectType.PESSOAL },
+      });
+    }
+  });
   it.each(["decision", "targets"] as const)(
     "native %s changes only its exact field and never selects, prepares or confirms",
     async (field) => {
@@ -1392,6 +1711,59 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       data: { searchJson: JSON.stringify(search) },
     });
   }
+
+  async function naturalReceiptQuestion(): Promise<{
+    existingId: string;
+    lineId: string;
+  }> {
+    await pendingChoices();
+    const line = view.lines.find(
+      (item) => item.id === view.selectedLineIds[0],
+    )!;
+    const existing = await prisma.receipt.create({
+      data: {
+        tenantId,
+        projectId,
+        valor: line.amountCents!,
+        data: new Date(`${line.dataCompra}T00:00:00.000Z`),
+        tipo: "OUTROS",
+        status: "PREVISTO",
+        descricao: line.fornecedor ?? line.titulo,
+        dedupeKeyNatural: dedupeKeyNatural({
+          tenantId,
+          projectId,
+          date: new Date(`${line.dataCompra}T00:00:00.000Z`),
+          merchant: line.fornecedor ?? line.titulo,
+          amountCents: line.amountCents!,
+          ordinal: 0,
+        }),
+      },
+    });
+    view = await submit(
+      payload("decision", { kind: "CREATE", acceptNaturalDuplicate: false }),
+    );
+    view = await submit(payload("targets", []));
+    view = await workflow.prepare(authenticated().auth, sessionId, {
+      expectedRevision: view.revision,
+    });
+    expect(JSON.parse((await row()).searchJson!).candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "RECEIPT",
+          id: existing.id,
+          reason: "NATURAL_MATCH",
+          lineId: line.id,
+        }),
+      ]),
+    );
+    expect(
+      view.questions.some(
+        (question) =>
+          question.field === "decision" && question.lineIds.includes(line.id),
+      ),
+    ).toBe(true);
+    return { existingId: existing.id, lineId: line.id };
+  }
   it("explicit CREATE false never waives a real natural duplicate or enables confirmation", async () => {
     await naturalDuplicateQuestion();
     const before = await finance();
@@ -1608,6 +1980,145 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       });
     }
   });
+
+  it.each([
+    {
+      kind: "EXPENSE",
+      allowedModules: ["creditCards", "receipts"],
+    },
+    {
+      kind: "RECEIPT",
+      allowedModules: ["creditCards", "expenses"],
+    },
+  ] as const)(
+    "denies a live natural $kind candidate opaquely after its owning module is revoked",
+    async ({ kind, allowedModules }) => {
+      if (kind === "EXPENSE") await naturalDuplicateQuestion();
+      else await naturalReceiptQuestion();
+      const before = await row();
+      const beforeFinance = await finance();
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          role: "USER",
+          allowedProjects: JSON.stringify([projectId]),
+          allowedProjectTypes: "[]",
+          allowedModules: JSON.stringify(allowedModules),
+        },
+      });
+      try {
+        await expect(
+          submit(
+            payload("decision", {
+              kind: "CREATE",
+              acceptNaturalDuplicate: true,
+            }),
+          ),
+        ).rejects.toMatchObject({ code: Code.NOT_FOUND });
+        expect(await row()).toEqual(before);
+        expect(await finance()).toEqual(beforeFinance);
+      } finally {
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            role: "ADMIN",
+            allowedProjects: "[]",
+            allowedProjectTypes: "[]",
+            allowedModules: "[]",
+          },
+        });
+      }
+    },
+  );
+  it.each(["EXPENSE", "RECEIPT"] as const)(
+    "does not mutate when a forged $kind candidate id belongs to another tenant",
+    async (kind) => {
+      await pendingChoices();
+      const question = view.questions.find(
+        (item) => !("subject" in item) && item.field === "decision",
+      );
+      if (!question) throw Error("Missing decision question");
+      const otherTenant = await prisma.tenant.create({
+        data: { name: `foreign ${kind}` },
+      });
+      const otherProject = await prisma.project.create({
+        data: {
+          tenantId: otherTenant.id,
+          name: "foreign",
+          type: ProjectType.PESSOAL,
+        },
+      });
+      const foreignId =
+        kind === "EXPENSE"
+          ? (
+              await prisma.expense.create({
+                data: {
+                  tenantId: otherTenant.id,
+                  projectId: otherProject.id,
+                  tipoDespesa: ExpenseType.OUTROS,
+                  valor: 20_696,
+                  valorTotal: 20_696,
+                  quantidade: 1,
+                  titulo: "foreign",
+                  formaPagamento: PaymentForm.A_VISTA,
+                  dataCompra: new Date("2026-09-01T00:00:00.000Z"),
+                  dataPagamento: new Date("2026-10-10T00:00:00.000Z"),
+                  status: ExpenseStatus.PLANEJADO,
+                },
+              })
+            ).id
+          : (
+              await prisma.receipt.create({
+                data: {
+                  tenantId: otherTenant.id,
+                  projectId: otherProject.id,
+                  valor: 20_696,
+                  data: new Date("2026-09-01T00:00:00.000Z"),
+                  tipo: "OUTROS",
+                  descricao: "foreign",
+                },
+              })
+            ).id;
+      try {
+        const stored = await row();
+        const search = JSON.parse(stored.searchJson!);
+        search.candidates.push({
+          lineId: view.selectedLineIds[0],
+          kind,
+          id: foreignId,
+          reason: "NATURAL_MATCH",
+        });
+        await prisma.importSession.update({
+          where: { id: sessionId },
+          data: { searchJson: JSON.stringify(search) },
+        });
+        const before = await row();
+        const answer =
+          kind === "EXPENSE"
+            ? {
+                kind: "KEEP_EXISTING" as const,
+                expenseId: foreignId,
+              }
+            : {
+                kind: "CREATE" as const,
+                acceptNaturalDuplicate: true,
+              };
+        await expect(submit(payload("decision", answer))).rejects.toMatchObject(
+          { code: Code.INVALID_INPUT },
+        );
+        expect(await row()).toEqual(before);
+        expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+      } finally {
+        if (kind === "EXPENSE")
+          await prisma.$executeRaw`DELETE FROM expenses WHERE id = ${foreignId}`;
+        else
+          await prisma.$executeRaw`DELETE FROM receipts WHERE id = ${foreignId}`;
+        await prisma.$executeRaw`DELETE FROM projects WHERE id = ${otherProject.id}`;
+        await prisma.$executeRaw`DELETE FROM tenants WHERE id = ${otherTenant.id}`;
+        expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+      }
+    },
+  );
   it("accepts KEEP_EXISTING only for a current authorized expense candidate", async () => {
     const { existingId } = await naturalDuplicateQuestion();
     const before = await finance();
