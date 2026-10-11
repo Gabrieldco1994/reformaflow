@@ -49,10 +49,6 @@ describe("native documentary answer (real guard, grant and locked writer)", () =
     },
   };
   const raw = { abortOwned: jest.fn() };
-  const conversationalWrite = jest.spyOn(
-    ImportSessionWorkflowService.prototype,
-    "editConversationAnswer",
-  );
   const batches = { prepare: jest.fn(), execute: jest.fn() };
   const service = new ImportSessionService(
     prisma,
@@ -143,6 +139,7 @@ describe("native documentary answer (real guard, grant and locked writer)", () =
       answerRequestId: randomUUID(),
       expectedRevision: view.revision,
       questionId: question.id,
+      channel: "TEXT",
       input,
       answer: preview.answer,
     };
@@ -362,7 +359,6 @@ describe("native documentary answer (real guard, grant and locked writer)", () =
     });
     view = await submit(payload);
     // No LLM/agent is composed at all; even chat admission must not be used.
-    expect(conversationalWrite).not.toHaveBeenCalled();
     expect(batches.prepare).not.toHaveBeenCalled();
     expect(batches.execute).not.toHaveBeenCalled();
     expect(view.revision).toBe(before.revision + 1);
@@ -378,6 +374,7 @@ describe("native documentary answer (real guard, grant and locked writer)", () =
       field: "merchant",
       value: "LOJA FICTICIA NORTE",
       turnId: payload.answerRequestId,
+      channel: "TEXT",
       attestedByUserId: userId,
       observationId,
       literalHash: createHash("sha256")
@@ -614,6 +611,7 @@ describe("native documentary answer (real guard, grant and locked writer)", () =
   });
   it.each([
     { version: 2 },
+    { channel: "MODEL" },
     { extra: true },
     { answerRequestId: "not-a-uuid" },
     { input: { kind: "VALUE", text: "2025-02-30" } },

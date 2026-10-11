@@ -1,5 +1,4 @@
 import {
-  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -15,32 +14,14 @@ import { stripEmoji } from "../tts/speech-format";
 import { serializeFinancialScheduleResponse } from "../expense/documented-schedule";
 import {
   IMPORT_CHAT_CHANNEL,
+  IMPORT_ENTRY_ACTION_KIND,
   type ImportChatChannel,
-  type ImportChatOutcomeV1,
   type ImportEntryActionV1,
-  type ImportChatErrorCode,
-  isPendingImportQuestion,
 } from "@reformaflow/domain";
-import { ImportChatBridge } from "../imports/import-session/import-chat.bridge";
-import {
-  bindImportChatToolContext,
-  importChatState,
-  type ImportChatAdmission,
-} from "../imports/import-session/import-chat.admission";
-import { ImportSessionError } from "../imports/import-session/import-session.errors";
-import {
-  parseImportToolArguments,
-  ImportChatContractError,
-} from "./import-chat.contract";
-import { LlmResponseContractError } from "./llm/llm.types";
+import { ImportSessionEntryService } from "../imports/import-session/import-session-entry.service";
 import { requestsCardInvoiceImport } from "./import-entry.request";
-import {
-  importAnswerMessages,
-  importAnswerToolDefinitions,
-} from "./import-chat.prompt";
 
 export interface AgentChatInput {
-  importAdmission?: ImportChatAdmission;
   /** Request provenance only; it never grants tool or financial authority. */
   originChannel?: ImportChatChannel;
   tenantId: string;
@@ -66,300 +47,42 @@ export interface AgentChatInput {
 
 export interface AgentChatResult {
   importEntryAction?: ImportEntryActionV1;
-  importOutcome?: ImportChatOutcomeV1;
   reply: string;
   toolsUsed: string[];
   provider: string;
 }
 
 const MAX_ITERATIONS = 12;
+const IMPORT_ENTRY_PROVIDER = "import-session";
 
 @Injectable()
 export class AgentService {
-  @Inject(ImportChatBridge) private readonly importChat!: ImportChatBridge;
   private readonly logger = new Logger(AgentService.name);
 
   constructor(
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
     private readonly tools: AgentToolsService,
+    private readonly importEntry?: ImportSessionEntryService,
   ) {}
 
-  private async contextual(
-    input: AgentChatInput,
-    admission: ImportChatAdmission,
-  ): Promise<AgentChatResult> {
-    const turn = admission.turn;
-    const base = { version: 1 as const, turnId: turn.turnId };
-    const used: string[] = [];
-    const finish = (outcome: ImportChatOutcomeV1): AgentChatResult => ({
-      reply:
-        outcome.kind === "CLARIFY"
-          ? "Preciso esclarecer esta resposta antes de alterar a sessão."
-          : outcome.kind === "QUESTION"
-            ? "Há uma pergunta pendente na sessão."
-            : outcome.kind === "OPEN_REVIEW"
-              ? "A revisão está disponível. Confira os dados antes de confirmar."
-              : outcome.kind === "READ_RESULT"
-                ? "Consulte o resultado atual da sessão."
-                : "Consulte a sessão atualizada.",
-      toolsUsed: used,
-      provider: "import-session",
-      importOutcome: outcome,
-    });
-    try {
-      const projected = await this.importChat.read(admission, {
-        kind: "SESSION",
-      });
-      const view = importChatState(admission).view;
-      if (!view || projected.kind !== "SESSION")
-        throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
-      const ref = { sessionId: view.id, revision: view.revision };
-      if (turn.intent === "READ_RESULT")
-        return finish({
-          ...base,
-          ref,
-          kind: "READ_RESULT",
-          acknowledgment: "NONE",
-        });
-      if (turn.intent === "CONTINUE") {
-        const question = view.questions.find(
-          (q) =>
-            isPendingImportQuestion(q) &&
-            q.lineIds.some((id) => view.selectedLineIds.includes(id)),
-        );
-        return finish(
-          question
-            ? {
-                ...base,
-                ref,
-                kind: "QUESTION",
-                acknowledgment: "NONE",
-                questionId: question.id,
-              }
-            : { ...base, ref, kind: "REVISED_SESSION", acknowledgment: "NONE" },
-        );
-      }
-      if (turn.intent === "OPEN_REVIEW") {
-        if (
-          view.actions.includes("CONFIRM") ||
-          view.actions.includes("EXECUTE")
-        )
-          return finish({
-            ...base,
-            ref,
-            kind: "OPEN_REVIEW",
-            acknowledgment: "NONE",
-          });
-        return finish(await this.importChat.prepare(admission));
-      }
-      if (!view.actions.includes("RESOLVE"))
-        throw new ImportSessionError("CAPABILITY_DISABLED");
-      if (!projected.lines.length)
-        return finish({
-          ...base,
-          ref,
-          kind: "CLARIFY",
-          acknowledgment: "NONE",
-          reason: "INCOMPLETE_SCOPE",
-          scopeReview: null,
-        });
-      if (
-        turn.intent === "ANSWER" &&
-        turn.scope.kind === "ATTACHMENT" &&
-        projected.lines.some((line) => !turn.focus.lineIds.includes(line.id))
-      )
-        return finish({
-          ...base,
-          ref,
-          kind: "CLARIFY",
-          acknowledgment: "NONE",
-          reason: "SCOPE_REVIEW",
-          scopeReview: {
-            focus: turn.focus,
-            attachmentId: turn.scope.attachmentId,
-            lineIds: projected.lines.map((line) => line.id),
-          },
-        });
-      if (!this.llm.isConfigured()) throw new ServiceUnavailableException();
-      if (!projected.focus)
-        throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
-      const authenticatedFocus = projected.focus;
-      const definitions = importAnswerToolDefinitions(
-        turn,
-        authenticatedFocus.field,
-      );
-      const allowed = new Set(definitions.map((tool) => tool.name));
-      const options = { responseContract: "IMPORT_CHAT_V1" as const };
-      const context = normalizeToolContext({
-        tenantId: input.tenantId,
-        userId: input.userId,
-        projectScope: [],
-      });
-      bindImportChatToolContext(context, admission);
-      const messages = importAnswerMessages(turn.literalAnswer, projected);
-      for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-        const response = await this.llm.chat(messages, definitions, options);
-        const calls = response.toolCalls.map((call) => {
-          if (!allowed.has(call.name))
-            throw new ImportChatContractError("TOOL_NOT_ALLOWED");
-          return {
-            call,
-            parsed: parseImportToolArguments(
-              call.name,
-              call.arguments,
-              authenticatedFocus.field,
-            ),
-          };
-        });
-        const writes = calls.filter(
-          (item) => item.parsed.name === "import_edit_answer",
-        );
-        if (
-          writes.length > 1 ||
-          (writes.length === 1 && calls[calls.length - 1] !== writes[0])
-        )
-          throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
-        if (!calls.length)
-          throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
-        messages.push({
-          role: "assistant",
-          content: "",
-          toolCalls: response.toolCalls,
-        });
-        for (const { call, parsed } of calls) {
-          used.push(call.name);
-          const result = await this.tools.execute(
-            call.name,
-            context,
-            call.arguments,
-          );
-          if (parsed.name === "import_edit_answer") {
-            const outcome = importChatState(admission).outcome;
-            if (!outcome)
-              throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
-            return finish(outcome);
-          }
-          messages.push({
-            role: "tool",
-            toolCallId: call.id,
-            name: call.name,
-            content: JSON.stringify(result),
-          });
-        }
-      }
-      throw new HttpException(
-        {
-          importOutcome: {
-            ...base,
-            ref,
-            kind: "ERROR",
-            code: "TURN_LIMIT",
-            reason: null,
-            retryable: false,
-            recovery: "READ_SESSION",
-            acknowledgment: "NONE",
-          },
-        },
-        502,
-      );
-    } catch (error) {
-      const state = importChatState(admission);
-      const isOpaque = (code: ImportChatErrorCode) =>
-        code === "UNAUTHENTICATED" ||
-        code === "NOT_FOUND" ||
-        code === "UI_ACTION_REQUIRED";
-      let publicationView: typeof state.view = null;
-      if (
-        state.view &&
-        !(error instanceof ImportSessionError && isOpaque(error.code))
-      ) {
-        try {
-          await this.importChat.read(admission, { kind: "SESSION" });
-          publicationView = importChatState(admission).view;
-        } catch (publicationError) {
-          error = publicationError;
-        }
-      }
-      if (
-        error instanceof HttpException &&
-        typeof error.getResponse() === "object" &&
-        "importOutcome" in Object(error.getResponse())
-      )
-        throw error;
-      const code: ImportChatErrorCode =
-        error instanceof ImportSessionError ||
-        error instanceof ImportChatContractError
-          ? error.code
-          : error instanceof LlmResponseContractError
-            ? "MODEL_OUTPUT_INVALID"
-            : error instanceof ServiceUnavailableException ||
-                error instanceof RateLimitError
-              ? "PROVIDER_UNAVAILABLE"
-              : "INTERNAL_ERROR";
-      if (code === "INTERNAL_ERROR")
-        this.logger.error(
-          `import-chat failed: ${error instanceof Error ? error.name : typeof error}`,
-        );
-      const opaque = isOpaque(code);
-      const ref =
-        !opaque && publicationView
-          ? {
-              sessionId: publicationView.id,
-              revision: publicationView.revision,
-            }
-          : null;
-      const outcome = {
-        ...base,
-        kind: "ERROR" as const,
-        code,
-        ref,
-        reason: error instanceof ImportSessionError ? error.reason : null,
-        retryable:
-          error instanceof ImportSessionError
-            ? error.retryable
-            : code === "PROVIDER_UNAVAILABLE",
-        recovery:
-          code === "UNAUTHENTICATED"
-            ? "REAUTHENTICATE"
-            : opaque
-              ? "NONE"
-              : "READ_SESSION",
-        acknowledgment: !opaque && state.started ? "UNKNOWN" : "NONE",
-      };
-      const status =
-        error instanceof ImportSessionError
-          ? error.status
-          : code === "TOOL_NOT_ALLOWED"
-            ? 403
-            : code === "LIMIT_EXCEEDED"
-              ? 422
-              : code === "PROVIDER_UNAVAILABLE"
-                ? 503
-                : code === "INTERNAL_ERROR"
-                  ? 500
-                  : 502;
-      throw new HttpException({ importOutcome: outcome }, status);
-    }
-  }
-
   async chat(input: AgentChatInput): Promise<AgentChatResult> {
-    if (input.importAdmission)
-      return this.contextual(input, input.importAdmission);
     const latest = input.messages[input.messages.length - 1];
     if (latest?.role === "user" && requestsCardInvoiceImport(latest.content)) {
       const originChannel =
         input.originChannel === IMPORT_CHAT_CHANNEL.VOICE
           ? IMPORT_CHAT_CHANNEL.VOICE
           : IMPORT_CHAT_CHANNEL.TEXT;
-      const importEntryAction = this.importChat.entryAction(originChannel);
+      if (!this.importEntry) throw new ServiceUnavailableException();
+      const importEntryAction = this.importEntry.action(originChannel);
       return {
         importEntryAction,
         reply:
-          importEntryAction.kind === "START_CARD_INVOICE_IMPORT"
+          importEntryAction.kind ===
+          IMPORT_ENTRY_ACTION_KIND.START_CARD_INVOICE_IMPORT
             ? "Selecione o cartão e o arquivo CSV aqui na conversa. Depois revise os dados; nada será lançado sem sua confirmação explícita."
             : "A importação de fatura não está disponível agora.",
         toolsUsed: [],
-        provider: "import-session",
+        provider: IMPORT_ENTRY_PROVIDER,
       };
     }
     if (!this.llm.isConfigured()) {

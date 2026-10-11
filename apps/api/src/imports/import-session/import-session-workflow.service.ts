@@ -26,7 +26,9 @@ import {
   ImportSessionAttachmentState,
   ImportSessionErrorCode as Code,
   ImportSessionState as State,
+  ProjectType,
   isZeroOrOneIntegralImportTargetSet,
+  parseImportFocusedLiteral,
   type ImportSessionChallengeRequestV1,
   type ImportSessionChallengeResponseV1,
   type ImportSessionConfirmRequestV1,
@@ -100,15 +102,6 @@ import {
   type ImportRawClaim,
 } from "./import-session.raw-executions";
 import {
-  assertLiveImportConversationWrite,
-  reservedImportChatWrite,
-  freezeImportChatValue,
-  type ImportChatAdmission,
-  type ImportConversationWriteBinding,
-} from "./import-chat.admission";
-import type { ResolvedImportAnswerV1 } from "./import-chat-answer";
-import {
-  recordImportDeclaration,
   recordNativeImportDeclaration,
   reconcileImportDeclarationDraft,
   resolveImportDeclarations,
@@ -121,10 +114,6 @@ import {
   focusedDraftAnswerScope,
   parseFocusedDraftAnswerRequest,
 } from "./import-session.focused-draft-answer";
-
-type ConversationAnswer =
-  | Extract<ResolvedImportAnswerV1, { kind: "VALUE" }>
-  | { kind: "DECLARE_OBSERVATION"; literal: string };
 
 type Tx = Prisma.TransactionClient;
 type Material = {
@@ -354,7 +343,7 @@ export class ImportSessionWorkflowService {
       documentaryAnswerScope(sessionId, request),
       this.clock.now(),
     );
-    return this.editCore(auth, sessionId, null, undefined, undefined, request);
+    return this.editCore(auth, sessionId, null, request);
   }
 
   async focusedDraftAnswer(
@@ -375,59 +364,21 @@ export class ImportSessionWorkflowService {
       focusedDraftAnswerScope(sessionId, request),
       this.clock.now(),
     );
-    return this.editCore(
-      auth,
-      sessionId,
-      null,
-      undefined,
-      undefined,
-      undefined,
-      request,
-    );
-  }
-
-  async editConversationAnswer(
-    auth: AuthenticatedImportContext,
-    sessionId: string,
-    command: ConversationAnswer,
-    admission: ImportChatAdmission,
-  ): Promise<ImportSessionViewV1> {
-    this.identity(auth, sessionId);
-    const binding = reservedImportChatWrite(
-      admission,
-      "EDIT",
-      this.clock.now(),
-    );
-    if (binding.auth !== auth || binding.sessionId !== sessionId)
-      throw new ImportSessionError(Code.UI_ACTION_REQUIRED);
-    return this.editCore(
-      auth,
-      sessionId,
-      null,
-      binding,
-      freezeImportChatValue(structuredClone(command)),
-    );
+    return this.editCore(auth, sessionId, null, undefined, request);
   }
 
   private async editCore(
     auth: AuthenticatedImportContext,
     sessionId: string,
     httpRequest: ImportSessionEditRequestV1 | null,
-    binding?: ImportConversationWriteBinding,
-    command?: ConversationAnswer,
     nativeRequest?: ImportSessionDocumentaryAnswerRequestV1,
     focusedRequest?: ImportSessionFocusedDraftAnswerRequestV1,
   ): Promise<ImportSessionViewV1> {
-    const assertLive = binding
-      ? (): undefined =>
-          assertLiveImportConversationWrite(binding, auth, this.clock.now())
-      : undefined;
     return runImportSessionWrite(
       this.prisma,
       this.clock,
       auth,
       async (tx, now) => {
-        assertLive?.();
         const { actor, row, view } = await this.context(
           tx,
           auth,
@@ -439,8 +390,6 @@ export class ImportSessionWorkflowService {
           await importSessionWritesEnabled(tx, row, this.capability),
         );
         const draft = parseStoredDraft(row.draftJson);
-        const turn = binding?.admission.turn;
-        if (binding && (!turn?.focus || !command)) throw invalid();
         let updated: ImportSessionStoredDraftV1;
         if (nativeRequest) {
           this.editable(row, now, nativeRequest.expectedRevision);
@@ -451,34 +400,6 @@ export class ImportSessionWorkflowService {
             nativeRequest,
             { userId: actor.userId, now },
           );
-        } else if (command?.kind === "DECLARE_OBSERVATION") {
-          if (
-            !binding ||
-            turn?.intent !== "ANSWER" ||
-            turn.scope.kind !== "LINES"
-          )
-            throw invalid();
-          this.editable(row, now, binding.expectedRevision);
-          const question = view.questions.find(
-            (question) => question.id === turn.focus.id,
-          );
-          if (
-            !question ||
-            !("subject" in question) ||
-            question.field !== turn.focus.field ||
-            !same(question.lineIds, turn.focus.lineIds) ||
-            !same(question.lineIds, turn.scope.lineIds)
-          )
-            throw problem(Code.REVISION_CONFLICT, row);
-          updated = recordImportDeclaration(
-            row,
-            draft,
-            await this.material(tx, row, draft, true),
-            question.id,
-            command.literal,
-            { userId: actor.userId, turnId: turn.turnId, now },
-            digest(turn.literalAnswer),
-          );
         } else {
           let focusedEdit: ImportSessionEditRequestV1 | undefined;
           if (focusedRequest) {
@@ -486,116 +407,188 @@ export class ImportSessionWorkflowService {
             const question = view.questions.find(
               (q) => q.id === focusedRequest.questionId && !("subject" in q),
             );
-            if (!question || !draft.questions.some((q) => q.id === question.id))
+            if (
+              !question ||
+              question.lineIds.length !== 1 ||
+              !draft.questions.some(
+                (q) =>
+                  q.id === question.id &&
+                  q.lineIds.length === 1 &&
+                  q.lineIds[0] === question.lineIds[0],
+              )
+            )
               throw problem(Code.REVISION_CONFLICT, row);
             if (question.field !== focusedRequest.answer.field) throw invalid();
-            const lines = question.lineIds.map((lineId) => {
-              const line = draft.lines.find((line) => line.id === lineId);
-              if (!line) throw invalid();
-              // Server-owned clones only. No DTO replacement lines or selection scope.
-              const answer = focusedRequest.answer;
-              switch (answer.field) {
-                case "firstDueDate":
-                  return { ...line, firstDueDate: answer.value };
-                case "tipoDespesa":
-                  return { ...line, tipoDespesa: answer.value };
-                case "decision":
-                  return { ...line, decision: { ...answer.value } };
-                case "targets":
-                  return { ...line, targets: [...answer.value] };
-                default:
-                  return unsupportedFocusedAnswer(answer);
+            const line = draft.lines.find(
+              (item) => item.id === question.lineIds[0],
+            );
+            if (!line) throw invalid();
+            // Reparse the complete literal and resolve every referenced resource from
+            // this locked tenant-writer snapshot. Boundary previews grant no authority.
+            const answer = focusedRequest.answer;
+            let replacement: typeof line;
+            switch (answer.field) {
+              case "amountMeaning":
+              case "amountCents":
+              case "installmentCount":
+              case "dataCompra":
+              case "firstDueDate": {
+                const value = parseImportFocusedLiteral(
+                  answer.field,
+                  answer.literal,
+                );
+                if (value === null || value !== answer.value) throw invalid();
+                replacement = { ...line, [answer.field]: value };
+                break;
               }
-            });
+              case "tipoDespesa":
+                replacement = { ...line, tipoDespesa: answer.value };
+                break;
+              case "categoriaMaoDeObra":
+                replacement = {
+                  ...line,
+                  categoriaMaoDeObra: answer.value,
+                };
+                break;
+              case "decision": {
+                const search = parseStoredImportSearch(
+                  row.searchJson,
+                  row.revision,
+                  draft,
+                );
+                if (
+                  answer.value.kind === "CREATE" &&
+                  answer.value.acceptNaturalDuplicate
+                ) {
+                  const candidate =
+                    search.kind === "SEARCH"
+                      ? search.value.candidates.find(
+                          (item) =>
+                            item.lineId === line.id &&
+                            item.reason === "NATURAL_MATCH",
+                        )
+                      : undefined;
+                  if (!candidate) throw invalid();
+                  const current =
+                    candidate.kind === "EXPENSE"
+                      ? await tx.expense.findFirst({
+                          where: {
+                            id: candidate.id,
+                            tenantId: row.tenantId,
+                            deletedAt: null,
+                          },
+                          select: { projectId: true },
+                        })
+                      : await tx.receipt.findFirst({
+                          where: {
+                            id: candidate.id,
+                            tenantId: row.tenantId,
+                            deletedAt: null,
+                          },
+                          select: { projectId: true },
+                        });
+                  if (!current) throw invalid();
+                  await assertReceiptParticipantAccess(tx, actor, [
+                    current.projectId,
+                  ]);
+                } else if (answer.value.kind === "KEEP_EXISTING") {
+                  const expenseId = answer.value.expenseId;
+                  const candidate =
+                    search.kind === "SEARCH"
+                      ? search.value.candidates.find(
+                          (item) =>
+                            item.lineId === line.id &&
+                            item.kind === "EXPENSE" &&
+                            item.id === expenseId,
+                        )
+                      : undefined;
+                  if (!candidate) throw invalid();
+                  const expense = await tx.expense.findFirst({
+                    where: {
+                      id: candidate.id,
+                      tenantId: row.tenantId,
+                      deletedAt: null,
+                    },
+                    select: { projectId: true },
+                  });
+                  if (!expense) throw invalid();
+                  await assertReceiptParticipantAccess(tx, actor, [
+                    expense.projectId,
+                  ]);
+                }
+                replacement = {
+                  ...line,
+                  decision: { ...answer.value },
+                };
+                break;
+              }
+              case "targets": {
+                if (answer.value.kind === "NO_TARGETS") {
+                  replacement = { ...line, targets: [] };
+                  break;
+                }
+                if (
+                  parseImportFocusedLiteral(
+                    "amountCents",
+                    answer.value.literal,
+                  ) !== answer.value.amountCents ||
+                  line.amountCents === null ||
+                  answer.value.amountCents !== line.amountCents
+                )
+                  throw invalid();
+                const project = await tx.project.findFirst({
+                  where: {
+                    id: answer.value.projectId,
+                    tenantId: row.tenantId,
+                    type: ProjectType.REFORMA,
+                    deletedAt: null,
+                  },
+                  select: { id: true },
+                });
+                if (!project) throw invalid();
+                await assertReceiptParticipantAccess(tx, actor, [project.id]);
+                if (answer.value.roomId !== null) {
+                  const room = await tx.room.findFirst({
+                    where: {
+                      id: answer.value.roomId,
+                      projectId: project.id,
+                      deletedAt: null,
+                    },
+                    select: { id: true },
+                  });
+                  if (!room) throw invalid();
+                }
+                replacement = {
+                  ...line,
+                  targets: [
+                    {
+                      projectId: answer.value.projectId,
+                      roomId: answer.value.roomId,
+                      amountCents: answer.value.amountCents,
+                    },
+                  ],
+                };
+                break;
+              }
+              default:
+                return unsupportedFocusedAnswer(answer);
+            }
             focusedEdit = editRequest({
               expectedRevision: focusedRequest.expectedRevision,
               questionId: question.id,
-              replaceLines: lines,
+              replaceLines: [replacement],
               selectedLineIds: draft.selectedLineIds,
             });
           }
-          const request =
-            focusedEdit ??
-            httpRequest ??
-            editRequest({
-              expectedRevision: binding?.expectedRevision,
-              questionId: turn?.focus?.id,
-              replaceLines: command?.lines,
-              selectedLineIds: draft.selectedLineIds,
-            });
+          const request = focusedEdit ?? httpRequest;
+          if (!request) throw invalid();
           this.editable(row, now, request.expectedRevision);
           const question =
             request.questionId === null
               ? null
               : draft.questions.find((q) => q.id === request.questionId);
           if (request.questionId !== null && !question) throw invalid();
-          let allowedLineIds = question?.lineIds;
-          if (binding && turn?.focus && question) {
-            if (
-              question.field !== turn.focus.field ||
-              !same(question.lineIds, turn.focus.lineIds)
-            )
-              throw problem(Code.REVISION_CONFLICT, row);
-            if (turn.scope?.kind === "LINES") {
-              allowedLineIds = turn.scope.lineIds;
-              if (allowedLineIds.some((id) => !question.lineIds.includes(id)))
-                throw invalid();
-            } else if (turn.scope?.kind === "ATTACHMENT") {
-              const material = await this.material(tx, row, draft, true);
-              const attachmentId = turn.scope.attachmentId;
-              const ref = material.references.find(
-                ({ ref }) => ref.id === attachmentId,
-              );
-              if (
-                !ref ||
-                ref.ref.state !== ImportSessionAttachmentState.ATTACHED ||
-                ref.artifact?.state !== ImportSessionArtifactState.EXTRACTED ||
-                draft.scope.pendingAttachmentIds.includes(ref.ref.id)
-              )
-                throw problem(Code.STALE_PREVIEW, row);
-              const artifactId = ref.artifact.id;
-              // material() resolves the server-owned scope and attachment
-              // membership inside this locked revision. Retained claims (and
-              // documentary rows without editable lines) grant no edit scope.
-              const editableObservationIds = new Set(
-                draft.lines.flatMap((line) => line.observationIds),
-              );
-              const observations = material.observations.filter(
-                (obs) =>
-                  obs.artifactId === artifactId &&
-                  unclaimed(obs) &&
-                  editableObservationIds.has(obs.id),
-              );
-              if (!observations.length) throw problem(Code.STALE_PREVIEW, row);
-              const observationIds = new Set(observations.map((obs) => obs.id));
-              allowedLineIds = draft.lines
-                .filter((line) =>
-                  line.observationIds.some((id) => observationIds.has(id)),
-                )
-                .map((line) => line.id);
-              if (turn.intent === "APPROVE_ATTACHMENT_SCOPE") {
-                if (
-                  !same(
-                    [...allowedLineIds].sort(),
-                    [...turn.scope.approvedLineIds].sort(),
-                  )
-                )
-                  throw problem(Code.REVISION_CONFLICT, row);
-              } else if (
-                allowedLineIds.some((id) => !question.lineIds.includes(id))
-              ) {
-                throw problem(Code.STALE_PREVIEW, row);
-              }
-            }
-            if (
-              !allowedLineIds?.length ||
-              !same(
-                [...request.replaceLines.map((line) => line.id)].sort(),
-                [...allowedLineIds].sort(),
-              )
-            )
-              throw invalid();
-          }
+          const allowedLineIds = question?.lineIds;
           const existing = new Map(draft.lines.map((line) => [line.id, line]));
           const replacement = new Map(
             request.replaceLines.map((line) => [line.id, line]),
@@ -655,7 +648,6 @@ export class ImportSessionWorkflowService {
         );
         await this.material(tx, row, updated, true);
         if (same(draft, updated)) {
-          assertLive?.();
           return view;
         }
         const json = canonical(updated);
@@ -663,7 +655,6 @@ export class ImportSessionWorkflowService {
           Buffer.byteLength(json, "utf8") > LIMITS.jsonBytesPerDraftOrProposal
         )
           throw problem(Code.LIMIT_EXCEEDED, row);
-        assertLive?.();
         await this.update(tx, row, {
           state: State.DRAFT,
           revision: nextRevision(row),
@@ -701,10 +692,8 @@ export class ImportSessionWorkflowService {
             },
           )
         ).view;
-        assertLive?.();
         return rendered;
       },
-      assertLive,
     );
   }
 
@@ -718,44 +707,16 @@ export class ImportSessionWorkflowService {
     return this.prepareCore(auth, sessionId, request);
   }
 
-  async prepareConversation(
-    auth: AuthenticatedImportContext,
-    sessionId: string,
-    request: { expectedRevision: number },
-    admission: ImportChatAdmission,
-  ): Promise<ImportSessionViewV1> {
-    this.identity(auth, sessionId);
-    const parsed = parseRevisionRequest(request);
-    const binding = reservedImportChatWrite(
-      admission,
-      "PREPARE",
-      this.clock.now(),
-    );
-    if (
-      binding.auth !== auth ||
-      binding.sessionId !== sessionId ||
-      binding.expectedRevision !== parsed.expectedRevision
-    )
-      throw new ImportSessionError(Code.UI_ACTION_REQUIRED);
-    return this.prepareCore(auth, sessionId, parsed, binding);
-  }
-
   private async prepareCore(
     auth: AuthenticatedImportContext,
     sessionId: string,
     request: { expectedRevision: number },
-    binding?: ImportConversationWriteBinding,
   ): Promise<ImportSessionViewV1> {
-    const assertLive = binding
-      ? (): undefined =>
-          assertLiveImportConversationWrite(binding, auth, this.clock.now())
-      : undefined;
     return runImportSessionWrite(
       this.prisma,
       this.clock,
       auth,
       async (tx, now) => {
-        assertLive?.();
         const { actor, row } = await this.context(tx, auth, sessionId, now);
         assertImportSessionOperationAvailable(
           "PREPARE",
@@ -803,7 +764,6 @@ export class ImportSessionWorkflowService {
             proposal = plan.proposal;
             preflightHash = result.batch.preflightHash;
           }
-          assertLive?.();
           await this.update(tx, row, {
             state: result.kind,
             revision: nextRevision(row),
@@ -840,10 +800,8 @@ export class ImportSessionWorkflowService {
         } finally {
           releaseLockedImportSession(locked);
         }
-        assertLive?.();
         return rendered;
       },
-      assertLive,
     );
   }
 

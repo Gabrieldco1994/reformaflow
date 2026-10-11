@@ -26,11 +26,11 @@ export type FocusedDraftAnswer =
     }
   | { field: "targets"; value: ImportSessionTargetInputV1[] };
 
-export interface FocusedDraftAnswerRequest {
-  version: 1;
+export interface FocusedDraftAnswerRequestContext {
   answerRequestId: string;
   expectedRevision: number;
   questionId: string;
   channel: ImportChatChannel;
+  literal: string;
   answer: FocusedDraftAnswer;
 }

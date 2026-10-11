@@ -429,6 +429,7 @@ describe("Maria on current main compatibility (#711 / #714)", () => {
       answerRequestId: randomUUID(),
       expectedRevision: 1,
       questionId: `oq_${"c".repeat(64)}`,
+      channel: "TEXT",
       input,
       answer: encoded.answer,
     });

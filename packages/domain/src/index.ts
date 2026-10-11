@@ -10,6 +10,7 @@ export * from "./config";
 export * from "./voice/expense-voice-parser";
 export * from "./price-monitor";
 export * from "./import-session";
+export * from "./import-focused-answer";
 export * from "./import-declaration";
 export * from "./money-parse";
 export { isPendingImportQuestion } from "./import-conversation";

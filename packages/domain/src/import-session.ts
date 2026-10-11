@@ -95,6 +95,7 @@ export const IMPORT_SESSION_PRIMITIVES = Object.freeze({
   maxQuestionLength: 500,
   maxReferenceLength: 192,
   maxObservationTextLength: 1000,
+  maxAnswerLiteralLength: 4000,
 });
 
 export const ImportSessionState = {
@@ -257,6 +258,7 @@ export interface ImportSessionDocumentaryAnswerRequestV1 {
   answerRequestId: ImportSessionRequestId;
   expectedRevision: ImportSessionRevision;
   questionId: ImportSessionId;
+  channel: ImportChatChannel;
   input: import("./import-declaration").ImportDeclarationUiInputV1;
   answer: ImportDeclarationAnswerV1;
 }
@@ -296,6 +298,8 @@ export type ImportStoredDeclarationV1 = ImportDeclarationAnswerV1 & {
   attestedByUserId: ImportSessionId;
   attestedAt: ImportSessionInstant;
   literalHash: ImportSessionHash;
+  /** Absent only on historical wire-v1 drafts recorded before channel provenance. */
+  channel?: ImportChatChannel;
 };
 
 export type ImportDeclaredFactViewV1 = {
@@ -303,6 +307,8 @@ export type ImportDeclaredFactViewV1 = {
   observationId: ImportSessionId;
   questionId: ImportSessionId;
   origin: "USER_ATTESTATION";
+  /** Absent only on historical declarations. */
+  channel?: ImportChatChannel;
 } & (
   | {
       [F in ImportHumanFactFieldV1]: {
@@ -568,19 +574,26 @@ export const IMPORT_CHAT_CHANNEL = {
 } as const;
 export type ImportChatChannel =
   (typeof IMPORT_CHAT_CHANNEL)[keyof typeof IMPORT_CHAT_CHANNEL];
+export const IMPORT_ENTRY_ACTION_KIND = {
+  START_CARD_INVOICE_IMPORT: "START_CARD_INVOICE_IMPORT",
+  UNAVAILABLE: "IMPORT_UNAVAILABLE",
+} as const;
 
 /** Request-first entry hint only; channel is provenance, never a grant. */
 export type ImportEntryActionV1 =
   | {
-      version: 1;
-      kind: "START_CARD_INVOICE_IMPORT";
+      version: typeof IMPORT_SESSION_PROTOCOL_VERSION;
+      kind: typeof IMPORT_ENTRY_ACTION_KIND.START_CARD_INVOICE_IMPORT;
       originChannel: ImportChatChannel;
-      formats: Array<"CSV" | "PDF">;
+      formats: Array<
+        | typeof ImportSessionDocumentFormat.CSV
+        | typeof ImportSessionDocumentFormat.PDF
+      >;
       suggestedCardId: string | null;
     }
   | {
-      version: 1;
-      kind: "IMPORT_UNAVAILABLE";
+      version: typeof IMPORT_SESSION_PROTOCOL_VERSION;
+      kind: typeof IMPORT_ENTRY_ACTION_KIND.UNAVAILABLE;
       originChannel: ImportChatChannel;
     };
 export interface ImportSessionPageV1<T> {
@@ -622,21 +635,41 @@ export interface ImportSessionEditRequestV1 extends ImportSessionRevisionRequest
   replaceLines: ImportSessionDraftLineV1[];
   selectedLineIds: ImportSessionId[];
 }
+type ImportSessionFocusedLiteralAnswerV1 =
+  | {
+      field: "amountMeaning";
+      literal: string;
+      value:
+        | typeof ImportSessionAmountMeaning.TOTAL_PURCHASE
+        | typeof ImportSessionAmountMeaning.INSTALLMENT_CHARGE;
+    }
+  | { field: "amountCents"; literal: string; value: ImportSessionCents }
+  | { field: "installmentCount"; literal: string; value: number }
+  | {
+      field: "dataCompra" | "firstDueDate";
+      literal: string;
+      value: ImportSessionDateOnly;
+    };
+export type ImportSessionFocusedTargetAnswerV1 =
+  | { kind: "NO_TARGETS" }
+  | ({ kind: "TARGET"; literal: string } & ImportSessionTargetInputV1);
 /** Explicit UI draft choices, not documentary attestations or financial consent. */
 export type ImportSessionFocusedDraftAnswerV1 =
-  | { field: "firstDueDate"; value: ImportSessionDateOnly | null }
-  | { field: "tipoDespesa"; value: ExpenseType | null }
-  /** Explicit CREATE only. Duplicate waiver and KEEP_EXISTING are not admitted here. */
+  | ImportSessionFocusedLiteralAnswerV1
+  | { field: "tipoDespesa"; value: ExpenseType }
+  | { field: "categoriaMaoDeObra"; value: LaborCategory }
   | {
       field: "decision";
-      value: { kind: "CREATE"; acceptNaturalDuplicate: false };
+      value:
+        | Extract<ImportSessionDecisionV1, { kind: "CREATE" }>
+        | Extract<ImportSessionDecisionV1, { kind: "KEEP_EXISTING" }>;
     }
-  /** Explicit no-allocation choice, not a default or arbitrary destination authority. */
-  | { field: "targets"; value: [] };
+  | { field: "targets"; value: ImportSessionFocusedTargetAnswerV1 };
 export interface ImportSessionFocusedDraftAnswerRequestV1 extends ImportSessionRevisionRequestV1 {
   version: typeof IMPORT_SESSION_PROTOCOL_VERSION;
   answerRequestId: ImportSessionRequestId;
   questionId: ImportSessionId;
+  channel: ImportChatChannel;
   answer: ImportSessionFocusedDraftAnswerV1;
 }
 export interface ImportSessionChallengeRequestV1 extends ImportSessionRevisionRequestV1 {

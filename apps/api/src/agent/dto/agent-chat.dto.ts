@@ -7,7 +7,6 @@ import {
   IsString,
   MaxLength,
   ValidateNested,
-  Allow,
 } from "class-validator";
 import { Type } from "class-transformer";
 import {
@@ -41,10 +40,6 @@ export class AgentChatMetadataDto {
 }
 
 export class AgentChatDto {
-  // The contextual guard validates presence (including null) before this whitelist pipe.
-  @Allow()
-  importTurn?: unknown;
-
   @ApiProperty({ type: [ChatMessageDto] })
   @IsArray()
   @ArrayNotEmpty()

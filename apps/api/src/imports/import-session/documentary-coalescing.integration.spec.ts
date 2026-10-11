@@ -271,6 +271,7 @@ describe("real upload → materialization → native documentary coalescing → 
           answerRequestId: randomUUID(),
           expectedRevision: view.revision,
           questionId: question.id,
+          channel: "TEXT" as const,
           input,
           answer: encoded.answer,
         };

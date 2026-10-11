@@ -10,6 +10,7 @@ import type {
   ImportSessionCreateRequestV1,
   ImportSessionEditRequestV1,
   ImportSessionExecuteRequestV1,
+  ImportSessionFocusedDraftAnswerRequestV1,
   ImportSessionPageV1,
   ImportSessionReserveRequestV1,
   ImportSessionRevisionRequestV1,
@@ -27,10 +28,7 @@ import {
   type ImportObservationView,
 } from "./import-session-workflow-read";
 import type { ImportListScope } from "./import-session-keys";
-import type {
-  FocusedDraftAnswer,
-  FocusedDraftAnswerRequest,
-} from "./import-focused-draft-types";
+import type { FocusedDraftAnswer } from "./import-focused-draft-types";
 import {
   isResultRead,
   isRecord,
@@ -73,7 +71,7 @@ export type ImportQuestionAnswerInput =
 
 export async function answerImportFocusedDraftQuestion(
   id: string,
-  request: FocusedDraftAnswerRequest,
+  request: ImportSessionFocusedDraftAnswerRequestV1,
   signal?: AbortSignal,
 ): Promise<ImportSessionViewV1> {
   const view = readImportWorkflowView(

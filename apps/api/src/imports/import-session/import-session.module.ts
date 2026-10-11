@@ -45,19 +45,17 @@ import { ImportUploadService } from "./vault/import-upload.service";
 import { ImportContentService } from "./vault/import-content.service";
 import { VaultReaper } from "./vault/vault-reaper";
 import { VaultRetentionScheduler } from "./vault/vault-retention.scheduler";
-import { ImportChatGuard } from "./import-chat.guard";
-import { ImportChatBridge } from "./import-chat.bridge";
+import { ImportSessionEntryService } from "./import-session-entry.service";
 
 /**
- * Only the contextual guard and restricted bridge leave this module.
- * Financial providers and the grant issuer remain private; writes stay OFF.
+ * Only deterministic pre-session availability leaves this module.
+ * Financial providers and the grant issuer remain private.
  */
 @Module({
   imports: [PrismaModule, ExpenseModule, ConciliacaoModule],
   controllers: [ImportSessionController, ImportAttachmentController],
   providers: [
-    ImportChatGuard,
-    ImportChatBridge,
+    ImportSessionEntryService,
     ImportSessionService,
     ImportSessionExtractionService,
     ImportRawExecutions,
@@ -125,6 +123,6 @@ import { ImportChatBridge } from "./import-chat.bridge";
         createImportVaultGate(prisma, clock, process.env, process.cwd()),
     },
   ],
-  exports: [ImportChatGuard, ImportChatBridge],
+  exports: [ImportSessionEntryService],
 })
 export class ImportSessionModule {}

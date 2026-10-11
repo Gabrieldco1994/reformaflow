@@ -163,7 +163,11 @@ describe("answerImportFocusedDraftQuestion", () => {
     expectedRevision: 2,
     questionId: "question",
     channel: "VOICE" as const,
-    answer: { field: "firstDueDate" as const, value: "2025-10-10" },
+    answer: {
+      field: "firstDueDate" as const,
+      literal: "2025-10-10",
+      value: "2025-10-10",
+    },
   };
   beforeEach(() => api.patch.mockReset());
   it.each([
@@ -174,7 +178,10 @@ describe("answerImportFocusedDraftQuestion", () => {
         acceptNaturalDuplicate: false as const,
       },
     },
-    { field: "targets" as const, value: [] as [] },
+    {
+      field: "targets" as const,
+      value: { kind: "NO_TARGETS" as const },
+    },
   ])(
     "PATCHes the exact native $field payload without adding replacement lines or waiver",
     async (answer) => {

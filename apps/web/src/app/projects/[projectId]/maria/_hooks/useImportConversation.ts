@@ -36,6 +36,7 @@ import {
   validFocusedDraftAnswer,
   verifiedFocusedDraftAnswer,
 } from "../_lib/import-focused-draft";
+import { serializeFocusedDraftAnswerRequest } from "../_lib/import-focused-draft-transport";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -392,6 +393,18 @@ export function useImportConversation(
     }
     const answer = accepted.draftAnswer;
     const expectedRevision = view.revision;
+    const request = serializeFocusedDraftAnswerRequest({
+      answerRequestId: crypto.randomUUID(),
+      expectedRevision,
+      questionId: question.id,
+      channel: local.channel,
+      literal: accepted.text,
+      answer,
+    });
+    if (request === null) {
+      fail(new ImportWorkflowResponseError());
+      return null;
+    }
     const admitted = [
       view.questions,
       view.actions,
@@ -438,14 +451,7 @@ export function useImportConversation(
     try {
       const fresh = await answerImportFocusedDraftQuestion(
         sessionId,
-        {
-          version: 1,
-          answerRequestId: crypto.randomUUID(),
-          expectedRevision,
-          questionId: question.id,
-          channel: local.channel,
-          answer,
-        },
+        request,
         controller.signal,
       );
       if (!active()) return null;

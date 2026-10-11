@@ -2,7 +2,7 @@ import { Test } from "@nestjs/testing";
 import { AgentService } from "./agent.service";
 import { AgentToolsService } from "./tools/agent-tools.service";
 import { LLM_PROVIDER } from "./llm/llm.types";
-import { ImportChatBridge } from "../imports/import-session/import-chat.bridge";
+import { ImportSessionEntryService } from "../imports/import-session/import-session-entry.service";
 import { DefaultImportSessionCapability } from "../imports/import-session/import-session.capability";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -24,11 +24,7 @@ describe("server-owned Maria CSV entry action", () => {
       }),
     ]);
   const make = async (available = true) => {
-    const bridge = new ImportChatBridge(
-      {} as never,
-      {} as never,
-      {} as never,
-      { now: () => new Date("2026-10-09T20:00:00.000Z") },
+    const entry = new ImportSessionEntryService(
       new DefaultImportSessionCapability(),
       {
         boot: {
@@ -59,7 +55,7 @@ describe("server-owned Maria CSV entry action", () => {
           provide: AgentToolsService,
           useValue: tools,
         },
-        { provide: ImportChatBridge, useValue: bridge },
+        { provide: ImportSessionEntryService, useValue: entry },
       ],
     }).compile();
     return { module, llm, tools, service: module.get(AgentService) };

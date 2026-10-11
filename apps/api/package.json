@@ -13,8 +13,7 @@
     "plants-ai:eval": "ts-node src/plants-ai/eval.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "ts-node prisma/seed.ts",
-    "maria-import:eval": "ts-node src/agent/import-model.eval.ts"
+    "prisma:seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",

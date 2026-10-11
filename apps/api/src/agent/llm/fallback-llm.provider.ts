@@ -1,13 +1,5 @@
 import { Logger, ServiceUnavailableException } from "@nestjs/common";
-import {
-  ChatMessage,
-  LlmCallOptions,
-  LlmChatResult,
-  LlmProvider,
-  LlmResponseContractError,
-  ToolDef,
-  validateLlmCallOptions,
-} from "./llm.types";
+import { ChatMessage, LlmChatResult, LlmProvider, ToolDef } from "./llm.types";
 
 /** Erro de cota/sobrecarga do LLM — vale tentar o próximo provider. */
 const RATE_LIMIT_STATUSES = new Set([429, 500, 502, 503, 413]);
@@ -42,9 +34,7 @@ export class FallbackLlmProvider implements LlmProvider {
   async chat(
     messages: ChatMessage[],
     tools: ToolDef[],
-    options?: LlmCallOptions,
   ): Promise<LlmChatResult> {
-    validateLlmCallOptions(options);
     const active = this.providers.filter((p) => p.isConfigured());
     if (active.length === 0) {
       throw new ServiceUnavailableException();
@@ -53,11 +43,8 @@ export class FallbackLlmProvider implements LlmProvider {
     let lastRateLimited = false;
     for (let i = 0; i < active.length; i++) {
       try {
-        return options === undefined
-          ? await active[i]!.chat(messages, tools)
-          : await active[i]!.chat(messages, tools, options);
+        return await active[i]!.chat(messages, tools);
       } catch (e) {
-        if (e instanceof LlmResponseContractError) throw e;
         const status = (e as { status?: number }).status;
         const rateLimited =
           status !== undefined && RATE_LIMIT_STATUSES.has(status);

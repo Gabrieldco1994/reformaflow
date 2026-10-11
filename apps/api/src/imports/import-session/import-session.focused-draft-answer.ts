@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 import {
+  IMPORT_CHAT_CHANNEL,
   IMPORT_SESSION_PROTOCOL_VERSION,
   IMPORT_SESSION_PRIMITIVES as P,
   ExpenseType,
+  LaborCategory,
   ImportSessionErrorCode as Code,
-  parseInstallmentDateOnlyUtc,
+  parseImportFocusedLiteral,
+  type ImportFocusedLiteralField,
   type ImportSessionFocusedDraftAnswerRequestV1,
 } from "@reformaflow/domain";
 import { canonical } from "../../common/canonical";
@@ -46,6 +49,7 @@ export function parseFocusedDraftAnswerRequest(
       "answerRequestId",
       "expectedRevision",
       "questionId",
+      "channel",
       "answer",
     ]) ||
     body.version !== IMPORT_SESSION_PROTOCOL_VERSION ||
@@ -53,41 +57,88 @@ export function parseFocusedDraftAnswerRequest(
     !REQUEST_ID.test(body.answerRequestId) ||
     typeof body.questionId !== "string" ||
     !ID.test(body.questionId) ||
+    (body.channel !== IMPORT_CHAT_CHANNEL.TEXT &&
+      body.channel !== IMPORT_CHAT_CHANNEL.VOICE) ||
     !record(body.answer) ||
-    !exact(body.answer, ["field", "value"])
+    typeof body.answer.field !== "string"
   )
     throw invalid();
   const answer = body.answer;
-  if (answer.field === "firstDueDate") {
-    if (answer.value !== null) {
-      if (typeof answer.value !== "string") throw invalid();
-      const date = parseInstallmentDateOnlyUtc(answer.value);
-      if (
-        !date ||
-        date.getUTCFullYear() < P.minYear ||
-        date.getUTCFullYear() > P.maxYear
-      )
-        throw invalid();
-    }
-  } else if (answer.field === "tipoDespesa") {
+  const field = answer.field as string;
+  if (
+    [
+      "amountMeaning",
+      "amountCents",
+      "installmentCount",
+      "dataCompra",
+      "firstDueDate",
+    ].includes(field)
+  ) {
     if (
-      answer.value !== null &&
+      !exact(answer, ["field", "literal", "value"]) ||
+      typeof answer.literal !== "string" ||
+      parseImportFocusedLiteral(
+        field as ImportFocusedLiteralField,
+        answer.literal,
+      ) !== answer.value
+    )
+      throw invalid();
+  } else if (field === "tipoDespesa") {
+    if (
+      !exact(answer, ["field", "value"]) ||
       !Object.values(ExpenseType).some((value) => value === answer.value)
     )
       throw invalid();
-  } else if (answer.field === "decision") {
+  } else if (field === "categoriaMaoDeObra") {
     if (
-      !record(answer.value) ||
-      !exact(answer.value, ["kind", "acceptNaturalDuplicate"]) ||
-      answer.value.kind !== "CREATE" ||
-      answer.value.acceptNaturalDuplicate !== false
+      !exact(answer, ["field", "value"]) ||
+      !Object.values(LaborCategory).some((value) => value === answer.value)
     )
       throw invalid();
-  } else if (answer.field === "targets") {
-    if (
-      !Array.isArray(answer.value) ||
-      answer.value.length !== 0 ||
-      Reflect.ownKeys(answer.value).length !== 1
+  } else if (field === "decision") {
+    if (!exact(answer, ["field", "value"]) || !record(answer.value))
+      throw invalid();
+    if (answer.value.kind === "CREATE") {
+      if (
+        !exact(answer.value, ["kind", "acceptNaturalDuplicate"]) ||
+        typeof answer.value.acceptNaturalDuplicate !== "boolean"
+      )
+        throw invalid();
+    } else if (
+      answer.value.kind !== "KEEP_EXISTING" ||
+      !exact(answer.value, ["kind", "expenseId"]) ||
+      typeof answer.value.expenseId !== "string" ||
+      !ID.test(answer.value.expenseId)
+    )
+      throw invalid();
+  } else if (field === "targets") {
+    if (!exact(answer, ["field", "value"]) || !record(answer.value))
+      throw invalid();
+    if (answer.value.kind === "NO_TARGETS") {
+      if (!exact(answer.value, ["kind"])) throw invalid();
+    } else if (
+      answer.value.kind !== "TARGET" ||
+      !exact(answer.value, [
+        "kind",
+        "projectId",
+        "roomId",
+        "amountCents",
+        "literal",
+      ]) ||
+      typeof answer.value.projectId !== "string" ||
+      !ID.test(answer.value.projectId) ||
+      !(
+        answer.value.roomId === null ||
+        (typeof answer.value.roomId === "string" &&
+          ID.test(answer.value.roomId))
+      ) ||
+      typeof answer.value.amountCents !== "number" ||
+      !Number.isSafeInteger(answer.value.amountCents) ||
+      answer.value.amountCents < P.minPurchaseCents ||
+      answer.value.amountCents > P.maxCents ||
+      typeof answer.value.literal !== "string" ||
+      parseImportFocusedLiteral("amountCents", answer.value.literal) !==
+        answer.value.amountCents
     )
       throw invalid();
   } else throw invalid();
@@ -96,6 +147,7 @@ export function parseFocusedDraftAnswerRequest(
     answerRequestId: body.answerRequestId,
     ...parseRevisionRequest({ expectedRevision: body.expectedRevision }),
     questionId: body.questionId,
+    channel: body.channel,
     answer,
   }) as ImportSessionFocusedDraftAnswerRequestV1;
 }

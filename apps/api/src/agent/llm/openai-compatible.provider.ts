@@ -2,13 +2,10 @@ import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import { isNativeError } from "node:util/types";
 import {
   ChatMessage,
-  LlmCallOptions,
   LlmChatResult,
   LlmProvider,
-  LlmResponseContractError,
   ToolCall,
   ToolDef,
-  validateLlmCallOptions,
 } from "./llm.types";
 
 interface OpenAiToolCall {
@@ -120,13 +117,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   async chat(
     messages: ChatMessage[],
     tools: ToolDef[],
-    options?: LlmCallOptions,
   ): Promise<LlmChatResult> {
-    validateLlmCallOptions(options);
     if (!this.isConfigured()) throw new ServiceUnavailableException();
     const body: Record<string, unknown> = {
       model: this.model,
-      temperature: options ? 0 : 0.2,
+      temperature: 0.2,
       messages: messages.map((m) => this.toOpenAiMessage(m)),
     };
     if (tools.length > 0) {
@@ -138,7 +133,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
           parameters: t.parameters,
         },
       }));
-      body["tool_choice"] = options ? "required" : "auto";
+      body["tool_choice"] = "auto";
     }
 
     const headers: Record<string, string> = {
@@ -146,21 +141,17 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     };
     if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
 
-    const res = await this.fetchWithRetry(
-      `${this.baseUrl}/chat/completions`,
-      { method: "POST", headers, body: JSON.stringify(body) },
-      options,
-    );
+    const res = await this.fetchWithRetry(`${this.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
 
     if (!res.ok) {
-      if (options) {
-        this.logger.error(`LLM ${this.id} HTTP ${res.status}`);
-      } else {
-        const text = await res.text().catch(() => "");
-        this.logger.error(
-          `LLM ${this.id} HTTP ${res.status}: ${text.slice(0, 500)}`,
-        );
-      }
+      const text = await res.text().catch(() => "");
+      this.logger.error(
+        `LLM ${this.id} HTTP ${res.status}: ${text.slice(0, 500)}`,
+      );
       const err = new Error(
         `Falha ao chamar o LLM (${this.id}): HTTP ${res.status}`,
       ) as Error & {
@@ -170,21 +161,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       throw err;
     }
 
-    let data: unknown;
-    try {
-      data = await res.json();
-    } catch (error) {
-      // Response.json() pode rejeitar com um SyntaxError de outro realm.
-      if (
-        options &&
-        (error instanceof SyntaxError ||
-          (isNativeError(error) && error.name === "SyntaxError"))
-      ) {
-        throw new LlmResponseContractError("INVALID_RESPONSE");
-      }
-      throw error;
-    }
-    if (options) return this.parseStrictResponse(data);
+    const data: unknown = await res.json();
 
     const msg = (
       data as {
@@ -204,7 +181,6 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   private async fetchWithRetry(
     url: string,
     init: RequestInit,
-    options?: LlmCallOptions,
     maxRetries = 2,
   ): Promise<Response> {
     const RETRIABLE = new Set([429, 500, 503]);
@@ -232,9 +208,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
         attempt,
       );
       this.logger.warn(
-        options
-          ? `LLM ${this.id} HTTP ${res.status} (tentativa ${attempt + 1}/${maxRetries})`
-          : `LLM ${this.id} HTTP ${res.status} (tentativa ${attempt + 1}/${maxRetries}); aguardando ${Math.round(waitMs / 1000)}s`,
+        `LLM ${this.id} HTTP ${res.status} (tentativa ${attempt + 1}/${maxRetries}); aguardando ${Math.round(waitMs / 1000)}s`,
       );
       await new Promise((r) => setTimeout(r, waitMs));
       attempt += 1;
@@ -281,75 +255,6 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       };
     }
     return { role: m.role, content: m.content };
-  }
-
-  private parseStrictResponse(data: unknown): LlmChatResult {
-    if (
-      !isRecord(data) ||
-      !Array.isArray(data.choices) ||
-      data.choices.length === 0
-    ) {
-      throw new LlmResponseContractError("INVALID_RESPONSE");
-    }
-    const choice: unknown = data.choices[0];
-    if (!isRecord(choice) || !isRecord(choice.message)) {
-      throw new LlmResponseContractError("INVALID_RESPONSE");
-    }
-    const message = choice.message;
-    const content = message.content;
-    const rawCalls = message.tool_calls;
-    if (
-      message.role !== "assistant" ||
-      (content != null && typeof content !== "string") ||
-      (rawCalls != null && !Array.isArray(rawCalls)) ||
-      (choice.finish_reason != null &&
-        choice.finish_reason !== "stop" &&
-        choice.finish_reason !== "tool_calls")
-    ) {
-      throw new LlmResponseContractError("INVALID_RESPONSE");
-    }
-
-    const toolCalls: ToolCall[] = [];
-    if (Array.isArray(rawCalls)) {
-      for (let i = 0; i < rawCalls.length; i++) {
-        const tc: unknown = rawCalls[i];
-        if (!isRecord(tc) || tc.type !== "function" || !isRecord(tc.function)) {
-          throw new LlmResponseContractError("INVALID_TOOL_CALL", i);
-        }
-        const name = tc.function.name;
-        if (typeof name !== "string" || !name.trim()) {
-          throw new LlmResponseContractError("MISSING_TOOL_NAME", i);
-        }
-        const rawArgs = tc.function.arguments;
-        if (typeof rawArgs !== "string") {
-          throw new LlmResponseContractError("INVALID_TOOL_ARGUMENTS", i);
-        }
-        let args: unknown;
-        try {
-          args = JSON.parse(rawArgs);
-        } catch (error) {
-          if (error instanceof SyntaxError) {
-            throw new LlmResponseContractError("INVALID_TOOL_ARGUMENTS", i);
-          }
-          throw error;
-        }
-        if (!isRecord(args)) {
-          throw new LlmResponseContractError("ARGUMENTS_NOT_OBJECT", i);
-        }
-        toolCalls.push({
-          id: typeof tc.id === "string" && tc.id ? tc.id : `call_${i}`,
-          name,
-          arguments: args,
-        });
-      }
-    }
-    if (
-      toolCalls.length === 0 &&
-      (typeof content !== "string" || !content.trim())
-    ) {
-      throw new LlmResponseContractError("INVALID_RESPONSE");
-    }
-    return { content: content ?? "", toolCalls };
   }
 
   private parseToolCalls(raw: OpenAiToolCall[] | undefined): ToolCall[] {

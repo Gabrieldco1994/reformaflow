@@ -192,24 +192,28 @@ function question(value: unknown): value is ImportSessionDraftQuestionV1 {
 }
 
 function declaration(value: unknown): value is ImportStoredDeclarationV1 {
+  const keys = [
+    "field",
+    "value",
+    "meaningContext",
+    "lineId",
+    "observationId",
+    "originalFingerprint",
+    "claimVersion",
+    "originSessionId",
+    "recordedRevision",
+    "questionId",
+    "turnId",
+    "attestedByUserId",
+    "attestedAt",
+    "literalHash",
+  ];
   if (
     !record(value) ||
-    !exact(value, [
-      "field",
-      "value",
-      "meaningContext",
-      "lineId",
-      "observationId",
-      "originalFingerprint",
-      "claimVersion",
-      "originSessionId",
-      "recordedRevision",
-      "questionId",
-      "turnId",
-      "attestedByUserId",
-      "attestedAt",
-      "literalHash",
-    ]) ||
+    !(exact(value, keys) || exact(value, [...keys, "channel"])) ||
+    (Object.prototype.hasOwnProperty.call(value, "channel") &&
+      value.channel !== "TEXT" &&
+      value.channel !== "VOICE") ||
     !id(value.lineId) ||
     !id(value.observationId) ||
     !id(value.originSessionId) ||

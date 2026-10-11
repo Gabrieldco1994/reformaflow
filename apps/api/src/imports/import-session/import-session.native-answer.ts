@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  IMPORT_CHAT_CHANNEL,
   IMPORT_SESSION_PROTOCOL_VERSION,
   IMPORT_SESSION_PRIMITIVES as P,
   ImportSessionErrorCode as Code,
@@ -48,6 +49,7 @@ export function parseDocumentaryAnswerRequest(
       "answerRequestId",
       "expectedRevision",
       "questionId",
+      "channel",
       "input",
       "answer",
     ]) ||
@@ -56,6 +58,8 @@ export function parseDocumentaryAnswerRequest(
     !REQUEST_ID.test(body.answerRequestId) ||
     typeof body.questionId !== "string" ||
     !QUESTION_ID.test(body.questionId) ||
+    (body.channel !== IMPORT_CHAT_CHANNEL.TEXT &&
+      body.channel !== IMPORT_CHAT_CHANNEL.VOICE) ||
     !record(body.input) ||
     !record(body.answer) ||
     !exact(body.answer, ["field", "value", "meaningContext"])
@@ -77,6 +81,7 @@ export function parseDocumentaryAnswerRequest(
     answerRequestId: body.answerRequestId,
     ...parseRevisionRequest({ expectedRevision: body.expectedRevision }),
     questionId: body.questionId,
+    channel: body.channel,
     input,
     answer: body.answer,
   }) as ImportSessionDocumentaryAnswerRequestV1;

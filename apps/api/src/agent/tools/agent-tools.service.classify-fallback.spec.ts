@@ -8,7 +8,6 @@ import { CreditCardService } from "../../credit-card/credit-card.service";
 import { MonthlyOverviewService } from "../../monthly-overview/monthly-overview.service";
 import { MerchantClassifierService } from "../../merchant-classifier/merchant-classifier.service";
 import { PriceMonitorService } from "../../price-compare/price-monitor.service";
-import { ImportChatBridge } from "../../imports/import-session/import-chat.bridge";
 
 describe("create_expense — fallback do MerchantClassifier", () => {
   let service: AgentToolsService;
@@ -38,14 +37,12 @@ describe("create_expense — fallback do MerchantClassifier", () => {
       bankAccount: { findFirst: jest.fn() },
     };
     expenses = {
-      create: jest
-        .fn()
-        .mockResolvedValue({
-          id: "exp-1",
-          titulo: null,
-          fornecedor: null,
-          valorTotal: 10000,
-        }),
+      create: jest.fn().mockResolvedValue({
+        id: "exp-1",
+        titulo: null,
+        fornecedor: null,
+        valorTotal: 10000,
+      }),
     };
     classifier = {
       classifyBatch: jest.fn().mockResolvedValue(new Map()),
@@ -61,7 +58,6 @@ describe("create_expense — fallback do MerchantClassifier", () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentToolsService,
-        { provide: ImportChatBridge, useValue: {} },
         { provide: PrismaService, useValue: prisma },
         { provide: TenantFinancialService, useValue: {} },
         { provide: ExpenseService, useValue: expenses },

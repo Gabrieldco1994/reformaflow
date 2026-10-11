@@ -173,6 +173,7 @@ function answerOf(item: ImportStoredDeclarationV1): ImportDeclarationAnswerV1 {
     attestedByUserId: _user,
     attestedAt: _at,
     literalHash: _literal,
+    channel: _channel,
     ...answer
   } = item;
   return answer;
@@ -447,6 +448,7 @@ export function resolveImportDeclarations(
           observationId: row.id,
           questionId: question.id,
           origin: "USER_ATTESTATION" as const,
+          ...(item.channel === undefined ? {} : { channel: item.channel }),
         };
         const answer = answerOf(item);
         if (changed && answer.field === "amountCents" && answer.value !== null)
@@ -505,7 +507,12 @@ export function recordImportDeclaration(
   material: ImportDeclarationMaterial,
   questionId: string,
   literal: string,
-  actor: { userId: string; turnId: string; now: Date },
+  actor: {
+    userId: string;
+    turnId: string;
+    now: Date;
+    channel: ImportSessionDocumentaryAnswerRequestV1["channel"];
+  },
   originalLiteralHash?: string,
 ): ImportSessionStoredDraftV1 {
   const resolution = resolveImportDeclarations(session, draft, material);
@@ -553,6 +560,7 @@ export function recordImportDeclaration(
     attestedAt: actor.now.toISOString(),
     literalHash:
       originalLiteralHash ?? createHash("sha256").update(literal).digest("hex"),
+    channel: actor.channel,
   };
   const updated = validateStoredDraft({
     ...draft,
@@ -797,7 +805,11 @@ export function recordNativeImportDeclaration(
     material,
     question.id,
     encoded.literalAnswer,
-    { ...actor, turnId: request.answerRequestId },
+    {
+      ...actor,
+      turnId: request.answerRequestId,
+      channel: request.channel,
+    },
     originalLiteralHash,
   );
 }

@@ -127,11 +127,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Validate Maria eval inputs and export locked model
-        run: |
-          node scripts/qa/maria-import-eval-contract.cjs validate-inputs
-          model=$(node scripts/qa/maria-import-eval-contract.cjs model-name)
-          echo "QA_OLLAMA_MODEL=$model" >> "$GITHUB_ENV"
       - name: Build domain and generate Prisma client
         run: |
           npm --workspace @reformaflow/domain run build
@@ -145,9 +140,7 @@ jobs:
           # Each matrix job owns a separate disposable runner and ext4 /data mount.
           test ! -e /data
           image="$RUNNER_TEMP/maria-ext4-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.viewport }}.img"
-          # Disposable browser QA also stores the local 7B Ollama model here.
-          # This is test capacity, never production headroom/default sizing.
-          truncate -s 12G "$image"
+          truncate -s 2G "$image"
           mkfs.ext4 -q "$image"
           sudo mkdir /data
           sudo mount -o loop "$image" /data
@@ -180,34 +173,6 @@ jobs:
           npx playwright install --with-deps chromium
           command -v lsof
           command -v flock
-      - name: Install pinned official Ollama release (checksum-verified, no curl|sh)
-        shell: bash
-        env:
-          OLLAMA_VERSION: v0.40.2
-          # GitHub release asset digest for ollama-linux-amd64.tar.zst at v0.40.2.
-          OLLAMA_SHA256: 726bee78706c281b0eeef00746efe51a044d71c592c3f0b195820707f31fdf04
-        run: |
-          set -euo pipefail
-          command -v zstd
-          dest="$QA_RUNTIME_DIR/ollama"
-          mkdir "$dest"
-          curl --fail --location --silent --show-error --retry 3 \
-            -o "$RUNNER_TEMP/ollama.tar.zst" \
-            "https://github.com/ollama/ollama/releases/download/$OLLAMA_VERSION/ollama-linux-amd64.tar.zst"
-          echo "$OLLAMA_SHA256  $RUNNER_TEMP/ollama.tar.zst" | sha256sum --check --strict
-          tar --zstd -xf "$RUNNER_TEMP/ollama.tar.zst" -C "$dest"
-          rm -f "$RUNNER_TEMP/ollama.tar.zst"
-          "$dest/bin/ollama" --version
-      - name: Start loopback Ollama, pull locked qwen2.5:7b-instruct and prove real inference
-        # Provider env (set by boot.sh): AGENT_LLM_PROVIDER=ollama, AGENT_MODEL=qwen2.5:7b-instruct,
-        # OLLAMA_BASE_URL=http://127.0.0.1:11434/v1; fallback/hosted keys unset. Synthetic only.
-        # Any failure here fails the job; there is no skip or fallback path.
-        timeout-minutes: 15
-        run: |
-          bash scripts/qa/maria-csv-boot.sh ollama
-          bash scripts/qa/maria-csv-boot.sh wait-ollama
-          bash scripts/qa/maria-csv-boot.sh pull-model
-          bash scripts/qa/maria-csv-boot.sh model-check
       - name: Boot API and web with private vault enabled
         # boot.sh uses IMPORT_VAULT_ENABLED=true, IMPORT_VAULT_LOCK_FD=9,
         # VAULT_DIR, IMPORT_VAULT_IDLE_TIMEOUT_MS, IMPORT_VAULT_HEADROOM_BYTES,
@@ -266,101 +231,3 @@ jobs:
             rm -f "$image"
             if test -d /data; then sudo rmdir /data; fi
           fi
-
-  maria-model-eval:
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    env:
-      CI: "1"
-      TZ: UTC
-      MARIA_IMPORT_MODEL_EVAL: "1"
-      QA_OLLAMA_HOST: 127.0.0.1:11434
-      OPENAI_API_KEY: ""
-      ANTHROPIC_API_KEY: ""
-      GOOGLE_API_KEY: ""
-      GEMINI_API_KEY: ""
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install npm dependencies and validate immutable eval inputs
-        run: |
-          npm ci
-          node scripts/qa/maria-import-eval-contract.cjs validate-inputs
-          node --test scripts/qa/maria-import-eval-contract.test.cjs scripts/qa/ollama-model-lock.test.cjs scripts/qa/ollama-readiness.test.cjs scripts/qa/maria-csv-vault-workflow.test.mjs
-          npm --workspace @reformaflow/domain run build
-      - name: Prepare isolated loopback eval runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          runtime=$(mktemp -d "$RUNNER_TEMP/maria-model-eval-XXXXXX")
-          mkdir "$runtime/artifacts" "$runtime/sanitized-artifacts" "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash" "$runtime/public-uploads" "$runtime/private-uploads"
-          touch "$runtime/eval.db" "$runtime/import-vault/.lock"
-          chmod 700 "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash"
-          chmod 600 "$runtime/import-vault/.lock"
-          secret=$(node -e "console.log(require(\"node:crypto\").randomBytes(48).toString(\"hex\"))")
-          echo "::add-mask::$secret"
-          model=$(node scripts/qa/maria-import-eval-contract.cjs model-name)
-          {
-            echo "QA_RUNTIME_DIR=$runtime"
-            echo "QA_DB_PATH=$runtime/eval.db"
-            echo "QA_VAULT_DIR=$runtime/import-vault"
-            echo "QA_ARTIFACTS_DIR=$runtime/artifacts"
-            echo "QA_SANITIZED_ARTIFACTS_DIR=$runtime/sanitized-artifacts"
-            echo "QA_OLLAMA_MODEL=$model"
-            echo "AGENT_LLM_PROVIDER=ollama"
-            echo "AGENT_MODEL=$model"
-            echo "OLLAMA_BASE_URL=http://127.0.0.1:11434/v1"
-            echo "MARIA_EVAL_REPORT_PATH=$runtime/sanitized-artifacts/maria-import-eval-report.json"
-            echo "DATABASE_URL=file:$runtime/eval.db"
-            echo "JWT_SECRET=$secret"
-          } >> "$GITHUB_ENV"
-      - name: Install checksum-pinned Ollama v0.40.2
-        shell: bash
-        env:
-          OLLAMA_VERSION: v0.40.2
-          OLLAMA_SHA256: 726bee78706c281b0eeef00746efe51a044d71c592c3f0b195820707f31fdf04
-        run: |
-          set -euo pipefail
-          command -v zstd
-          mkdir "$QA_RUNTIME_DIR/ollama"
-          curl --fail --location --silent --show-error --retry 3 -o "$RUNNER_TEMP/ollama.tar.zst" "https://github.com/ollama/ollama/releases/download/$OLLAMA_VERSION/ollama-linux-amd64.tar.zst"
-          echo "$OLLAMA_SHA256  $RUNNER_TEMP/ollama.tar.zst" | sha256sum --check --strict
-          tar --zstd -xf "$RUNNER_TEMP/ollama.tar.zst" -C "$QA_RUNTIME_DIR/ollama"
-          rm -f "$RUNNER_TEMP/ollama.tar.zst"
-          "$QA_RUNTIME_DIR/ollama/bin/ollama" --version
-      - name: Pull canonical name and verify exact manifest through tags, show and tools
-        timeout-minutes: 15
-        run: |
-          bash scripts/qa/maria-csv-boot.sh ollama
-          bash scripts/qa/maria-csv-boot.sh wait-ollama
-          bash scripts/qa/maria-csv-boot.sh pull-model
-          node scripts/qa/ollama-model-lock.cjs verify scripts/qa/maria-import-eval/model-lock.v1.json "$QA_SANITIZED_ARTIFACTS_DIR/maria-model-provenance.json"
-          bash scripts/qa/maria-csv-boot.sh model-check
-      - name: Run dedicated real loopback Maria semantic eval
-        timeout-minutes: 25
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm --workspace @reformaflow/api run maria-import:eval
-      - name: Validate JSON report even when semantic gates fail
-        if: always()
-        run: |
-          node scripts/qa/maria-import-eval-contract.cjs validate-report "$QA_SANITIZED_ARTIFACTS_DIR/maria-import-eval-report.json"
-          node scripts/qa/maria-import-eval-contract.cjs assert-sanitized-artifacts "$QA_SANITIZED_ARTIFACTS_DIR"
-      - name: Upload allowlisted sanitized report and provenance
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: maria-model-eval-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ env.QA_SANITIZED_ARTIFACTS_DIR }}/maria-import-eval-report.json
-            ${{ env.QA_SANITIZED_ARTIFACTS_DIR }}/maria-model-provenance.json
-          if-no-files-found: error
-          retention-days: 14
-      - name: Stop owned loopback provider
-        if: always() && env.QA_RUNTIME_DIR != ""
-        run: bash scripts/qa/maria-csv-boot.sh stop
