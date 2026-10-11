@@ -117,6 +117,107 @@ test.beforeAll(async () => {
   });
   css = compiled.css + moduleCss;
 });
+for (const width of [375, 390]) {
+  test(`Enter keeps expanded draft actions visible at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.setContent(
+      `<meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><div id="root"></div><output id="output"></output>`,
+    );
+    await page.evaluate(() => {
+      const viewport = new EventTarget() as VisualViewport;
+      let viewportHeight = innerHeight;
+      Object.defineProperties(viewport, {
+        width: { get: () => innerWidth },
+        height: {
+          get: () => viewportHeight,
+          set: (next: number) => {
+            viewportHeight = next;
+            viewport.dispatchEvent(new Event("resize"));
+          },
+        },
+        offsetLeft: { value: 0 },
+        offsetTop: { value: 0 },
+        pageLeft: { get: () => scrollX },
+        pageTop: { get: () => scrollY },
+        scale: { value: 1 },
+      });
+      Object.defineProperty(window, "visualViewport", {
+        configurable: true,
+        value: viewport,
+      });
+    });
+    await page.addScriptTag({ content: script });
+
+    const control = page.getByRole("textbox", {
+      name: "Valor da compra",
+      exact: true,
+    });
+    const form = page.locator("form").filter({ has: control });
+    const actions = form.locator("[data-import-question-actions]");
+    const owner = page.locator('[data-import-question-viewport-owner="true"]');
+    await form.evaluate((element) =>
+      element.scrollIntoView({ block: "start" }),
+    );
+    await control.fill("206,96");
+    await page.evaluate(() => {
+      (window.visualViewport as unknown as { height: number }).height = 300;
+    });
+    await expect
+      .poll(() =>
+        actions.evaluate((element) => element.getBoundingClientRect().bottom),
+      )
+      .toBeLessThanOrEqual(300);
+    await expect(control).toBeFocused();
+
+    const scrollBeforeSubmit = await owner.evaluate(
+      (element) => element.scrollTop,
+    );
+    await control.press("Enter");
+
+    await expect(
+      form.getByLabel("Prévia da informação", { exact: true }),
+    ).toBeVisible();
+    await expect(control).toBeFocused();
+    await expect
+      .poll(async () => {
+        const measurements = await Promise.all(
+          ["Conferir informação", "Guardar informação"].map((name) =>
+            form
+              .getByRole("button", { name, exact: true })
+              .evaluate((element) => {
+                const rect = element.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  rect.left + rect.width / 2,
+                  rect.top + rect.height / 2,
+                );
+                return {
+                  bottom: rect.bottom,
+                  height: rect.height,
+                  hit: hit === element || element.contains(hit),
+                  top: rect.top,
+                  visualViewportHeight: window.visualViewport!.height,
+                  width: rect.width,
+                };
+              }),
+          ),
+        );
+        return measurements.every(
+          ({ bottom, height, hit, top, visualViewportHeight, width }) =>
+            top >= 0 &&
+            bottom <= visualViewportHeight &&
+            width >= 44 &&
+            height >= 44 &&
+            hit,
+        );
+      })
+      .toBe(true);
+    expect(
+      await owner.evaluate((element) => element.scrollTop),
+    ).toBeGreaterThan(scrollBeforeSubmit);
+  });
+}
 for (const width of [375, 390, 640, 1280]) {
   test(`native focused controls at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -170,6 +271,58 @@ for (const width of [375, 390, 640, 1280]) {
       Object.defineProperty(window, "visualViewport", {
         configurable: true,
         value: viewport,
+      });
+      const NativeResizeObserver = window.ResizeObserver;
+      const observers = new Set<{ emit: () => void }>();
+      const resizeObserverStats = {
+        callbacks: 0,
+        disconnected: 0,
+        observed: 0,
+        unobserved: 0,
+        activeCount: () => observers.size,
+        emit: (count: number) => {
+          for (let index = 0; index < count; index++)
+            for (const observer of observers) observer.emit();
+        },
+      };
+      class TrackedResizeObserver {
+        readonly observer: ResizeObserver;
+        readonly emit: () => void;
+
+        constructor(callback: ResizeObserverCallback) {
+          this.emit = () => {
+            resizeObserverStats.callbacks++;
+            callback([], this as unknown as ResizeObserver);
+          };
+          this.observer = new NativeResizeObserver((entries) => {
+            resizeObserverStats.callbacks++;
+            callback(entries, this as unknown as ResizeObserver);
+          });
+          observers.add(this);
+        }
+
+        observe(target: Element, options?: ResizeObserverOptions) {
+          resizeObserverStats.observed++;
+          this.observer.observe(target, options);
+        }
+
+        unobserve(target: Element) {
+          resizeObserverStats.unobserved++;
+          this.observer.unobserve(target);
+        }
+
+        disconnect() {
+          resizeObserverStats.disconnected++;
+          observers.delete(this);
+          this.observer.disconnect();
+        }
+      }
+      Object.defineProperty(window, "ResizeObserver", {
+        configurable: true,
+        value: TrackedResizeObserver,
+      });
+      Object.defineProperty(window, "questionViewportResizeObserverStats", {
+        value: resizeObserverStats,
       });
       const nativeRaf = requestAnimationFrame.bind(window);
       const nativeCancelRaf = cancelAnimationFrame.bind(window);
@@ -429,6 +582,60 @@ for (const width of [375, 390, 640, 1280]) {
             ).questionViewportRafStats.requested,
         ),
       ).toBe(rafBefore + 1);
+      const resizeRafBefore = await page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              questionViewportRafStats: { requested: number };
+            }
+          ).questionViewportRafStats.requested,
+      );
+      await page.evaluate(() => {
+        (
+          window as unknown as {
+            questionViewportResizeObserverStats: {
+              emit: (count: number) => void;
+            };
+          }
+        ).questionViewportResizeObserverStats.emit(20);
+      });
+      await page.waitForTimeout(50);
+      const resizeRafAfter = await page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              questionViewportRafStats: { requested: number };
+            }
+          ).questionViewportRafStats.requested,
+      );
+      expect(resizeRafAfter).toBe(resizeRafBefore + 1);
+      expect(await owner.evaluate((element) => element.scrollTop)).toBe(
+        stableScrollTop,
+      );
+      await page.waitForTimeout(50);
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                questionViewportRafStats: { requested: number };
+              }
+            ).questionViewportRafStats.requested,
+        ),
+      ).toBe(resizeRafAfter);
+      const observerTargets = await page.evaluate(() => {
+        const stats = (
+          window as unknown as {
+            questionViewportResizeObserverStats: {
+              observed: number;
+              unobserved: number;
+            };
+          }
+        ).questionViewportResizeObserverStats;
+        return { observed: stats.observed, unobserved: stats.unobserved };
+      });
+      expect(observerTargets.observed).toBeGreaterThanOrEqual(2);
+      expect(observerTargets.unobserved).toBeGreaterThanOrEqual(1);
     } else {
       const amount = page.getByRole("textbox", {
         name: "Valor da compra",
@@ -468,6 +675,16 @@ for (const width of [375, 390, 640, 1280]) {
       expect(await page.evaluate(() => window.visualViewport!.height)).toBe(
         240,
       );
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                questionViewportResizeObserverStats: { observed: number };
+              }
+            ).questionViewportResizeObserverStats.observed,
+        ),
+      ).toBe(0);
     }
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
@@ -480,6 +697,17 @@ for (const width of [375, 390, 640, 1280]) {
       ).activeListenerCount(),
     );
     expect(activeListeners).toBe(2);
+    expect(
+      await page.evaluate(() =>
+        (
+          window as unknown as {
+            questionViewportResizeObserverStats: {
+              activeCount: () => number;
+            };
+          }
+        ).questionViewportResizeObserverStats.activeCount(),
+      ),
+    ).toBe(1);
     await page.evaluate(() => {
       window.visualViewport!.dispatchEvent(new Event("resize"));
       (
@@ -506,5 +734,21 @@ for (const width of [375, 390, 640, 1280]) {
           ).questionViewportRafStats.cancelled,
       ),
     ).toBeGreaterThan(0);
+    expect(
+      await page.evaluate(() => {
+        const stats = (
+          window as unknown as {
+            questionViewportResizeObserverStats: {
+              activeCount: () => number;
+              disconnected: number;
+            };
+          }
+        ).questionViewportResizeObserverStats;
+        return {
+          active: stats.activeCount(),
+          disconnected: stats.disconnected,
+        };
+      }),
+    ).toEqual({ active: 0, disconnected: 1 });
   });
 }

@@ -24,6 +24,8 @@ export function ImportQuestionViewportOwner({
       form: HTMLFormElement;
       signature: string;
     } | null = null;
+    let observedForm: HTMLFormElement | null = null;
+    let formResizeObserver: ResizeObserver;
 
     const setBottomSpace = (height: number) => {
       const normalizedHeight = Math.max(0, Math.ceil(height));
@@ -33,25 +35,38 @@ export function ImportQuestionViewportOwner({
         bottomSpaceElement.style.height = nextHeight;
     };
 
-    const keepFocusedActionsVisible = () => {
-      pendingFrame = null;
+    const focusedForm = () => {
       const focused = document.activeElement;
       if (
         viewport.width >= NARROW_MOBILE_VIEWPORT_WIDTH ||
         !(focused instanceof HTMLElement) ||
         !ownerElement.contains(focused) ||
         !focused.matches("input, select, textarea, button")
-      ) {
-        lastBlockedGeometry = null;
-        setBottomSpace(0);
-        return;
-      }
+      )
+        return null;
 
       const form = focused.closest("form");
+      return form instanceof HTMLFormElement && ownerElement.contains(form)
+        ? form
+        : null;
+    };
+
+    const syncObservedForm = () => {
+      const form = focusedForm();
+      if (form === observedForm) return form;
+      if (observedForm) formResizeObserver.unobserve(observedForm);
+      observedForm = form;
+      if (observedForm) formResizeObserver.observe(observedForm);
+      return form;
+    };
+
+    const keepFocusedActionsVisible = () => {
+      pendingFrame = null;
+      const form = syncObservedForm();
       const actions = form?.querySelector<HTMLElement>(
         "[data-import-question-actions]",
       );
-      if (!form || !ownerElement.contains(form) || !actions) {
+      if (!form || !actions) {
         lastBlockedGeometry = null;
         setBottomSpace(0);
         return;
@@ -106,14 +121,19 @@ export function ImportQuestionViewportOwner({
       pendingFrame = window.requestAnimationFrame(keepFocusedActionsVisible);
     };
 
+    formResizeObserver = new ResizeObserver(scheduleVisibilityCheck);
+
     viewport.addEventListener("resize", scheduleVisibilityCheck);
     viewport.addEventListener("scroll", scheduleVisibilityCheck);
-    ownerElement.addEventListener("focusin", scheduleVisibilityCheck);
+    document.addEventListener("focusin", scheduleVisibilityCheck);
+    document.addEventListener("focusout", scheduleVisibilityCheck);
 
     return () => {
       viewport.removeEventListener("resize", scheduleVisibilityCheck);
       viewport.removeEventListener("scroll", scheduleVisibilityCheck);
-      ownerElement.removeEventListener("focusin", scheduleVisibilityCheck);
+      document.removeEventListener("focusin", scheduleVisibilityCheck);
+      document.removeEventListener("focusout", scheduleVisibilityCheck);
+      formResizeObserver.disconnect();
       if (pendingFrame !== null) window.cancelAnimationFrame(pendingFrame);
     };
   }, []);
