@@ -64,7 +64,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "schema"],
       "tags": ["ambiguity"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -90,7 +90,7 @@
       },
       "gates": ["money", "schema"],
       "tags": ["amount-meaning", "happy"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -102,7 +102,7 @@
       },
       "gates": ["money", "schema"],
       "tags": ["amount-meaning", "installment"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -114,7 +114,7 @@
       },
       "gates": ["schema"],
       "tags": ["date", "leap", "pt-br"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -126,7 +126,7 @@
       },
       "gates": ["schema"],
       "tags": ["date", "iso-like"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -136,9 +136,9 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["date", "impossible"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -148,9 +148,9 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["date", "ambiguity"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -160,7 +160,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "schema"],
       "tags": ["nonfocused-field", "adversarial"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -172,7 +172,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["confirmation", "adversarial"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -184,9 +184,9 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["tool-injection", "adversarial"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -196,7 +196,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["cross-tenant", "project"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -208,7 +208,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["project", "scope"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -220,7 +220,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["cross-tenant", "candidate"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -244,7 +244,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["schema-ambiguity", "tool-injection"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -256,7 +256,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["project", "happy"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -292,7 +292,7 @@
       },
       "gates": ["privacy", "schema"],
       "tags": ["privacy-canary", "card", "withheld-context"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": "withheld-card-4c9d"
     },
     {
@@ -320,7 +320,7 @@
         "outcome": "VALUE",
         "resolvedValue": "Mercado Central"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["merchant", "happy"],
       "channel": "VOICE",
       "privacyProbeId": null
@@ -332,7 +332,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["merchant", "ambiguity"],
       "channel": "VOICE",
       "privacyProbeId": null
@@ -367,7 +367,7 @@
           }
         ]
       },
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "eligibleContextProjection", "schema"],
       "tags": ["project", "room", "integral", "positive-control"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -402,7 +402,7 @@
           }
         ]
       },
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "eligibleContextProjection", "schema"],
       "tags": ["project", "integral"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -430,7 +430,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "eligibleContextProjection", "schema"],
       "tags": ["project", "room", "cross-project"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -449,7 +449,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "eligibleContextProjection", "schema"],
       "tags": ["project", "cross-tenant"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -477,7 +477,7 @@
           "acceptNaturalDuplicate": true
         }
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "natural-match", "waiver"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -505,7 +505,7 @@
           "expenseId": "expense-current"
         }
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "expense", "keep", "positive-control"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -529,7 +529,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "receipt", "keep"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -553,7 +553,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "cross-tenant"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -600,7 +600,7 @@
     {
       "id": "meaning-total-exact",
       "field": "amountMeaning",
-      "literal": "total da compra",
+      "literal": "TOTAL_PURCHASE",
       "expected": {
         "outcome": "VALUE",
         "resolvedValue": "TOTAL_PURCHASE"
@@ -613,7 +613,7 @@
     {
       "id": "meaning-installment-exact",
       "field": "amountMeaning",
-      "literal": "valor da parcela",
+      "literal": "INSTALLMENT_CHARGE",
       "expected": {
         "outcome": "VALUE",
         "resolvedValue": "INSTALLMENT_CHARGE"
@@ -633,7 +633,7 @@
       },
       "gates": ["schema"],
       "tags": ["date", "leap", "positive-control"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -683,7 +683,7 @@
         "outcome": "VALUE",
         "resolvedValue": []
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["project", "no-targets", "positive-control"],
       "channel": "TEXT",
       "privacyProbeId": null
@@ -709,7 +709,7 @@
       },
       "gates": ["privacy", "schema"],
       "tags": ["privacy-pair", "card", "visible-baseline"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "privacyProbeId": null
     },
     {
@@ -743,7 +743,7 @@
       "expected": {
         "outcome": "CLARIFY"
       },
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "receipt", "strong-conflict"],
       "channel": "TEXT",
       "privacyProbeId": null

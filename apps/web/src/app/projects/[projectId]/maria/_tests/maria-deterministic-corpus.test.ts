@@ -37,6 +37,17 @@ const positiveControlIds = [
   "money-emoji-free-exact",
   "targets-none-exact",
 ];
+const eligibleContextProjectionCaseIds = [
+  "project-room-integral-authorized",
+  "project-integral-without-room",
+  "project-integral-foreign-room",
+  "project-integral-without-authorized-destination",
+  "decision-natural-waiver",
+  "decision-expense-keep",
+  "decision-receipt-keep",
+  "decision-foreign-candidate",
+  "decision-receipt-strong-create-blocked",
+];
 
 function reportResult(id: string) {
   const result = evaluation.report.perCase.find((entry) => entry.id === id);
@@ -45,6 +56,145 @@ function reportResult(id: string) {
 }
 
 describe("versioned deterministic Maria import corpus v2", () => {
+  it("dispatches real TEXT fields to strict focused-draft parsing", () => {
+    expect(
+      evaluateDeterministicCase({
+        id: "text-meaning-enum",
+        field: "amountMeaning",
+        literal: "TOTAL_PURCHASE",
+        channel: "TEXT",
+        gates: ["schema"],
+        tags: ["channel-dispatch"],
+        privacyProbeId: null,
+        expected: {
+          outcome: "VALUE",
+          resolvedValue: "TOTAL_PURCHASE",
+        },
+      }).actual,
+    ).toEqual({ outcome: "VALUE", resolvedValue: "TOTAL_PURCHASE" });
+  });
+
+  it("keeps unsupported VOICE choices and TEXT merchant closed", () => {
+    const base = {
+      gates: ["schema"],
+      tags: ["channel-dispatch"],
+      privacyProbeId: null,
+    };
+    for (const testCase of [
+      {
+        ...base,
+        id: "voice-decision-is-unsupported",
+        field: "decision" as const,
+        literal: "expense-current",
+        channel: "VOICE" as const,
+        context: {
+          decisionLineIds: ["line-current"],
+          decisionCandidates: [
+            {
+              id: "expense-current",
+              lineId: "line-current",
+              kind: "EXPENSE" as const,
+              reason: "STRONG_IDENTITY" as const,
+              canKeepExisting: true,
+            },
+          ],
+        },
+        expected: { outcome: "CLARIFY" as const },
+      },
+      {
+        ...base,
+        id: "voice-target-is-unsupported",
+        field: "targets" as const,
+        literal: "target",
+        channel: "VOICE" as const,
+        context: {
+          amountCents: 20696,
+          ownerProjectId: "project-owner",
+          projectId: "project-reforma",
+          roomId: null,
+          targetProjects: [
+            {
+              id: "project-reforma",
+              projectType: "REFORMA",
+              active: true,
+              deletedAt: null,
+              eligible: true,
+              rooms: [],
+            },
+          ],
+        },
+        expected: { outcome: "CLARIFY" as const },
+      },
+      {
+        ...base,
+        id: "text-merchant-is-unsupported",
+        field: "merchant" as const,
+        literal: "Mercado Central",
+        channel: "TEXT" as const,
+        expected: { outcome: "CLARIFY" as const },
+      },
+    ]) {
+      expect(evaluateDeterministicCase(testCase).actual).toEqual({
+        outcome: "CLARIFY",
+      });
+    }
+  });
+
+  it("reports only synthetic eligible-context projection, never authorization", () => {
+    const nonApplicable = reportResult("money-cent-exact");
+
+    expect(nonApplicable).not.toHaveProperty("authorizationValid");
+    expect(nonApplicable).toHaveProperty(
+      "eligibleContextProjectionValid",
+      null,
+    );
+    expect(evaluation.report.thresholds).not.toHaveProperty(
+      "authorizationRate",
+    );
+    expect(evaluation.report.scores).not.toHaveProperty("authorizationRate");
+    expect(evaluation.report).toMatchObject({
+      eligibleContextProjection: {
+        scope: "PURE_SYNTHETIC_ELIGIBLE_CONTEXT_PROJECTION_ONLY",
+        excludedClaims: [
+          "AUTHORIZATION",
+          "API",
+          "TENANT_ISOLATION",
+          "GUARDS",
+          "SERVER_REVALIDATION",
+        ],
+      },
+    });
+  });
+
+  it("pins the eligible-context projection denominator to exact context-sensitive cases", () => {
+    expect(
+      evaluation.corpus.semanticCases
+        .filter((testCase) =>
+          testCase.gates.includes("eligibleContextProjection"),
+        )
+        .map((testCase) => testCase.id),
+    ).toEqual(eligibleContextProjectionCaseIds);
+    expect(
+      evaluation.report.eligibleContextProjection.denominatorCaseIds,
+    ).toEqual(eligibleContextProjectionCaseIds);
+    expect(
+      evaluation.report.perCase
+        .filter((result) => result.eligibleContextProjectionValid !== null)
+        .map((result) => result.id),
+    ).toEqual(eligibleContextProjectionCaseIds);
+  });
+
+  it("uses non-circular external candidate identity and report self-hash policies", () => {
+    expect(evaluation.report.provenance).toEqual({
+      evaluatorSource:
+        "apps/web/src/app/projects/[projectId]/maria/_tests/maria-deterministic-corpus.ts",
+      repository: "Gabrieldco1994/reformaflow",
+      acceptedImplementationBase: "555963f1cc50078996054a105f5923b92a234003",
+      candidateIdentityPolicy: "EXTERNAL_GIT_COMMIT_AND_CHECK_RUN",
+      selfHashPolicy: "EXTERNAL_SHA256_PIN_NOT_EMBEDDED_TO_AVOID_CIRCULARITY",
+    });
+  });
+
   it("keeps the v1 retained artifact historical-only and out of baseline/candidate evidence", () => {
     const retainedIds = evaluation.corpus.semanticCases
       .slice(0, evaluation.corpus.historicalRetainedArtifact.caseCount)
@@ -70,8 +220,8 @@ describe("versioned deterministic Maria import corpus v2", () => {
       file: "maria-deterministic-corpus.v2.json",
       version: "maria-deterministic-import-v2",
       sha256:
-        "6a06cd871dbef6da5d41cb1cf0007aeef23af627e75bc5026debd9e2289b1c8e",
-      bytes: 20949,
+        "8217847adf75e3b91aabf1b8d312ec4d5e9bfc21cdea84931e5f03933433470b",
+      bytes: 20830,
       cases: 46,
       retainedCases: 22,
       addedCases: 24,
@@ -83,7 +233,7 @@ describe("versioned deterministic Maria import corpus v2", () => {
       ),
     );
     expect(createHash("sha256").update(reportBytes).digest("hex")).toBe(
-      "f23ff999c9ab18ff855d1820af7c93660834fcde8bc8dca8c25c1fbe8b98a79f",
+      "f1bb922b8dc584cbda26cbaa5b0ea2654f1c2aeaf491cd53169d75c068085964",
     );
   });
 
@@ -135,7 +285,7 @@ describe("versioned deterministic Maria import corpus v2", () => {
         },
       },
       contextProjection: { candidateExpenseIds: [] },
-      authorizationValid: true,
+      eligibleContextProjectionValid: true,
       passed: true,
     });
   });
@@ -149,7 +299,7 @@ describe("versioned deterministic Maria import corpus v2", () => {
         actual: { outcome: "CLARIFY" },
         error: { code: "CLARIFY" },
         contextProjection: { candidateExpenseIds: [] },
-        authorizationValid: true,
+        eligibleContextProjectionValid: true,
         passed: true,
       });
     }
@@ -183,13 +333,13 @@ describe("versioned deterministic Maria import corpus v2", () => {
         actual,
         error,
         schemaValid,
-        authorizationValid,
+        eligibleContextProjectionValid,
         contextProjection,
       }: typeof baseline) => ({
         actual,
         error,
         schemaValid,
-        authorizationValid,
+        eligibleContextProjectionValid,
         contextProjection,
       });
 
@@ -199,7 +349,7 @@ describe("versioned deterministic Maria import corpus v2", () => {
     },
   );
 
-  it("keeps the privacy oracle sensitive when an authorized visible canary is exposed", () => {
+  it("keeps the privacy oracle sensitive when a visible canary is exposed", () => {
     const privacyProbeId = "visible-expense-canary";
     const result = evaluateDeterministicCase({
       id: "privacy-oracle-visible-sensitivity",
@@ -237,7 +387,7 @@ describe("versioned deterministic Maria import corpus v2", () => {
         expenseId: privacyProbeId,
       },
     });
-    expect(result.authorizationValid).toBe(true);
+    expect(result.eligibleContextProjectionValid).toBeNull();
     expect(result.privacySafe).toBe(false);
     expect(result.passed).toBe(false);
   });
@@ -247,7 +397,9 @@ describe("versioned deterministic Maria import corpus v2", () => {
     (result) => {
       expect(result.actual).toEqual(result.expected);
       expect(result.schemaValid).toBe(true);
-      expect(result.authorizationValid).toBe(true);
+      expect(result.eligibleContextProjectionValid).toBe(
+        eligibleContextProjectionCaseIds.includes(result.id) ? true : null,
+      );
       expect(result.privacySafe).toBe(true);
       expect(result).not.toHaveProperty("counters");
     },
@@ -269,15 +421,14 @@ describe("versioned deterministic Maria import corpus v2", () => {
     expect(evaluation.report).not.toHaveProperty("counters");
   });
 
-  it("records bounded provenance without claiming a final composed SHA or external privacy", () => {
+  it("records bounded provenance without claiming an embedded candidate SHA or external privacy", () => {
     expect(evaluation.report.provenance).toEqual({
       evaluatorSource:
         "apps/web/src/app/projects/[projectId]/maria/_tests/maria-deterministic-corpus.ts",
-      baseCommit: "881e9b5cd3215b79c7c6c7c37614b70e26f5acd8",
-      acceptedFrontendCommit: "555963f1cc50078996054a105f5923b92a234003",
-      parentQaCommit: "2bc17724e836678f2f8b3f26c8a7cab81dcfd8b4",
-      followUpCommit: "NOT_ASSERTED_UNTIL_FINAL_COMPOSITION",
-      finalCandidateCommit: "NOT_ASSERTED_UNTIL_FINAL_COMPOSITION",
+      repository: "Gabrieldco1994/reformaflow",
+      acceptedImplementationBase: "555963f1cc50078996054a105f5923b92a234003",
+      candidateIdentityPolicy: "EXTERNAL_GIT_COMMIT_AND_CHECK_RUN",
+      selfHashPolicy: "EXTERNAL_SHA256_PIN_NOT_EMBEDDED_TO_AVOID_CIRCULARITY",
     });
     expect(evaluation.report.execution).toEqual({
       command:
@@ -308,14 +459,14 @@ describe("versioned deterministic Maria import corpus v2", () => {
   it("meets every locked pure-evaluator quality gate", () => {
     expect(evaluation.report.thresholds).toEqual({
       moneyExactRate: 1,
-      authorizationRate: 1,
+      eligibleContextProjectionRate: 1,
       schemaValidityRate: 1,
       privacySafeRate: 1,
       exactCaseRate: 1,
     });
     expect(evaluation.report.scores).toEqual({
       moneyExactRate: 1,
-      authorizationRate: 1,
+      eligibleContextProjectionRate: 1,
       schemaValidityRate: 1,
       privacySafeRate: 1,
       exactCaseRate: 1,

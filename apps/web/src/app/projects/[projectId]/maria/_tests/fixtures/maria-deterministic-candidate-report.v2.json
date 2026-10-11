@@ -3,17 +3,16 @@
   "source": "FRESH_PURE_EVALUATOR",
   "provenance": {
     "evaluatorSource": "apps/web/src/app/projects/[projectId]/maria/_tests/maria-deterministic-corpus.ts",
-    "baseCommit": "881e9b5cd3215b79c7c6c7c37614b70e26f5acd8",
-    "acceptedFrontendCommit": "555963f1cc50078996054a105f5923b92a234003",
-    "parentQaCommit": "2bc17724e836678f2f8b3f26c8a7cab81dcfd8b4",
-    "followUpCommit": "NOT_ASSERTED_UNTIL_FINAL_COMPOSITION",
-    "finalCandidateCommit": "NOT_ASSERTED_UNTIL_FINAL_COMPOSITION"
+    "repository": "Gabrieldco1994/reformaflow",
+    "acceptedImplementationBase": "555963f1cc50078996054a105f5923b92a234003",
+    "candidateIdentityPolicy": "EXTERNAL_GIT_COMMIT_AND_CHECK_RUN",
+    "selfHashPolicy": "EXTERNAL_SHA256_PIN_NOT_EMBEDDED_TO_AVOID_CIRCULARITY"
   },
   "dataset": {
     "file": "maria-deterministic-corpus.v2.json",
     "version": "maria-deterministic-import-v2",
-    "sha256": "6a06cd871dbef6da5d41cb1cf0007aeef23af627e75bc5026debd9e2289b1c8e",
-    "bytes": 20949,
+    "sha256": "8217847adf75e3b91aabf1b8d312ec4d5e9bfc21cdea84931e5f03933433470b",
+    "bytes": 20830,
     "cases": 46,
     "retainedCases": 22,
     "addedCases": 24
@@ -48,6 +47,27 @@
       ["privacy-project-visible-baseline", "privacy-hidden-project-canary"],
       ["privacy-card-visible-baseline", "privacy-hidden-card-canary"],
       ["privacy-expense-visible-baseline", "privacy-hidden-expense-canary"]
+    ]
+  },
+  "eligibleContextProjection": {
+    "scope": "PURE_SYNTHETIC_ELIGIBLE_CONTEXT_PROJECTION_ONLY",
+    "denominatorCaseIds": [
+      "project-room-integral-authorized",
+      "project-integral-without-room",
+      "project-integral-foreign-room",
+      "project-integral-without-authorized-destination",
+      "decision-natural-waiver",
+      "decision-expense-keep",
+      "decision-receipt-keep",
+      "decision-foreign-candidate",
+      "decision-receipt-strong-create-blocked"
+    ],
+    "excludedClaims": [
+      "AUTHORIZATION",
+      "API",
+      "TENANT_ISOLATION",
+      "GUARDS",
+      "SERVER_REVALIDATION"
     ]
   },
   "sideEffectCounters": {
@@ -122,14 +142,14 @@
   ],
   "thresholds": {
     "moneyExactRate": 1,
-    "authorizationRate": 1,
+    "eligibleContextProjectionRate": 1,
     "schemaValidityRate": 1,
     "privacySafeRate": 1,
     "exactCaseRate": 1
   },
   "scores": {
     "moneyExactRate": 1,
-    "authorizationRate": 1,
+    "eligibleContextProjectionRate": 1,
     "schemaValidityRate": 1,
     "privacySafeRate": 1,
     "exactCaseRate": 1
@@ -152,7 +172,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -172,12 +192,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "money-two-values",
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "schema"],
       "tags": ["ambiguity"],
       "channel": "TEXT",
       "expected": {
@@ -192,7 +212,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -212,14 +232,14 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "meaning-total-integral",
       "gates": ["money", "schema"],
       "tags": ["amount-meaning", "happy"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -232,14 +252,14 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "meaning-monthly-installment",
       "gates": ["money", "schema"],
       "tags": ["amount-meaning", "installment"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -252,14 +272,14 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "date-leap-day",
       "gates": ["schema"],
       "tags": ["date", "leap", "pt-br"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -272,14 +292,14 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "date-iso-like",
       "gates": ["schema"],
       "tags": ["date", "iso-like"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -292,14 +312,14 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "date-impossible",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["date", "impossible"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -312,14 +332,14 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "date-two-candidates",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["date", "ambiguity"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -332,12 +352,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "nonfocused-money-injection",
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "schema"],
       "tags": ["nonfocused-field", "adversarial"],
       "channel": "TEXT",
       "expected": {
@@ -352,12 +372,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "confirmation-is-not-decision",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["confirmation", "adversarial"],
       "channel": "TEXT",
       "expected": {
@@ -374,14 +394,14 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "tool-injection",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["tool-injection", "adversarial"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -394,12 +414,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "authorization-foreign-tenant-project",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["cross-tenant", "project"],
       "channel": "TEXT",
       "expected": {
@@ -417,12 +437,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "authorization-unlisted-project",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["project", "scope"],
       "channel": "TEXT",
       "expected": {
@@ -440,12 +460,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "authorization-foreign-expense",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["cross-tenant", "candidate"],
       "channel": "TEXT",
       "expected": {
@@ -462,7 +482,7 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -482,12 +502,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "schema-text-json-injection",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["schema-ambiguity", "tool-injection"],
       "channel": "TEXT",
       "expected": {
@@ -502,12 +522,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "targets-none-phrase",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["project", "happy"],
       "channel": "TEXT",
       "expected": {
@@ -525,7 +545,7 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -548,14 +568,14 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "privacy-hidden-card-canary",
       "gates": ["privacy", "schema"],
       "tags": ["privacy-canary", "card", "withheld-context"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -568,7 +588,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -590,12 +610,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "merchant-clear",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["merchant", "happy"],
       "channel": "VOICE",
       "expected": {
@@ -610,12 +630,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "merchant-ambiguous-ou",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["merchant", "ambiguity"],
       "channel": "VOICE",
       "expected": {
@@ -630,12 +650,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "project-room-integral-authorized",
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "eligibleContextProjection", "schema"],
       "tags": ["project", "room", "integral", "positive-control"],
       "channel": "TEXT",
       "expected": {
@@ -666,12 +686,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     },
     {
       "id": "project-integral-without-room",
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "eligibleContextProjection", "schema"],
       "tags": ["project", "integral"],
       "channel": "TEXT",
       "expected": {
@@ -702,12 +722,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     },
     {
       "id": "project-integral-foreign-room",
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "eligibleContextProjection", "schema"],
       "tags": ["project", "room", "cross-project"],
       "channel": "TEXT",
       "expected": {
@@ -726,12 +746,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     },
     {
       "id": "project-integral-without-authorized-destination",
-      "gates": ["money", "authorization", "schema"],
+      "gates": ["money", "eligibleContextProjection", "schema"],
       "tags": ["project", "cross-tenant"],
       "channel": "TEXT",
       "expected": {
@@ -750,12 +770,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     },
     {
       "id": "decision-natural-waiver",
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "natural-match", "waiver"],
       "channel": "TEXT",
       "expected": {
@@ -778,12 +798,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     },
     {
       "id": "decision-expense-keep",
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "expense", "keep", "positive-control"],
       "channel": "TEXT",
       "expected": {
@@ -806,12 +826,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     },
     {
       "id": "decision-receipt-keep",
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "receipt", "keep"],
       "channel": "TEXT",
       "expected": {
@@ -828,12 +848,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     },
     {
       "id": "decision-foreign-candidate",
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "cross-tenant"],
       "channel": "TEXT",
       "expected": {
@@ -850,7 +870,7 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     },
     {
@@ -870,7 +890,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -890,7 +910,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -910,7 +930,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -930,7 +950,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -950,14 +970,14 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "date-leap-day-exact",
       "gates": ["schema"],
       "tags": ["date", "leap", "positive-control"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "VALUE",
         "resolvedValue": "2028-02-29"
@@ -970,7 +990,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -990,7 +1010,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -1010,7 +1030,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -1030,12 +1050,12 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "targets-none-exact",
-      "gates": ["authorization", "schema"],
+      "gates": ["schema"],
       "tags": ["project", "no-targets", "positive-control"],
       "channel": "TEXT",
       "expected": {
@@ -1053,7 +1073,7 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -1076,14 +1096,14 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "privacy-card-visible-baseline",
       "gates": ["privacy", "schema"],
       "tags": ["privacy-pair", "card", "visible-baseline"],
-      "channel": "TEXT",
+      "channel": "VOICE",
       "expected": {
         "outcome": "CLARIFY"
       },
@@ -1096,7 +1116,7 @@
       "contextProjection": {},
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
@@ -1118,12 +1138,12 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": null,
       "privacySafe": true
     },
     {
       "id": "decision-receipt-strong-create-blocked",
-      "gates": ["authorization", "schema"],
+      "gates": ["eligibleContextProjection", "schema"],
       "tags": ["decision", "receipt", "strong-conflict"],
       "channel": "TEXT",
       "expected": {
@@ -1140,7 +1160,7 @@
       },
       "passed": true,
       "schemaValid": true,
-      "authorizationValid": true,
+      "eligibleContextProjectionValid": true,
       "privacySafe": true
     }
   ]

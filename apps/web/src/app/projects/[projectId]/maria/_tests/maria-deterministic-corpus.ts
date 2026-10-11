@@ -116,6 +116,17 @@ const positiveControlIds = [
   "money-emoji-free-exact",
   "targets-none-exact",
 ];
+const eligibleContextProjectionCaseIds = [
+  "project-room-integral-authorized",
+  "project-integral-without-room",
+  "project-integral-foreign-room",
+  "project-integral-without-authorized-destination",
+  "decision-natural-waiver",
+  "decision-expense-keep",
+  "decision-receipt-keep",
+  "decision-foreign-candidate",
+  "decision-receipt-strong-create-blocked",
+] as const;
 
 function deepEqual(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -211,8 +222,9 @@ function answerForCase(
   testCase: CorpusCase,
   contextProjection: StrictDraftContext,
 ) {
-  if (testCase.field === "merchant")
+  if (testCase.channel === "VOICE")
     return deterministicVoiceAnswer(testCase.field, testCase.literal);
+  if (testCase.field === "merchant") return null;
   if (testCase.field === "decision") {
     const exposed = supportedEvaluatorDecisionChoices(
       testCase.context ?? {},
@@ -221,9 +233,53 @@ function answerForCase(
       ? strictDraftAnswer("decision", testCase.literal, contextProjection)
       : null;
   }
-  if (testCase.field === "targets")
-    return strictDraftAnswer("targets", testCase.literal, contextProjection);
-  return deterministicVoiceAnswer(testCase.field, testCase.literal);
+  return strictDraftAnswer(testCase.field, testCase.literal, contextProjection);
+}
+
+function eligibleContextProjectionValidity(
+  testCase: CorpusCase,
+  answer: ReturnType<typeof answerForCase>,
+) {
+  if (
+    !eligibleContextProjectionCaseIds.includes(
+      testCase.id as (typeof eligibleContextProjectionCaseIds)[number],
+    )
+  )
+    return null;
+
+  const context = testCase.context ?? {};
+  if (testCase.field === "decision") {
+    const projected = supportedEvaluatorDecisionChoices(context).find(
+      (choice) => choice.value === testCase.literal,
+    );
+    return projected
+      ? answer?.field === "decision" &&
+          deepEqual(projected.answer, answer.value)
+      : answer === null;
+  }
+  if (testCase.field !== "targets") return false;
+
+  const selected = eligibleSelectedTarget(context);
+  const amountCents = context.amountCents;
+  if (
+    testCase.literal !== "target" ||
+    !selected ||
+    !Number.isSafeInteger(amountCents) ||
+    amountCents === null ||
+    amountCents === undefined ||
+    amountCents <= 0
+  )
+    return answer === null;
+  return (
+    answer?.field === "targets" &&
+    deepEqual(answer.value, [
+      {
+        projectId: selected.id,
+        roomId: context.roomId ?? null,
+        amountCents,
+      },
+    ])
+  );
 }
 
 function hiddenCanaries(testCase: CorpusCase) {
@@ -248,24 +304,16 @@ export function evaluateDeterministicCase(testCase: CorpusCase) {
     answer === null ||
     answer.field === "merchant" ||
     validFocusedDraftAnswer(answer);
-  let authorizationValid = true;
-  if (answer?.field === "decision") {
-    authorizationValid = supportedEvaluatorDecisionChoices(context).some(
-      (choice) =>
-        choice.value === testCase.literal &&
-        deepEqual(choice.answer, answer.value),
-    );
-  }
-  if (answer?.field === "targets" && answer.value.length > 0) {
-    const selected = eligibleSelectedTarget(context);
-    authorizationValid = answer.value.every(
-      (target) =>
-        target.projectId === selected?.id &&
-        (target.roomId === null ||
-          Boolean(selected?.rooms.some((room) => room.id === target.roomId))),
-    );
-  }
-  const observable = { actual, error, schemaValid, authorizationValid };
+  const eligibleContextProjectionValid = eligibleContextProjectionValidity(
+    testCase,
+    answer,
+  );
+  const observable = {
+    actual,
+    error,
+    schemaValid,
+    eligibleContextProjectionValid,
+  };
   const privacySurface = JSON.stringify({ observable, contextProjection });
   const privacySafe = hiddenCanaries(testCase).every(
     (canary) => !privacySurface.includes(canary),
@@ -281,11 +329,11 @@ export function evaluateDeterministicCase(testCase: CorpusCase) {
     contextProjection,
     passed:
       schemaValid &&
-      authorizationValid &&
+      eligibleContextProjectionValid !== false &&
       privacySafe &&
       deepEqual(actual, testCase.expected),
     schemaValid,
-    authorizationValid,
+    eligibleContextProjectionValid,
     privacySafe,
   };
 }
@@ -315,11 +363,10 @@ export const deterministicCorpusEvaluation = {
     provenance: {
       evaluatorSource:
         "apps/web/src/app/projects/[projectId]/maria/_tests/maria-deterministic-corpus.ts",
-      baseCommit: "881e9b5cd3215b79c7c6c7c37614b70e26f5acd8",
-      acceptedFrontendCommit: "555963f1cc50078996054a105f5923b92a234003",
-      parentQaCommit: "2bc17724e836678f2f8b3f26c8a7cab81dcfd8b4",
-      followUpCommit: "NOT_ASSERTED_UNTIL_FINAL_COMPOSITION",
-      finalCandidateCommit: "NOT_ASSERTED_UNTIL_FINAL_COMPOSITION",
+      repository: "Gabrieldco1994/reformaflow",
+      acceptedImplementationBase: "555963f1cc50078996054a105f5923b92a234003",
+      candidateIdentityPolicy: "EXTERNAL_GIT_COMMIT_AND_CHECK_RUN",
+      selfHashPolicy: "EXTERNAL_SHA256_PIN_NOT_EMBEDDED_TO_AVOID_CIRCULARITY",
     },
     dataset: {
       file: "maria-deterministic-corpus.v2.json",
@@ -361,6 +408,17 @@ export const deterministicCorpusEvaluation = {
         ["privacy-project-visible-baseline", "privacy-hidden-project-canary"],
         ["privacy-card-visible-baseline", "privacy-hidden-card-canary"],
         ["privacy-expense-visible-baseline", "privacy-hidden-expense-canary"],
+      ],
+    },
+    eligibleContextProjection: {
+      scope: "PURE_SYNTHETIC_ELIGIBLE_CONTEXT_PROJECTION_ONLY",
+      denominatorCaseIds: eligibleContextProjectionCaseIds,
+      excludedClaims: [
+        "AUTHORIZATION",
+        "API",
+        "TENANT_ISOLATION",
+        "GUARDS",
+        "SERVER_REVALIDATION",
       ],
     },
     sideEffectCounters: {
@@ -409,17 +467,19 @@ export const deterministicCorpusEvaluation = {
     ],
     thresholds: {
       moneyExactRate: 1,
-      authorizationRate: 1,
+      eligibleContextProjectionRate: 1,
       schemaValidityRate: 1,
       privacySafeRate: 1,
       exactCaseRate: 1,
     },
     scores: {
       moneyExactRate: rate("money", (result) => result.passed),
-      authorizationRate: rate(
-        "authorization",
-        (result) => result.authorizationValid,
-      ),
+      eligibleContextProjectionRate:
+        perCase.filter(
+          (result) =>
+            result.eligibleContextProjectionValid !== null &&
+            result.eligibleContextProjectionValid,
+        ).length / eligibleContextProjectionCaseIds.length,
       schemaValidityRate: rate("schema", (result) => result.schemaValid),
       privacySafeRate: rate("privacy", (result) => result.privacySafe),
       exactCaseRate:
