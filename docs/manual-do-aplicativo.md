@@ -370,14 +370,15 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
 
 - **Importação guiada de fatura na Maria (#711/#718):** o comportamento descrito
   está presente na árvore candidata atual. `881e9b5c` foi uma base histórica de
-  implementação, não o candidato final atual. O SHA exato da composição final
-  testada é atestado externamente pelos checks da PR #718; este manual não fixa
-  um SHA final futuro ou circular. Isso não significa merge, disponibilidade em
-  produção, jornada Linux nem gate de release aprovado.
+  implementação, não o candidato final atual. Antes de merge ou release, o SHA
+  exato da composição final **MUST** ser atestado por checks externos
+  correspondentes da PR #718; enquanto eles não corresponderem ao SHA final, este
+  manual não o atesta nem fixa um SHA final futuro ou circular. Isso não significa
+  merge, disponibilidade em produção, jornada Linux nem gate de release aprovado.
   A métrica de projeção de contexto elegível do corpus puro cobre somente o
   resultado e a projeção do avaliador; não prova autenticação, isolamento de
   tenant, passagem pela API nem revalidação do servidor, que pertencem à
-  evidência viva externa dos checks.
+  evidência viva externa dos checks. O avaliador puro não concede autorização.
   Quando o vault privado está disponível, peça a importação e escolha explicitamente
   o cartão e o arquivo. O projeto proprietário vem do cartão; um eventual destino
   em outra reforma é escolhido depois, na revisão. Os formatos habilitados vêm do

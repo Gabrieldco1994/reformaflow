@@ -10,10 +10,11 @@ comprova deploy. A verificação de toque também cobre a #662, sem encerrá-la 
 
 **Recorte Maria na árvore candidata atual da #718:** o comportamento descrito está
 presente na árvore; `881e9b5c` foi uma base histórica de implementação, não o
-candidato final atual. O SHA exato da composição final testada é atestado
-externamente pelos checks da PR #718; este documento não fixa um SHA final futuro
-ou circular. Merge, ativação, produção, Linux, Journey e release não são inferidos
-desta documentação. O recorte de
+candidato final atual. Antes de merge ou release, o SHA exato da composição final
+**MUST** ser atestado por checks externos correspondentes da PR #718; enquanto eles
+não corresponderem ao SHA final, esta documentação não o atesta nem fixa um SHA
+final futuro ou circular. Merge, ativação, produção, Linux, Journey e release não
+são inferidos desta documentação. O recorte de
 [importação conversacional](#importação-conversacional-na-maria) é separado da entrega #689.
 Não libera todo E5, não dispensa H1–H5 e não comprova disponibilidade ou deploy.
 
@@ -215,8 +216,9 @@ diretos. Estes locatores descrevem o candidato, não atestam merge, Linux, relea
 A métrica de projeção de contexto elegível do corpus puro cobre somente o
 resultado e a projeção de contexto do avaliador. Ela não comprova autenticação,
 isolamento de tenant, passagem pela API nem revalidação do servidor. Essas
-garantias dependem da evidência viva externa dos checks da PR #718, que também
-atesta o SHA exato testado.
+garantias dependem de checks externos correspondentes da PR #718. Antes de merge
+ou release, esses checks **MUST** atestar o SHA exato da composição final; o
+avaliador puro não concede autorização nem substitui essa evidência.
 
 ## Apêndice histórico
 

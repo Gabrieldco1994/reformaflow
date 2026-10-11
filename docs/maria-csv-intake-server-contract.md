@@ -2,10 +2,11 @@
 
 **Estado em 2026-10-11: comportamento presente na árvore candidata atual; merge,
 ativação, produção, jornadas Linux/Journey e release não verificados.** `881e9b5c`
-foi uma base histórica de implementação, não o candidato final atual. O SHA exato
-da composição final testada é atestado externamente pelos checks da PR #718; este
-documento não fixa um SHA final futuro ou circular. O documento define o contrato
-do candidato, não capacidades implantadas.
+foi uma base histórica de implementação, não o candidato final atual. Antes de
+merge ou release, o SHA exato da composição final **MUST** ser atestado por checks
+externos correspondentes da PR #718; enquanto eles não corresponderem ao SHA
+final, este documento não o atesta nem fixa um SHA final futuro ou circular. O
+documento define o contrato do candidato, não capacidades implantadas.
 O [ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711) é a referência de
 aceite; o contrato prospectivo M1/M2 já aprovado não comprova entrega funcional.
 
@@ -326,7 +327,9 @@ financeiros antes da confirmação.
 A métrica de projeção de contexto elegível do corpus puro mede somente o resultado
 e a projeção de contexto do avaliador. Ela não prova autenticação, isolamento de
 tenant, passagem pela API nem revalidação do servidor. Essas garantias exigem
-evidência viva externa dos checks da PR #718, que também atesta o SHA exato testado.
+checks externos correspondentes da PR #718. Antes de merge ou release, esses
+checks **MUST** atestar o SHA exato da composição final; o avaliador puro não
+concede autorização nem substitui essa evidência.
 
 Na UI, voz apenas fornece a transcrição ao parser determinístico e abre a mesma prévia manual.
 Ela nunca envia automaticamente nem cai para LLM/tool. O usuário ainda precisa conferir e
