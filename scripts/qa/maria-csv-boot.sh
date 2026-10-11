@@ -35,7 +35,10 @@ export NODE_ENV=development NEXT_TELEMETRY_DISABLED=1
 unset ADMIN_USERNAME ADMIN_EMAIL ADMIN_PASSWORD GOOGLE_API_KEY GEMINI_API_KEY GROQ_API_KEY \
   CEREBRAS_API_KEY OLLAMA_API_KEY AGENT_LLM_FALLBACK AGENT_FALLBACK_MODEL
 export QA_OLLAMA_HOST=${QA_OLLAMA_HOST:-127.0.0.1:11434}
-export QA_OLLAMA_MODEL=${QA_OLLAMA_MODEL:-qwen2.5:7b}
+model_lock="$ROOT/scripts/qa/maria-import-eval/model-lock.v1.json"
+locked_model=$(node "$ROOT/scripts/qa/maria-import-eval-contract.cjs" model-name)
+export QA_OLLAMA_MODEL=${QA_OLLAMA_MODEL:-$locked_model}
+[[ "$QA_OLLAMA_MODEL" == "$locked_model" ]] || fail "QA_OLLAMA_MODEL must equal locked canonical model $locked_model"
 export AGENT_LLM_PROVIDER=ollama AGENT_MODEL="$QA_OLLAMA_MODEL"
 export OLLAMA_BASE_URL="http://$QA_OLLAMA_HOST/v1"
 ollama_bin="$QA_RUNTIME_DIR/ollama/bin/ollama"
@@ -97,29 +100,22 @@ case "${1:-}" in
     # Real API proof, no mocks: model listed, tool capability advertised, and one actual
     # completion through the exact endpoint/model the API provider will use. No fallback.
     kill -0 "$(cat "$ollama_pid_file")" || fail 'Ollama is not running'
-    node - "$ROOT/scripts/qa/ollama-readiness.cjs" <<'NODE' | tee "$QA_ARTIFACTS_DIR/ollama-model-check.log"
-const { waitForOllamaTags } = require(process.argv[2]);
+    {
+      node "$ROOT/scripts/qa/ollama-model-lock.cjs" verify "$model_lock" "$QA_ARTIFACTS_DIR/maria-model-provenance.json"
+      node - <<"NODE"
 const host = process.env.QA_OLLAMA_HOST, model = process.env.QA_OLLAMA_MODEL;
-if (process.env.OLLAMA_BASE_URL !== `http://${host}/v1` || process.env.AGENT_LLM_PROVIDER !== 'ollama' || process.env.AGENT_MODEL !== model)
-  throw new Error('provider env does not match the local Ollama model under test');
-const post = async (path, body, ms) => {
-  const res = await fetch(`http://${host}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(ms) });
-  if (!res.ok) throw new Error(`${path} HTTP ${res.status}`);
-  return res.json();
-};
+if (process.env.OLLAMA_BASE_URL !== "http://" + host + "/v1" || process.env.AGENT_LLM_PROVIDER !== "ollama" || process.env.AGENT_MODEL !== model)
+  throw new Error("provider env does not match the locked loopback model under test");
 (async () => {
-  // Only cheap transport readiness polls within a 60s budget (3s per request).
-  // Model/tool declarations and the single real inference below remain fail-closed.
-  const tags = await waitForOllamaTags(`http://${host}/api/tags`);
-  if (!tags.models.some(m => m.name === model || m.model === model)) throw new Error(`model ${model} not installed`);
-  const show = await post('/api/show', { model }, 30000);
-  if (!(show.capabilities || []).includes('tools')) throw new Error(`model ${model} lacks tools capability`);
-  const chat = await post('/v1/chat/completions', { model, temperature: 0, max_tokens: 8, messages: [{ role: 'user', content: 'Reply with one word: ok' }] }, 600000);
+  const res = await fetch("http://" + host + "/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, temperature: 0, max_tokens: 8, messages: [{ role: "user", content: "Reply with one word: ok" }] }), signal: AbortSignal.timeout(600000) });
+  if (!res.ok) throw new Error("completion HTTP " + res.status);
+  const chat = await res.json();
   const text = chat.choices?.[0]?.message?.content;
-  if (typeof text !== 'string' || !text.trim()) throw new Error('empty completion');
-  console.log(`Ollama model PASS: ${model} tools=yes completion=${JSON.stringify(text.slice(0, 40))}`);
-})().catch(e => { console.error('Ollama model FAIL:', e.message); process.exit(1); });
+  if (chat.model !== model || typeof text !== "string" || !text.trim()) throw new Error("invalid locked-model completion");
+  console.log("Ollama inference PASS: model=" + model + " response=non-empty");
+})().catch(e => { console.error("Ollama inference FAIL:", e.message); process.exit(1); });
 NODE
+    } | tee "$QA_ARTIFACTS_DIR/ollama-model-check.log"
     ;;
   api)
     port=$(port_for "$API_URL")

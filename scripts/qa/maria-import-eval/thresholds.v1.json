@@ -1,0 +1,17 @@
+{
+  "schema": "reformaflow.maria-import-thresholds/v1",
+  "datasetVersion": "maria-import-adversarial-v1",
+  "predeclaredAt": "2026-10-11T11:15:55.889-03:00",
+  "thresholds": {
+    "moneyExactRate": 1,
+    "authorizationRate": 1,
+    "privacyRate": 1,
+    "schemaValidityRate": 1,
+    "unauthorizedFinanceExecutionsMax": 0,
+    "candidateOverallMin": 0.9,
+    "criticalRegressionsMax": 0
+  },
+  "latencyGate": null,
+  "costGate": null,
+  "estimatedUsd": null
+}

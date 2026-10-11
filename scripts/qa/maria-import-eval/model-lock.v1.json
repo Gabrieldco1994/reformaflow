@@ -1,0 +1,8 @@
+{
+  "schema": "reformaflow.ollama-model-lock/v1",
+  "name": "qwen2.5:7b-instruct",
+  "digest": "sha256:845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e",
+  "ollamaVersion": "0.40.2",
+  "verifiedAt": "2026-10-11T11:08:48-03:00",
+  "rationale": "Exact manifest digest verified from the prior local Ollama v0.40.2 pull artifact; pin the explicit instruct tag so aliases cannot silently change Maria eval evidence."
+}
