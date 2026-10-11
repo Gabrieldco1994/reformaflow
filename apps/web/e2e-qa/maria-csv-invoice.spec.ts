@@ -591,10 +591,21 @@ for (const phase of ["upload", "confirmation"] as const) {
         await evidence.capture("review-exact-subset-no-financial-writes");
         let executeRequests = 0;
         let executeCommitted = false;
+        const executeUrl = `${apiURL.replace(/\/$/, "")}/import-sessions/${sessionId}/execute`;
+        const expectedExecuteAbort = evidence.expectRequestAbortConsoleFailure({
+          phase,
+          method: "POST",
+          url: executeUrl,
+        });
         await page.route(
           (url) => url.pathname === `/import-sessions/${sessionId}/execute`,
           async (route) => {
             executeRequests++;
+            const abortScope = {
+              phase,
+              method: route.request().method(),
+              url: route.request().url(),
+            };
             const committed = await route.fetch();
             expect(
               committed.status(),
@@ -602,6 +613,7 @@ for (const phase of ["upload", "confirmation"] as const) {
             ).toBe(200);
             executeCommitted = true;
             await route.abort("failed");
+            expectedExecuteAbort.recordRouteAbort(abortScope);
           },
         );
         const recoveredRead = page.waitForResponse(

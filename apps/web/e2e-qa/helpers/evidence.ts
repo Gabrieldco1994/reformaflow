@@ -27,6 +27,89 @@ type HttpFailure = {
   reason?: string;
 };
 
+type RequestAbortScope = {
+  phase: string;
+  method: string;
+  url: string;
+};
+
+type BrowserConsoleError = {
+  text: string;
+  locationUrl: string;
+};
+
+const FAILED_REQUEST_CONSOLE_TEXT = "Failed to load resource: net::ERR_FAILED";
+const FAILED_REQUEST_ERROR_TEXT = "net::ERR_FAILED";
+
+export class ExpectedRequestAbortConsoleFailure {
+  private routeAbortCount = 0;
+  private requestFailureCount = 0;
+  private consoleFailureCount = 0;
+
+  constructor(private readonly expected: RequestAbortScope) {}
+
+  hasSameScope(candidate: RequestAbortScope) {
+    return (
+      candidate.phase === this.expected.phase &&
+      candidate.method === this.expected.method &&
+      candidate.url === this.expected.url
+    );
+  }
+
+  recordRouteAbort(actual: RequestAbortScope) {
+    if (!this.hasSameScope(actual))
+      throw new Error(
+        `Expected request abort ${this.expected.phase} ${this.expected.method} ${this.expected.url}; received ${actual.phase} ${actual.method} ${actual.url}`,
+      );
+    this.routeAbortCount++;
+  }
+
+  recordRequestFailure(actual: {
+    method: string;
+    url: string;
+    errorText: string;
+  }) {
+    if (
+      actual.method !== this.expected.method ||
+      actual.url !== this.expected.url ||
+      actual.errorText !== FAILED_REQUEST_ERROR_TEXT
+    )
+      return false;
+    this.requestFailureCount++;
+    return true;
+  }
+
+  consumeConsoleError(error: BrowserConsoleError) {
+    if (
+      error.text !== FAILED_REQUEST_CONSOLE_TEXT ||
+      error.locationUrl !== this.expected.url
+    )
+      return false;
+    this.consoleFailureCount++;
+    return true;
+  }
+
+  snapshot() {
+    return {
+      ...this.expected,
+      routeAbortCount: this.routeAbortCount,
+      requestFailureCount: this.requestFailureCount,
+      consoleFailureCount: this.consoleFailureCount,
+    };
+  }
+
+  assertSatisfied() {
+    if (
+      this.routeAbortCount !== 1 ||
+      this.requestFailureCount !== 1 ||
+      this.consoleFailureCount !== 1
+    )
+      throw new Error(
+        `Expected exactly one scoped route abort, failed request, and browser console failure; observed ${JSON.stringify(this.snapshot())}`,
+      );
+  }
+}
+
 export interface TouchTargetEvidence {
   rect: { x: number; y: number; width: number; height: number };
   testPoint: { x: number; y: number };
@@ -75,6 +158,8 @@ export class JourneyEvidence {
   private signedIn = false;
   private readonly consoleErrors: string[] = [];
   private readonly httpFailures: HttpFailure[] = [];
+  private readonly expectedRequestAbortConsoleFailures: ExpectedRequestAbortConsoleFailure[] =
+    [];
   private readonly answerArtifacts: string[] = [];
   private readonly touchTargets: TouchTargetEvidence[] = [];
   private readonly viewportMeasurements: {
@@ -114,11 +199,30 @@ export class JourneyEvidence {
         /^Failed to load resource:.*401/.test(message.text())
       )
         return;
+      if (
+        this.expectedRequestAbortConsoleFailures.some((expected) =>
+          expected.consumeConsoleError({
+            text: message.text(),
+            locationUrl: location,
+          }),
+        )
+      )
+        return;
       this.consoleErrors.push(redact(message.text()));
     });
     page.on("pageerror", (error) =>
       this.consoleErrors.push(redact(error.message)),
     );
+    page.on("requestfailed", (request) => {
+      const errorText = request.failure()?.errorText ?? "";
+      this.expectedRequestAbortConsoleFailures.some((expected) =>
+        expected.recordRequestFailure({
+          method: request.method(),
+          url: request.url(),
+          errorText,
+        }),
+      );
+    });
     page.on("response", (response) => {
       if (response.status() < 400) return;
       const expected =
@@ -142,6 +246,20 @@ export class JourneyEvidence {
 
   authenticated() {
     this.signedIn = true;
+  }
+
+  expectRequestAbortConsoleFailure(expected: RequestAbortScope) {
+    if (
+      this.expectedRequestAbortConsoleFailures.some((candidate) =>
+        candidate.hasSameScope(expected),
+      )
+    )
+      throw new Error(
+        `Duplicate expected request-abort scope: ${expected.phase} ${expected.method} ${expected.url}`,
+      );
+    const allowance = new ExpectedRequestAbortConsoleFailure(expected);
+    this.expectedRequestAbortConsoleFailures.push(allowance);
+    return allowance;
   }
 
   async recordTouchTarget(measurement: TouchTargetEvidence) {
@@ -372,6 +490,10 @@ export class JourneyEvidence {
           steps: this.steps,
           consoleErrors: this.consoleErrors,
           httpFailures: this.httpFailures,
+          expectedRequestAbortConsoleFailures:
+            this.expectedRequestAbortConsoleFailures.map((expected) =>
+              expected.snapshot(),
+            ),
           answerArtifacts: this.answerArtifacts,
           touchTargets: this.touchTargets,
           viewportMeasurements: this.viewportMeasurements,
@@ -384,6 +506,8 @@ export class JourneyEvidence {
   }
 
   assertClean() {
+    for (const expected of this.expectedRequestAbortConsoleFailures)
+      expected.assertSatisfied();
     expect(
       this.consoleErrors,
       "Unexpected browser console/page errors",
