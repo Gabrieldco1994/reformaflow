@@ -8,8 +8,12 @@ Entrega [#689](https://github.com/Gabrieldco1994/reformaflow/issues/689):
 Reutiliza as PRs #687/#688, mergeadas na base `9587a19f`; este documento não
 comprova deploy. A verificação de toque também cobre a #662, sem encerrá-la por antecipação.
 
-**Recorte Maria no candidato `881e9b5c` de 2026-10-11:** integração local da #718;
-merge, ativação, produção, Linux, Journey e release não verificados. O recorte de
+**Recorte Maria na árvore candidata atual da #718:** o comportamento descrito está
+presente na árvore; `881e9b5c` foi uma base histórica de implementação, não o
+candidato final atual. O SHA exato da composição final testada é atestado
+externamente pelos checks da PR #718; este documento não fixa um SHA final futuro
+ou circular. Merge, ativação, produção, Linux, Journey e release não são inferidos
+desta documentação. O recorte de
 [importação conversacional](#importação-conversacional-na-maria) é separado da entrega #689.
 Não libera todo E5, não dispensa H1–H5 e não comprova disponibilidade ou deploy.
 
@@ -188,14 +192,14 @@ transacional de criação/rateio em `apps/api`. O salvamento atual de
 `CreateLinkedExpenseModal` cria uma despesa imediatamente: apenas seus campos
 podem ser reutilizados em modo rascunho sem esse POST.
 
-### Recorte Maria no candidato
+### Recorte Maria na árvore candidata
 
 As responsabilidades continuam separadas em sessão (`ImportSession`), objeto privado
 (`ImportArtifact`), referência sessão/objeto (`ImportSessionArtifact`) e observação documental
 (`ImportObservation`). Não são quatro fontes de dinheiro nem um novo ledger. Recibos e
 identidades financeiras existentes continuam nos respectivos serviços.
 
-No candidato `881e9b5c`, o controller diferencia o envelope focado no mesmo
+Na árvore candidata atual, o controller diferencia o envelope focado no mesmo
 `PATCH /import-sessions/:id/draft`; o parser estrito e o grant
 `FOCUSED_DRAFT_ANSWER` ficam em
 `apps/api/src/imports/import-session/import-session.focused-draft-answer.ts`.
@@ -207,6 +211,12 @@ público conserva somente a ação de entrada e a proveniência de canal. O PATC
 selection-only, enquanto respostas passam pelo envelope focado ou pelo endpoint documental.
 `POST /import-sessions/:id/prepare` e `GET /import-sessions/:id/result` permanecem caminhos
 diretos. Estes locatores descrevem o candidato, não atestam merge, Linux, release ou produção.
+
+A métrica de projeção de contexto elegível do corpus puro cobre somente o
+resultado e a projeção de contexto do avaliador. Ela não comprova autenticação,
+isolamento de tenant, passagem pela API nem revalidação do servidor. Essas
+garantias dependem da evidência viva externa dos checks da PR #718, que também
+atesta o SHA exato testado.
 
 ## Apêndice histórico
 

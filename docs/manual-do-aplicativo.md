@@ -15,18 +15,19 @@
 1. [Visão geral do produto](#1-visão-geral-do-produto)
 2. [Conceitos-chave (ler antes)](#2-conceitos-chave-ler-antes)
 3. [Telas globais e navegação](#3-telas-globais-e-navegação)
-   - 3.1 Login
-   - 3.2 Registro
-   - 3.3 Onboarding
-   - 3.4 Convidado de demonstração
-   - 3.5 Hub — Meus Projetos
-   - 3.6 Casca do projeto
-   - 3.7 Maria
-   - 3.8 Notificações
-   - 3.9 Saúde financeira consolidada
-   - 3.10 Admin — Usuários
-   - 3.11 Admin — Jornadas
-   - 3.12 Tratamento de Erros e Estados de Carregamento
+   - 3.1 Login (`/login`)
+   - 3.1b Registro (`/register`)
+   - 3.1c Onboarding (painel sobre Dashboard)
+   - 3.1d Convidado de demonstração
+   - 3.2 Hub — Meus Projetos (`/projects`)
+   - 3.3 Casca do projeto (navegação dentro de um projeto)
+   - 3.3a Grupos da sidebar (desktop)
+   - 3.4 Copiloto "Maria"
+   - 3.5 Notificações (sino)
+   - 3.6 Saúde financeira consolidada (`/financeiro`) — retirada da UI
+   - 3.7 Admin — Usuários (`/admin/users`)
+   - 3.8 Admin — Jornadas (`/admin/jornadas`)
+   - 3.9 Tratamento de Erros e Estados de Carregamento
 4. [Projeto PESSOAL](#4-projeto-pessoal)
 5. [Projeto REFORMA](#5-projeto-reforma)
 6. [Projeto CASA](#6-projeto-casa)
@@ -367,9 +368,16 @@ mais antigo daquele tipo (`createdAt` crescente), com desempate pelo `id`
 crescente. Projetos excluídos ou fora do escopo de `recurringBills` não participam
 da escolha. O critério não depende da ordem de inserção nem do índice do banco.
 
-- **Importação guiada de fatura na Maria (#711/#718):** implementação integrada
-  no candidato `881e9b5c`; isso não significa merge, disponibilidade em produção,
-  jornada Linux nem gate de release aprovado.
+- **Importação guiada de fatura na Maria (#711/#718):** o comportamento descrito
+  está presente na árvore candidata atual. `881e9b5c` foi uma base histórica de
+  implementação, não o candidato final atual. O SHA exato da composição final
+  testada é atestado externamente pelos checks da PR #718; este manual não fixa
+  um SHA final futuro ou circular. Isso não significa merge, disponibilidade em
+  produção, jornada Linux nem gate de release aprovado.
+  A métrica de projeção de contexto elegível do corpus puro cobre somente o
+  resultado e a projeção do avaliador; não prova autenticação, isolamento de
+  tenant, passagem pela API nem revalidação do servidor, que pertencem à
+  evidência viva externa dos checks.
   Quando o vault privado está disponível, peça a importação e escolha explicitamente
   o cartão e o arquivo. O projeto proprietário vem do cartão; um eventual destino
   em outra reforma é escolhido depois, na revisão. Os formatos habilitados vêm do

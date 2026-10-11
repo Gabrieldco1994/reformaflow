@@ -1,8 +1,11 @@
 # Maria CSV — contrato delimitado do servidor
 
-**Estado em 2026-10-11: candidato integrado `881e9b5c`; merge, ativação, produção,
-jornadas Linux/Journey e release não verificados.** Este documento define o contrato do candidato,
-não capacidades implantadas.
+**Estado em 2026-10-11: comportamento presente na árvore candidata atual; merge,
+ativação, produção, jornadas Linux/Journey e release não verificados.** `881e9b5c`
+foi uma base histórica de implementação, não o candidato final atual. O SHA exato
+da composição final testada é atestado externamente pelos checks da PR #718; este
+documento não fixa um SHA final futuro ou circular. O documento define o contrato
+do candidato, não capacidades implantadas.
 O [ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711) é a referência de
 aceite; o contrato prospectivo M1/M2 já aprovado não comprova entrega funcional.
 
@@ -159,9 +162,9 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
 
 ## Referência de implementação
 
-O candidato `881e9b5c` contém o subsistema import-session e os controles determinísticos
-descritos aqui. Isso identifica a base inspecionada, sem afirmar merge, ativação, jornada
-Linux, release ou produção. Locatores principais:
+A árvore candidata atual contém o subsistema import-session e os controles
+determinísticos descritos aqui. Isso identifica o comportamento inspecionado, sem
+afirmar merge, ativação, jornada Linux, release ou produção. Locatores principais:
 
 - contrato wire: `packages/domain/src/import-session.ts` e
   `packages/domain/src/import-focused-answer.ts`;
@@ -320,6 +323,11 @@ OUTROS, literal estrito, decisões, destinos/sem destino, isolamento do campo, A
 falsificação/expiração, concorrência, no-op e ciclo incompatível, com zero efeitos
 financeiros antes da confirmação.
 
+A métrica de projeção de contexto elegível do corpus puro mede somente o resultado
+e a projeção de contexto do avaliador. Ela não prova autenticação, isolamento de
+tenant, passagem pela API nem revalidação do servidor. Essas garantias exigem
+evidência viva externa dos checks da PR #718, que também atesta o SHA exato testado.
+
 Na UI, voz apenas fornece a transcrição ao parser determinístico e abre a mesma prévia manual.
 Ela nunca envia automaticamente nem cai para LLM/tool. O usuário ainda precisa conferir e
 guardar. Para estabelecimento, separadores, alternativas, múltiplos nomes e expressões de
@@ -335,7 +343,7 @@ lê o estado/recibo autorizado. Nenhum deles confirma. Challenge, confirmação 
 autenticada e execução permanecem ações separadas. O vault OFF por padrão e a retenção de sete
 dias sem edição permanecem exatamente como definidos acima.
 
-Não existe arquitetura contextual de importação no candidato final: o contrato público
+Não existe arquitetura contextual de importação na árvore candidata atual: o contrato público
 contextual, seus leitores/cópias na UI, portas de texto livre e aprovação de escopo foram
 removidos. A Maria genérica detecta deterministicamente apenas o pedido inicial e pode devolver
 `START_CARD_INVOICE_IMPORT` com os formatos habilitados antes de consultar provider; isso não é
@@ -345,6 +353,7 @@ um turno contextual da sessão nem uma tool.
 
 - 2026-10-09: documentado o recorte CSV independente de `main` conforme ledger #711, separado
   da PR #714. Aprovação do contrato não marca AC funcional, conclusão de código ou produção.
-- 2026-10-11: candidato `881e9b5c` removeu o caminho de interpretação por modelo e a arquitetura
-  contextual da sessão ativa, restringiu o PATCH legado à seleção e adotou controles focados
-  determinísticos. Nenhum pass de Linux, Journey, release ou produção é inferido deste registro.
+- 2026-10-11: o marco histórico de implementação `881e9b5c` removeu o caminho de interpretação
+  por modelo e a arquitetura contextual da sessão ativa, restringiu o PATCH legado à seleção e
+  adotou controles focados determinísticos. Nenhum pass de Linux, Journey, release ou produção
+  é inferido deste registro.

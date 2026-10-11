@@ -117,6 +117,14 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
   habilitação do vault nem retenção: vault OFF por padrão continua fail-closed; rascunho pendente
   continua expirando após sete dias sem edição, sem renovação por consulta.
 
+Esse comportamento está presente na árvore candidata atual da #718. A métrica de
+projeção de contexto elegível do corpus puro cobre somente o resultado e a projeção
+de contexto do avaliador; não comprova autenticação, isolamento de tenant, passagem
+pela API nem revalidação do servidor. Essas garantias e o SHA exato da composição
+final testada são atestados pela evidência viva externa dos checks da PR #718. Este
+documento não fixa um SHA final futuro ou circular; `881e9b5c` é apenas uma base
+histórica de implementação, não o candidato final atual.
+
 O recorte e a sequência da jornada estão na
 [experiência de importação](experiencia-importacao.md#importação-conversacional-na-maria).
 Este contrato não habilita uma tool nem atesta conformidade do runtime.
