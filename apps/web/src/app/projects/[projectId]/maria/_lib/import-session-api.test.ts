@@ -530,6 +530,65 @@ describe("readImportWorkflowView analysisOutcome contract", () => {
   });
 });
 
+describe("readImportWorkflowView declared fact channel contract", () => {
+  const question = {
+    id: "question-documentary",
+    lineIds: [readyLine.id],
+    field: "merchant",
+    text: "Qual foi o estabelecimento?",
+    subject: {
+      kind: "OBSERVATION",
+      observationId: "observation-purchase",
+      meaningContext: null,
+    },
+    answerState: "DECLARED",
+  };
+  const declaredFact = {
+    lineId: readyLine.id,
+    observationId: question.subject.observationId,
+    questionId: question.id,
+    field: question.field,
+    value: "LOJA FICTICIA NORTE",
+    meaningContext: null,
+    origin: "USER_ATTESTATION",
+    status: "CURRENT",
+  };
+  const response = {
+    ...view,
+    lines: [readyLine],
+    questions: [question],
+    declaredFacts: [declaredFact],
+  };
+
+  it.each(["TEXT", "VOICE"])(
+    "accepts and preserves canonical %s provenance",
+    (channel) => {
+      const candidate = {
+        ...response,
+        declaredFacts: [{ ...declaredFact, channel }],
+      };
+
+      expect(readImportWorkflowView(candidate)).toEqual(candidate);
+    },
+  );
+
+  it("continues accepting historical facts without channel provenance", () => {
+    expect(readImportWorkflowView(response)).toEqual(response);
+  });
+
+  it.each([
+    ["an invalid channel", { ...declaredFact, channel: "EMAIL" }],
+    ["an unknown extra key", { ...declaredFact, unexpected: true }],
+  ])("rejects %s", (_case, malformedFact) => {
+    expect(() =>
+      readImportWorkflowView({
+        ...response,
+        declaredFacts: [malformedFact],
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+  });
+});
+
 describe("uploadImportSessionAttachment response validation", () => {
   beforeEach(() => api.putBytes.mockReset());
 
