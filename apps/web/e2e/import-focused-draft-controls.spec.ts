@@ -13,6 +13,10 @@ const component = path.join(
   root,
   "src/app/projects/[projectId]/maria/_components/ImportFocusedQuestion.tsx",
 );
+const viewportOwner = path.join(
+  root,
+  "src/app/projects/[projectId]/maria/_components/ImportQuestionViewportOwner.tsx",
+);
 let script: string;
 let css: string;
 test.beforeAll(async () => {
@@ -22,6 +26,7 @@ test.beforeAll(async () => {
         import React from "react";
         import { createRoot } from "react-dom/client";
         import { ImportFocusedQuestion } from ${JSON.stringify(component)};
+        import { ImportQuestionViewportOwner } from ${JSON.stringify(viewportOwner)};
         import { ProjectProvider } from ${JSON.stringify(path.join(root, "src/contexts/project-context.tsx"))};
         const props = {
           lines: [{ id: "line", titulo: "Compra documental", amountCents: 20696 }],
@@ -32,21 +37,40 @@ test.beforeAll(async () => {
             document.getElementById("output").textContent = JSON.stringify(answer);
           }
         };
-        createRoot(document.getElementById("root")).render(
+        const root = createRoot(document.getElementById("root"));
+        root.render(
           <ProjectProvider value={{projectId: "project", projectType: "REFORMA", projectName: "Reforma"}}>
-            <main className="mx-auto w-full max-w-2xl min-w-0 space-y-4 p-4">
-              <ImportFocusedQuestion {...props} question={{id: "q-meaning", field: "amountMeaning", lineIds: ["line"], text: "Significado"}} />
-              <ImportFocusedQuestion {...props} question={{id: "q-amount", field: "amountCents", lineIds: ["line"], text: "Valor"}} />
-              <ImportFocusedQuestion {...props} question={{id: "q-count", field: "installmentCount", lineIds: ["line"], text: "Parcelas"}} />
-              <ImportFocusedQuestion {...props} question={{id: "q-purchase-date", field: "dataCompra", lineIds: ["line"], text: "Data da compra"}} />
-              <ImportFocusedQuestion {...props} question={{id: "q-date", field: "firstDueDate", lineIds: ["line"], text: "Primeiro vencimento"}} />
-              <ImportFocusedQuestion {...props} question={{id: "q-type", field: "tipoDespesa", lineIds: ["line"], text: "Tipo de despesa"}} />
-              <ImportFocusedQuestion {...props} question={{id: "q-labor", field: "categoriaMaoDeObra", lineIds: ["line"], text: "Categoria de mão de obra"}} />
-              <ImportFocusedQuestion {...props} question={{id: "q-create", field: "decision", lineIds: ["line"], text: "Criar compra"}} />
-              <ImportFocusedQuestion {...props} question={{id: "q-targets", field: "targets", lineIds: ["line"], text: "Rateio"}} />
+            <main className="mx-auto flex h-screen w-full max-w-2xl min-w-0 flex-col">
+              <ImportQuestionViewportOwner>
+                <ImportFocusedQuestion {...props} question={{id: "q-meaning", field: "amountMeaning", lineIds: ["line"], text: "Significado"}} />
+                <ImportFocusedQuestion {...props} question={{id: "q-amount", field: "amountCents", lineIds: ["line"], text: "Valor"}} />
+                <ImportFocusedQuestion {...props} question={{id: "q-count", field: "installmentCount", lineIds: ["line"], text: "Parcelas"}} />
+                <ImportFocusedQuestion {...props} question={{id: "q-purchase-date", field: "dataCompra", lineIds: ["line"], text: "Data da compra"}} />
+                <ImportFocusedQuestion {...props} question={{id: "q-date", field: "firstDueDate", lineIds: ["line"], text: "Primeiro vencimento"}} />
+                <ImportFocusedQuestion {...props} question={{id: "q-type", field: "tipoDespesa", lineIds: ["line"], text: "Tipo de despesa"}} />
+                <ImportFocusedQuestion {...props} question={{id: "q-labor", field: "categoriaMaoDeObra", lineIds: ["line"], text: "Categoria de mão de obra"}} />
+                <ImportFocusedQuestion {...props} question={{id: "q-create", field: "decision", lineIds: ["line"], text: "Criar compra"}} />
+                <ImportFocusedQuestion {...props} question={{id: "q-targets", field: "targets", lineIds: ["line"], text: "Rateio"}} />
+                <ImportFocusedQuestion
+                  {...props}
+                  question={{
+                    id: "q-documentary",
+                    field: "merchant",
+                    lineIds: ["line"],
+                    text: "Estabelecimento",
+                    subject: {
+                      kind: "OBSERVATION",
+                      observationId: "observation",
+                      meaningContext: null,
+                    },
+                    answerState: "UNANSWERED",
+                  }}
+                />
+              </ImportQuestionViewportOwner>
             </main>
           </ProjectProvider>
         );
+        window.unmountQuestionHarness = () => root.unmount();
       `,
       resolveDir: root,
       loader: "tsx",
@@ -73,13 +97,14 @@ test.beforeAll(async () => {
     [
       component,
       path.join(path.dirname(component), "ImportFocusedDraftQuestion.tsx"),
+      viewportOwner,
     ].map(async (file) => ({
       raw: await readFile(file, "utf8"),
       extension: "tsx",
     })),
   );
   content.push({
-    raw: "mx-auto w-full max-w-2xl min-w-0 space-y-4 p-4",
+    raw: "mx-auto flex h-screen w-full max-w-2xl min-w-0 flex-col",
     extension: "tsx",
   });
   const compiled = await postcss([
@@ -92,7 +117,7 @@ test.beforeAll(async () => {
   });
   css = compiled.css + moduleCss;
 });
-for (const width of [375, 390, 1280]) {
+for (const width of [375, 390, 640, 1280]) {
   test(`native focused controls at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     // Match the real App Router layout; mobile otherwise uses a 980px layout viewport.
@@ -105,6 +130,23 @@ for (const width of [375, 390, 1280]) {
     await page.evaluate(() => {
       const viewport = new EventTarget() as VisualViewport;
       let viewportHeight = innerHeight;
+      const listenerCounts = new Map<string, number>();
+      const addEventListener = viewport.addEventListener.bind(viewport);
+      const removeEventListener = viewport.removeEventListener.bind(viewport);
+      viewport.addEventListener = ((type: string, listener: EventListener) => {
+        listenerCounts.set(type, (listenerCounts.get(type) ?? 0) + 1);
+        addEventListener(type, listener);
+      }) as typeof viewport.addEventListener;
+      viewport.removeEventListener = ((
+        type: string,
+        listener: EventListener,
+      ) => {
+        listenerCounts.set(
+          type,
+          Math.max(0, (listenerCounts.get(type) ?? 0) - 1),
+        );
+        removeEventListener(type, listener);
+      }) as typeof viewport.removeEventListener;
       Object.defineProperties(viewport, {
         width: { get: () => innerWidth },
         height: {
@@ -119,14 +161,36 @@ for (const width of [375, 390, 1280]) {
         pageLeft: { get: () => scrollX },
         pageTop: { get: () => scrollY },
         scale: { value: 1 },
+        activeListenerCount: {
+          value: () =>
+            (listenerCounts.get("resize") ?? 0) +
+            (listenerCounts.get("scroll") ?? 0),
+        },
       });
       Object.defineProperty(window, "visualViewport", {
         configurable: true,
         value: viewport,
       });
+      const nativeRaf = requestAnimationFrame.bind(window);
+      const nativeCancelRaf = cancelAnimationFrame.bind(window);
+      const rafStats = { requested: 0, executed: 0, cancelled: 0 };
+      window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+        rafStats.requested++;
+        return nativeRaf((time) => {
+          rafStats.executed++;
+          callback(time);
+        });
+      };
+      window.cancelAnimationFrame = (handle: number) => {
+        rafStats.cancelled++;
+        nativeCancelRaf(handle);
+      };
+      Object.defineProperty(window, "questionViewportRafStats", {
+        value: rafStats,
+      });
     });
     await page.addScriptTag({ content: script });
-    await expect(page.getByRole("form")).toHaveCount(9);
+    await expect(page.getByRole("form")).toHaveCount(10);
     await expect(
       page.getByRole("button", { name: "Responder à pergunta" }),
     ).toHaveCount(0);
@@ -234,7 +298,138 @@ for (const width of [375, 390, 1280]) {
       await control.focus();
       await expect(control).toBeFocused();
     }
-    if (width <= 390) {
+    const owner = page.locator('[data-import-question-viewport-owner="true"]');
+    await expect(owner).toHaveCount(1);
+    if (width < 640) {
+      for (const controlName of [
+        "Valor da compra",
+        "Nome do estabelecimento",
+      ]) {
+        const control = page.getByRole("textbox", {
+          name: controlName,
+          exact: true,
+        });
+        const form = page.locator("form").filter({ has: control });
+        await page.evaluate(() => {
+          (window.visualViewport as unknown as { height: number }).height =
+            innerHeight;
+        });
+        await page.waitForTimeout(30);
+        await form.evaluate((element) =>
+          element.scrollIntoView({ block: "start" }),
+        );
+        await control.focus();
+        await page.waitForTimeout(30);
+        const actions = form.locator("[data-import-question-actions]");
+        const beforeKeyboard = await actions.evaluate((element) => ({
+          actionBottom: element.getBoundingClientRect().bottom,
+          ownerScrollTop: (
+            element.closest(
+              '[data-import-question-viewport-owner="true"]',
+            ) as HTMLElement
+          ).scrollTop,
+        }));
+        const viewportMutation = await page.evaluate(() => {
+          const viewport = window.visualViewport!;
+          (viewport as unknown as { height: number }).height = 240;
+          return {
+            height: window.visualViewport!.height,
+            sameObject: window.visualViewport === viewport,
+          };
+        });
+        expect(viewportMutation).toEqual({ height: 240, sameObject: true });
+        await expect(control).toBeFocused();
+        await expect
+          .poll(() => owner.evaluate((element) => element.scrollTop))
+          .toBeCloseTo(
+            beforeKeyboard.ownerScrollTop +
+              Math.max(0, beforeKeyboard.actionBottom - 240),
+            0,
+          );
+        expect(
+          await owner.evaluate(
+            (element) =>
+              (element.lastElementChild as HTMLElement).getBoundingClientRect()
+                .height,
+          ),
+        ).toBe(660);
+        for (const name of ["Conferir informação", "Guardar informação"]) {
+          const action = form.getByRole("button", { name, exact: true });
+          const measurement = await action.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            const point = {
+              x: rect.left + rect.width / 2,
+              y: rect.top + rect.height / 2,
+            };
+            const hit = document.elementFromPoint(point.x, point.y);
+            return {
+              top: rect.top,
+              bottom: rect.bottom,
+              width: rect.width,
+              height: rect.height,
+              visualViewportHeight: window.visualViewport!.height,
+              hit: hit === element || element.contains(hit),
+              position: getComputedStyle(element).position,
+            };
+          });
+          expect(
+            measurement.top,
+            `${controlName}: ${name} above keyboard`,
+          ).toBeGreaterThanOrEqual(0);
+          expect(
+            measurement.bottom,
+            `${controlName}: ${name} inside visual viewport`,
+          ).toBeLessThanOrEqual(measurement.visualViewportHeight);
+          expect(
+            measurement.width,
+            `${controlName}: ${name} touch width`,
+          ).toBeGreaterThanOrEqual(44);
+          expect(
+            measurement.height,
+            `${controlName}: ${name} touch height`,
+          ).toBeGreaterThanOrEqual(44);
+          expect(measurement.hit, `${controlName}: ${name} hit-testable`).toBe(
+            true,
+          );
+          expect(
+            measurement.position,
+            `${controlName}: ${name} stays in normal flow`,
+          ).toBe("static");
+        }
+        await expect(control).toBeFocused();
+      }
+      const stableScrollTop = await owner.evaluate(
+        (element) => element.scrollTop,
+      );
+      const rafBefore = await page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              questionViewportRafStats: { requested: number };
+            }
+          ).questionViewportRafStats.requested,
+      );
+      await page.evaluate(() => {
+        for (let index = 0; index < 20; index++) {
+          window.visualViewport!.dispatchEvent(new Event("resize"));
+          window.visualViewport!.dispatchEvent(new Event("scroll"));
+        }
+      });
+      await page.waitForTimeout(50);
+      expect(await owner.evaluate((element) => element.scrollTop)).toBe(
+        stableScrollTop,
+      );
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                questionViewportRafStats: { requested: number };
+              }
+            ).questionViewportRafStats.requested,
+        ),
+      ).toBe(rafBefore + 1);
+    } else {
       const amount = page.getByRole("textbox", {
         name: "Valor da compra",
         exact: true,
@@ -243,59 +438,20 @@ for (const width of [375, 390, 1280]) {
       await amountForm.evaluate((element) =>
         element.scrollIntoView({ block: "start" }),
       );
+      const scrollBeforeFocus = await owner.evaluate(
+        (element) => element.scrollTop,
+      );
       await amount.focus();
-      const viewportMutation = await page.evaluate(() => {
+      await page.evaluate(() => {
         const viewport = window.visualViewport!;
         (viewport as unknown as { height: number }).height = 240;
-        return {
-          height: window.visualViewport!.height,
-          sameObject: window.visualViewport === viewport,
-        };
+        viewport.dispatchEvent(new Event("scroll"));
       });
-      expect(viewportMutation).toEqual({ height: 240, sameObject: true });
+      await page.waitForTimeout(50);
       await expect(amount).toBeFocused();
-      for (const name of ["Conferir informação", "Guardar informação"]) {
-        const action = amountForm.getByRole("button", { name, exact: true });
-        const measurement = await action.evaluate((element) => {
-          const rect = element.getBoundingClientRect();
-          return {
-            top: rect.top,
-            bottom: rect.bottom,
-            width: rect.width,
-            height: rect.height,
-            visualViewportHeight: window.visualViewport!.height,
-          };
-        });
-        expect(
-          measurement.top,
-          `${name} above keyboard`,
-        ).toBeGreaterThanOrEqual(0);
-        expect(
-          measurement.bottom,
-          `${name} inside visual viewport`,
-        ).toBeLessThanOrEqual(measurement.visualViewportHeight);
-        expect(measurement.width, `${name} touch width`).toBeGreaterThanOrEqual(
-          44,
-        );
-        expect(
-          measurement.height,
-          `${name} touch height`,
-        ).toBeGreaterThanOrEqual(44);
-      }
-      await expect(amount).toBeFocused();
-    } else {
-      const amount = page.getByRole("textbox", {
-        name: "Valor da compra",
-        exact: true,
-      });
-      const amountForm = page.locator("form").filter({ has: amount });
-      await amountForm.evaluate((element) =>
-        element.scrollIntoView({ block: "center" }),
+      expect(await owner.evaluate((element) => element.scrollTop)).toBe(
+        scrollBeforeFocus,
       );
-      const scrollBeforeFocus = await page.evaluate(() => scrollY);
-      await amount.focus();
-      await expect(amount).toBeFocused();
-      expect(await page.evaluate(() => scrollY)).toBe(scrollBeforeFocus);
       for (const name of ["Conferir informação", "Guardar informação"]) {
         const action = amountForm.getByRole("button", { name, exact: true });
         const box = await action.boundingBox();
@@ -310,11 +466,45 @@ for (const width of [375, 390, 1280]) {
         ).toBeGreaterThanOrEqual(44);
       }
       expect(await page.evaluate(() => window.visualViewport!.height)).toBe(
-        900,
+        240,
       );
     }
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(width);
+    const activeListeners = await page.evaluate(() =>
+      (
+        window.visualViewport as VisualViewport & {
+          activeListenerCount: () => number;
+        }
+      ).activeListenerCount(),
+    );
+    expect(activeListeners).toBe(2);
+    await page.evaluate(() => {
+      window.visualViewport!.dispatchEvent(new Event("resize"));
+      (
+        window as unknown as { unmountQuestionHarness: () => void }
+      ).unmountQuestionHarness();
+    });
+    await expect(owner).toHaveCount(0);
+    expect(
+      await page.evaluate(() =>
+        (
+          window.visualViewport as VisualViewport & {
+            activeListenerCount: () => number;
+          }
+        ).activeListenerCount(),
+      ),
+    ).toBe(0);
+    expect(
+      await page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              questionViewportRafStats: { cancelled: number };
+            }
+          ).questionViewportRafStats.cancelled,
+      ),
+    ).toBeGreaterThan(0);
   });
 }

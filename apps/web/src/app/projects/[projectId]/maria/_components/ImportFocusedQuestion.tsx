@@ -513,7 +513,7 @@ function FocusedQuestion({
           </p>
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
+      <div data-import-question-actions className="flex flex-wrap gap-2">
         <Button
           type="submit"
           className="min-h-11"

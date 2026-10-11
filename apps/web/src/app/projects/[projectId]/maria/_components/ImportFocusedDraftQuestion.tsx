@@ -87,7 +87,6 @@ const MEANING_OPTIONS = [
 const DECISION_WAIVER = "CREATE_ACCEPT_NATURAL_DUPLICATE";
 const TARGET_NONE = "NO_TARGETS";
 const TARGET_INTEGRAL = "target";
-const NARROW_MOBILE_VIEWPORT_WIDTH = 640;
 
 type DecisionAnswer = Extract<
   FocusedDraftAnswer,
@@ -199,8 +198,6 @@ export function ImportFocusedDraftQuestion({
   const [projectId, setProjectId] = useState("");
   const [roomId, setRoomId] = useState("");
   const sent = useRef(false);
-  const form = useRef<HTMLFormElement | null>(null);
-  const actions = useRef<HTMLDivElement | null>(null);
   const control = useRef<
     HTMLInputElement | HTMLSelectElement | HTMLButtonElement | null
   >(null);
@@ -255,56 +252,6 @@ export function ImportFocusedDraftQuestion({
     if (wasPending.current && !pending && !disabled) control.current?.focus();
     wasPending.current = pending;
   }, [pending, disabled]);
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-
-    let lastAdjustment: {
-      actionBottom: number;
-      viewportBottom: number;
-    } | null = null;
-
-    const keepActionsVisible = () => {
-      const formElement = form.current;
-      const actionElement = actions.current;
-      const focused = document.activeElement;
-      if (
-        viewport.width >= NARROW_MOBILE_VIEWPORT_WIDTH ||
-        !formElement ||
-        !actionElement ||
-        !focused ||
-        !formElement.contains(focused) ||
-        !focused.matches("input, select, textarea, button")
-      ) {
-        lastAdjustment = null;
-        return;
-      }
-
-      const actionBottom = actionElement.getBoundingClientRect().bottom;
-      const viewportBottom = viewport.offsetTop + viewport.height;
-      const overflow = actionBottom - viewportBottom;
-      if (overflow <= 0) {
-        lastAdjustment = null;
-        return;
-      }
-      if (
-        lastAdjustment?.actionBottom === actionBottom &&
-        lastAdjustment.viewportBottom === viewportBottom
-      )
-        return;
-
-      lastAdjustment = { actionBottom, viewportBottom };
-      window.scrollBy({ top: overflow, left: 0, behavior: "auto" });
-    };
-
-    viewport.addEventListener("resize", keepActionsVisible);
-    viewport.addEventListener("scroll", keepActionsVisible);
-    return () => {
-      viewport.removeEventListener("resize", keepActionsVisible);
-      viewport.removeEventListener("scroll", keepActionsVisible);
-    };
-  }, []);
-
   function change(next: string) {
     setLocal(next);
     setPreview(null);
@@ -706,7 +653,6 @@ export function ImportFocusedDraftQuestion({
   const label = FOCUSED_DRAFT_LABEL[question.field];
   return (
     <form
-      ref={form}
       aria-labelledby={`${id}-question`}
       aria-busy={pending}
       className={`${journeyStyles.journey} min-w-0 space-y-3 rounded-xl border border-darc-linen bg-white p-4`}
@@ -784,7 +730,10 @@ export function ImportFocusedDraftQuestion({
           <p>Esta prévia ainda não foi enviada.</p>
         </div>
       )}
-      <div ref={actions} className="flex min-w-0 flex-wrap gap-2">
+      <div
+        data-import-question-actions
+        className="flex min-w-0 flex-wrap gap-2"
+      >
         <Button type="submit" className="min-h-11" disabled={blocked || !text}>
           Conferir informação
         </Button>

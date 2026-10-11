@@ -23,6 +23,7 @@ import {
   ImportFocusedQuestion,
   IMPORT_QUESTION_FIELD_LABEL,
 } from "./ImportFocusedQuestion";
+import { ImportQuestionViewportOwner } from "./ImportQuestionViewportOwner";
 import { ImportProposalCard } from "./ImportProposalCard";
 import { ImportLocalDocuments } from "./ImportLocalDocuments";
 import { ImportResumeUpload } from "./ImportResumeUpload";
@@ -234,7 +235,7 @@ function Conversation({
       aria-label="Conversa da importação"
       className="flex min-h-0 min-w-0 flex-1 flex-col gap-3"
     >
-      <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain px-1 py-3">
+      <ImportQuestionViewportOwner>
         <p className="text-sm text-lifeone-ink-2">
           Importação {sessionId}
           {view ? ` · Revisão ${view.revision}` : ""}
@@ -532,7 +533,7 @@ function Conversation({
             )}
           </div>
         )}
-      </div>
+      </ImportQuestionViewportOwner>
     </section>
   );
 }
