@@ -208,6 +208,25 @@ describe("MariaImportEntry continuation focus", () => {
     ).not.toHaveFocus();
   });
 
+  it("retains successor focus when the consumed intent rerenders the region", async () => {
+    const rendered = renderEntry();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ver rascunho restante" }),
+    );
+
+    moveTo(rendered.rerenderEntry, "continuation-session", false);
+    moveTo(rendered.rerenderEntry, "continuation-session", true);
+
+    const successor = screen.getByRole("region", {
+      name: "Conversa da importação",
+    });
+    // jsdom retains focus when React removes tabindex; Chromium blurs here.
+    if (!successor.hasAttribute("tabindex"))
+      screen.getByRole("button", { name: "Abrir importação guardada" }).focus();
+
+    await waitFor(() => expect(successor).toHaveFocus());
+  });
+
   it("does not focus a direct deep link", () => {
     state.search = "importSessionId=continuation-session";
     renderEntry();
