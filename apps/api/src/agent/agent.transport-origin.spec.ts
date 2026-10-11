@@ -18,7 +18,7 @@ describe("generic Maria transport origin", () => {
     "admits only the exact generic %s origin",
     async (origin) => {
       const dto = plainToInstance(AgentChatDto, {
-        origin,
+        metadata: { channel: origin },
         messages: [{ role: "user", content: "Quero importar minha fatura" }],
       });
       expect(
@@ -27,15 +27,23 @@ describe("generic Maria transport origin", () => {
           forbidNonWhitelisted: true,
         }),
       ).toEqual([]);
-      expect(dto).toMatchObject({ origin });
+      expect(dto).toMatchObject({ metadata: { channel: origin } });
     },
   );
 
-  it.each(["voice", "TEXT ", "", null, 1, {}, ["VOICE"]])(
-    "rejects malformed generic origin %p instead of coercing it",
-    async (origin) => {
+  it.each([
+    { channel: "voice" },
+    { channel: "TEXT " },
+    { channel: "" },
+    { channel: 1 },
+    { channel: {} },
+    { channel: ["VOICE"] },
+    { channel: "VOICE", extra: true },
+  ])(
+    "rejects malformed nested metadata %p instead of coercing it",
+    async (metadata) => {
       const dto = plainToInstance(AgentChatDto, {
-        origin,
+        metadata,
         messages: [{ role: "user", content: "Quero importar minha fatura" }],
       });
       expect(
@@ -62,7 +70,7 @@ describe("generic Maria transport origin", () => {
     } as const;
     const request = {
       body: {
-        origin: "TEXT",
+        metadata: { channel: "TEXT" },
         messages: [{ role: "user", content: turn.literalAnswer }],
         importTurn: turn,
       },

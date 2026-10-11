@@ -12,20 +12,22 @@ describe("import entry action origin parser", () => {
   it.each(["TEXT", "VOICE"] as const)(
     "retains the exact server-owned %s origin",
     (origin) => {
-      expect(readImportEntryAction({ ...start, origin })).toEqual({
+      expect(
+        readImportEntryAction({ ...start, originChannel: origin }),
+      ).toEqual({
         ...start,
-        origin,
+        originChannel: origin,
       });
     },
   );
 
   it.each([
     start,
-    { ...start, origin: "voice" },
-    { ...start, origin: "VOICE " },
-    { ...start, origin: null },
-    { ...start, origin: 1 },
-    { ...start, origin: "VOICE", extra: true },
+    { ...start, originChannel: "voice" },
+    { ...start, originChannel: "VOICE " },
+    { ...start, originChannel: null },
+    { ...start, originChannel: 1 },
+    { ...start, originChannel: "VOICE", extra: true },
   ])("rejects missing, malformed, or non-exact origin %#", (value) => {
     expect(readImportEntryAction(value)).toBeNull();
   });

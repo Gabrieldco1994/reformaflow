@@ -74,15 +74,17 @@ describe("server-owned Maria CSV entry action", () => {
         const result = await service.chat({
           tenantId: "tenant-entry",
           userId: "user-entry",
-          origin,
+          originChannel: origin,
           messages: [{ role: "user", content: "Quero importar minha fatura" }],
-        } as Parameters<AgentService["chat"]>[0] & { origin: typeof origin });
+        } as Parameters<AgentService["chat"]>[0] & {
+          originChannel: typeof origin;
+        });
         expect(result.importEntryAction).toEqual({
           version: 1,
           kind: "START_CARD_INVOICE_IMPORT",
           formats: ["CSV", "PDF"],
           suggestedCardId: null,
-          origin,
+          originChannel: origin,
         });
         expect(result.provider).toBe("import-session");
         expect(result.toolsUsed).toEqual([]);
@@ -124,6 +126,7 @@ describe("server-owned Maria CSV entry action", () => {
       expect(result.importEntryAction).toEqual({
         version: 1,
         kind: "IMPORT_UNAVAILABLE",
+        originChannel: "TEXT",
       });
       expect(llm.chat).not.toHaveBeenCalled();
     } finally {

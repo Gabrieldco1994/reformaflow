@@ -10,7 +10,9 @@ type StartAction = Extract<
 
 describe("Maria generic/contextual transport contract", () => {
   it("keeps the same closed TEXT/VOICE vocabulary on generic START and contextual turns", () => {
-    expectTypeOf<StartAction["origin"]>().toEqualTypeOf<TransportOrigin>();
+    expectTypeOf<
+      StartAction["originChannel"]
+    >().toEqualTypeOf<TransportOrigin>();
     expectTypeOf<
       ImportChatTurnV1["channel"]
     >().toEqualTypeOf<TransportOrigin>();
@@ -25,9 +27,9 @@ describe("Maria generic/contextual transport contract", () => {
         kind: "START_CARD_INVOICE_IMPORT",
         formats: ["CSV"],
         suggestedCardId: null,
-        origin,
+        originChannel: origin,
       } satisfies ImportEntryActionV1;
-      expect(action.origin).toBe(origin);
+      expect(action.originChannel).toBe(origin);
     },
   );
 });
