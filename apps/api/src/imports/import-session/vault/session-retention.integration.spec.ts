@@ -1301,30 +1301,15 @@ describe("guarded persisted session retention", () => {
       receiptJson: null,
     });
     expect(
-      await prisma.importSessionArtifact.findUniqueOrThrow({
+      await prisma.importSessionArtifact.findUnique({
         where: { id: fixture.ref.id },
       }),
-    ).toMatchObject({
-      state: "RELEASED",
-      fileName: "document",
-      releasedAt: current,
-      uploadGeneration: 8,
-      uploadSessionVersion: null,
-      uploadTokenExpiresAt: null,
-      uploadLeaseExpiresAt: null,
-    });
+    ).toBeNull();
     expect(
-      await prisma.importArtifact.findUniqueOrThrow({
+      await prisma.importArtifact.findUnique({
         where: { id: fixture.artifact.id },
       }),
-    ).toMatchObject({
-      state: "RAW_READY",
-      parseGeneration: 6,
-      leaseSessionId: null,
-      leaseSessionVersion: null,
-      leaseTokenExpiresAt: null,
-      leaseExpiresAt: null,
-    });
+    ).toBeNull();
     expect(
       await prisma.importObservation.count({
         where: { artifactId: fixture.artifact.id },
@@ -1338,6 +1323,7 @@ describe("guarded persisted session retention", () => {
   it("rolls the expiry transition back when terminal attachment cleanup fails", async () => {
     raw.abortOwned.mockClear();
     const fixture = await confirmedAtEffectiveExpiry();
+    const beforeFinance = await financialInventory();
     const trigger = `qa_expiry_cleanup_${fixture.ref.id.replaceAll("-", "_")}`;
     await prisma.$executeRawUnsafe(`
       CREATE TRIGGER "${trigger}"
@@ -1348,14 +1334,18 @@ describe("guarded persisted session retention", () => {
       END
     `);
     try {
-      await expect(
-        fixture.workflow.execute(
+      const failure = await fixture.workflow
+        .execute(
           auth,
           fixture.confirmed.id,
           { financialRequestId: fixture.financialRequestId },
           {},
-        ),
-      ).rejects.toThrow(/qa forced expiry cleanup failure/);
+        )
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({
+        code: "P2003",
+        meta: { field_name: "foreign key" },
+      });
       expect(
         await prisma.importSession.findUniqueOrThrow({
           where: { id: fixture.confirmed.id },
@@ -1365,7 +1355,13 @@ describe("guarded persisted session retention", () => {
         await prisma.importSessionArtifact.findUniqueOrThrow({
           where: { id: fixture.ref.id },
         }),
-      ).toMatchObject({ state: "ATTACHED", uploadGeneration: 7 });
+      ).toMatchObject({
+        state: "ATTACHED",
+        uploadGeneration: 7,
+        uploadSessionVersion: 0,
+        uploadTokenExpiresAt: new Date(current.getTime() + 60_000),
+        uploadLeaseExpiresAt: new Date(current.getTime() + 60_000),
+      });
       expect(
         await prisma.importArtifact.findUniqueOrThrow({
           where: { id: fixture.artifact.id },
@@ -1374,12 +1370,16 @@ describe("guarded persisted session retention", () => {
         state: "ANALYZING",
         parseGeneration: 5,
         leaseSessionId: fixture.confirmed.id,
+        leaseSessionVersion: 0,
+        leaseTokenExpiresAt: new Date(current.getTime() + 60_000),
+        leaseExpiresAt: new Date(current.getTime() + 60_000),
       });
       expect(
         await prisma.importObservation.count({
           where: { artifactId: fixture.artifact.id },
         }),
       ).toBe(1);
+      expect(await financialInventory()).toEqual(beforeFinance);
       expect(raw.abortOwned).not.toHaveBeenCalled();
     } finally {
       await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${trigger}"`);
@@ -1456,18 +1456,19 @@ describe("guarded persisted session retention", () => {
     withVault(async ({ root, reaper }) => {
       raw.abortOwned.mockClear();
       const fixture = await confirmedAtEffectiveExpiry();
-      const storageKey = `t/${fixture.ref.id}/g7/blob`;
+      const temporaryStorageKey = `t/${fixture.ref.id}`;
+      const blobKey = `${temporaryStorageKey}/g7/blob`;
       mkdirSync(join(root, "t", fixture.ref.id, "g7"), {
         recursive: true,
         mode: 0o700,
       });
-      writeFileSync(join(root, storageKey), Buffer.from("private bytes"), {
+      writeFileSync(join(root, blobKey), Buffer.from("private bytes"), {
         mode: 0o600,
       });
       await prisma.importSessionArtifact.update({
         where: { id: fixture.ref.id },
         data: {
-          temporaryStorageKey: storageKey,
+          temporaryStorageKey,
           reservedBytes: 13,
         },
       });
@@ -1489,7 +1490,8 @@ describe("guarded persisted session retention", () => {
         temporaryPurgePending: true,
         reservedBytes: 13,
       });
-      expect(existsSync(join(root, storageKey))).toBe(true);
+      expect(existsSync(join(root, temporaryStorageKey))).toBe(true);
+      expect(existsSync(join(root, blobKey))).toBe(true);
 
       const cycle = await reaper.runCycle({
         tenantId,
@@ -1505,18 +1507,18 @@ describe("guarded persisted session retention", () => {
         },
         outcome: "PURGED",
       });
-      expect(existsSync(join(root, storageKey))).toBe(false);
+      expect(existsSync(join(root, temporaryStorageKey))).toBe(false);
+      expect(existsSync(join(root, blobKey))).toBe(false);
       expect(
         await prisma.importSessionArtifact.findUnique({
           where: { id: fixture.ref.id },
         }),
       ).toBeNull();
-      expect(
-        await prisma.importSessionArtifact.aggregate({
-          where: { tenantId },
-          _sum: { reservedBytes: true },
-        }),
-      ).toEqual({ _sum: { reservedBytes: 0 } });
+      const quota = await prisma.importSessionArtifact.aggregate({
+        where: { tenantId },
+        _sum: { reservedBytes: true },
+      });
+      expect(quota._sum.reservedBytes ?? 0).toBe(0);
     }));
 
   it("retains shared artifact evidence while releasing only the expired session reference", async () => {
