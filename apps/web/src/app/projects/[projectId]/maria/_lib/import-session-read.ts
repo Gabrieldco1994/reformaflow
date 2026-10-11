@@ -1,4 +1,5 @@
 import {
+  IMPORT_CHAT_CHANNEL,
   IMPORT_SESSION_LIMITS as L,
   IMPORT_SESSION_PRIMITIVES as P,
   ImportSessionAttachmentState,
@@ -418,11 +419,16 @@ export function isImportDeclaredFact(
       "meaningContext",
       "origin",
       "status",
+      ...(Object.hasOwn(value, "channel") ? ["channel"] : []),
     ]) ||
     !isId(value.lineId) ||
     !isId(value.observationId) ||
     !isId(value.questionId) ||
     value.origin !== "USER_ATTESTATION" ||
+    (Object.hasOwn(value, "channel") &&
+      !Object.values(IMPORT_CHAT_CHANNEL).some(
+        (channel) => channel === value.channel,
+      )) ||
     !hasHumanContext(value)
   )
     return false;
