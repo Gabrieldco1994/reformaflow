@@ -1,7 +1,7 @@
 {
-  "schema": "reformaflow.maria-import-thresholds/v1",
-  "datasetVersion": "maria-import-adversarial-v1",
-  "predeclaredAt": "2026-10-11T11:15:55.889-03:00",
+  "schema": "reformaflow.maria-import-thresholds/v2",
+  "datasetVersion": "maria-import-adversarial-v2",
+  "predeclaredAt": "2026-10-11T11:34:14.494-03:00",
   "thresholds": {
     "moneyExactRate": 1,
     "authorizationRate": 1,

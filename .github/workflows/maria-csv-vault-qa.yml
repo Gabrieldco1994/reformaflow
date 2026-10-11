@@ -275,6 +275,10 @@ jobs:
       TZ: UTC
       MARIA_IMPORT_MODEL_EVAL: "1"
       QA_OLLAMA_HOST: 127.0.0.1:11434
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -293,7 +297,7 @@ jobs:
           set -euo pipefail
           umask 077
           runtime=$(mktemp -d "$RUNNER_TEMP/maria-model-eval-XXXXXX")
-          mkdir "$runtime/artifacts" "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash" "$runtime/public-uploads" "$runtime/private-uploads"
+          mkdir "$runtime/artifacts" "$runtime/sanitized-artifacts" "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash" "$runtime/public-uploads" "$runtime/private-uploads"
           touch "$runtime/eval.db" "$runtime/import-vault/.lock"
           chmod 700 "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash"
           chmod 600 "$runtime/import-vault/.lock"
@@ -305,11 +309,12 @@ jobs:
             echo "QA_DB_PATH=$runtime/eval.db"
             echo "QA_VAULT_DIR=$runtime/import-vault"
             echo "QA_ARTIFACTS_DIR=$runtime/artifacts"
+            echo "QA_SANITIZED_ARTIFACTS_DIR=$runtime/sanitized-artifacts"
             echo "QA_OLLAMA_MODEL=$model"
             echo "AGENT_LLM_PROVIDER=ollama"
             echo "AGENT_MODEL=$model"
             echo "OLLAMA_BASE_URL=http://127.0.0.1:11434/v1"
-            echo "MARIA_EVAL_REPORT_PATH=$runtime/artifacts/maria-import-eval-report.json"
+            echo "MARIA_EVAL_REPORT_PATH=$runtime/sanitized-artifacts/maria-import-eval-report.json"
             echo "DATABASE_URL=file:$runtime/eval.db"
             echo "JWT_SECRET=$secret"
           } >> "$GITHUB_ENV"
@@ -333,26 +338,27 @@ jobs:
           bash scripts/qa/maria-csv-boot.sh ollama
           bash scripts/qa/maria-csv-boot.sh wait-ollama
           bash scripts/qa/maria-csv-boot.sh pull-model
-          node scripts/qa/ollama-model-lock.cjs verify scripts/qa/maria-import-eval/model-lock.v1.json "$QA_ARTIFACTS_DIR/maria-model-provenance.json"
+          node scripts/qa/ollama-model-lock.cjs verify scripts/qa/maria-import-eval/model-lock.v1.json "$QA_SANITIZED_ARTIFACTS_DIR/maria-model-provenance.json"
           bash scripts/qa/maria-csv-boot.sh model-check
       - name: Run dedicated real loopback Maria semantic eval
         timeout-minutes: 25
         shell: bash
         run: |
           set -euo pipefail
-          npm --workspace @reformaflow/api run maria-import:eval 2>&1 | tee "$QA_ARTIFACTS_DIR/maria-import-eval.log"
+          npm --workspace @reformaflow/api run maria-import:eval
       - name: Validate JSON report even when semantic gates fail
         if: always()
-        run: node scripts/qa/maria-import-eval-contract.cjs validate-report "$QA_ARTIFACTS_DIR/maria-import-eval-report.json"
-      - name: Upload report, sanitized provenance and loopback logs
+        run: |
+          node scripts/qa/maria-import-eval-contract.cjs validate-report "$QA_SANITIZED_ARTIFACTS_DIR/maria-import-eval-report.json"
+          node scripts/qa/maria-import-eval-contract.cjs assert-sanitized-artifacts "$QA_SANITIZED_ARTIFACTS_DIR"
+      - name: Upload allowlisted sanitized report and provenance
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: maria-model-eval-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ env.QA_ARTIFACTS_DIR }}/maria-import-eval-report.json
-            ${{ env.QA_ARTIFACTS_DIR }}/maria-model-provenance.json
-            ${{ env.QA_ARTIFACTS_DIR }}/*.log
+            ${{ env.QA_SANITIZED_ARTIFACTS_DIR }}/maria-import-eval-report.json
+            ${{ env.QA_SANITIZED_ARTIFACTS_DIR }}/maria-model-provenance.json
           if-no-files-found: error
           retention-days: 14
       - name: Stop owned loopback provider

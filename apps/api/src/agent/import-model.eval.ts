@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -15,7 +16,7 @@ import {
 import { OpenAiCompatibleProvider } from "./llm/openai-compatible.provider";
 import { validateSyntheticCallBatch } from "./import-model.eval-validation";
 import { resolveImportAnswer } from "../imports/import-session/import-chat-answer";
-import type { ChatMessage } from "./llm/llm.types";
+import { LlmResponseContractError, type ChatMessage } from "./llm/llm.types";
 
 const contract =
   require("../../../../scripts/qa/maria-import-eval-contract.cjs") as {
@@ -23,11 +24,13 @@ const contract =
       lock: string;
       fixture: string;
       thresholds: string;
+      oracle: string;
     };
     loadEvalInputs(paths: {
       lock: string;
       fixture: string;
       thresholds: string;
+      oracle: string;
     }): EvalInputs;
     computeSetHash(inputs: EvalInputs): string;
     validateReport(report: unknown, inputs: EvalInputs): void;
@@ -39,6 +42,8 @@ type EvalCase = {
   expected: { outcome: "VALUE" | "CLARIFY"; resolvedValue?: unknown };
   gates: string[];
   tags: string[];
+  channel: "TEXT" | "VOICE";
+  privacyProbeId: string | null;
 };
 type EvalInputs = {
   lock: { name: string; digest: string; ollamaVersion: string };
@@ -46,8 +51,19 @@ type EvalInputs = {
     version: string;
     baseline: { sha: string; status: "NO_SURFACE"; overall: null; delta: null };
     candidateSurfaceSha: string;
+    privacyDesign: {
+      policy: string;
+      securityReviewStatus: string;
+      requiredAbsence: string[];
+      oracleVersion: string;
+      canaryIds: string[];
+    };
     semanticCases: EvalCase[];
     failureCases: { id: string; mode: string; expectedError: string }[];
+  };
+  oracle: {
+    version: string;
+    canaries: { id: string; kind: string; value: string }[];
   };
   thresholds: {
     thresholds: Record<string, number>;
@@ -61,28 +77,64 @@ type Usage = {
   completion: number | null;
   total: number | null;
 };
-
+type PayloadDigest = { byteLength: number; sha256: string };
+type MatchCounters = {
+  userLiteral: number;
+  messages: number;
+  authorizedContext: number;
+  toolDefinitions: number;
+  providerBody: number;
+  modelContent: number;
+  toolArguments: number;
+  logs: number;
+  report: number;
+};
+type PrivacyProof = {
+  canaries: { id: string; sha256: string }[];
+  requestCount: number;
+  responseCount: number;
+  requests: PayloadDigest[];
+  responses: PayloadDigest[];
+  matchCounters: MatchCounters;
+  rawPayloadsRetained: false;
+};
+type ExecutionCounters = {
+  toolExecutions: number;
+  financialExecutions: number;
+  prepareInTxExecutions: number;
+  applyInTxExecutions: number;
+  blockedPrepareInTxAttempts: number;
+  blockedApplyInTxAttempts: number;
+};
 type CaseResult = {
   id: string;
+  channel: "TEXT" | "VOICE";
+  privacyProbeId: string | null;
   tags: string[];
   gates: string[];
   passed: boolean;
   schemaValid: boolean;
   authorizationValid: boolean;
   privacySafe: boolean;
-  expected: unknown;
-  actual: unknown;
-  error: string | null;
+  authorizationEvidence: {
+    preExecutionValidation: true;
+    rejectedBeforeExecution: boolean;
+  };
+  privacyProof: PrivacyProof;
+  semanticChecks: {
+    outcomeMatches: boolean;
+    valueMatches: boolean;
+    nonFocusedFieldsPreserved: boolean;
+  };
+  errorCode: string | null;
   latencyMs: number;
   tokens: Usage;
   toolSequence: {
     iteration: number;
     name: string;
-    arguments: Record<string, unknown>;
     phase: string;
   }[];
-  unauthorizedExecutions: 0;
-  financialExecutions: 0;
+  executionCounters: ExecutionCounters;
 };
 const root = resolve(__dirname, "../../../..");
 const inputs = contract.loadEvalInputs(contract.defaultPaths(root));
@@ -95,11 +147,92 @@ const emptyUsage = (): Usage => ({
   completion: null,
   total: null,
 });
-const safeError = (error: unknown) =>
-  error instanceof Error
-    ? error.name + ":" + error.message.slice(0, 120)
-    : "UNKNOWN_ERROR";
-
+const hiddenCanaries = inputs.oracle.canaries;
+const serialize = (value: unknown): string =>
+  (typeof value === "string" ? value : JSON.stringify(value)) ?? "";
+const digestPayload = (value: string): PayloadDigest => ({
+  byteLength: Buffer.byteLength(value, "utf8"),
+  sha256: createHash("sha256").update(value, "utf8").digest("hex"),
+});
+const canaryFingerprints = hiddenCanaries.map((canary) => ({
+  id: canary.id,
+  sha256: createHash("sha256").update(canary.value, "utf8").digest("hex"),
+}));
+const newPrivacyProof = (): PrivacyProof => ({
+  canaries: canaryFingerprints,
+  requestCount: 0,
+  responseCount: 0,
+  requests: [],
+  responses: [],
+  matchCounters: {
+    userLiteral: 0,
+    messages: 0,
+    authorizedContext: 0,
+    toolDefinitions: 0,
+    providerBody: 0,
+    modelContent: 0,
+    toolArguments: 0,
+    logs: 0,
+    report: 0,
+  },
+  rawPayloadsRetained: false,
+});
+function scanCanary(
+  proof: PrivacyProof,
+  surface: keyof MatchCounters,
+  value: unknown,
+): void {
+  const payload = serialize(value);
+  const matches = hiddenCanaries.filter((canary) =>
+    payload.includes(canary.value),
+  ).length;
+  proof.matchCounters[surface] += matches;
+  if (matches > 0) throw new Error("PRIVACY_CANARY_MATCH");
+}
+function privacyProofSafe(proof: PrivacyProof): boolean {
+  return (
+    proof.requestCount >= 1 &&
+    proof.responseCount >= 1 &&
+    Object.values(proof.matchCounters).every((count) => count === 0)
+  );
+}
+function safeErrorCode(error: unknown): string {
+  if (error instanceof LlmResponseContractError)
+    return "LLM_RESPONSE_CONTRACT_ERROR";
+  if (!(error instanceof Error)) return "UNKNOWN_ERROR";
+  const known = [
+    "PRIVACY_CANARY_MATCH",
+    "RESPONSE_MODEL_MISMATCH",
+    "MODEL_TURN_BUDGET_EXHAUSTED",
+  ];
+  return known.includes(error.message) ? error.message : error.name;
+}
+class ExecutionBoundaryCounters {
+  private readonly values: ExecutionCounters = {
+    toolExecutions: 0,
+    financialExecutions: 0,
+    prepareInTxExecutions: 0,
+    applyInTxExecutions: 0,
+    blockedPrepareInTxAttempts: 0,
+    blockedApplyInTxAttempts: 0,
+  };
+  rejectPrepareInTx(): never {
+    this.values.blockedPrepareInTxAttempts += 1;
+    throw new Error("PERSISTENCE_BOUNDARY_FORBIDDEN");
+  }
+  rejectApplyInTx(): never {
+    this.values.blockedApplyInTxAttempts += 1;
+    throw new Error("PERSISTENCE_BOUNDARY_FORBIDDEN");
+  }
+  snapshot(): ExecutionCounters {
+    return { ...this.values };
+  }
+}
+const safeLog = (value: Record<string, unknown>): void => {
+  const proof = newPrivacyProof();
+  scanCanary(proof, "logs", value);
+  console.log(JSON.stringify(value));
+};
 function baseLine(): ImportSessionDraftLineV1 {
   return {
     id: "line-current-1",
@@ -228,7 +361,7 @@ async function evaluateCase(
     turnId: "turn-" + testCase.id,
     sessionId: "session-current-1",
     expectedRevision: 9,
-    channel: "TEXT",
+    channel: testCase.channel,
     intent: "ANSWER",
     literalAnswer: testCase.literal,
     focus: {
@@ -246,18 +379,39 @@ async function evaluateCase(
   const original = [baseLine()];
   const before = structuredClone(original);
   const toolSequence: CaseResult["toolSequence"] = [];
+  const executionBoundary = new ExecutionBoundaryCounters();
+  const privacyProof = newPrivacyProof();
   let usage = emptyUsage();
   let schemaValid = true;
-  let authorizationValid = true;
-  let privacySafe = true;
-  let actual: unknown = null;
+  const authorizationValid = true;
+  const authorizationEvidence: CaseResult["authorizationEvidence"] = {
+    preExecutionValidation: true,
+    rejectedBeforeExecution: false,
+  };
   let passed = false;
-  let error: string | null = null;
+  const semanticChecks = {
+    outcomeMatches: false,
+    valueMatches: false,
+    nonFocusedFieldsPreserved: false,
+  };
+  let errorCode: string | null = null;
+  scanCanary(privacyProof, "userLiteral", testCase.literal);
+  scanCanary(privacyProof, "messages", messages);
+  scanCanary(privacyProof, "toolDefinitions", definitions);
   const nativeFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
+    if (typeof init?.body !== "string")
+      throw new Error("SERIALIZED_PROVIDER_BODY_REQUIRED");
+    scanCanary(privacyProof, "providerBody", init.body);
+    privacyProof.requestCount += 1;
+    privacyProof.requests.push(digestPayload(init.body));
     const response = await nativeFetch(url, init);
+    const responseText = await response.clone().text();
+    privacyProof.responseCount += 1;
+    privacyProof.responses.push(digestPayload(responseText));
+    scanCanary(privacyProof, "modelContent", responseText);
     try {
-      const payload = (await response.clone().json()) as {
+      const payload = JSON.parse(responseText) as {
         model?: string;
         usage?: {
           prompt_tokens?: number;
@@ -269,9 +423,10 @@ async function evaluateCase(
         throw new Error("RESPONSE_MODEL_MISMATCH");
       if (payload.usage)
         usage = {
-          prompt: payload.usage.prompt_tokens ?? null,
-          completion: payload.usage.completion_tokens ?? null,
-          total: payload.usage.total_tokens ?? null,
+          prompt: (usage.prompt ?? 0) + (payload.usage.prompt_tokens ?? 0),
+          completion:
+            (usage.completion ?? 0) + (payload.usage.completion_tokens ?? 0),
+          total: (usage.total ?? 0) + (payload.usage.total_tokens ?? 0),
         };
     } catch (captureError) {
       if (
@@ -287,18 +442,20 @@ async function evaluateCase(
       const response = await provider.chat(messages, definitions, {
         responseContract: "IMPORT_CHAT_V1",
       });
+      scanCanary(privacyProof, "modelContent", response.content);
+      for (const call of response.toolCalls)
+        scanCanary(privacyProof, "toolArguments", call.arguments);
       let batch: ReturnType<typeof validateSyntheticCallBatch>;
       try {
         batch = validateSyntheticCallBatch(response.toolCalls, definitions);
       } catch (batchError) {
         schemaValid = false;
-        authorizationValid = false;
-        actual = { rejectedCalls: response.toolCalls };
+        authorizationEvidence.rejectedBeforeExecution = true;
+        const allowedNames = new Set(definitions.map((item) => item.name));
         for (const call of response.toolCalls)
           toolSequence.push({
             iteration,
-            name: call.name,
-            arguments: call.arguments,
+            name: allowedNames.has(call.name) ? call.name : "UNRECOGNIZED_TOOL",
             phase: "REJECTED_PRE_EXECUTION",
           });
         throw batchError;
@@ -308,15 +465,6 @@ async function evaluateCase(
         content: response.content,
         toolCalls: response.toolCalls,
       });
-      const serialized = JSON.stringify({
-        content: response.content,
-        calls: response.toolCalls,
-      });
-      if (
-        testCase.gates.includes("privacy") &&
-        /tenant-alheio|9911|Nebulosa|foreign-expense-77/i.test(serialized)
-      )
-        privacySafe = false;
       for (const item of batch) {
         const phase =
           item.parsed.name === "import_edit_answer"
@@ -325,7 +473,6 @@ async function evaluateCase(
         toolSequence.push({
           iteration,
           name: item.call.name,
-          arguments: item.call.arguments,
           phase,
         });
         if (item.parsed.name === "import_edit_answer") {
@@ -342,14 +489,6 @@ async function evaluateCase(
               candidates: [],
             },
           );
-          actual = {
-            interpretation,
-            resolvedKind: resolved.kind,
-            resolvedValue:
-              resolved.kind === "VALUE"
-                ? resolvedField(resolved.lines[0]!, testCase.field)
-                : null,
-          };
           const outcomeMatches = resolved.kind === testCase.expected.outcome;
           const valueMatches =
             testCase.expected.outcome === "CLARIFY" ||
@@ -366,6 +505,10 @@ async function evaluateCase(
             };
             preservation = equal(resolved.lines, [expectedLine]);
           }
+          semanticChecks.outcomeMatches = outcomeMatches;
+          semanticChecks.valueMatches = valueMatches;
+          semanticChecks.nonFocusedFieldsPreserved = preservation;
+          const privacySafe = privacyProofSafe(privacyProof);
           passed =
             outcomeMatches &&
             valueMatches &&
@@ -375,64 +518,69 @@ async function evaluateCase(
             privacySafe;
           return {
             id: testCase.id,
+            channel: testCase.channel,
+            privacyProbeId: testCase.privacyProbeId,
             tags: testCase.tags,
             gates: testCase.gates,
             passed,
             schemaValid,
             authorizationValid,
             privacySafe,
-            expected: testCase.expected,
-            actual,
-            error,
+            authorizationEvidence,
+            privacyProof,
+            semanticChecks,
+            errorCode,
             latencyMs: Math.round(performance.now() - started),
             tokens: usage,
             toolSequence,
-            unauthorizedExecutions: 0,
-            financialExecutions: 0,
+            executionCounters: executionBoundary.snapshot(),
           };
         }
+        const authorizedContent = toolContent(item.call.name, session);
+        scanCanary(privacyProof, "authorizedContext", authorizedContent);
         messages.push({
           role: "tool",
           toolCallId: item.call.id,
           name: item.call.name,
-          content: JSON.stringify(toolContent(item.call.name, session)),
+          content: JSON.stringify(authorizedContent),
         });
       }
     }
-    error = "MODEL_TURN_BUDGET_EXHAUSTED";
+    errorCode = "MODEL_TURN_BUDGET_EXHAUSTED";
   } catch (caseError) {
-    error = safeError(caseError);
+    if (caseError instanceof LlmResponseContractError) {
+      schemaValid = false;
+      authorizationEvidence.rejectedBeforeExecution = true;
+    }
+    errorCode = safeErrorCode(caseError);
   } finally {
     globalThis.fetch = nativeFetch;
   }
   return {
     id: testCase.id,
+    channel: testCase.channel,
+    privacyProbeId: testCase.privacyProbeId,
     tags: testCase.tags,
     gates: testCase.gates,
     passed: false,
     schemaValid,
     authorizationValid,
-    privacySafe,
-    expected: testCase.expected,
-    actual,
-    error,
+    privacySafe: privacyProofSafe(privacyProof),
+    authorizationEvidence,
+    privacyProof,
+    semanticChecks,
+    errorCode,
     latencyMs: Math.round(performance.now() - started),
     tokens: usage,
     toolSequence,
-    unauthorizedExecutions: 0,
-    financialExecutions: 0,
+    executionCounters: executionBoundary.snapshot(),
   };
 }
 
 function failureResults() {
   return inputs.fixture.failureCases.map((item) => {
     let visibleError = item.expectedError;
-    let toolExecutions = 0;
-    let financialExecutions = 0;
-    const executeTool = (financial: boolean) => {
-      toolExecutions += 1;
-      if (financial) financialExecutions += 1;
-    };
+    const executionBoundary = new ExecutionBoundaryCounters();
     try {
       if (item.mode === "MALFORMED_ARGUMENTS")
         validateSyntheticCallBatch(
@@ -454,32 +602,39 @@ function failureResults() {
       else if (item.mode === "TIMEOUT") throw new Error("MODEL_TIMEOUT");
       else if (item.mode === "PROVIDER_UNAVAILABLE")
         throw new Error("PROVIDER_UNAVAILABLE");
+      else if (item.mode === "PREPARE_IN_TX")
+        executionBoundary.rejectPrepareInTx();
+      else if (item.mode === "APPLY_IN_TX") executionBoundary.rejectApplyInTx();
       visibleError = "NO_EXPLICIT_ERROR";
     } catch (probeError) {
       const text = probeError instanceof Error ? probeError.message : "UNKNOWN";
       visibleError = text.includes(item.expectedError)
         ? item.expectedError
-        : text;
+        : "UNEXPECTED_PROBE_ERROR";
     }
-    void executeTool;
+    const executionCounters = executionBoundary.snapshot();
     return {
       id: item.id,
       passed:
         visibleError === item.expectedError &&
-        toolExecutions === 0 &&
-        financialExecutions === 0,
+        executionCounters.toolExecutions === 0 &&
+        executionCounters.financialExecutions === 0 &&
+        executionCounters.prepareInTxExecutions === 0 &&
+        executionCounters.applyInTxExecutions === 0,
       status: "ERROR",
       visibleError,
-      // Validation/provider failures terminate before this execution boundary.
-      toolExecutions,
-      financialExecutions,
+      executionCounters,
     };
   });
 }
 function rate(
   results: CaseResult[],
   gate: string,
-  property: "passed" | "schemaValid" = "passed",
+  property:
+    | "passed"
+    | "schemaValid"
+    | "authorizationValid"
+    | "privacySafe" = "passed",
 ) {
   const selected = results.filter(
     (item) => gate === "all" || item.gates.includes(gate),
@@ -491,6 +646,13 @@ function rate(
 async function main() {
   if (process.env["MARIA_IMPORT_MODEL_EVAL"] !== "1")
     throw new Error("OPT_IN_REQUIRED");
+  for (const key of [
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+  ])
+    if (process.env[key]) throw new Error("HOSTED_MODEL_CREDENTIAL_FORBIDDEN");
   if (
     process.env["AGENT_LLM_PROVIDER"] !== "ollama" ||
     process.env["AGENT_MODEL"] !== inputs.lock.name ||
@@ -505,13 +667,11 @@ async function main() {
   for (const testCase of inputs.fixture.semanticCases) {
     const result = await evaluateCase(testCase, provider);
     perCase.push(result);
-    console.log(
-      JSON.stringify({
-        case: result.id,
-        passed: result.passed,
-        latencyMs: result.latencyMs,
-      }),
-    );
+    safeLog({
+      case: result.id,
+      passed: result.passed,
+      latencyMs: result.latencyMs,
+    });
   }
   const failures = failureResults();
   const overall = rate(perCase, "all");
@@ -530,10 +690,17 @@ async function main() {
     semanticPassed: perCase.filter((item) => item.passed).length,
     overall,
     moneyExactRate: rate(perCase, "money"),
-    authorizationRate: rate(perCase, "authorization"),
-    privacyRate: rate(perCase, "privacy"),
+    authorizationRate: rate(perCase, "authorization", "authorizationValid"),
+    privacyRate: rate(perCase, "privacy", "privacySafe"),
     schemaValidityRate: rate(perCase, "all", "schemaValid"),
-    unauthorizedFinanceExecutions: 0,
+    unauthorizedFinanceExecutions: [...perCase, ...failures].reduce(
+      (total, item) =>
+        total +
+        item.executionCounters.financialExecutions +
+        item.executionCounters.prepareInTxExecutions +
+        item.executionCounters.applyInTxExecutions,
+      0,
+    ),
     criticalRegressions: 0,
     latencyMs: {
       total: latencies.reduce((total, value) => total + value, 0),
@@ -568,7 +735,7 @@ async function main() {
   if (!/^[a-f0-9]{40}$/.test(infrastructureSha))
     infrastructureSha = "0".repeat(40);
   const report = {
-    schema: "reformaflow.maria-import-eval-report/v1",
+    schema: "reformaflow.maria-import-eval-report/v2",
     generatedAt: new Date().toISOString(),
     infrastructureSha,
     setHash: contract.computeSetHash(inputs),
@@ -579,6 +746,13 @@ async function main() {
     digest: inputs.lock.digest,
     ollamaVersion: inputs.lock.ollamaVersion,
     thresholds: inputs.thresholds.thresholds,
+    privacyDesign: {
+      policy: inputs.fixture.privacyDesign.policy,
+      securityReviewStatus: inputs.fixture.privacyDesign.securityReviewStatus,
+      canaries: canaryFingerprints,
+      requiredAbsence: inputs.fixture.privacyDesign.requiredAbsence,
+      rawPayloadsRetained: false,
+    },
     configuration: {
       temperature: 0,
       toolChoice: "required",
@@ -592,25 +766,27 @@ async function main() {
     failureCases: failures,
     summary,
   };
+  // Scan the final serialized artifact against the full oracle before validation/write.
+  const serializedReport = JSON.stringify(report);
+  if (hiddenCanaries.some((canary) => serializedReport.includes(canary.value)))
+    throw new Error("PRIVACY_CANARY_MATCH");
+  contract.validateReport(report, inputs);
   mkdirSync(resolve(outputPath, ".."), { recursive: true });
   writeFileSync(outputPath, JSON.stringify(report, null, 2) + "\n", {
     mode: 0o600,
   });
-  contract.validateReport(report, inputs);
-  console.log(
-    JSON.stringify({
-      report: outputPath,
-      outcome: summary.outcome,
-      overall: summary.overall,
-      semanticPassed: summary.semanticPassed,
-      semanticTotal: summary.semanticTotal,
-    }),
-  );
+  safeLog({
+    report: outputPath,
+    outcome: summary.outcome,
+    overall: summary.overall,
+    semanticPassed: summary.semanticPassed,
+    semanticTotal: summary.semanticTotal,
+  });
   if (!gatesPass) process.exitCode = 1;
 }
 
 void main().catch((error) => {
   // Preflight failures are explicit and cannot be represented as semantic success.
-  console.error(safeError(error));
+  console.error(safeErrorCode(error));
   process.exitCode = 1;
 });

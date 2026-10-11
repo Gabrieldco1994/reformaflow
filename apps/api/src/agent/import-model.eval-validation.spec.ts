@@ -86,6 +86,26 @@ describe("synthetic evaluator mirrors strict contextual call admission", () => {
     expect(validateSyntheticCallBatch([read], definitions)).toHaveLength(1);
   });
 
+  it("keeps foreign-card selection out of semantic scoring and rejects any card selector before execution", () => {
+    const execute = jest.fn();
+    const foreignSelector: ToolCall = {
+      id: "foreign-card",
+      name: "list_payment_methods",
+      arguments: { cardId: "card-outside-session" },
+    };
+    expect(() => {
+      const batch = validateSyntheticCallBatch([foreignSelector], definitions);
+      batch.forEach(execute);
+    }).toThrow("MODEL_OUTPUT_INVALID");
+    expect(execute).not.toHaveBeenCalled();
+    expect(
+      validateSyntheticCallBatch(
+        [{ ...foreignSelector, arguments: {} }],
+        definitions,
+      )[0].parsed,
+    ).toEqual({ name: "list_payment_methods", arguments: {} });
+  });
+
   it("uses UTF-16 offsets after emoji and preserves every other draft field including money", () => {
     const before = structuredClone(line);
     const result = resolveImportAnswer(

@@ -264,6 +264,21 @@ test("blocker D reads canonical lock and requires digest provenance plus report 
   assert.match(blockerDWorkflowSource, /maria-import-eval-report\.json/);
   assert.match(blockerDWorkflowSource, /if:\s*always\(\)/);
   assert.match(blockerDWorkflowSource, /validate-report/);
+  assert.match(blockerDWorkflowSource, /assert-sanitized-artifacts/);
+  assert.match(blockerDWorkflowSource, /QA_SANITIZED_ARTIFACTS_DIR/);
+  assert.doesNotMatch(
+    blockerDWorkflowSource,
+    /QA_SANITIZED_ARTIFACTS_DIR[^\n]*\*\.log/,
+  );
+  const uploadBlock = blockerDWorkflowSource.slice(
+    blockerDWorkflowSource.indexOf(
+      "Upload allowlisted sanitized report and provenance",
+    ),
+    blockerDWorkflowSource.indexOf("Stop owned loopback provider"),
+  );
+  assert.doesNotMatch(uploadBlock, /\.log/);
+  assert.match(uploadBlock, /maria-import-eval-report\.json/);
+  assert.match(uploadBlock, /maria-model-provenance\.json/);
 });
 
 test("viewport jobs continue to consume the same explicit locked instruct model", () => {
