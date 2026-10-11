@@ -306,7 +306,11 @@ export class AgentToolsService {
       ) {
         throw new ImportChatContractError("TOOL_NOT_ALLOWED");
       }
-      const tool = parseImportToolArguments(name, args);
+      const tool = parseImportToolArguments(
+        name,
+        args,
+        admission.turn.focus?.field,
+      );
       switch (tool.name) {
         case "import_read_session":
           return this.importChat.read(admission, { kind: "SESSION" });
@@ -332,7 +336,7 @@ export class AgentToolsService {
         case "import_edit_answer": {
           const outcome = await this.importChat.editAnswer(
             admission,
-            args.interpretation,
+            tool.arguments,
           );
           rememberImportChatOutcome(admission, outcome);
           return { importOutcome: outcome };

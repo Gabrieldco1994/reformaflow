@@ -447,7 +447,11 @@ async function evaluateCase(
         scanCanary(privacyProof, "toolArguments", call.arguments);
       let batch: ReturnType<typeof validateSyntheticCallBatch>;
       try {
-        batch = validateSyntheticCallBatch(response.toolCalls, definitions);
+        batch = validateSyntheticCallBatch(
+          response.toolCalls,
+          definitions,
+          testCase.field,
+        );
       } catch (batchError) {
         schemaValid = false;
         authorizationEvidence.rejectedBeforeExecution = true;
@@ -476,11 +480,10 @@ async function evaluateCase(
           phase,
         });
         if (item.parsed.name === "import_edit_answer") {
-          const interpretation = item.parsed.arguments.interpretation;
           const resolved = resolveImportAnswer(
             testCase.literal,
             testCase.field,
-            JSON.parse(JSON.stringify(interpretation)),
+            JSON.parse(JSON.stringify(item.parsed.arguments)),
             original,
             {
               projects: [
@@ -596,9 +599,10 @@ function failureResults() {
             focus: { id: "q", field: "amountCents", lineIds: ["line"] },
             scope: { kind: "LINES", lineIds: ["line"] },
           }),
+          "amountCents",
         );
       else if (item.mode === "TRUNCATED_BATCH")
-        validateSyntheticCallBatch([], []);
+        validateSyntheticCallBatch([], [], "amountCents");
       else if (item.mode === "TIMEOUT") throw new Error("MODEL_TIMEOUT");
       else if (item.mode === "PROVIDER_UNAVAILABLE")
         throw new Error("PROVIDER_UNAVAILABLE");

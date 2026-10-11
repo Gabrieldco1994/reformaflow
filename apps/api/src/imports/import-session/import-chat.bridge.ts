@@ -12,14 +12,13 @@ import {
   type ImportChatOutcomeV1,
   type ImportSessionViewV1,
   isPendingImportQuestion,
-  parseImportDeclarationLiteral,
-  type ImportDeclarationContextV1,
   type ImportSessionQuestionV1,
   type ImportEntryActionV1,
   type ImportChatChannel,
 } from "@reformaflow/domain";
 import {
   ImportChatContractError,
+  IMPORT_DECISION_ANSWER,
   projectImportModelRead,
   parseImportToolArguments,
   type ImportChatRead,
@@ -43,6 +42,7 @@ import {
 } from "./import-chat.admission";
 import {
   resolveImportAnswer,
+  resolveImportDocumentaryAnswer,
   type ImportAnswerReferences,
 } from "./import-chat-answer";
 import { reauthorize } from "./import-session.auth";
@@ -349,7 +349,7 @@ export class ImportChatBridge {
   }
   async editAnswer(
     admission: ImportChatAdmission,
-    interpretation: unknown,
+    unknownAnswerPayload: unknown,
   ): Promise<ImportChatOutcomeV1> {
     const view = await this.current(admission);
     const focus = this.focus(admission, view);
@@ -393,12 +393,14 @@ export class ImportChatBridge {
         },
       };
     reserveImportChatOperation(admission, "EDIT", this.clock.now());
-    const parsed = parseImportToolArguments("import_edit_answer", {
-      interpretation,
-    });
+    const parsed = parseImportToolArguments(
+      "import_edit_answer",
+      unknownAnswerPayload,
+      focus.field,
+    );
     if (parsed.name !== "import_edit_answer")
       throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
-    const answer = parsed.arguments.interpretation;
+    const answer = parsed.arguments;
     if ("subject" in focus) {
       const clarify: ImportChatOutcomeV1 = {
         ...base,
@@ -407,23 +409,12 @@ export class ImportChatBridge {
         reason: "INVALID_VALUE",
         scopeReview: null,
       };
-      const context: ImportDeclarationContextV1 =
-        focus.field === "amountCents"
-          ? {
-              field: focus.field,
-              meaningContext: focus.subject.meaningContext,
-              effectiveInstallmentCount: null,
-            }
-          : {
-              field: focus.field,
-              meaningContext: null,
-              effectiveInstallmentCount: null,
-            };
-      if (
-        parseImportDeclarationLiteral(context, admission.turn.literalAnswer)
-          .kind === "CLARIFY"
-      )
-        return clarify;
+      const documentary = resolveImportDocumentaryAnswer(
+        admission.turn.literalAnswer,
+        focus.field,
+        unknownAnswerPayload,
+      );
+      if (documentary.kind === "CLARIFY") return clarify;
       const auth = importChatAuth(admission, this.clock.now());
       markImportChatStarted(admission, this.clock.now());
       let edited: ImportSessionViewV1;
@@ -431,7 +422,7 @@ export class ImportChatBridge {
         edited = await this.workflow.editConversationAnswer(
           auth,
           view.id,
-          { kind: "DECLARE_OBSERVATION" },
+          { kind: "DECLARE_OBSERVATION", literal: documentary.literal },
           admission,
         );
       } catch (error) {
@@ -450,14 +441,17 @@ export class ImportChatBridge {
     let references: ImportAnswerReferences | undefined;
     if (
       answer.kind === "VALUE" &&
-      answer.field === focus.field &&
-      ((answer.field === "targets" && answer.value?.kind === "TARGETS") ||
-        (answer.field === "decision" && answer.value.kind === "KEEP_EXISTING"))
+      ((focus.field === "targets" && Array.isArray(answer.answer)) ||
+        (focus.field === "decision" &&
+          typeof answer.answer === "string" &&
+          !new Set<string>(Object.values(IMPORT_DECISION_ANSWER)).has(
+            answer.answer,
+          )))
     ) {
       const auth = importChatAuth(admission, this.clock.now());
       const actor = await reauthorize(this.prisma, auth, this.clock.now());
       references = { projects: [], candidates: [] };
-      if (answer.field === "targets") {
+      if (focus.field === "targets") {
         const scope = await resolveAccessibleProjectScope(
           this.prisma,
           actor.tenantId,
@@ -502,7 +496,7 @@ export class ImportChatBridge {
     const command = resolveImportAnswer(
       admission.turn.literalAnswer,
       focus.field,
-      interpretation,
+      unknownAnswerPayload,
       view.lines.filter((line) => lineIds.includes(line.id)),
       references,
     );

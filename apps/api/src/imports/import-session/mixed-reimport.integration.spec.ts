@@ -408,9 +408,7 @@ describe("mixed claimed/unclaimed attachment reimport", () => {
       try {
         const outcome = await bridge.editAnswer(handle, {
           kind: "VALUE",
-          field: "firstDueDate",
-          value: "2026-10-10",
-          evidence: { start: 0, end: 10 },
+          answer: null,
         });
         expect(outcome).toMatchObject({
           kind: "REVISED_SESSION",

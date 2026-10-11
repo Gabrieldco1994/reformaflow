@@ -181,7 +181,13 @@ export class AgentService {
           },
         });
       if (!this.llm.isConfigured()) throw new ServiceUnavailableException();
-      const definitions = importAnswerToolDefinitions(turn);
+      if (!projected.focus)
+        throw new ImportChatContractError("MODEL_OUTPUT_INVALID");
+      const authenticatedFocus = projected.focus;
+      const definitions = importAnswerToolDefinitions(
+        turn,
+        authenticatedFocus.field,
+      );
       const allowed = new Set(definitions.map((tool) => tool.name));
       const options = { responseContract: "IMPORT_CHAT_V1" as const };
       const context = normalizeToolContext({
@@ -198,7 +204,11 @@ export class AgentService {
             throw new ImportChatContractError("TOOL_NOT_ALLOWED");
           return {
             call,
-            parsed: parseImportToolArguments(call.name, call.arguments),
+            parsed: parseImportToolArguments(
+              call.name,
+              call.arguments,
+              authenticatedFocus.field,
+            ),
           };
         });
         const writes = calls.filter(

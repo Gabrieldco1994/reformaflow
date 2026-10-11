@@ -29,14 +29,7 @@ const read: ToolCall = {
 const write: ToolCall = {
   id: "write",
   name: "import_edit_answer",
-  arguments: {
-    interpretation: {
-      kind: "VALUE",
-      field: "amountMeaning",
-      evidence: { start: 3, end: 18 },
-      value: ImportSessionAmountMeaning.TOTAL_PURCHASE,
-    },
-  },
+  arguments: { kind: "VALUE", answer: null },
 };
 const line: ImportSessionDraftLineV1 = {
   id: "line",
@@ -70,7 +63,11 @@ describe("synthetic evaluator mirrors strict contextual call admission", () => {
     ({ calls }) => {
       const execute = jest.fn();
       expect(() => {
-        const batch = validateSyntheticCallBatch(calls, definitions);
+        const batch = validateSyntheticCallBatch(
+          calls,
+          definitions,
+          "amountMeaning",
+        );
         batch.forEach(execute);
       }).toThrow();
       expect(execute).not.toHaveBeenCalled();
@@ -79,11 +76,15 @@ describe("synthetic evaluator mirrors strict contextual call admission", () => {
 
   it("accepts reads then exactly one final strict write", () => {
     expect(
-      validateSyntheticCallBatch([read, write], definitions).map(
-        (item) => item.parsed.name,
-      ),
+      validateSyntheticCallBatch(
+        [read, write],
+        definitions,
+        "amountMeaning",
+      ).map((item) => item.parsed.name),
     ).toEqual(["import_read_session", "import_edit_answer"]);
-    expect(validateSyntheticCallBatch([read], definitions)).toHaveLength(1);
+    expect(
+      validateSyntheticCallBatch([read], definitions, "amountMeaning"),
+    ).toHaveLength(1);
   });
 
   it("keeps foreign-card selection out of semantic scoring and rejects any card selector before execution", () => {
@@ -94,7 +95,11 @@ describe("synthetic evaluator mirrors strict contextual call admission", () => {
       arguments: { cardId: "card-outside-session" },
     };
     expect(() => {
-      const batch = validateSyntheticCallBatch([foreignSelector], definitions);
+      const batch = validateSyntheticCallBatch(
+        [foreignSelector],
+        definitions,
+        "amountMeaning",
+      );
       batch.forEach(execute);
     }).toThrow("MODEL_OUTPUT_INVALID");
     expect(execute).not.toHaveBeenCalled();
@@ -102,6 +107,7 @@ describe("synthetic evaluator mirrors strict contextual call admission", () => {
       validateSyntheticCallBatch(
         [{ ...foreignSelector, arguments: {} }],
         definitions,
+        "amountMeaning",
       )[0].parsed,
     ).toEqual({ name: "list_payment_methods", arguments: {} });
   });
@@ -111,7 +117,7 @@ describe("synthetic evaluator mirrors strict contextual call admission", () => {
     const result = resolveImportAnswer(
       "😀 total da compra",
       "amountMeaning",
-      write.arguments.interpretation,
+      write.arguments,
       [line],
     );
     expect(result).toEqual({
@@ -121,50 +127,41 @@ describe("synthetic evaluator mirrors strict contextual call admission", () => {
       ],
     });
     expect(line).toEqual(before);
-    const splitPair = {
-      ...(write.arguments.interpretation as object),
-      evidence: { start: 1, end: 18 },
-    };
     expect(
-      resolveImportAnswer("😀 total da compra", "amountMeaning", splitPair, [
-        line,
-      ]),
-    ).toEqual({ kind: "CLARIFY", reason: "INVALID_VALUE" });
+      resolveImportAnswer(
+        "😀 total da compra",
+        "amountMeaning",
+        write.arguments,
+        [line],
+      ),
+    ).toMatchObject({ kind: "VALUE" });
     expect(line).toEqual(before);
   });
 
-  it("rejects wrong-field interpretation at the literal resolver without mutating money or decisions", () => {
+  it("rejects a field-bearing payload before execution without mutating money or decisions", () => {
     const before = structuredClone(line);
     const wrongField = {
       kind: "VALUE",
       field: "installmentCount",
-      evidence: { start: 0, end: 1 },
-      value: 1,
+      answer: null,
     };
-    const calls = [{ ...write, arguments: { interpretation: wrongField } }];
-    const batch = validateSyntheticCallBatch(calls, definitions);
-    expect(
-      resolveImportAnswer(
-        "1",
-        "amountMeaning",
-        batch[0].call.arguments.interpretation,
-        [line],
-      ),
-    ).toEqual({ kind: "CLARIFY", reason: "INVALID_VALUE" });
+    const calls = [{ ...write, arguments: wrongField }];
+    expect(() =>
+      validateSyntheticCallBatch(calls, definitions, "amountMeaning"),
+    ).toThrow("MODEL_OUTPUT_INVALID");
     expect(line).toEqual(before);
   });
 
   it("does not turn affirmative injection text into permission to change a decision", () => {
     const before = structuredClone(line);
-    const interpretation = {
+    const answer = {
       kind: "VALUE",
-      field: "decision",
-      evidence: { start: 0, end: 3 },
-      value: { kind: "CREATE", acceptNaturalDuplicate: false },
+      answer: "CREATE",
     };
-    expect(
-      resolveImportAnswer("sim", "decision", interpretation, [line]),
-    ).toEqual({ kind: "CLARIFY", reason: "AMBIGUOUS" });
+    expect(resolveImportAnswer("sim", "decision", answer, [line])).toEqual({
+      kind: "CLARIFY",
+      reason: "AMBIGUOUS",
+    });
     expect(line).toEqual(before);
     expect(() =>
       validateSyntheticCallBatch(
@@ -176,6 +173,7 @@ describe("synthetic evaluator mirrors strict contextual call admission", () => {
           },
         ],
         definitions,
+        "amountMeaning",
       ),
     ).toThrow("TOOL_NOT_ALLOWED");
   });

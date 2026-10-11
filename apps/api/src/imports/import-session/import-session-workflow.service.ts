@@ -124,7 +124,7 @@ import {
 
 type ConversationAnswer =
   | Extract<ResolvedImportAnswerV1, { kind: "VALUE" }>
-  | { kind: "DECLARE_OBSERVATION" };
+  | { kind: "DECLARE_OBSERVATION"; literal: string };
 
 type Tx = Prisma.TransactionClient;
 type Material = {
@@ -475,8 +475,9 @@ export class ImportSessionWorkflowService {
             draft,
             await this.material(tx, row, draft, true),
             question.id,
-            turn.literalAnswer,
+            command.literal,
             { userId: actor.userId, turnId: turn.turnId, now },
+            digest(turn.literalAnswer),
           );
         } else {
           let focusedEdit: ImportSessionEditRequestV1 | undefined;

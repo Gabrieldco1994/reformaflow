@@ -3,7 +3,6 @@ import {
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PRIMITIVES as PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
-  ImportSessionAmountMeaning,
   LaborCategory,
   type ImportChatTurnV1,
   type ImportSessionCandidateV1,
@@ -20,7 +19,8 @@ import type { ToolDef } from "./llm/llm.types";
  * Private, inactive data contract. No consumer, admission, paging cursor, provider or writer
  * is registered here. Structural validity is not literal evidence, access or permission to edit.
  */
-type Field = ImportSessionQuestionV1["field"];
+export type ImportAnswerFieldV1 = ImportSessionQuestionV1["field"];
+type Field = ImportAnswerFieldV1;
 const FIELDS: readonly Field[] = [
   "amountMeaning",
   "amountCents",
@@ -36,7 +36,6 @@ const FIELDS: readonly Field[] = [
 ];
 const MAX_LITERAL_LENGTH = 4000;
 const ID = new RegExp(PRIMITIVES.idPattern);
-const DATE = new RegExp(PRIMITIVES.dateOnlyPattern);
 
 export type ImportChatRead =
   | { kind: "SESSION" }
@@ -46,40 +45,35 @@ export type ImportChatRead =
   | { kind: "PAYMENT_METHODS" }
   | { kind: "TAXONOMY" };
 
-export type ImportLiteralSpanV1 = { start: number; end: number };
-export type ImportMoneyLiteralV1 = { span: ImportLiteralSpanV1; text: string };
 export type ImportTargetAnswerV1 = {
   projectId: string;
   roomId: string | null;
-  amount: ImportMoneyLiteralV1 | { kind: "SOURCE_TOTAL" };
+  amountText: string | null;
 };
+export const IMPORT_DECISION_ANSWER = Object.freeze({
+  UNRESOLVED: "UNRESOLVED",
+  CREATE: "CREATE",
+  CREATE_ACCEPT_NATURAL_DUPLICATE: "CREATE_ACCEPT_NATURAL_DUPLICATE",
+});
+export type ImportDecisionAnswerV1 =
+  | (typeof IMPORT_DECISION_ANSWER)[keyof typeof IMPORT_DECISION_ANSWER]
+  | string;
 type AnswerValues = {
-  amountMeaning: ImportSessionDraftLineV1["amountMeaning"];
-  amountCents: ImportMoneyLiteralV1 | null;
-  installmentCount: ImportSessionDraftLineV1["installmentCount"];
+  amountMeaning: null;
+  amountCents: null;
+  installmentCount: null;
   merchant: string | null;
-  installmentIndex: number | null;
-  dataCompra: ImportSessionDraftLineV1["dataCompra"];
-  firstDueDate: ImportSessionDraftLineV1["firstDueDate"];
+  installmentIndex: null;
+  dataCompra: null;
+  firstDueDate: null;
   tipoDespesa: ImportSessionDraftLineV1["tipoDespesa"];
   categoriaMaoDeObra: ImportSessionDraftLineV1["categoriaMaoDeObra"];
-  decision: ImportSessionDecisionV1;
-  targets:
-    | null
-    | { kind: "NO_TARGETS" }
-    | { kind: "TARGETS"; items: ImportTargetAnswerV1[] };
+  decision: ImportDecisionAnswerV1;
+  targets: null | "NO_TARGETS" | ImportTargetAnswerV1[];
 };
-export type ImportAnswerInterpretationV1 =
-  | {
-      [F in Field]: {
-        kind: "VALUE";
-        field: F;
-        evidence: ImportLiteralSpanV1;
-        value: AnswerValues[F];
-      };
-    }[Field]
-  | { kind: "AMBIGUOUS" | "INVALID" | "UNSUPPORTED_NORMALIZATION" }
-  | { kind: "MULTI_FIELD"; fields: Field[] };
+export type ImportFocusedAnswerV1 =
+  | { kind: "NO_DECISION"; answer: null }
+  | { kind: "VALUE"; answer: AnswerValues[Field] };
 
 export type ImportToolArguments =
   | {
@@ -100,7 +94,7 @@ export type ImportToolArguments =
     }
   | {
       name: "import_edit_answer";
-      arguments: { interpretation: ImportAnswerInterpretationV1 };
+      arguments: ImportFocusedAnswerV1;
     };
 type ToolName = ImportToolArguments["name"];
 
@@ -155,59 +149,27 @@ function everySlot<T>(
   }
   return true;
 }
-const span = (value: unknown): value is ImportLiteralSpanV1 =>
-  record(value) &&
-  exact(value, ["start", "end"]) &&
-  integer(value.start) &&
-  integer(value.end) &&
-  value.end > value.start;
-const money = (value: unknown): value is ImportMoneyLiteralV1 =>
-  record(value) &&
-  exact(value, ["span", "text"]) &&
-  span(value.span) &&
-  typeof value.text === "string" &&
-  value.text.length > 0 &&
-  value.text.length <= MAX_LITERAL_LENGTH;
-
-function decision(value: unknown): value is ImportSessionDecisionV1 {
-  if (!record(value)) return false;
-  switch (value.kind) {
-    case "UNRESOLVED":
-      return exact(value, ["kind"]);
-    case "CREATE":
-      return (
-        exact(value, ["kind", "acceptNaturalDuplicate"]) &&
-        typeof value.acceptNaturalDuplicate === "boolean"
-      );
-    case "KEEP_EXISTING":
-      return exact(value, ["kind", "expenseId"]) && id(value.expenseId);
-    default:
-      return false;
-  }
-}
 function target(value: unknown): value is ImportTargetAnswerV1 {
   return (
     record(value) &&
-    exact(value, ["projectId", "roomId", "amount"]) &&
+    exact(value, ["projectId", "roomId", "amountText"]) &&
     id(value.projectId) &&
     (value.roomId === null || id(value.roomId)) &&
-    (money(value.amount) ||
-      (record(value.amount) &&
-        exact(value.amount, ["kind"]) &&
-        value.amount.kind === "SOURCE_TOTAL"))
+    (value.amountText === null ||
+      (typeof value.amountText === "string" &&
+        value.amountText.length > 0 &&
+        value.amountText.length <= MAX_LITERAL_LENGTH))
   );
 }
 function answerValue(field: Field, value: unknown): boolean {
   switch (field) {
     case "amountMeaning":
-      return member(value, Object.values(ImportSessionAmountMeaning));
     case "amountCents":
-      return value === null || money(value);
     case "installmentCount":
     case "installmentIndex":
-      return (
-        value === null || integer(value, 1, LIMITS.installmentsPerPurchase)
-      );
+    case "dataCompra":
+    case "firstDueDate":
+      return value === null;
     case "merchant":
       return (
         value === null ||
@@ -215,55 +177,45 @@ function answerValue(field: Field, value: unknown): boolean {
           value.length > 0 &&
           value.length <= PRIMITIVES.maxSupplierLength)
       );
-    case "dataCompra":
-    case "firstDueDate":
-      return value === null || (typeof value === "string" && DATE.test(value));
     case "tipoDespesa":
       return value === null || member(value, Object.values(ExpenseType));
     case "categoriaMaoDeObra":
       return value === null || member(value, Object.values(LaborCategory));
     case "decision":
-      return decision(value);
+      return id(value);
     case "targets":
       return (
         value === null ||
-        (record(value) &&
-          ((value.kind === "NO_TARGETS" && exact(value, ["kind"])) ||
-            (value.kind === "TARGETS" &&
-              exact(value, ["kind", "items"]) &&
-              Array.isArray(value.items) &&
-              value.items.length > 0 &&
-              value.items.length <= LIMITS.targetsPerPurchase &&
-              everySlot(value.items, target) &&
-              new Set(value.items.map((item) => item.projectId)).size ===
-                value.items.length)))
+        value === "NO_TARGETS" ||
+        (Array.isArray(value) &&
+          value.length > 0 &&
+          value.length <= LIMITS.targetsPerPurchase &&
+          everySlot(value, target) &&
+          new Set(
+            value.flatMap((item) =>
+              item.roomId === null
+                ? [item.projectId]
+                : [item.projectId, item.roomId],
+            ),
+          ).size ===
+            value.reduce(
+              (count, item) => count + (item.roomId === null ? 1 : 2),
+              0,
+            ))
       );
   }
 }
-function interpretation(value: unknown): value is ImportAnswerInterpretationV1 {
+function focusedAnswer(
+  field: Field,
+  value: unknown,
+): value is ImportFocusedAnswerV1 {
   if (!record(value)) return false;
   switch (value.kind) {
-    case "AMBIGUOUS":
-    case "INVALID":
-    case "UNSUPPORTED_NORMALIZATION":
-      return exact(value, ["kind"]);
-    case "MULTI_FIELD":
-      return (
-        exact(value, ["kind", "fields"]) &&
-        Array.isArray(value.fields) &&
-        value.fields.length >= 2 &&
-        value.fields.length <= FIELDS.length &&
-        everySlot(value.fields, (field): field is Field =>
-          member(field, FIELDS),
-        ) &&
-        new Set(value.fields).size === value.fields.length
-      );
+    case "NO_DECISION":
+      return exact(value, ["kind", "answer"]) && value.answer === null;
     case "VALUE":
       return (
-        exact(value, ["kind", "field", "evidence", "value"]) &&
-        member(value.field, FIELDS) &&
-        span(value.evidence) &&
-        answerValue(value.field, value.value)
+        exact(value, ["kind", "answer"]) && answerValue(field, value.answer)
       );
     default:
       return false;
@@ -277,6 +229,7 @@ function interpretation(value: unknown): value is ImportAnswerInterpretationV1 {
 export function parseImportToolArguments(
   name: string,
   args: unknown,
+  focus?: Field,
 ): ImportToolArguments {
   switch (name) {
     case "import_read_session":
@@ -307,15 +260,21 @@ export function parseImportToolArguments(
         arguments: { lineId: args.lineId, pageIndex: args.pageIndex },
       };
     case "import_edit_answer":
-      if (
-        !record(args) ||
-        !exact(args, ["interpretation"]) ||
-        !interpretation(args.interpretation)
-      )
-        invalid();
+      if (!focus || !record(args) || !focusedAnswer(focus, args)) invalid();
+      if (args.kind === "NO_DECISION")
+        return { name, arguments: { kind: args.kind, answer: null } };
       return {
         name,
-        arguments: { interpretation: structuredClone(args.interpretation) },
+        arguments: {
+          kind: args.kind,
+          answer: Array.isArray(args.answer)
+            ? args.answer.map((item) => ({
+                projectId: item.projectId,
+                roomId: item.roomId,
+                amountText: item.amountText,
+              }))
+            : args.answer,
+        },
       };
     default:
       throw new ImportChatContractError("TOOL_NOT_ALLOWED");
@@ -340,105 +299,58 @@ const pageSchema = {
   minimum: 0,
   maximum: Number.MAX_SAFE_INTEGER,
 };
-const spanSchema = objectSchema({
-  start: pageSchema,
-  end: { ...pageSchema, minimum: 1 },
-});
-const moneySchema = objectSchema({
-  span: spanSchema,
-  text: { type: "string", minLength: 1, maxLength: MAX_LITERAL_LENGTH },
-});
-const decisionSchema = {
-  anyOf: [
-    objectSchema({ kind: literal("UNRESOLVED") }),
-    objectSchema({
-      kind: literal("CREATE"),
-      acceptNaturalDuplicate: { type: "boolean" },
-    }),
-    objectSchema({ kind: literal("KEEP_EXISTING"), expenseId: idSchema }),
-  ],
-};
 const valueSchemas: Record<Field, Record<string, unknown>> = {
-  amountMeaning: {
-    type: "string",
-    enum: Object.values(ImportSessionAmountMeaning),
-  },
-  amountCents: nullable(moneySchema),
+  amountMeaning: { type: "null" },
+  amountCents: { type: "null" },
   merchant: nullable({
     type: "string",
     minLength: 1,
     maxLength: PRIMITIVES.maxSupplierLength,
   }),
-  installmentIndex: nullable({
-    type: "integer",
-    minimum: 1,
-    maximum: LIMITS.installmentsPerPurchase,
-  }),
-  installmentCount: nullable({
-    type: "integer",
-    minimum: 1,
-    maximum: LIMITS.installmentsPerPurchase,
-  }),
-  dataCompra: nullable({ type: "string", pattern: PRIMITIVES.dateOnlyPattern }),
-  firstDueDate: nullable({
-    type: "string",
-    pattern: PRIMITIVES.dateOnlyPattern,
-  }),
+  installmentIndex: { type: "null" },
+  installmentCount: { type: "null" },
+  dataCompra: { type: "null" },
+  firstDueDate: { type: "null" },
   tipoDespesa: nullable({ type: "string", enum: Object.values(ExpenseType) }),
   categoriaMaoDeObra: nullable({
     type: "string",
     enum: Object.values(LaborCategory),
   }),
-  decision: decisionSchema,
-  targets: nullable({
+  decision: idSchema,
+  targets: {
     anyOf: [
-      objectSchema({ kind: literal("NO_TARGETS") }),
-      objectSchema({
-        kind: literal("TARGETS"),
-        items: {
-          type: "array",
-          minItems: 1,
-          maxItems: LIMITS.targetsPerPurchase,
-          items: objectSchema({
-            projectId: idSchema,
-            roomId: nullable(idSchema),
-            amount: {
-              anyOf: [
-                moneySchema,
-                objectSchema({ kind: literal("SOURCE_TOTAL") }),
-              ],
-            },
-          }),
-        },
-      }),
-    ],
-  }),
-};
-const interpretationSchema = {
-  anyOf: [
-    ...["AMBIGUOUS", "INVALID", "UNSUPPORTED_NORMALIZATION"].map((kind) =>
-      objectSchema({ kind: literal(kind) }),
-    ),
-    objectSchema({
-      kind: literal("MULTI_FIELD"),
-      fields: {
+      { type: "null" },
+      literal("NO_TARGETS"),
+      {
         type: "array",
-        minItems: 2,
-        maxItems: FIELDS.length,
+        minItems: 1,
+        maxItems: LIMITS.targetsPerPurchase,
         uniqueItems: true,
-        items: { type: "string", enum: FIELDS },
+        items: objectSchema({
+          projectId: idSchema,
+          roomId: nullable(idSchema),
+          amountText: nullable({
+            type: "string",
+            minLength: 1,
+            maxLength: MAX_LITERAL_LENGTH,
+          }),
+        }),
       },
-    }),
-    ...FIELDS.map((field) =>
-      objectSchema({
-        kind: literal("VALUE"),
-        field: literal(field),
-        evidence: spanSchema,
-        value: valueSchemas[field],
-      }),
-    ),
-  ],
+    ],
+  },
 };
+const focusedAnswerSchema = (field: Field) => ({
+  anyOf: [
+    objectSchema({
+      kind: literal("NO_DECISION"),
+      answer: { type: "null" },
+    }),
+    objectSchema({
+      kind: literal("VALUE"),
+      answer: valueSchemas[field],
+    }),
+  ],
+});
 const DEFINITIONS: Record<ToolName, ToolDef> = {
   import_read_session: {
     name: "import_read_session",
@@ -475,8 +387,8 @@ const DEFINITIONS: Record<ToolName, ToolDef> = {
   import_edit_answer: {
     name: "import_edit_answer",
     description:
-      "Propose a single-field interpretation, not financial confirmation or permission to write.",
-    parameters: objectSchema({ interpretation: interpretationSchema }),
+      "Answer only the authenticated current focus; this grants no financial confirmation or write permission.",
+    parameters: objectSchema({}),
   },
   import_prepare_session: {
     name: "import_prepare_session",
@@ -489,7 +401,10 @@ const DEFINITIONS: Record<ToolName, ToolDef> = {
  * Selects definitions only AFTER the caller resolves live admission, E and exact scope.
  * Scope expansion is handled before this helper; this does not compute eligibility/actions.
  */
-export function getImportToolDefinitions(turn: ImportChatTurnV1): ToolDef[] {
+export function getImportToolDefinitions(
+  turn: ImportChatTurnV1,
+  authenticatedFocusField?: Field,
+): ToolDef[] {
   switch (turn.intent) {
     case "CONTINUE":
     case "OPEN_REVIEW":
@@ -502,13 +417,14 @@ export function getImportToolDefinitions(turn: ImportChatTurnV1): ToolDef[] {
     default:
       return invalid();
   }
-  if (!turn.focus || !member(turn.focus.field, FIELDS)) invalid();
+  const focusField = authenticatedFocusField ?? turn.focus?.field;
+  if (!turn.focus || !member(focusField, FIELDS)) invalid();
   const names: ToolName[] = [
     "import_read_session",
     "import_read_observations",
     "list_payment_methods",
   ];
-  switch (turn.focus.field) {
+  switch (focusField) {
     case "targets":
       names.push("list_projects");
       break;
@@ -521,7 +437,12 @@ export function getImportToolDefinitions(turn: ImportChatTurnV1): ToolDef[] {
       break;
   }
   names.push("import_edit_answer");
-  return names.map((name) => structuredClone(DEFINITIONS[name]));
+  return names.map((name) => {
+    const definition = structuredClone(DEFINITIONS[name]);
+    if (name === "import_edit_answer")
+      definition.parameters = focusedAnswerSchema(focusField);
+    return definition;
+  });
 }
 
 export type ImportModelPage<T> = {

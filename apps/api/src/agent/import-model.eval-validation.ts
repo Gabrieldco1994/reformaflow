@@ -1,6 +1,7 @@
 import {
   ImportChatContractError,
   parseImportToolArguments,
+  type ImportAnswerFieldV1,
   type ImportToolArguments,
 } from "./import-chat.contract";
 import type { ToolCall, ToolDef } from "./llm/llm.types";
@@ -9,6 +10,7 @@ import type { ToolCall, ToolDef } from "./llm/llm.types";
 export function validateSyntheticCallBatch(
   calls: ToolCall[],
   definitions: ToolDef[],
+  focus: ImportAnswerFieldV1,
 ): { call: ToolCall; parsed: ImportToolArguments }[] {
   const allowed = new Set(definitions.map((definition) => definition.name));
   const parsed = calls.map((call) => {
@@ -16,7 +18,7 @@ export function validateSyntheticCallBatch(
       throw new ImportChatContractError("TOOL_NOT_ALLOWED");
     return {
       call,
-      parsed: parseImportToolArguments(call.name, call.arguments),
+      parsed: parseImportToolArguments(call.name, call.arguments, focus),
     };
   });
   const writes = parsed.filter(
