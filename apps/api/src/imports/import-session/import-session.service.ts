@@ -108,10 +108,7 @@ import {
   runImportSessionWrite,
 } from "./import-session.writer";
 import { IMPORT_VAULT_GATE, type ImportVaultGate } from "./vault/vault-state";
-import {
-  ImportRawExecutions,
-  type ImportRawClaim,
-} from "./import-session.raw-executions";
+import { ImportRawExecutions } from "./import-session.raw-executions";
 import { supportsImportExtraction } from "./import-session.extraction";
 
 type Tx = Prisma.TransactionClient;
@@ -661,63 +658,20 @@ export class ImportSessionService {
         });
       }
 
-      // Invalidate shared-parse leases of THIS session only (never another session's).
-      const invalidatedClaims: ImportRawClaim[] = [];
-      const leases = await tx.importArtifact.findMany({
-        where: {
-          tenantId: actor.tenantId,
-          ownerProjectId: session.ownerProjectId,
-          leaseSessionId: session.id,
-        },
-        select: { id: true, parseGeneration: true, state: true },
-      });
-      for (const lease of leases) {
-        const claim = {
-          tenantId: actor.tenantId,
-          ownerProjectId: session.ownerProjectId,
-          sessionId: session.id,
-          artifactId: lease.id,
-          parseGeneration: lease.parseGeneration,
-        };
-        const changed = await tx.importArtifact.updateMany({
-          where: {
-            id: claim.artifactId,
-            tenantId: claim.tenantId,
-            ownerProjectId: claim.ownerProjectId,
-            leaseSessionId: claim.sessionId,
-            parseGeneration: claim.parseGeneration,
-          },
-          data: {
-            leaseSessionId: null,
-            leaseSessionVersion: null,
-            leaseTokenExpiresAt: null,
-            leaseExpiresAt: null,
-            parseGeneration: { increment: 1 },
-            ...(lease.state === "ANALYZING" ? { state: "RAW_READY" } : {}),
-          },
-        });
-        if (changed.count === 1) invalidatedClaims.push(claim);
-      }
-      // Release the session's references for the (later) reaper. Reserved bytes and storage
-      // keys stay: quota is only given back after a physical purge, never by this write.
-      const live = {
+      const terminalScope = {
         tenantId: actor.tenantId,
-        sessionId: session.id,
-        state: { not: "RELEASED" },
-      };
-      await tx.importSessionArtifact.updateMany({
-        where: { ...live, temporaryStorageKey: { not: null } },
-        data: { temporaryPurgePending: true },
-      });
-      await tx.importSessionArtifact.updateMany({
-        where: live,
-        data: releasedAttachmentData(now),
-      });
-      await purgeCompletedSessionObservationEvidence(tx, {
-        tenantId: session.tenantId,
         ownerProjectId: session.ownerProjectId,
         sessionId: session.id,
-      });
+      };
+      // In-memory parser owners are aborted only after this transaction commits.
+      const invalidatedClaims = await invalidateTerminalParserLeases(
+        tx,
+        terminalScope,
+      );
+      // Storage keys and reserved bytes remain until physical purge; shared
+      // artifacts remain while any other live reference still needs them.
+      await releaseCompletedSessionAttachments(tx, terminalScope, now);
+      await purgeCompletedSessionObservationEvidence(tx, terminalScope);
       return { row: await this.loadOwned(tx, actor, id), invalidatedClaims };
     });
     this.raw.abortOwned(outcome.invalidatedClaims, "CANCEL");
@@ -1593,6 +1547,7 @@ async function renderImportSessionUnchecked(
   });
 }
 import {
-  releasedAttachmentData,
+  invalidateTerminalParserLeases,
   purgeCompletedSessionObservationEvidence,
+  releaseCompletedSessionAttachments,
 } from "./vault/completed-retention";

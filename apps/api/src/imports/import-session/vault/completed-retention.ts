@@ -1,8 +1,10 @@
-import type { Prisma } from "@prisma/client";
+import type { ImportArtifact, Prisma } from "@prisma/client";
 import {
   ImportSessionAttachmentState,
+  ImportSessionArtifactState,
   ImportSessionState,
 } from "@reformaflow/domain";
+import type { ImportRawClaim } from "../import-session.raw-executions";
 
 const RELEASED_ATTACHMENT_FILE_NAME = "document";
 const TERMINAL_SESSION_STATES = [
@@ -33,6 +35,80 @@ export type CompletedAttachmentScope = Readonly<{
   ownerProjectId: string;
   sessionId: string;
 }>;
+
+type ParserLease = Pick<ImportArtifact, "id" | "parseGeneration" | "state">;
+type ParserLeaseInvalidationOptions = Readonly<{
+  limit?: number;
+  assertLive?: () => void;
+  conflictError?: () => Error;
+}>;
+
+export class TerminalParserLeaseInvalidationError extends Error {
+  constructor() {
+    super("Terminal parser lease changed during invalidation");
+    this.name = "TerminalParserLeaseInvalidationError";
+  }
+}
+
+/**
+ * The caller owns the tenant writer transaction and has persisted (or is about
+ * to persist) a terminal transition. The generation CAS fences an already
+ * admitted parser; its in-memory owner must be aborted only after commit.
+ */
+export async function invalidateTerminalParserLeases(
+  tx: Prisma.TransactionClient,
+  scope: CompletedAttachmentScope,
+  options: ParserLeaseInvalidationOptions = {},
+): Promise<ImportRawClaim[]> {
+  options.assertLive?.();
+  const leases: ParserLease[] = await tx.importArtifact.findMany({
+    where: {
+      tenantId: scope.tenantId,
+      ownerProjectId: scope.ownerProjectId,
+      leaseSessionId: scope.sessionId,
+    },
+    select: { id: true, parseGeneration: true, state: true },
+    orderBy: { id: "asc" },
+    ...(options.limit === undefined ? {} : { take: options.limit }),
+  });
+  const claims: ImportRawClaim[] = [];
+  for (const lease of leases) {
+    options.assertLive?.();
+    const claim = {
+      tenantId: scope.tenantId,
+      ownerProjectId: scope.ownerProjectId,
+      sessionId: scope.sessionId,
+      artifactId: lease.id,
+      parseGeneration: lease.parseGeneration,
+    };
+    const invalidated = await tx.importArtifact.updateMany({
+      where: {
+        tenantId: claim.tenantId,
+        ownerProjectId: claim.ownerProjectId,
+        id: claim.artifactId,
+        leaseSessionId: claim.sessionId,
+        parseGeneration: claim.parseGeneration,
+      },
+      data: {
+        leaseSessionId: null,
+        leaseSessionVersion: null,
+        leaseTokenExpiresAt: null,
+        leaseExpiresAt: null,
+        parseGeneration: { increment: 1 },
+        ...(lease.state === ImportSessionArtifactState.ANALYZING
+          ? { state: ImportSessionArtifactState.RAW_READY }
+          : {}),
+      },
+    });
+    options.assertLive?.();
+    if (invalidated.count !== 1)
+      throw (
+        options.conflictError?.() ?? new TerminalParserLeaseInvalidationError()
+      );
+    claims.push(claim);
+  }
+  return claims;
+}
 
 /** Select legacy terminal leftovers independently of original/blob existence. */
 export function pendingTerminalObservationCleanupWhere(

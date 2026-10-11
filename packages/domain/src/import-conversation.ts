@@ -7,6 +7,7 @@ import type {
   ImportSessionQuestionV1,
   ImportSessionRequestId,
   ImportSessionRevision,
+  ImportChatChannel,
 } from "./import-session";
 
 export function isPendingImportQuestion(
@@ -26,7 +27,7 @@ export type ImportChatTurnV1 = {
   turnId: ImportSessionRequestId;
   sessionId: ImportSessionId;
   expectedRevision: ImportSessionRevision;
-  channel: "TEXT" | "VOICE";
+  channel: ImportChatChannel;
   literalAnswer: string;
 } & (
   | {

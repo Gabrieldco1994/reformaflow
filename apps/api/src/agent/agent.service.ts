@@ -14,6 +14,8 @@ import { RateLimitError } from "./llm/fallback-llm.provider";
 import { stripEmoji } from "../tts/speech-format";
 import { serializeFinancialScheduleResponse } from "../expense/documented-schedule";
 import {
+  IMPORT_CHAT_CHANNEL,
+  type ImportChatChannel,
   type ImportChatOutcomeV1,
   type ImportEntryActionV1,
   type ImportChatErrorCode,
@@ -39,6 +41,8 @@ import {
 
 export interface AgentChatInput {
   importAdmission?: ImportChatAdmission;
+  /** Request provenance only; it never grants tool or financial authority. */
+  originChannel?: ImportChatChannel;
   tenantId: string;
   projectId?: string | null;
   /**
@@ -333,7 +337,11 @@ export class AgentService {
       return this.contextual(input, input.importAdmission);
     const latest = input.messages[input.messages.length - 1];
     if (latest?.role === "user" && requestsCardInvoiceImport(latest.content)) {
-      const importEntryAction = this.importChat.entryAction();
+      const originChannel =
+        input.originChannel === IMPORT_CHAT_CHANNEL.VOICE
+          ? IMPORT_CHAT_CHANNEL.VOICE
+          : IMPORT_CHAT_CHANNEL.TEXT;
+      const importEntryAction = this.importChat.entryAction(originChannel);
       return {
         importEntryAction,
         reply:

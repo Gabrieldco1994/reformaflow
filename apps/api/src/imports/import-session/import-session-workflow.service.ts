@@ -1,4 +1,5 @@
 import {
+  invalidateTerminalParserLeases,
   releaseCompletedSessionAttachments,
   purgeCompletedSessionObservationEvidence,
 } from "./vault/completed-retention";
@@ -993,7 +994,10 @@ export class ImportSessionWorkflowService {
             receipt: ImportSessionReceiptV1;
             invalidatedClaims: readonly ImportRawClaim[];
           }
-        | { error: ImportSessionError }
+        | {
+            error: ImportSessionError;
+            invalidatedClaims: readonly ImportRawClaim[];
+          }
       > => {
         const { actor, row, view } = await this.context(
           tx,
@@ -1013,23 +1017,54 @@ export class ImportSessionWorkflowService {
             throw corrupt("receipt");
           return { receipt: view.receipt, invalidatedClaims: [] };
         }
+        if (effectiveState(row, now) === State.EXPIRED) {
+          if (row.state === State.CONFIRMED) {
+            const expired = await tx.importSession.updateMany({
+              where: {
+                ...cas(row),
+                state: State.CONFIRMED,
+                expiresAt: { lte: now },
+              },
+              data: {
+                state: State.EXPIRED,
+                revision: nextRevision(row),
+                closedAt: now,
+                draftJson: EMPTY_DRAFT_JSON,
+                searchJson: null,
+                proposalJson: null,
+                preflightHash: null,
+                challengeJson: null,
+                prepareLeaseJson: null,
+                prepareGeneration: { increment: 1 },
+              },
+            });
+            if (expired.count !== 1) throw problem(Code.REVISION_CONFLICT, row);
+            const terminalScope = {
+              tenantId: row.tenantId,
+              ownerProjectId: row.ownerProjectId,
+              sessionId: row.id,
+            };
+            const invalidatedClaims = await invalidateTerminalParserLeases(
+              tx,
+              terminalScope,
+            );
+            await releaseCompletedSessionAttachments(tx, terminalScope, now);
+            await purgeCompletedSessionObservationEvidence(tx, terminalScope);
+            return {
+              error: problem(Code.SESSION_EXPIRED, row),
+              invalidatedClaims,
+            };
+          }
+          return {
+            error: problem(Code.SESSION_EXPIRED, row),
+            invalidatedClaims: [],
+          };
+        }
         await this.configuredCard(tx, row);
         assertImportSessionOperationAvailable(
           "EXECUTE_UNAPPLIED",
           await importSessionWritesEnabled(tx, row, this.capability),
         );
-        if (effectiveState(row, now) === State.EXPIRED) {
-          if (row.state === State.CONFIRMED)
-            await this.update(tx, row, {
-              state: State.EXPIRED,
-              revision: nextRevision(row),
-              closedAt: now,
-              challengeJson: null,
-              prepareLeaseJson: null,
-              prepareGeneration: { increment: 1 },
-            });
-          return { error: problem(Code.SESSION_EXPIRED, row) };
-        }
         if (
           row.state !== State.CONFIRMED ||
           row.closedAt !== null ||
@@ -1043,7 +1078,10 @@ export class ImportSessionWorkflowService {
         )
           throw corrupt("confirmation");
         if (row.confirmedSessionVersion !== auth.presentedSessionVersion)
-          return { error: await this.review(tx, row) };
+          return {
+            error: await this.review(tx, row),
+            invalidatedClaims: [],
+          };
         const draft = parseStoredDraft(row.draftJson);
         let material: Material;
         try {
@@ -1053,7 +1091,10 @@ export class ImportSessionWorkflowService {
             error instanceof ImportSessionError &&
             error.code === Code.LEASE_CONFLICT
           )
-            return { error: await this.review(tx, row) };
+            return {
+              error: await this.review(tx, row),
+              invalidatedClaims: [],
+            };
           throw error;
         }
         const selectedIds = new Set(
@@ -1072,7 +1113,10 @@ export class ImportSessionWorkflowService {
               ref.state === ImportSessionAttachmentState.UPLOADED,
           )
         ) {
-          return { error: await this.review(tx, row) };
+          return {
+            error: await this.review(tx, row),
+            invalidatedClaims: [],
+          };
         }
         const locked = mintLockedImportSession(tx, auth, row, draft);
         try {
@@ -1081,7 +1125,10 @@ export class ImportSessionWorkflowService {
           try {
             const result = await this.batches.prepareInTx(tx, auth, locked);
             if (result.kind !== "READY")
-              return { error: await this.review(tx, row) };
+              return {
+                error: await this.review(tx, row),
+                invalidatedClaims: [],
+              };
             assertPreparedCardBatch(tx, auth, result.batch);
             batch = result.batch;
             const search = parseStoredImportSearch(
@@ -1094,14 +1141,20 @@ export class ImportSessionWorkflowService {
               !search.value.complete ||
               !same(result.draft, draft)
             )
-              return { error: await this.review(tx, row) };
+              return {
+                error: await this.review(tx, row),
+                invalidatedClaims: [],
+              };
             plan = this.plan(row, draft, material, batch);
             this.claimBindings(row, material, batch);
             if (
               batch.preflightHash !== row.preflightHash ||
               !same(plan.proposal, view.proposal)
             )
-              return { error: await this.review(tx, row) };
+              return {
+                error: await this.review(tx, row),
+                invalidatedClaims: [],
+              };
           } catch (error) {
             if (
               error instanceof ImportSessionError &&
@@ -1113,7 +1166,10 @@ export class ImportSessionWorkflowService {
                 Code.SEARCH_TOO_BROAD,
               ].some((code) => code === error.code)
             )
-              return { error: await this.review(tx, row) };
+              return {
+                error: await this.review(tx, row),
+                invalidatedClaims: [],
+              };
             throw error;
           }
           // A consumes the genuine batch before effects. No commit-shaped errors below this point.
@@ -1215,7 +1271,10 @@ export class ImportSessionWorkflowService {
         }
       },
     );
-    if ("error" in outcome) throw outcome.error;
+    if ("error" in outcome) {
+      this.raw.abortOwned(outcome.invalidatedClaims, "EXPIRE");
+      throw outcome.error;
+    }
     this.raw.abortOwned(outcome.invalidatedClaims, "AC18");
     return outcome.receipt;
   }

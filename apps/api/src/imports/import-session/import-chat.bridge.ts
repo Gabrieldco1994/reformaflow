@@ -7,6 +7,7 @@ import {
   ImportSessionAttachmentState,
   ImportSessionArtifactState,
   IMPORT_SESSION_LIMITS as LIMITS,
+  IMPORT_CHAT_CHANNEL,
   ImportSessionErrorCode as Code,
   type ImportChatOutcomeV1,
   type ImportSessionViewV1,
@@ -15,6 +16,7 @@ import {
   type ImportDeclarationContextV1,
   type ImportSessionQuestionV1,
   type ImportEntryActionV1,
+  type ImportChatChannel,
 } from "@reformaflow/domain";
 import {
   ImportChatContractError,
@@ -82,16 +84,19 @@ export class ImportChatBridge {
   ) {}
 
   /** Availability only: card selection/ACL and file consent belong to the UI intake APIs. */
-  entryAction(): ImportEntryActionV1 {
+  entryAction(
+    originChannel: ImportChatChannel = IMPORT_CHAT_CHANNEL.TEXT,
+  ): ImportEntryActionV1 {
     if (
       !csvIntakeEnabled(this.capability) ||
       this.gate.boot.stopped.aborted ||
       !this.gate.boot.runtime()
     )
-      return { version: 1, kind: "IMPORT_UNAVAILABLE" };
+      return { version: 1, kind: "IMPORT_UNAVAILABLE", originChannel };
     return {
       version: 1,
       kind: "START_CARD_INVOICE_IMPORT",
+      originChannel,
       formats: this.capability
         .newImportFormats()
         .filter(

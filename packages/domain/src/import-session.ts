@@ -562,15 +562,27 @@ export interface ImportSessionObservationViewV1 {
   installmentIndex: number | null;
   dataCompra: ImportSessionDateOnly | null;
 }
-/** Request-first entry hint only; never a financial or file-access grant. */
+export const IMPORT_CHAT_CHANNEL = {
+  TEXT: "TEXT",
+  VOICE: "VOICE",
+} as const;
+export type ImportChatChannel =
+  (typeof IMPORT_CHAT_CHANNEL)[keyof typeof IMPORT_CHAT_CHANNEL];
+
+/** Request-first entry hint only; channel is provenance, never a grant. */
 export type ImportEntryActionV1 =
   | {
       version: 1;
       kind: "START_CARD_INVOICE_IMPORT";
+      originChannel: ImportChatChannel;
       formats: Array<"CSV" | "PDF">;
       suggestedCardId: string | null;
     }
-  | { version: 1; kind: "IMPORT_UNAVAILABLE" };
+  | {
+      version: 1;
+      kind: "IMPORT_UNAVAILABLE";
+      originChannel: ImportChatChannel;
+    };
 export interface ImportSessionPageV1<T> {
   items: T[];
   nextCursor: string | null;

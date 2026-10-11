@@ -26,6 +26,7 @@ import { AgentDailyQuotaGuard } from "./agent-daily-quota.guard";
 import { ImportChatGuard } from "../imports/import-session/import-chat.guard";
 import { ImportChatBridge } from "../imports/import-session/import-chat.bridge";
 import type { Request } from "express";
+import { IMPORT_CHAT_CHANNEL } from "@reformaflow/domain";
 
 // Route enhancers are instantiated in AgentModule. Delegate to the exported
 // guard instance so its auth/UI dependencies remain inside ImportSessionModule.
@@ -92,6 +93,10 @@ export class AgentController {
     );
     return this.agent.chat({
       tenantId,
+      originChannel:
+        dto.metadata?.channel === IMPORT_CHAT_CHANNEL.VOICE
+          ? IMPORT_CHAT_CHANNEL.VOICE
+          : IMPORT_CHAT_CHANNEL.TEXT,
       projectId: dto.projectId ?? null,
       // Escopo AMPLO de projeto (visibilidade). NÃO autoriza recurso financeiro:
       // as tools derivam a lente POR MÓDULO a partir da ACL bruta abaixo (#483).

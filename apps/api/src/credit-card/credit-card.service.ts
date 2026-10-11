@@ -54,8 +54,8 @@ import { buildStoredExpenseInstallments, parseDocumentaryCycle, parseStoredExpen
 import { DocumentaryCycle, StoredSourceScheduleV1 } from '../expense/documented-schedule.types';
 import { buildSeriesKey, CARD_PURCHASE_INSPECTION, inspectCardPurchaseCompanions } from './card-purchase-identity';
 import { cardImportConfiguration } from '@reformaflow/domain';
+import { invoicePaymentIgnoredReason } from './invoice-payment-classification';
 
-const INVOICE_PAYMENT_LINE_PATTERN = /PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PGTO\s+FAT|FATURA\s+PAG/i;
 const CREDIT_CARD_IMPORT_MAX_AMOUNT_CENTS = 2_147_483_647;
 
 /**
@@ -656,7 +656,7 @@ export class CreditCardService {
         continue;
       }
       try {
-        if (INVOICE_PAYMENT_LINE_PATTERN.test(tx.merchant)) {
+        if (invoicePaymentIgnoredReason(tx.merchant) !== null) {
           throw new BadRequestException('pagamento-fatura-ignorado');
         }
         const documentaryCycle = d?.overrides?.documentaryCycle === undefined
@@ -679,7 +679,7 @@ export class CreditCardService {
             return { inserted: false, settled: false, duplicate: true, expenseId: undefined };
           }
           return { ...await this.createExpenseFromTransaction(
-            db, tenantId, projectId, card, adjustedTx, importRecord.id,
+            db, tenantId, projectId, card, adjustedTx, tx.merchant, importRecord.id,
             d?.overrides?.category, createdByUserId ?? requester.id ?? null,
             parsed.invoiceDueMonth, documentaryCycle,
           ), duplicate: false };
@@ -1233,6 +1233,7 @@ export class CreditCardService {
     projectId: string,
     card: { id: string; nickname: string; last4: string; institution: string },
     tx: NormalizedTx,
+    immutableMerchant: string,
     importId: string,
     categoryOverride?: string,
     createdByUserId: string | null = null,
@@ -1247,7 +1248,7 @@ export class CreditCardService {
       // Pagamento da fatura ANTERIOR aparece nas faturas Itaú como linha negativa
       // ("PAGAMENTO EFETUADO", "Pagamento PIX"). Esses NÃO viram lançamento — a
       // própria liquidação da fatura é o que paga. Filtramos por texto.
-      if (INVOICE_PAYMENT_LINE_PATTERN.test(tx.merchant)) {
+      if (invoicePaymentIgnoredReason(immutableMerchant) !== null) {
         throw new Error('pagamento-fatura-ignorado');
       }
       // Estorno/crédito real (refund, desconto, ajuste). Cria Expense com valor

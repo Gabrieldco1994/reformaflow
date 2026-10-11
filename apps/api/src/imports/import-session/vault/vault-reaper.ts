@@ -21,6 +21,7 @@ import { IMPORT_VAULT_GATE, type ImportVaultGate } from "./vault-state";
 import { VaultIoError } from "./vault-storage";
 import {
   releasedAttachmentData,
+  invalidateTerminalParserLeases,
   purgeCompletedSessionObservationEvidence,
   pendingTerminalObservationCleanupWhere,
   purgeUnreferencedObservationEvidence,
@@ -176,46 +177,21 @@ export class VaultReaper {
           const invalidatedClaims: ImportRawClaim[] = [];
           for (;;) {
             this.current(runtime);
-            const leases = await tx.importArtifact.findMany({
-              where: { ...scope, leaseSessionId: row.id },
-              select: { id: true, parseGeneration: true, state: true },
-              orderBy: { id: "asc" },
-              take: limit,
-            });
-            for (const lease of leases) {
-              this.current(runtime);
-              const claim = {
-                ...scope,
-                sessionId: row.id,
-                artifactId: lease.id,
-                parseGeneration: lease.parseGeneration,
-              };
-              const invalidated = await tx.importArtifact.updateMany({
-                where: {
-                  ...scope,
-                  id: lease.id,
-                  leaseSessionId: row.id,
-                  parseGeneration: lease.parseGeneration,
-                },
-                data: {
-                  leaseSessionId: null,
-                  leaseSessionVersion: null,
-                  leaseTokenExpiresAt: null,
-                  leaseExpiresAt: null,
-                  parseGeneration: { increment: 1 },
-                  ...(lease.state === ImportSessionArtifactState.ANALYZING
-                    ? { state: ImportSessionArtifactState.RAW_READY }
-                    : {}),
-                },
-              });
-              if (invalidated.count !== 1)
-                throw new VaultIoError({
-                  kind: "INVALID_CAPTURE",
-                  step: "capture",
-                });
-              invalidatedClaims.push(claim);
-            }
-            if (leases.length < limit) break;
+            const invalidated = await invalidateTerminalParserLeases(
+              tx,
+              { ...scope, sessionId: row.id },
+              {
+                limit,
+                assertLive: () => this.current(runtime),
+                conflictError: () =>
+                  new VaultIoError({
+                    kind: "INVALID_CAPTURE",
+                    step: "capture",
+                  }),
+              },
+            );
+            invalidatedClaims.push(...invalidated);
+            if (invalidated.length < limit) break;
           }
           this.current(runtime);
           const live = {
