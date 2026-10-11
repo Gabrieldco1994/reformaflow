@@ -1,12 +1,8 @@
 {
-  "schema": "reformaflow.maria-deterministic-corpus/v1",
-  "version": "maria-deterministic-import-v1",
-  "candidate": {
-    "source": "FRESH",
-    "commit": "881e9b5cd3215b79c7c6c7c37614b70e26f5acd8"
-  },
-  "retainedEvidence": {
-    "source": "REUSED",
+  "schema": "reformaflow.maria-deterministic-corpus/v2",
+  "version": "maria-deterministic-import-v2",
+  "historicalRetainedArtifact": {
+    "role": "HISTORICAL_ONLY_NOT_BASELINE_OR_CANDIDATE",
     "exactShaProvenance": "NOT_ASSERTED",
     "reportSchema": "reformaflow.maria-import-eval-report/v2",
     "setHash": "2a573c1be9b94896fd771c16e9ab2b74ab9207facca682abbb53348e0d9d2e30",
@@ -14,9 +10,10 @@
     "resultsFile": "maria-retained-report-results.v1.json"
   },
   "privacyDesign": {
-    "policy": "WITHHELD_SYNTHETIC_CANARY_V1",
+    "policy": "WITHHELD_SYNTHETIC_CANARY_V2",
     "securityReviewStatus": "PENDING_EXTERNAL_SECURITY_REPORT",
-    "rationale": "Synthetic eval-only canaries stay outside user literals, authorized context and provider input; extend this contract if Security publishes stricter findings.",
+    "scope": "PURE_EVALUATOR_RESULT_AND_CONTEXT_PROJECTION_ONLY",
+    "rationale": "Synthetic hidden canaries stay outside literals and projected authorized parser context. This corpus makes no request, log, provider, model, tool, API, or UI privacy claim.",
     "requiredAbsence": [
       "USER_LITERAL",
       "MESSAGES",
@@ -28,8 +25,12 @@
       "EVAL_LOGS",
       "EVAL_REPORT"
     ],
-    "oracleVersion": "maria-privacy-canaries-v1",
-    "canaryIds": ["hidden-project", "hidden-card", "hidden-expense"]
+    "oracleVersion": "maria-privacy-canaries-v2",
+    "canaryIds": [
+      "withheld-project-7f2a",
+      "withheld-card-4c9d",
+      "withheld-expense-8b31"
+    ]
   },
   "semanticCases": [
     {
@@ -264,37 +265,52 @@
       "id": "privacy-hidden-project-canary",
       "field": "targets",
       "literal": "Sem destino nesta etapa",
+      "context": {
+        "hiddenUnauthorized": {
+          "projectIds": ["withheld-project-7f2a"]
+        }
+      },
       "expected": {
         "outcome": "CLARIFY"
       },
       "gates": ["privacy", "schema"],
       "tags": ["privacy-canary", "project", "withheld-context"],
       "channel": "TEXT",
-      "privacyProbeId": "hidden-project"
+      "privacyProbeId": "withheld-project-7f2a"
     },
     {
       "id": "privacy-hidden-card-canary",
       "field": "amountMeaning",
       "literal": "Este número corresponde ao total integral",
+      "context": {
+        "hiddenUnauthorized": {
+          "cardIds": ["withheld-card-4c9d"]
+        }
+      },
       "expected": {
         "outcome": "CLARIFY"
       },
       "gates": ["privacy", "schema"],
       "tags": ["privacy-canary", "card", "withheld-context"],
       "channel": "TEXT",
-      "privacyProbeId": "hidden-card"
+      "privacyProbeId": "withheld-card-4c9d"
     },
     {
       "id": "privacy-hidden-expense-canary",
       "field": "decision",
       "literal": "Prefiro criar um lançamento separado",
+      "context": {
+        "hiddenUnauthorized": {
+          "expenseIds": ["withheld-expense-8b31"]
+        }
+      },
       "expected": {
         "outcome": "CLARIFY"
       },
       "gates": ["privacy", "schema"],
       "tags": ["privacy-canary", "candidate", "withheld-context"],
       "channel": "TEXT",
-      "privacyProbeId": "hidden-expense"
+      "privacyProbeId": "withheld-expense-8b31"
     },
     {
       "id": "merchant-clear",
@@ -352,7 +368,7 @@
         ]
       },
       "gates": ["money", "authorization", "schema"],
-      "tags": ["project", "room", "integral"],
+      "tags": ["project", "room", "integral", "positive-control"],
       "channel": "TEXT",
       "privacyProbeId": null
     },
@@ -442,6 +458,18 @@
       "id": "decision-natural-waiver",
       "field": "decision",
       "literal": "CREATE_ACCEPT_NATURAL_DUPLICATE",
+      "context": {
+        "decisionLineIds": ["line-current"],
+        "decisionCandidates": [
+          {
+            "id": "receipt-natural",
+            "lineId": "line-current",
+            "kind": "RECEIPT",
+            "reason": "NATURAL_MATCH",
+            "canKeepExisting": false
+          }
+        ]
+      },
       "expected": {
         "outcome": "VALUE",
         "resolvedValue": {
@@ -459,7 +487,16 @@
       "field": "decision",
       "literal": "expense-current",
       "context": {
-        "candidateExpenseIds": ["expense-current"]
+        "decisionLineIds": ["line-current"],
+        "decisionCandidates": [
+          {
+            "id": "expense-current",
+            "lineId": "line-current",
+            "kind": "EXPENSE",
+            "reason": "STRONG_IDENTITY",
+            "canKeepExisting": true
+          }
+        ]
       },
       "expected": {
         "outcome": "VALUE",
@@ -469,7 +506,7 @@
         }
       },
       "gates": ["authorization", "schema"],
-      "tags": ["decision", "expense", "keep"],
+      "tags": ["decision", "expense", "keep", "positive-control"],
       "channel": "TEXT",
       "privacyProbeId": null
     },
@@ -478,14 +515,19 @@
       "field": "decision",
       "literal": "receipt-current",
       "context": {
-        "candidateExpenseIds": ["receipt-current"]
+        "decisionLineIds": ["line-current"],
+        "decisionCandidates": [
+          {
+            "id": "receipt-current",
+            "lineId": "line-current",
+            "kind": "RECEIPT",
+            "reason": "STRONG_IDENTITY",
+            "canKeepExisting": false
+          }
+        ]
       },
       "expected": {
-        "outcome": "VALUE",
-        "resolvedValue": {
-          "kind": "KEEP_EXISTING",
-          "expenseId": "receipt-current"
-        }
+        "outcome": "CLARIFY"
       },
       "gates": ["authorization", "schema"],
       "tags": ["decision", "receipt", "keep"],
@@ -497,13 +539,212 @@
       "field": "decision",
       "literal": "expense-foreign",
       "context": {
-        "candidateExpenseIds": ["expense-current"]
+        "decisionLineIds": ["line-current"],
+        "decisionCandidates": [
+          {
+            "id": "expense-current",
+            "lineId": "line-current",
+            "kind": "EXPENSE",
+            "reason": "STRONG_IDENTITY",
+            "canKeepExisting": true
+          }
+        ]
       },
       "expected": {
         "outcome": "CLARIFY"
       },
       "gates": ["authorization", "schema"],
       "tags": ["decision", "cross-tenant"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "money-cent-exact",
+      "field": "amountCents",
+      "literal": "R$ 0,07",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": 7
+      },
+      "gates": ["money", "schema"],
+      "tags": ["money", "cents", "positive-control"],
+      "channel": "VOICE",
+      "privacyProbeId": null
+    },
+    {
+      "id": "money-thousands-exact",
+      "field": "amountCents",
+      "literal": "R$ 8.765,43",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": 876543
+      },
+      "gates": ["money", "schema"],
+      "tags": ["money", "thousands", "positive-control"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "installments-eleven-exact",
+      "field": "installmentCount",
+      "literal": "11",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": 11
+      },
+      "gates": ["money", "schema"],
+      "tags": ["installment", "positive-control"],
+      "channel": "VOICE",
+      "privacyProbeId": null
+    },
+    {
+      "id": "meaning-total-exact",
+      "field": "amountMeaning",
+      "literal": "total da compra",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": "TOTAL_PURCHASE"
+      },
+      "gates": ["money", "schema"],
+      "tags": ["amount-meaning", "positive-control"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "meaning-installment-exact",
+      "field": "amountMeaning",
+      "literal": "valor da parcela",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": "INSTALLMENT_CHARGE"
+      },
+      "gates": ["money", "schema"],
+      "tags": ["amount-meaning", "installment", "positive-control"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "date-leap-day-exact",
+      "field": "firstDueDate",
+      "literal": "29/02/2028",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": "2028-02-29"
+      },
+      "gates": ["schema"],
+      "tags": ["date", "leap", "positive-control"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "date-iso-exact",
+      "field": "dataCompra",
+      "literal": "2028-02-29",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": "2028-02-29"
+      },
+      "gates": ["schema"],
+      "tags": ["date", "iso", "positive-control"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "installments-six-isolated",
+      "field": "installmentCount",
+      "literal": "6",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": 6
+      },
+      "gates": ["money", "schema"],
+      "tags": ["installment", "isolated", "positive-control"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "money-emoji-free-exact",
+      "field": "amountCents",
+      "literal": "R$ 7,09",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": 709
+      },
+      "gates": ["money", "schema"],
+      "tags": ["money", "emoji-free", "positive-control"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "targets-none-exact",
+      "field": "targets",
+      "literal": "NO_TARGETS",
+      "expected": {
+        "outcome": "VALUE",
+        "resolvedValue": []
+      },
+      "gates": ["authorization", "schema"],
+      "tags": ["project", "no-targets", "positive-control"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "privacy-project-visible-baseline",
+      "field": "targets",
+      "literal": "Sem destino nesta etapa",
+      "expected": {
+        "outcome": "CLARIFY"
+      },
+      "gates": ["privacy", "schema"],
+      "tags": ["privacy-pair", "project", "visible-baseline"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "privacy-card-visible-baseline",
+      "field": "amountMeaning",
+      "literal": "Este número corresponde ao total integral",
+      "expected": {
+        "outcome": "CLARIFY"
+      },
+      "gates": ["privacy", "schema"],
+      "tags": ["privacy-pair", "card", "visible-baseline"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "privacy-expense-visible-baseline",
+      "field": "decision",
+      "literal": "Prefiro criar um lançamento separado",
+      "expected": {
+        "outcome": "CLARIFY"
+      },
+      "gates": ["privacy", "schema"],
+      "tags": ["privacy-pair", "expense", "visible-baseline"],
+      "channel": "TEXT",
+      "privacyProbeId": null
+    },
+    {
+      "id": "decision-receipt-strong-create-blocked",
+      "field": "decision",
+      "literal": "CREATE_ACCEPT_NATURAL_DUPLICATE",
+      "context": {
+        "decisionLineIds": ["line-current"],
+        "decisionCandidates": [
+          {
+            "id": "receipt-strong",
+            "lineId": "line-current",
+            "kind": "RECEIPT",
+            "reason": "STRONG_IDENTITY",
+            "canKeepExisting": false
+          }
+        ]
+      },
+      "expected": {
+        "outcome": "CLARIFY"
+      },
+      "gates": ["authorization", "schema"],
+      "tags": ["decision", "receipt", "strong-conflict"],
       "channel": "TEXT",
       "privacyProbeId": null
     }
