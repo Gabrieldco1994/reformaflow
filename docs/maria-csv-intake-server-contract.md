@@ -1,7 +1,8 @@
 # Maria CSV — contrato delimitado do servidor
 
-**Estado em 2026-10-09: implementação em andamento em PR independente baseada em `main`;
-não entregue nem implantada.** Este documento define requisitos, não capacidades verificadas.
+**Estado em 2026-10-11: candidato integrado `881e9b5c`; merge, ativação, produção,
+jornadas Linux/Journey e release não verificados.** Este documento define o contrato do candidato,
+não capacidades implantadas.
 O [ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711) é a referência de
 aceite; o contrato prospectivo M1/M2 já aprovado não comprova entrega funcional.
 
@@ -49,8 +50,10 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
   apenas o rótulo completo `Vencimento` (sem conteúdo adicional) é excluído como
   cabeçalho documental; não há exclusão por prefixo de descrição.
 
-- Somente **CSV suportado de compras de cartão** na conversa Maria. Banco/Carteira, imagens,
-  OCR, outros formatos e actions R2 não são parte desta entrega nem requisitos antecipados.
+- Somente **CSV suportado ou PDF textual sem raster de compras de cartão** na jornada guiada
+  da Maria. Ambos passam pela mesma seleção local e pelo mesmo consentimento explícito antes do
+  upload privado. Banco/Carteira, imagens, OCR, outros formatos e actions R2 não são parte desta
+  entrega nem requisitos antecipados.
 - A PR nasce de `main`, não da branch da PR #714, e não altera essa PR. Deve conter a fundação
   coerente e mínima de import-session, private-vault/upload privado, backend/native writer e
   workflow necessários; UI sobre APIs ausentes, fixtures ou recovery-only não satisfazem aceite.
@@ -61,14 +64,16 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
 - #703 replay de faturas, #704 refund purposes e CARD restore de #700 são **deferidos**,
   não declarados concluídos. Dependência não separável exige justificativa antes de ampliar
   escopo; proximidade no candidato não autoriza copiar esses pacotes.
-- #709/#710 continuam donos dos contratos/fundação, #716 da UX guiada e #712 da qualificação.
+- #709/#710 continuam donos dos contratos/fundação e #716 da UX guiada. A sessão ativa é
+  manual/determinística e não depende de qualificação por modelo.
   Esta entrega não fecha automaticamente esses ledgers, #711/R2, H1–H5 ou todo E5.
 
 ### Consentimentos, privacidade e autoridade
 
-1. Selecionar CSV é local e não persiste remotamente. **Analisar e guardar rascunho** informa
-   finalidade, processamento e retenção; consentimento explícito autoriza apenas upload
-   privado, sessão e preparação documental. Não usar storage público nem URL pública de anexo.
+1. Selecionar CSV ou PDF textual é local e não persiste remotamente. **Analisar e guardar
+   rascunho** informa finalidade, processamento e retenção; consentimento explícito autoriza
+   apenas upload privado, sessão e preparação documental. Não usar storage público nem URL
+   pública de anexo.
 2. Sessão, anexo, revisão e recibo são isolados por usuário/tenant/escopo autorizado. Reuso de
    objeto não concede acesso a outra sessão. Servidor reautoriza leitura e execução; troca de
    usuário não herda rascunho ou confirmação.
@@ -127,12 +132,15 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
 
 ### Habilitação e prova de entrega
 
-- Escritas financeiras amplas em produção somente se **explicitamente habilitadas no servidor**,
-  com controle e padrão fail-closed documentados: configuração ausente, inválida ou desabilitada
-  não autoriza escrita. Consentimento e confirmação não são substituídos por essa habilitação.
-  Este contrato não inventa nome de flag, afirma que o gate já existe ou certifica ativação.
-- Contrato inativo/default-OFF não satisfaz a jornada funcional; tampouco autoriza ativação em
-  produção para obter evidência. Aceite exige prova integrada e gates de release aplicáveis.
+- O switch amplo `IMPORT_SESSION_WRITES_ENABLED` continua constante e **OFF**. A admissão
+  delimitada de CSV/PDF usa a capacidade qualificada e suas revalidações próprias; não transforma
+  o switch amplo em ON nem libera outros formatos/operações.
+- O vault continua OFF por padrão e fail-closed: somente `IMPORT_VAULT_ENABLED=true`, junto de
+  configuração e verificações físicas válidas, permite a inicialização privada. Ausência, valor
+  diferente ou falha devolve o estado OFF; os controles focados não mudam esse comportamento.
+  Este documento não afirma vault ON em produção.
+- Consentimento e confirmação não são substituídos por habilitação. Contrato inativo/default-OFF
+  não satisfaz a jornada funcional nem autoriza ativação em produção para obter evidência.
 - Testes focados e typecheck no SHA integrado, regressões de ACL/privacidade, zero efeitos
   pré-confirmação, idempotência, cronograma, ignored payment e retry terminal são necessários.
   Migrations exigem gates fresh e upgrade legado representativo em bancos descartáveis,
@@ -147,16 +155,30 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
   Evidências públicas usam somente cenários sintéticos e sanitizados.
 - Merge não é deploy. Produção exige CI e **Deploy API to Fly** verdes no SHA correto de
   `main`, migrations aplicadas e provas Fly/Vercel/jornada e upgrade/rollback quando aplicáveis.
+  Este documento não declara que a jornada Linux ou qualquer gate de release passou.
 
 ## Referência de implementação
 
-Na base documental `3d83771c9b60333d3534dc62119f34cc98f62148` não há subsistema import-session
-que comprove esta entrega. Nenhum endpoint, DTO, schema, flag ou capacidade candidata é
-declarado entregue aqui. A composição final deverá vincular locatores e evidências por AC no
-[ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711).
+O candidato `881e9b5c` contém o subsistema import-session e os controles determinísticos
+descritos aqui. Isso identifica a base inspecionada, sem afirmar merge, ativação, jornada
+Linux, release ou produção. Locatores principais:
+
+- contrato wire: `packages/domain/src/import-session.ts` e
+  `packages/domain/src/import-focused-answer.ts`;
+- parsing/grant do PATCH focado:
+  `apps/api/src/imports/import-session/import-session.focused-draft-answer.ts`;
+- controller e writer:
+  `apps/api/src/imports/import-session/import-session.controller.ts` e
+  `apps/api/src/imports/import-session/import-session-workflow.service.ts`;
+- controles/serialização:
+  `apps/web/src/app/projects/[projectId]/maria/_components/ImportFocusedDraftQuestion.tsx` e
+  `apps/web/src/app/projects/[projectId]/maria/_lib/import-focused-draft-transport.ts`;
+- capability/vault:
+  `apps/api/src/imports/import-session/import-session.disabled.ts`,
+  `import-session.capability.ts` e `vault/vault.config.ts`.
 
 Fontes complementares: [contrato Maria](maria-ia.md#importação-consentimentos-confirmação-e-retenção),
-[jornada de importação](experiencia-importacao.md#jornada-delimitada-csv-de-cartão-711),
+[jornada de importação](experiencia-importacao.md#importação-conversacional-na-maria),
 [status do cockpit](estado-atual-cockpit-pessoal.md), [caixa](cockpit-caixa-real.md),
 [faturas](visao-conta-faturas.md), [datas](politica-datas-timezone.md) e [índice](README.md).
 O manual da experiência permanece sob ownership frontend; este documento não substitui sua
@@ -193,7 +215,7 @@ O caminho reutiliza normalização/encoding e `recordImportDeclaration`, sem adm
 de chat fictícia nem substituição genérica de linhas. Para `VALUE`, `literalHash`
 é SHA-256 do `input.text` original exato, não do literal codificado; não há coluna
 extra de texto bruto. `answerRequestId` identifica a atestação no `turnId` existente.
-Chamadas conversacionais conservam seu hash do literal e comportamento anterior.
+Registros legados conservam seu hash do literal e comportamento anterior.
 
 `UNKNOWN`/`REMOVE` conservam a declaração nula e a pergunta não resolvida; REMOVE
 não vira exclusão. No-op não renova revisão/expiração. Concorrência na mesma revisão
@@ -224,11 +246,9 @@ ordinal original nulo: a atestação de data não inventa identidade de busca. O
 `documentary-coalescing.integration.spec.ts` cobre upload/análise CSV/PDF reais,
 resposta nativa, recuperação legada e preparação sem nenhum efeito financeiro.
 
-### Dependência de modelo na conversa livre (candidato, não prova de entrega)
+### Respostas focadas do rascunho sem modelo/tool
 
-#### Escolhas tipadas de rascunho sem interpretação
-
-Além da seleção legada, `PATCH /import-sessions/:id/draft` admite a variante exata
+`PATCH /import-sessions/:id/draft` admite a variante focada exata
 `ImportSessionFocusedDraftAnswerRequestV1`:
 
 ```ts
@@ -237,52 +257,94 @@ Além da seleção legada, `PATCH /import-sessions/:id/draft` admite a variante 
   answerRequestId: string; // UUID
   expectedRevision: number;
   questionId: string; // pergunta genérica atual, não oq_…
+  channel: "TEXT" | "VOICE"; // proveniência, nunca grant
   answer:
-    | { field: "firstDueDate"; value: string | null } // YYYY-MM-DD explícito
-    | { field: "tipoDespesa"; value: ExpenseType | null };
+    | { field: "amountMeaning"; literal: string;
+        value: "TOTAL_PURCHASE" | "INSTALLMENT_CHARGE" }
+    | {
+        field: "amountCents" | "installmentCount";
+        literal: string;
+        value: number;
+      }
+    | { field: "dataCompra" | "firstDueDate"; literal: string; value: string }
+    | { field: "tipoDespesa"; value: ExpenseType }
+    | { field: "categoriaMaoDeObra"; value: LaborCategory }
+    | {
+        field: "decision";
+        value:
+          | { kind: "CREATE"; acceptNaturalDuplicate: boolean }
+          | { kind: "KEEP_EXISTING"; expenseId: string };
+      }
+    | {
+        field: "targets";
+        value:
+          | { kind: "NO_TARGETS" }
+          | {
+              kind: "TARGET";
+              projectId: string;
+              roomId: string | null;
+              amountCents: number;
+              literal: string;
+            };
+      };
 }
 ```
 
 Essa variante representa escolhas humanas do rascunho, **não atestações do original**.
-O controller valida chaves/UUID/revisão/data/enum antes de emitir o grant
+O controller valida conjunto exato de chaves, UUID, revisão, literal, valor, enums e IDs antes
+de emitir o grant
 `FOCUSED_DRAFT_ANSWER`, vinculado ao ator, sessão, revisão, pergunta e hash canônico.
 No writer bloqueado, o serviço reautoriza o projeto proprietário e resolve a pergunta
 genérica atual; constrói somente a mudança do campo permitido nas linhas do servidor.
-Não aceita substituições de linhas, seleção, destinos ou decisões nesse envelope.
-Retorna `ImportSessionViewV1` e reutiliza o tail de edição existente; seleção legada
-conserva seu contrato e comportamento anteriores.
+Não aceita substituições de linhas nem seleção nesse envelope. Decisão e destino só entram
+pelas variantes exatas acima: candidato `KEEP_EXISTING` precisa estar autorizado; destino é
+`NO_TARGETS` explícito ou um único `TARGET` pelo valor integral da compra, nunca parcial,
+múltiplo ou presumido. O projeto-alvo precisa ser REFORMA ativa do mesmo tenant, diferente do
+projeto proprietário e autorizada; eventual cômodo precisa estar ativo e pertencer a ela.
+Retorna `ImportSessionViewV1`.
 
-Datas não recebem ano/ciclo inferido nem ajuste automático. `2026-10-10` continua
-exatamente essa data. Prepare conserva a validação de fechamento/vencimento e ciclo;
-salvar um vencimento inválido para o ciclo não concede READY ou execução. `MAO_DE_OBRA`
-não preenche categoria de mão de obra implicitamente. Null significa ausência explícita
-e conserva a pergunta pendente; no-op não renova revisão/expiração. Resposta incerta
-exige GET autorizado, sem reaplicação cega.
+O envelope legado do mesmo PATCH é **selection-only**: exige `questionId: null`,
+`replaceLines: []` e apenas a lista `selectedLineIds` com IDs únicos e dentro do limite.
+Qualquer tentativa de responder pergunta ou substituir linha por esse formato é rejeitada.
+
+Dinheiro aceita um único token monetário não negativo; quantidade, um único inteiro positivo
+dentro do limite; datas, somente `AAAA-MM-DD` ou `DD/MM/AAAA` completas e válidas;
+significado, somente os literais inequívocos de total da compra ou valor da parcela.
+Literais vazios, não NFC,
+ambíguos, múltiplos ou divergentes do valor são rejeitados. Datas não recebem ano/ciclo
+inferido nem ajuste automático. `MAO_DE_OBRA` não preenche categoria implicitamente.
+No-op não renova revisão/expiração; resposta incerta exige GET autorizado, sem reaplicação cega.
 
 `focused-draft-answer.integration.spec.ts` cobre guards/grants/writer/preparação reais,
-OUTROS e data sem provider, isolamento do campo, ACL, falsificação/expiração, concorrência,
-no-op e ciclo incompatível, com zero efeitos financeiros. Decisões/destinos e conversa
-livre continuam fora dessa variante; a entrega não afirma uma jornada inteira sem LLM.
+OUTROS, literal estrito, decisões, destinos/sem destino, isolamento do campo, ACL,
+falsificação/expiração, concorrência, no-op e ciclo incompatível, com zero efeitos
+financeiros antes da confirmação.
 
-`AgentService.contextual` encaminha `ANSWER` ao provider construído em
-`agent.module.ts`; a conversa livre continua dependente do provider. Os controles
-documentais explícitos com preview aceito usam o endpoint nativo acima, não `/agent/chat`.
-O padrão atual é Ollama em `http://localhost:11434/v1`: uma URL configurada não
-comprova disponibilidade do serviço/modelo. Falhas reconhecidas de transporte e
-ausência de credenciais retornam `503` com `importOutcome.code = PROVIDER_UNAVAILABLE`,
-sem editar o rascunho nem autorizar finanças. Erros de contrato do modelo permanecem
-distintos (`MODEL_OUTPUT_INVALID`).
+Na UI, voz apenas fornece a transcrição ao parser determinístico e abre a mesma prévia manual.
+Ela nunca envia automaticamente nem cai para LLM/tool. O usuário ainda precisa conferir e
+guardar. Para estabelecimento, separadores, alternativas, múltiplos nomes e expressões de
+incerteza falham fechados e permanecem no controle. A sessão ativa não chama `/agent/chat`;
+a Maria genérica continua disponível fora desse subfluxo, e seu `metadata.channel` aninhado
+preserva apenas a proveniência.
 
-O teste `apps/api/src/agent/agent.import-provider.spec.ts` cobre DTO, controller,
-admissão/bridge e provider reais, com persistência representativa e conexão recusada
-em loopback. A jornada Linux com interpretação conversacional precisa de Ollama acessível com o modelo
-configurado (`AGENT_MODEL`, padrão `qwen2.5:7b-instruct`), ou de autorização explícita
-para usar um provider externo e enviar o conteúdo mínimo da sessão: por exemplo,
-`AGENT_LLM_PROVIDER=gemini` com `GEMINI_API_KEY` (ou `GOOGLE_API_KEY`) e modelo
-compatível com tools. Não habilitar acesso externo nem obter credenciais implicitamente;
-503 não é evidência de confirmação bem-sucedida.
+Preparação e resultado também não passam por modelo/tool:
+`POST /import-sessions/:id/prepare` prepara a proposta sob as validações do servidor e
+retorna `READY` somente com proposta completa; `NEEDS_INPUT` persiste o rascunho/perguntas
+atualizados sem proposta, confirmação, execução ou resultado. `GET /import-sessions/:id/result`
+lê o estado/recibo autorizado. Nenhum deles confirma. Challenge, confirmação financeira
+autenticada e execução permanecem ações separadas. O vault OFF por padrão e a retenção de sete
+dias sem edição permanecem exatamente como definidos acima.
+
+Não existe arquitetura contextual de importação no candidato final: o contrato público
+contextual, seus leitores/cópias na UI, portas de texto livre e aprovação de escopo foram
+removidos. A Maria genérica detecta deterministicamente apenas o pedido inicial e pode devolver
+`START_CARD_INVOICE_IMPORT` com os formatos habilitados antes de consultar provider; isso não é
+um turno contextual da sessão nem uma tool.
 
 ## Apêndice histórico
 
 - 2026-10-09: documentado o recorte CSV independente de `main` conforme ledger #711, separado
   da PR #714. Aprovação do contrato não marca AC funcional, conclusão de código ou produção.
+- 2026-10-11: candidato `881e9b5c` removeu o caminho de interpretação por modelo e a arquitetura
+  contextual da sessão ativa, restringiu o PATCH legado à seleção e adotou controles focados
+  determinísticos. Nenhum pass de Linux, Journey, release ou produção é inferido deste registro.

@@ -368,13 +368,16 @@ crescente. Projetos excluídos ou fora do escopo de `recurringBills` não partic
 da escolha. O critério não depende da ordem de inserção nem do índice do banco.
 
 - **Importação guiada de fatura na Maria (#711/#718):** implementação integrada
-  localmente sobre o main de #714; isso não significa disponibilidade em produção.
+  no candidato `881e9b5c`; isso não significa merge, disponibilidade em produção,
+  jornada Linux nem gate de release aprovado.
   Quando o vault privado está disponível, peça a importação e escolha explicitamente
   o cartão e o arquivo. O projeto proprietário vem do cartão; um eventual destino
   em outra reforma é escolhido depois, na revisão. Os formatos habilitados vêm do
   servidor: CSV e PDF textual sem imagens no recorte qualificado. O envio exige
   seleção dos arquivos e consentimento. Nesse fluxo, parsers determinísticos locais
   e do servidor processam o documento; nenhum documento é enviado a LLM ou OCR.
+  Se o vault estiver OFF ou falhar nas verificações privadas de inicialização, a
+  entrada permanece indisponível; este fluxo não liga o vault nem altera sua política.
   Um PDF escaneado, misto ou com qualquer imagem raster, inclusive um simples
   logotipo, recebe `OCR_REQUIRED`: OCR ainda não está disponível nesta importação.
   O suporte seguro a scans, fotos e PDFs com raster é trabalho futuro,
@@ -387,18 +390,36 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   mesmo sem valor legível, evitando uma revisão incompleta.
 - A revisão separa compras, declarações e lançamentos ignorados. Pagamento de
   fatura é evidência informativa: importar compras não quita a fatura. Controles
-  explícitos de data/tipo e declarações documentais guardam apenas a informação
-  revisada, sem interpretação pela IA. A gravação financeira exige uma confirmação
-  separada no resumo. O pagamento de fatura ignorado permanece vinculado ao
+  focados e manuais respondem cada pendência genérica do rascunho pelo `PATCH`
+  autenticado da própria sessão. Não há chamada de modelo nem execução de tool
+  da Maria para interpretar ou guardar essas respostas. Datas, valores, quantidade
+  de parcelas e significado do valor aceitam apenas literais estritos; tipo,
+  categoria e decisão vêm de opções explícitas e autorizadas. A finalidade é
+  **sem destino** ou um único projeto autorizado pelo valor integral da compra;
+  não existe destino presumido, parcial ou múltiplo nesse caminho.
+  Marcar ou desmarcar compras usa o PATCH legado somente para a lista de seleção;
+  ele não substitui linhas nem funciona como resposta alternativa às perguntas.
+- Na voz, a transcrição apenas preenche o controle e produz uma prévia
+  determinística. A pessoa ainda confere e toca em **Guardar informação**; não há
+  envio automático nem fallback para LLM quando a fala é inválida ou ambígua.
+  O canal `VOICE` ou `TEXT` registrado no pedido é somente proveniência.
+- **Preparar revisão** e **Consultar resultado** chamam diretamente os endpoints
+  da sessão. A gravação financeira exige uma confirmação separada no card de
+  resumo; guardar uma resposta, preparar ou consultar resultado não confirma o
+  lote. O pagamento de fatura ignorado permanece vinculado ao
   resultado terminal como item de auditoria, sem virar compra nem seguir para o
   rascunho restante; repetir uma execução concluída devolve o mesmo recibo.
   Se a resposta da aplicação se perder, a tela consulta o estado guardado antes
   de permitir qualquer nova ação. O recibo de um lote parcial oferece **Ver
   rascunho restante**, que abre as compras ainda não aplicadas já selecionadas.
   Sessões podem ser retomadas após recarregar. Trocar de conta limpa a seleção e
-  o contexto privado anterior. Não envie senha de PDF à Maria.
-  Quando a preparação encontra novas perguntas, a tela volta aos controles
-  manuais com o rascunho atualizado, sem mostrar confirmação ou comprovante.
+  a sessão privada anterior. O prazo continua sendo sete dias sem edição do
+  usuário; consulta/polling não o renova, e conclusão/cancelamento continuam
+  liberando referências conforme a política de retenção. Não envie senha de PDF
+  à Maria.
+  Quando a preparação retorna `NEEDS_INPUT`, a tela volta aos controles manuais
+  com o rascunho atualizado, sem mostrar confirmação ou comprovante. Somente
+  `READY` abre a revisão confirmável.
   Destinos manuais excluem o projeto proprietário e listam somente reformas
   ativas e acessíveis; os cômodos sempre pertencem ao projeto escolhido.
   Na resposta por voz do estabelecimento, alternativas, múltiplos nomes e
@@ -417,8 +438,12 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   Durante o aquecimento da voz, a resposta já fica disponível para leitura.
   Pedidos digitados seguem como texto; falas seguem como voz. Ao iniciar uma
   importação pela voz, os botões de continuação mantêm esse canal até que a
-  pessoa digite uma resposta. A confirmação financeira continua sendo uma ação
-  explícita no card de revisão.
+  pessoa digite uma resposta. Dentro de uma sessão de importação ativa, esses
+  controles determinísticos substituem a conversa com modelo: não existe turno
+  contextual, aprovação de escopo ou adaptador de texto livre da importação. Fora
+  dela, a Maria genérica continua usando o canal aninhado de texto/voz de
+  `/agent/chat`. A confirmação financeira continua sendo uma ação explícita no
+  card de revisão.
 - Ao responder **"quanto eu tenho na conta?"**, usa o mesmo motor de saldo da tela
   **Conta** — o número que a Maria fala é o mesmo de **"Tenho na conta hoje"**,
   já com o **saldo inicial** cadastrado da conta e a sua data de corte. Não há

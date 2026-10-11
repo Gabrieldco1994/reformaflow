@@ -14,22 +14,34 @@ Regra: o CONTRATO é atemporal e não carrega narrativa de "antes/depois". Hist�
 
 | Doc | Assunto |
 |---|---|
-| `estado-atual-cockpit-pessoal.md` | Status/escopo real do Cockpit PESSOAL (fonte de verdade de status). |
-| `cockpit-caixa-real.md` | Regras do caixa real (§10) e do consolidado. |
-| `visao-conta-faturas.md` | Visão Conta, faturas de cartão, neutros, casamento pagamento→fatura, "cartão paga cartão". |
-| `saas-onboarding.md` | Autocadastro SaaS, objetivos, permissões, papéis e criação do primeiro projeto. |
-| `quitacao-parcela-cross-project.md` | Quitação de parcela cross-project (PESSOAL): bug-raiz do "sumiço", fluxo espelho+conciliar, invariantes P1–P7/E5/E8, UI e validação; §10 cobre o contrato read-only de origem exibida no alvo (`GET .../expenses/paid-origins`, O1–O12). |
+| [`estado-atual-cockpit-pessoal.md`](estado-atual-cockpit-pessoal.md) | Status/escopo real do Cockpit PESSOAL (fonte de verdade de status). |
+| [`cockpit-caixa-real.md`](cockpit-caixa-real.md) | Regras do caixa real (§10) e do consolidado. |
+| [`visao-conta-faturas.md`](visao-conta-faturas.md) | Visão Conta, faturas de cartão, neutros, casamento pagamento→fatura, "cartão paga cartão". |
+| [`saas-onboarding.md`](saas-onboarding.md) | Autocadastro SaaS, objetivos, permissões, papéis e criação do primeiro projeto. |
+| [`quitacao-parcela-cross-project.md`](quitacao-parcela-cross-project.md) | Quitação de parcela cross-project (PESSOAL): bug-raiz do "sumiço", fluxo espelho+conciliar, invariantes P1–P7/E5/E8, UI e validação; §10 cobre o contrato read-only de origem exibida no alvo (`GET .../expenses/paid-origins`, O1–O12). |
 | [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md) | Financeiro por tipo de projeto (spec U6a #455): matriz capacidade/origem-finalidade/identidade/ACL/deep-link, as tres fontes distintas (`PROJECT_FEATURES`, `TYPE_MODULES`, `PROJECT_NAV`), divergencias codigo x doc, decisoes do PO de 2026-08-19 (A-1, A-2 e A-3 decididas; gate do B2 dispensado) e a nota de que `prisma/dev.db` nao e producao. **Spec mergeada (#506); matriz re-ratificada contra `1da83286`; U6b build 1 (lente `by-type`, frontend-only) com contrato de reconciliação com `account-view.saidaTotal` mergeado via #643, gated por `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (padrão desabilitado), ativação em produção não verificada; #456 permanece OPEN para o restante do escopo; `upcoming`/`top-suppliers` são follow-up separado #635.** |
 | [`manual-do-aplicativo.md`](manual-do-aplicativo.md) | Manual do usuário: comportamento observável por tela + conceitos-chave e glossário (não normativo para regras — estas vivem nos docs acima). |
-| `despesa-recorrente.md` | Despesa recorrente (mensal/quinzenal): gera N despesas planejadas reais; modo cross-project (obra+espelho); canais UI/Copilot/voz; API e validação. |
-| `politica-datas-timezone.md` | Política de datas e fronteira de timezone (BRT×UTC) nas telas financeiras. |
+| [`despesa-recorrente.md`](despesa-recorrente.md) | Despesa recorrente (mensal/quinzenal): gera N despesas planejadas reais; modo cross-project (obra+espelho); canais UI/Copilot/voz; API e validação. |
+| [`politica-datas-timezone.md`](politica-datas-timezone.md) | Política de datas e fronteira de timezone (BRT×UTC) nas telas financeiras. |
 | [`experiencia-mobile-pwa.md`](experiencia-mobile-pwa.md) | Contrato transversal da experiência responsiva/PWA em `apps/web`: 375/390, toque, instalação, offline/update, permissões e fallback. |
-| [`maria-ia.md`](maria-ia.md) | Promessa cross-channel da Maria, confirmação de escrita, tools, OCR/voz/TTS, privacidade e gates de eval. |
-| [`maria-csv-intake-server-contract.md`](maria-csv-intake-server-contract.md) | Contrato delimitado da importação Maria por CSV e PDF textual: cofre privado, revisão, confirmação, recuperação, auditoria terminal e retenção; OCR para scans, fotos e PDFs com raster permanece no escopo futuro da #719. |
+| [`maria-ia.md`](maria-ia.md) | Promessa cross-channel da Maria, confirmação de escrita, tools, OCR/voz/TTS, privacidade e controles determinísticos da sessão de importação. |
+| [`maria-csv-intake-server-contract.md`](maria-csv-intake-server-contract.md) | Contrato delimitado da importação Maria por CSV e PDF textual: cofre privado, respostas focadas via PATCH sem modelo/tool, confirmação separada, recuperação, auditoria terminal e retenção; OCR para scans, fotos e PDFs com raster permanece no escopo futuro da #719. |
 | [`landscape-agentes-skills-saas.md`](landscape-agentes-skills-saas.md) | Mapa canônico de agentes, skills e ownership das experiências; inclui prioridades e procedimento de revisão. |
 | [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | SDD canônico do programa #436: **planejamento aprovado; B0 (#447) CLOSED; B1a mergeado; B1b (#499), B2 (#500) e W1 (#214) CLOSED; S0.3 test-only em andamento**; decisões, contratos, ondas E0–E6, dependências, riscos e changelog. |
-| `archive/estado-atual-historico-2026.md` | Histórico detalhado movido do estado-atual do cockpit (incrementos/commits de 2026). |
-| `archive/` | Notas históricas de sessões anteriores (não normativas) — ver `archive/README.md`. |
+| [`archive/estado-atual-historico-2026.md`](archive/estado-atual-historico-2026.md) | Histórico detalhado movido do estado-atual do cockpit (incrementos/commits de 2026). |
+| [`archive/`](archive/README.md) | Notas históricas de sessões anteriores (não normativas); o índice local torna cada snapshot alcançável. |
+
+## Designs e pesquisas versionados
+
+Estes registros dão contexto a decisões específicas, mas não substituem os contratos vivos
+acima nem comprovam status de release.
+
+| Doc | Assunto |
+|---|---|
+| [`582-reopen-classifyforimport-design.md`](582-reopen-classifyforimport-design.md) | Design da precedência e do limite de confiança de `classifyForImport` na #582. |
+| [`659-carteira-launcher-reachability-design.md`](659-carteira-launcher-reachability-design.md) | Design de alcançabilidade do launcher de importação para Carteira na #659. |
+| [`659-cross-origin-dedupe-design.md`](659-cross-origin-dedupe-design.md) | Design e RED spec de dedupe de importação cross-origin na #659. |
+| [`clarity-insights-2026-07.md`](clarity-insights-2026-07.md) | Pesquisa histórica de comportamento no Microsoft Clarity (baseline de julho/2026). |
 
 ## Planejamento vigente e planos históricos
 
@@ -42,7 +54,7 @@ novas execuções.
 | [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | 📋 **Aprovado; B0/B1a/B1b/B2/W1 mergeados e CLOSED; S0.3 test-only em andamento** | Programa #436 — Centro Financeiro multi-tenant e base agent-first. |
 | [`569-invoice-undo-design.md`](569-invoice-undo-design.md) | **PRs #687/#688 mergeadas; produção não verificada nesta rodada** | Histórico do design de proveniência, proteções e undo; contrato do PR2 em [569-pr2-contract-and-red-spec.md](569-pr2-contract-and-red-spec.md). Não equivale ao redesign completo da importação. |
 | [`experiencia-importacao.md`](experiencia-importacao.md) | **#689 aprovada, em implementação; não entregue** | Pacotes #690/#691: criação cross-project na prévia bancária e fluxo visual completo; undo somente de destino próprio intacto. |
-| [Importação conversacional na Maria](experiencia-importacao.md#importação-conversacional-na-maria) | **Candidato integrado #718; merge, ativação e produção não verificados** | CSV e PDF textual sem raster, com [consentimento documental e confirmação financeira separados](maria-ia.md#importação-consentimentos-confirmação-e-retenção), retenção de sete dias sem edição e [contrato delimitado](maria-csv-intake-server-contract.md). OCR seguro permanece futuro na #719. Não libera todo E5 nem dispensa H1–H5. |
+| [Importação guiada na Maria](experiencia-importacao.md#importação-conversacional-na-maria) | **Candidato `881e9b5c` da #718; merge, ativação, Linux, Journey, release e produção não verificados** | CSV e PDF textual sem raster sob consentimento; sessão ativa sem arquitetura contextual, com respostas manuais/determinísticas via PATCH focado, PATCH legado apenas para seleção, voz fail-closed, preparação `READY`/`NEEDS_INPUT`, resultado direto e [confirmação financeira separada](maria-ia.md#importação-consentimentos-confirmação-e-retenção). Vault OFF por padrão e retenção de sete dias sem edição permanecem inalterados; ver o [contrato delimitado](maria-csv-intake-server-contract.md). OCR seguro permanece futuro na #719. Não libera todo E5 nem dispensa H1–H5. |
 | [Cronograma documentado — P01](visao-conta-faturas.md#cronograma-documentado--candidato-p01) | **Candidato de integração #700/#701; merge e produção não verificados** | Valores e rótulos por ocorrência, mês documental da fatura e edição descritiva preservada; [manual, §4.2](manual-do-aplicativo.md#42-visão-conta-conta--apenas-pessoal). Não entrega sessões nem importação conversacional. |
 | [`plano-visao-conta-hub-2026-07.md`](plano-visao-conta-hub-2026-07.md) | 🗃️ **Histórico (v1)** | Registro do ciclo Visão Conta Hub; conferir comportamento entregue nos docs vivos. |
 | [`plano-ux-v2-2026-07.md`](plano-ux-v2-2026-07.md) | 🗃️ **Histórico (v2; ledger stale)** | Registro do ciclo de redução de trabalho; não é roadmap ativo. |

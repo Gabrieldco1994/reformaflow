@@ -8,7 +8,8 @@ Entrega [#689](https://github.com/Gabrieldco1994/reformaflow/issues/689):
 Reutiliza as PRs #687/#688, mergeadas na base `9587a19f`; este documento não
 comprova deploy. A verificação de toque também cobre a #662, sem encerrá-la por antecipação.
 
-**Recorte Maria em 2026-09-28: autorizado, não entregue.** O contrato prospectivo de
+**Recorte Maria no candidato `881e9b5c` de 2026-10-11:** integração local da #718;
+merge, ativação, produção, Linux, Journey e release não verificados. O recorte de
 [importação conversacional](#importação-conversacional-na-maria) é separado da entrega #689.
 Não libera todo E5, não dispensa H1–H5 e não comprova disponibilidade ou deploy.
 
@@ -119,8 +120,9 @@ uma autorização para lançar dinheiro. A exclusão de Maria/rascunho durável 
 não se aplica como proibição global deste novo recorte; também não altera o rascunho local
 daquela entrega.
 
-1. **Selecionar e consentir:** seleção local até **Analisar e guardar rascunho**, com resumo
-   do processamento e da retenção. Só então guardar o objeto privado/sessão autorizados.
+1. **Selecionar e consentir:** CSV ou PDF textual permanece local até **Analisar e guardar
+   rascunho**, com resumo do processamento e da retenção. Só então guardar o objeto
+   privado/sessão autorizados. PDF com raster não entra como PDF textual e exige o recorte OCR.
 2. **Analisar e revisar:** usar parsers e serviços financeiros existentes, consultar candidatos
    autorizados e explicitar incertezas. Origem, finalidade, compra e ocorrência não são
    intercambiáveis; nome/valor isolados não provam identidade nem pagamento.
@@ -137,6 +139,28 @@ daquela entrega.
    Conclusão/cancelamento soltam referências, e o original privado é removido quando não houver
    outra referência/retenção autorizada. Comprovantes e proveniência financeira mínima ficam
    preservados conforme seu contrato, sem guardar a imagem por omissão.
+
+Durante uma sessão ativa, as pendências são resolvidas por controles manuais e determinísticos:
+
+- perguntas focadas do rascunho usam `PATCH /import-sessions/:id/draft`, sem modelo ou tool;
+  atestações documentais continuam no writer nativo separado, também sem `/agent/chat`;
+- a arquitetura contextual de sessão não existe mais: sem turno/outcome de importação, texto
+  livre, aprovação de escopo ou tool contextual. O PATCH legado só altera `selectedLineIds`,
+  com `questionId: null` e `replaceLines: []`;
+- dinheiro, datas, parcelas e significado aceitam somente literais estritos; enums e decisões
+  vêm de opções tipadas e autorizadas; finalidade exige `NO_TARGETS` explícito ou um único
+  `TARGET` integral em REFORMA ativa, acessível e diferente da proprietária, sem destino
+  silencioso; eventual cômodo pertence à REFORMA escolhida;
+- voz apenas preenche e pré-visualiza deterministicamente o campo atual; a pessoa precisa
+  conferir e guardar, sem autosubmit ou fallback para LLM. Alternativas, múltiplos nomes ou
+  incerteza no estabelecimento falham fechadas e permanecem para correção manual;
+- preparar a proposta e consultar o resultado são chamadas diretas da sessão. `READY` abre a
+  revisão; `NEEDS_INPUT` volta às perguntas sem confirmação, execução ou resultado. Nenhuma
+  dessas ações substitui a confirmação financeira autenticada e separada no card;
+- a Maria genérica permanece fora desse subfluxo, com canal aninhado `TEXT`/`VOICE` apenas como
+  proveniência. A detecção do pedido inicial pode abrir a entrada determinística CSV/PDF, sem
+  transferir a sessão ao provider. Vault OFF por padrão continua fail-closed, e os sete dias sem
+  edição continuam inalterados.
 
 O canal Maria não cria outro ledger, motor de dedupe ou cronograma. Permanecem os contratos
 de [caixa](cockpit-caixa-real.md), [faturas e undo](visao-conta-faturas.md),
@@ -164,18 +188,25 @@ transacional de criação/rateio em `apps/api`. O salvamento atual de
 `CreateLinkedExpenseModal` cria uma despesa imediatamente: apenas seus campos
 podem ser reutilizados em modo rascunho sem esse POST.
 
-### Recorte Maria: contrato prospectivo, não implementação
+### Recorte Maria no candidato
 
-As responsabilidades conceituais são separadas em sessão (`ImportSession`), objeto privado
+As responsabilidades continuam separadas em sessão (`ImportSession`), objeto privado
 (`ImportArtifact`), referência sessão/objeto (`ImportSessionArtifact`) e observação documental
 (`ImportObservation`). Não são quatro fontes de dinheiro nem um novo ledger. Recibos e
 identidades financeiras existentes continuam nos respectivos serviços.
 
-Security PASS conceitual não fecha schema, interfaces ou os **seis gaps técnicos ainda em
-tratamento pelo architect**. Este documento não os declara resolvidos nem inventa endpoints,
-limites operacionais ou prova de release. O código consumidor de novas sessões deve partir
-do commit normativo aprovado e dos gates técnicos aplicáveis. Ver
-[decisão de escopo no SDD](plano-centro-financeiro-sdd.md#24-recorte-de-importação-maria).
+No candidato `881e9b5c`, o controller diferencia o envelope focado no mesmo
+`PATCH /import-sessions/:id/draft`; o parser estrito e o grant
+`FOCUSED_DRAFT_ANSWER` ficam em
+`apps/api/src/imports/import-session/import-session.focused-draft-answer.ts`.
+Os controles e a serialização vivem em
+`apps/web/src/app/projects/[projectId]/maria/_components/ImportFocusedDraftQuestion.tsx` e
+`apps/web/src/app/projects/[projectId]/maria/_lib/import-focused-draft-transport.ts`.
+O módulo público de conversa contextual e seus adaptadores de UI foram removidos; o contrato
+público conserva somente a ação de entrada e a proveniência de canal. O PATCH legado é
+selection-only, enquanto respostas passam pelo envelope focado ou pelo endpoint documental.
+`POST /import-sessions/:id/prepare` e `GET /import-sessions/:id/result` permanecem caminhos
+diretos. Estes locatores descrevem o candidato, não atestam merge, Linux, release ou produção.
 
 ## Apêndice histórico
 
