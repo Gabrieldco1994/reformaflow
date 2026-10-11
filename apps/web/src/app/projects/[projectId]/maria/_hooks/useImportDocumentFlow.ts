@@ -16,10 +16,10 @@ import {
   uploadImportSessionAttachment,
 } from "../_lib/import-session-api";
 import { importRoot } from "../_lib/import-session-keys";
-import { importConversationFailure } from "../_lib/import-conversation-copy";
 import {
   classifyImportFailure,
   describeImportFailure,
+  importWorkflowFailure,
   isPdfDocumentErrorCode,
   type ImportWireErrorCode,
 } from "../_lib/import-session-errors";
@@ -194,7 +194,7 @@ export function useImportDocumentFlow(
     },
   });
   const describe = (error: unknown): DocumentFailure => {
-    const context = importConversationFailure(error);
+    const context = importWorkflowFailure(error);
     const info = describeImportFailure(
       classifyImportFailure(error),
       "document",

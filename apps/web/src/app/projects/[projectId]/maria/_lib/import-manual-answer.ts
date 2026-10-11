@@ -128,11 +128,20 @@ export function deterministicVoiceAnswer(
 ): DeterministicVoiceAnswer | null {
   const text = transcript.trim();
   if (!text) return null;
-  if (field === "merchant")
+  if (field === "merchant") {
+    const normalized = text.toLocaleLowerCase("pt-BR");
+    const uncertain =
+      /[\n\r,;/\\|]/.test(text) ||
+      /\s+(?:ou|e)\s+/i.test(text) ||
+      /(?:^|\s)(?:acho|talvez|provavelmente|possivelmente|incert[oa])(?:\s|$)/i.test(
+        normalized,
+      ) ||
+      /\bn[aã]o\s+(?:sei|lembro|tenho\s+certeza)\b/i.test(normalized);
     return text.length <= IMPORT_SESSION_PRIMITIVES.maxSupplierLength &&
-      !/[\n\r;|]/.test(text)
+      !uncertain
       ? { field, value: text }
       : null;
+  }
   if (field === "installmentIndex") {
     const value = positiveInteger(text);
     return value === null ? null : { field, value };

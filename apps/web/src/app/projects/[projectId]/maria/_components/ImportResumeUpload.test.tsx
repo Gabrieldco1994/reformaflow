@@ -38,6 +38,22 @@ describe("ImportResumeUpload", () => {
     expect(documents.resume).toHaveBeenCalledWith([file], ["CSV"]);
   });
 
+  it("states the deterministic parser boundary before upload consent", () => {
+    render(
+      <ImportResumeUpload
+        view={view(["UPLOAD"])}
+        documents={docs({ supportedFormats: ["CSV", "PDF"] })}
+      />,
+    );
+    expect(
+      screen.getByText(/parsers determinísticos locais e do servidor/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/nenhum documento é enviado a LLM ou OCR/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/OCR não está disponível/i)).toBeInTheDocument();
+  });
+
   it.each([
     ["server does not offer UPLOAD", view(["ANALYZE"]), docs()],
     ["hook cannot resume", view(["UPLOAD"]), docs({ canResume: false })],

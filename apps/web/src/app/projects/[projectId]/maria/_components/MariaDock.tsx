@@ -36,7 +36,6 @@ interface Props {
    * comum do chat; a ação (ou indisponibilidade) vem do servidor.
    */
   onImportStart?: () => void;
-  importMode?: boolean;
   composer?: ReactNode;
 }
 
@@ -50,15 +49,12 @@ export function MariaDock({
   disabled,
   onOpenVoiceConversation,
   onImportStart,
-  importMode = false,
   composer,
 }: Props) {
   return (
-    <div
-      className={`pessoal-minimal-maria-dock bg-gradient-to-t from-lifeone-surface via-lifeone-surface/95 to-transparent pb-2 pt-3 ${importMode ? "min-w-0" : "sticky bottom-0 z-10 -mx-4 px-4"}`}
-    >
+    <div className="pessoal-minimal-maria-dock sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-lifeone-surface via-lifeone-surface/95 to-transparent px-4 pb-2 pt-3">
       <div
-        className={`mb-2 grid grid-cols-1 gap-2 ${!importMode && onImportStart ? "sm:grid-cols-2" : ""}`}
+        className={`mb-2 grid grid-cols-1 gap-2 ${onImportStart ? "sm:grid-cols-2" : ""}`}
       >
         <button
           type="button"
@@ -70,7 +66,7 @@ export function MariaDock({
           <AudioLines className="h-3.5 w-3.5" aria-hidden />
           {VOICE_CONVERSATION_CTA_LABEL}
         </button>
-        {!importMode && onImportStart && (
+        {onImportStart && (
           <button
             type="button"
             onClick={onImportStart}
@@ -83,25 +79,24 @@ export function MariaDock({
         )}
       </div>
       <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
-        {!importMode &&
-          MARIA_SUGGESTIONS.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              onClick={() => onSubmit(s.label)}
-              disabled={disabled}
-              className="min-h-[44px] shrink-0 whitespace-nowrap rounded-full border border-lifeone-hairline bg-white px-4 py-2.5 text-[13px] font-semibold text-lifeone-ink-2 disabled:opacity-50"
-            >
-              {s.label}
-            </button>
-          ))}
+        {MARIA_SUGGESTIONS.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => onSubmit(s.label)}
+            disabled={disabled}
+            className="min-h-[44px] shrink-0 whitespace-nowrap rounded-full border border-lifeone-hairline bg-white px-4 py-2.5 text-[13px] font-semibold text-lifeone-ink-2 disabled:opacity-50"
+          >
+            {s.label}
+          </button>
+        ))}
         <button
           type="button"
           onClick={onMic}
           disabled={disabled || !micSupported}
           className="min-h-[44px] shrink-0 whitespace-nowrap rounded-full border border-lifeone-hairline bg-white px-4 py-2.5 text-[13px] font-semibold text-lifeone-ink-2 disabled:opacity-50"
         >
-          {importMode ? "Responder por voz" : VOICE_LAUNCH_CHIP_LABEL}
+          {VOICE_LAUNCH_CHIP_LABEL}
         </button>
       </div>
 
@@ -118,11 +113,7 @@ export function MariaDock({
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             placeholder={
-              listening
-                ? "Ouvindo…"
-                : importMode
-                  ? "Responda sobre esta importação"
-                  : "Pergunte ou lance… “paguei 30 de uber”"
+              listening ? "Ouvindo…" : "Pergunte ou lance… “paguei 30 de uber”"
             }
             disabled={disabled}
             className="min-h-[44px] flex-1 rounded-2xl border border-lifeone-hairline bg-white px-4 py-3 text-[15px] font-medium text-lifeone-ink shadow-lifeone-card disabled:opacity-60"

@@ -21,10 +21,10 @@ import {
 import { importKeys, importRoot } from "../_lib/import-session-keys";
 import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-read";
 import {
-  importConversationFailure,
-  importReceiptSpeech,
-  type ConversationFailure,
-} from "../_lib/import-conversation-copy";
+  importWorkflowFailure,
+  type ImportWorkflowFailure,
+} from "../_lib/import-session-errors";
+import { importReceiptSpeech } from "../_lib/import-session-copy";
 import {
   importDeclarationContext,
   type ImportResultRead,
@@ -53,7 +53,7 @@ interface Generation {
   live: boolean;
   busy: boolean;
   controller: AbortController | null;
-  revoked: ConversationFailure | null;
+  revoked: ImportWorkflowFailure | null;
 }
 interface Local {
   literal: string;
@@ -64,7 +64,7 @@ interface Local {
   scopeReview: ImportScopeReviewV1 | null;
   scopeRevision: number | null;
   channel: "TEXT" | "VOICE";
-  failure: ConversationFailure | null;
+  failure: ImportWorkflowFailure | null;
   pending: boolean;
   review: boolean;
   result: ImportResultRead | null;
@@ -190,7 +190,7 @@ export function useImportConversation(
   const failure =
     generation.revoked ??
     local.failure ??
-    (query.isError ? importConversationFailure(query.error) : null);
+    (query.isError ? importWorkflowFailure(query.error) : null);
   if (failure?.privateContextLost) {
     generation.revoked = failure;
     generation.controller?.abort();
@@ -216,7 +216,7 @@ export function useImportConversation(
   const snapshotStillCurrent = (revision: number | undefined) =>
     client.getQueryData<ImportSessionViewV1>(key)?.revision === revision;
   const fail = (error: unknown) => {
-    const failure = importConversationFailure(error);
+    const failure = importWorkflowFailure(error);
     update(
       failure.privateContextLost
         ? { ...empty(generation.initialChannel), failure }
@@ -242,23 +242,61 @@ export function useImportConversation(
       ((fresh.state === "READY" && fresh.actions.includes("CONFIRM")) ||
         (fresh.state === "CONFIRMED" && fresh.actions.includes("EXECUTE"))),
     );
-  const verifiedPrepared = (
+  const preparedOutcome = (
     previous: ImportSessionViewV1,
     fresh: ImportSessionViewV1,
-  ) =>
-    fresh.id === previous.id &&
-    fresh.ownerProjectId === previous.ownerProjectId &&
-    fresh.cardId === previous.cardId &&
-    fresh.revision === previous.revision + 1 &&
-    fresh.state === "READY" &&
-    fresh.confirmation === null &&
-    fresh.receipt === null &&
-    reviewReady(fresh) &&
-    sameFocusedValue(fresh.attachments, previous.attachments) &&
-    sameFocusedValue(fresh.lines, previous.lines) &&
-    sameFocusedValue(fresh.selectedLineIds, previous.selectedLineIds) &&
-    sameFocusedValue(fresh.questions, previous.questions) &&
-    sameFocusedValue(fresh.declaredFacts, previous.declaredFacts);
+  ): "READY" | "NEEDS_INPUT" | null => {
+    const common =
+      fresh.id === previous.id &&
+      fresh.ownerProjectId === previous.ownerProjectId &&
+      fresh.cardId === previous.cardId &&
+      fresh.revision === previous.revision + 1 &&
+      fresh.confirmation === null &&
+      fresh.receipt === null &&
+      sameFocusedValue(fresh.attachments, previous.attachments) &&
+      sameFocusedValue(fresh.selectedLineIds, previous.selectedLineIds);
+    if (!common) return null;
+    if (
+      fresh.state === "READY" &&
+      reviewReady(fresh) &&
+      sameFocusedValue(fresh.lines, previous.lines) &&
+      sameFocusedValue(fresh.questions, previous.questions) &&
+      sameFocusedValue(fresh.declaredFacts, previous.declaredFacts)
+    )
+      return "READY";
+    if (
+      fresh.state === "NEEDS_INPUT" &&
+      fresh.proposal === null &&
+      fresh.actions.includes("RESOLVE") &&
+      !fresh.actions.some((action) =>
+        ["CONFIRM", "EXECUTE", "READ_RESULT"].includes(action),
+      ) &&
+      fresh.questions.some(
+        (question) =>
+          isPendingImportQuestion(question) &&
+          question.lineIds.some((id) => fresh.selectedLineIds.includes(id)),
+      )
+    )
+      return "NEEDS_INPUT";
+    return null;
+  };
+
+  const acceptPrepared = (
+    fresh: ImportSessionViewV1,
+    outcome: "READY" | "NEEDS_INPUT",
+  ) => {
+    client.setQueryData(key, fresh);
+    update({
+      pending: false,
+      failure: null,
+      review: outcome === "READY",
+      focus:
+        outcome === "NEEDS_INPUT"
+          ? (fresh.questions.find(isPendingImportQuestion) ?? null)
+          : null,
+      literal: "",
+    });
+  };
 
   async function openReview() {
     if (!active() || generation.busy) return null;
@@ -285,38 +323,18 @@ export function useImportConversation(
         { expectedRevision },
         controller.signal,
       );
-      if (
-        !active() ||
-        !snapshotStillCurrent(expectedRevision) ||
-        !verifiedPrepared(view, fresh)
-      )
+      const outcome = preparedOutcome(view, fresh);
+      if (!active() || !snapshotStillCurrent(expectedRevision) || !outcome)
         throw new ImportWorkflowResponseError();
-      client.setQueryData(key, fresh);
-      update({
-        pending: false,
-        failure: null,
-        review: true,
-        focus: null,
-        literal: "",
-      });
+      acceptPrepared(fresh, outcome);
       return fresh;
     } catch (error) {
       if (!active()) return null;
       try {
         const recovered = await readCurrent(controller.signal);
-        if (
-          active() &&
-          snapshotStillCurrent(expectedRevision) &&
-          verifiedPrepared(view, recovered)
-        ) {
-          client.setQueryData(key, recovered);
-          update({
-            pending: false,
-            failure: null,
-            review: true,
-            focus: null,
-            literal: "",
-          });
+        const outcome = preparedOutcome(view, recovered);
+        if (active() && snapshotStillCurrent(expectedRevision) && outcome) {
+          acceptPrepared(recovered, outcome);
           return recovered;
         }
       } catch {
@@ -484,7 +502,7 @@ export function useImportConversation(
     } catch (error) {
       if (!active()) return null;
       if (
-        !importConversationFailure(error).privateContextLost &&
+        !importWorkflowFailure(error).privateContextLost &&
         visibleContext()
       ) {
         try {
@@ -639,7 +657,7 @@ export function useImportConversation(
       // A lost/malformed response is not permission to resend or announce success.
       // Consult the authoritative fact only while the original consumer is current.
       if (
-        !importConversationFailure(error).privateContextLost &&
+        !importWorkflowFailure(error).privateContextLost &&
         visibleContext()
       ) {
         try {

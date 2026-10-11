@@ -215,8 +215,7 @@ function FocusedQuestion({
       previewInput({ kind: "VALUE", text: voiceCapture.text });
       return;
     }
-    const guidance =
-      "A fala foi mantida como rascunho. Confira este campo manualmente; nada foi enviado.";
+    const guidance = "Confira este campo manualmente; nada foi enviado.";
     setPreview(null);
     setPreviewError(guidance);
     onVoiceGuidance?.(guidance);

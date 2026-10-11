@@ -213,6 +213,41 @@ it("builds one project-room integral target using the purchase amount", () => {
   });
 });
 
+it("clears the room when the selected destination project changes", () => {
+  setup("targets", "REFORMA", {
+    targetProjects: [
+      {
+        id: "project-2",
+        name: "Reforma 2",
+        rooms: [{ id: "room-2", name: "Cozinha" }],
+      },
+      {
+        id: "project-3",
+        name: "Reforma 3",
+        rooms: [{ id: "room-3", name: "Quarto" }],
+      },
+    ],
+  });
+  fireEvent.click(
+    screen.getByRole("radio", {
+      name: "Enviar o valor integral para outro projeto",
+    }),
+  );
+  const project = screen.getByLabelText("Projeto de destino");
+  const room = screen.getByLabelText("Cômodo (opcional)");
+  fireEvent.change(project, { target: { value: "project-2" } });
+  fireEvent.change(room, { target: { value: "room-2" } });
+  expect(room).toHaveValue("room-2");
+
+  fireEvent.change(project, { target: { value: "project-3" } });
+
+  expect(room).toHaveValue("");
+  expect(
+    screen.queryByRole("option", { name: "Cozinha" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "Quarto" })).toBeInTheDocument();
+});
+
 it.each([
   {
     field: "amountCents" as const,
@@ -384,6 +419,157 @@ it("ambiguous voice keeps the transcript, announces guidance, focuses manual con
       />
     </ProjectProvider>,
   );
+  expect(onVoiceGuidance).not.toHaveBeenCalled();
+  expect(onAnswer).not.toHaveBeenCalled();
+});
+
+it("previews one clear merchant voice value without sending it", async () => {
+  const onAnswer = vi.fn();
+  render(
+    <ImportFocusedQuestion
+      question={{
+        id: "merchant-question",
+        lineIds: ["line"],
+        field: "merchant",
+        text: "Qual estabelecimento?",
+        subject: {
+          kind: "OBSERVATION",
+          observationId: "observation",
+          meaningContext: null,
+        },
+        answerState: "UNANSWERED",
+      }}
+      lines={[{ id: "line", titulo: "Compra" }]}
+      inputLabel="Nome do estabelecimento"
+      inputHint="Confira"
+      value="Loja Fictícia Norte"
+      revision={7}
+      voiceCapture={{
+        id: 10,
+        text: "Loja Fictícia Norte",
+        questionId: "merchant-question",
+        revision: 7,
+      }}
+      onAnswer={onAnswer}
+    />,
+  );
+
+  await waitFor(() =>
+    expect(screen.getByLabelText("Prévia da informação")).toHaveTextContent(
+      "Loja Fictícia Norte",
+    ),
+  );
+  expect(onAnswer).not.toHaveBeenCalled();
+});
+
+it.each([
+  "Carrefour ou Assaí",
+  "Carrefour / Assaí",
+  "Carrefour e Assaí",
+  "não sei",
+])(
+  "keeps uncertain merchant voice %j manual, focused, announced, and unsent",
+  async (transcript) => {
+    const onAnswer = vi.fn();
+    const onVoiceGuidance = vi.fn();
+    render(
+      <ImportFocusedQuestion
+        question={{
+          id: "merchant-question",
+          lineIds: ["line"],
+          field: "merchant",
+          text: "Qual estabelecimento?",
+          subject: {
+            kind: "OBSERVATION",
+            observationId: "observation",
+            meaningContext: null,
+          },
+          answerState: "UNANSWERED",
+        }}
+        lines={[{ id: "line", titulo: "Compra" }]}
+        inputLabel="Nome do estabelecimento"
+        inputHint="Confira"
+        value={transcript}
+        revision={7}
+        voiceCapture={{
+          id: 11,
+          text: transcript,
+          questionId: "merchant-question",
+          revision: 7,
+        }}
+        onVoiceGuidance={onVoiceGuidance}
+        onAnswer={onAnswer}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onVoiceGuidance).toHaveBeenCalledWith(
+        "Confira este campo manualmente; nada foi enviado.",
+      ),
+    );
+    expect(screen.getByLabelText("Nome do estabelecimento")).toHaveValue(
+      transcript,
+    );
+    expect(screen.getByLabelText("Nome do estabelecimento")).toHaveFocus();
+    expect(onAnswer).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  {
+    name: "late callback for another question",
+    capture: {
+      id: 12,
+      text: "Loja tardia",
+      questionId: "old-question",
+      revision: 8,
+    },
+  },
+  {
+    name: "callback from an earlier revision",
+    capture: {
+      id: 13,
+      text: "Loja antiga",
+      questionId: "merchant-question",
+      revision: 7,
+    },
+  },
+])("ignores merchant $name", async ({ capture }) => {
+  const onAnswer = vi.fn();
+  const onVoiceGuidance = vi.fn();
+  render(
+    <ImportFocusedQuestion
+      question={{
+        id: "merchant-question",
+        lineIds: ["line"],
+        field: "merchant",
+        text: "Qual estabelecimento?",
+        subject: {
+          kind: "OBSERVATION",
+          observationId: "observation",
+          meaningContext: null,
+        },
+        answerState: "UNANSWERED",
+      }}
+      lines={[{ id: "line", titulo: "Compra" }]}
+      inputLabel="Nome do estabelecimento"
+      inputHint="Confira"
+      value={capture.text}
+      revision={8}
+      voiceCapture={capture}
+      onVoiceGuidance={onVoiceGuidance}
+      onAnswer={onAnswer}
+    />,
+  );
+
+  await waitFor(() =>
+    expect(screen.getByLabelText("Nome do estabelecimento")).toHaveValue(
+      capture.text,
+    ),
+  );
+  expect(
+    screen.queryByLabelText("Prévia da informação"),
+  ).not.toBeInTheDocument();
   expect(onVoiceGuidance).not.toHaveBeenCalled();
   expect(onAnswer).not.toHaveBeenCalled();
 });

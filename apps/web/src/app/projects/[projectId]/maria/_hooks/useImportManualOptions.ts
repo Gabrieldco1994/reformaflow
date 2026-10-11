@@ -5,7 +5,9 @@ import type {
   ImportSessionCandidateV1,
   ImportSessionQuestionV1,
 } from "@reformaflow/domain";
+import { hasFeature, ProjectType } from "@reformaflow/domain";
 import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/auth-context";
 import { getImportCandidates } from "../_lib/import-session-api";
 import { isRecord } from "../_lib/import-session-read";
 import { importRoot } from "../_lib/import-session-keys";
@@ -17,18 +19,56 @@ const named = (value: unknown): value is { id: string; name: string } =>
   typeof value.name === "string" &&
   value.name.trim().length > 0;
 
-async function readTargetProjects(): Promise<ImportTargetProjectOption[]> {
+const activeProject = (
+  value: unknown,
+): value is {
+  id: string;
+  name: string;
+  type: string;
+  deletedAt: null;
+} =>
+  isRecord(value) &&
+  typeof value.id === "string" &&
+  typeof value.name === "string" &&
+  value.name.trim().length > 0 &&
+  typeof value.type === "string" &&
+  Object.hasOwn(value, "deletedAt") &&
+  value.deletedAt === null;
+
+async function readTargetProjects(
+  ownerProjectId: string,
+  hasProjectType: (type: string) => boolean,
+  hasProjectAccess: (projectId: string) => boolean,
+): Promise<ImportTargetProjectOption[]> {
   const list = await api.get<unknown>("/projects");
-  if (!Array.isArray(list) || !list.every(named))
+  if (!Array.isArray(list) || !list.every((project) => isRecord(project)))
     throw new Error("Import target catalog unavailable");
+  const eligible = list.filter(
+    (
+      project,
+    ): project is {
+      id: string;
+      name: string;
+      type: string;
+      deletedAt: null;
+    } =>
+      activeProject(project) &&
+      project.id !== ownerProjectId &&
+      project.type === ProjectType.REFORMA &&
+      hasFeature(ProjectType.REFORMA, "expenses") &&
+      hasProjectType(project.type) &&
+      hasProjectAccess(project.id),
+  );
   return Promise.all(
-    list.map(async (project) => {
+    eligible.map(async (project) => {
       const detail = await api.get<unknown>(
         `/projects/${encodeURIComponent(project.id)}`,
       );
       if (
         !isRecord(detail) ||
         detail.id !== project.id ||
+        detail.type !== ProjectType.REFORMA ||
+        detail.deletedAt !== null ||
         !Array.isArray(detail.rooms)
       )
         throw new Error("Import target catalog unavailable");
@@ -51,8 +91,10 @@ async function readTargetProjects(): Promise<ImportTargetProjectOption[]> {
 export function useImportManualOptions(
   userId: string | null,
   sessionId: string,
+  ownerProjectId: string | null,
   question: ImportSessionQuestionV1 | null,
 ) {
+  const { hasProjectType, hasProjectAccess } = useAuth();
   const decision = question?.field === "decision" && !("subject" in question);
   const targets = question?.field === "targets" && !("subject" in question);
   const candidates = useQuery({
@@ -102,15 +144,23 @@ export function useImportManualOptions(
       ...importRoot(userId ?? "anonymous"),
       "manual-target-projects",
       sessionId,
+      ownerProjectId,
       question?.id,
     ],
-    enabled: Boolean(userId && targets),
+    enabled: Boolean(userId && ownerProjectId && targets),
     retry: false,
     staleTime: 0,
     gcTime: 0,
     networkMode: "always",
     refetchOnWindowFocus: false,
-    queryFn: readTargetProjects,
+    queryFn: () => {
+      if (!ownerProjectId) throw new Error("Import target catalog unavailable");
+      return readTargetProjects(
+        ownerProjectId,
+        hasProjectType,
+        hasProjectAccess,
+      );
+    },
   });
   const active = decision ? candidates : targets ? projects : null;
   return {

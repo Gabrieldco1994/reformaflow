@@ -371,7 +371,9 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   localmente sobre o main de #714; isso não significa disponibilidade em produção.
   Quando o vault privado está disponível, peça a importação e escolha explicitamente
   o cartão e o projeto. Os formatos vêm do servidor: CSV e PDF textual sem imagens
-  no recorte qualificado. O envio exige seleção dos arquivos e consentimento.
+  no recorte qualificado. O envio exige seleção dos arquivos e consentimento. Nesse
+  fluxo ativo, parsers determinísticos locais e do servidor processam o documento;
+  nenhum documento é enviado a LLM ou OCR.
   Um PDF escaneado, misto ou com qualquer imagem raster, inclusive um simples
   logotipo, recebe `OCR_REQUIRED`: OCR ainda não está disponível nesta importação.
   O suporte seguro a scans, fotos e PDFs com raster é trabalho futuro,
@@ -394,6 +396,13 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   rascunho restante**, que abre as compras ainda não aplicadas já selecionadas.
   Sessões podem ser retomadas após recarregar. Trocar de conta limpa a seleção e
   o contexto privado anterior. Não envie senha de PDF à Maria.
+  Quando a preparação encontra novas perguntas, a tela volta aos controles
+  manuais com o rascunho atualizado, sem mostrar confirmação ou comprovante.
+  Destinos manuais excluem o projeto proprietário e listam somente reformas
+  ativas e acessíveis; os cômodos sempre pertencem ao projeto escolhido.
+  Na resposta por voz do estabelecimento, alternativas, múltiplos nomes e
+  incerteza permanecem no campo para conferência manual e nunca são enviados
+  automaticamente.
 - Mostra abertura proativa com leitura do mês atual.
 - No cockpit mensal, o CTA **"Ver detalhes"** dos cards de "Maria percebeu" abre
   a mesma tela **Maria** do projeto, para aprofundar o insight.

@@ -220,8 +220,7 @@ export function ImportFocusedDraftQuestion({
       setPreview({ answer, stamp, text });
       return;
     }
-    const guidance =
-      "A fala foi mantida como rascunho. Confira este campo manualmente; nada foi enviado.";
+    const guidance = "Confira este campo manualmente; nada foi enviado.";
     setPreview(null);
     setError(guidance);
     onVoiceGuidance?.(guidance);

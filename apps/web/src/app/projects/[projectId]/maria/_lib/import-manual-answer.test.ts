@@ -29,6 +29,14 @@ describe("strict deterministic manual answers", () => {
     ["amountMeaning", "acho que total ou parcela"],
     ["decision", "criar"],
     ["targets", "sala"],
+    ["merchant", ""],
+    ["merchant", "Carrefour ou Assaí"],
+    ["merchant", "Carrefour / Assaí"],
+    ["merchant", "Carrefour e Assaí"],
+    ["merchant", "Carrefour, Assaí"],
+    ["merchant", "não sei"],
+    ["merchant", "acho que Carrefour"],
+    ["merchant", "talvez Assaí"],
   ] as const)(
     "keeps ambiguous or unsupported voice %s manual",
     (field, text) => {

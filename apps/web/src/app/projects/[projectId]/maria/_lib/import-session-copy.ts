@@ -2,7 +2,9 @@ import type {
   ImportSessionAmountMeaning,
   ImportSessionState,
 } from "@reformaflow/domain";
-import type { ImportViewRead } from "./import-session-read";
+import { buildReceiptView, lookupNames } from "./import-receipt-view";
+import type { ImportResultRead, ImportViewRead } from "./import-session-read";
+import { ImportWorkflowResponseError } from "./import-session-workflow-read";
 
 export const IMPORT_STATE_LABEL: Record<ImportSessionState, string> = {
   DRAFT: "Rascunho guardado",
@@ -34,4 +36,14 @@ export function importActionGate(actions: ImportViewRead["actions"]) {
     canCancel: actions.includes("CANCEL"),
     canReadResult: actions.includes("READ_RESULT"),
   };
+}
+
+export function importReceiptSpeech(result: ImportResultRead): string | null {
+  if (result.state !== "APPLIED" || !result.receipt) return null;
+  const view = buildReceiptView(
+    result.receipt,
+    lookupNames({ projects: [], cards: [] }),
+  );
+  if (!view) throw new ImportWorkflowResponseError();
+  return `Comprovante consultado. Total criado: ${view.createdTotalLabel}.`;
 }

@@ -139,6 +139,48 @@ export interface ImportFailureInfo {
   code: ImportWireErrorCode | null;
 }
 
+export interface ImportWorkflowFailure {
+  message: string;
+  recovery: "READ_SESSION" | "READ_RESULT" | "REAUTHENTICATE" | "NONE";
+  privateContextLost: boolean;
+}
+
+export function importWorkflowFailure(error: unknown): ImportWorkflowFailure {
+  if (error instanceof ApiResponseError) {
+    if (error.status === 401)
+      return {
+        message: IMPORT_ERROR_COPY.UNAUTHENTICATED,
+        recovery: "REAUTHENTICATE",
+        privateContextLost: true,
+      };
+    if (error.status === 403 || error.status === 404)
+      return {
+        message: "Esta importação não está disponível para esta sessão.",
+        recovery: "NONE",
+        privateContextLost: true,
+      };
+    if (error.status === 429)
+      return {
+        message:
+          "O limite de consultas foi atingido. Consulte o estado guardado.",
+        recovery: "READ_SESSION",
+        privateContextLost: false,
+      };
+    if (error.status === 409)
+      return {
+        message: IMPORT_ERROR_COPY.REVISION_CONFLICT,
+        recovery: "READ_SESSION",
+        privateContextLost: false,
+      };
+  }
+  return {
+    message:
+      "Resultado não confirmado. Consulte o estado guardado antes de responder novamente.",
+    recovery: "READ_SESSION",
+    privateContextLost: false,
+  };
+}
+
 const OFFLINE =
   "Sem conexão com o servidor. Verifique sua internet e tente de novo.";
 const TIMEOUT = "O servidor demorou para responder. Tente de novo.";

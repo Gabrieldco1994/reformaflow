@@ -88,6 +88,7 @@ function Conversation({
   const manualOptions = useImportManualOptions(
     conversation.userId,
     sessionId ?? "",
+    view?.ownerProjectId ?? null,
     question,
   );
   const { names } = useImportCatalog(

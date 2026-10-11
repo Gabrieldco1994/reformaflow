@@ -332,8 +332,8 @@ function Entry({
                 )}
                 <p>
                   Selecione arquivos locais nos formatos{" "}
-                  {importFormatLabel(capability.formats)} e autorize a análise.
-                  Isso não confirma lançamentos.
+                  {importFormatLabel(capability.formats)} e autorize o
+                  processamento determinístico. Isso não confirma lançamentos.
                 </p>
                 <ImportLocalDocuments
                   key={`${contextKey}:${actionSequence}`}

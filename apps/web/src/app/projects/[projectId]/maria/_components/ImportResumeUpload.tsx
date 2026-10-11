@@ -42,8 +42,8 @@ export function ImportResumeUpload({
       <h3 className="font-semibold">Reenviar arquivo ({label})</h3>
       <p>
         O arquivo deste envio não está mais neste dispositivo. Selecione {label}
-        novamente e autorize a análise para continuar. Isso não confirma
-        lançamentos.
+        novamente e autorize o processamento determinístico para continuar. Isso
+        não confirma lançamentos.
       </p>
       <ImportLocalDocuments
         formats={formats}

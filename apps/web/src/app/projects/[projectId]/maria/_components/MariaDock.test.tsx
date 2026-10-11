@@ -80,13 +80,6 @@ describe("MariaDock", () => {
     expect(IMPORT_CSV_PROMPT.toLowerCase()).toMatch(/fatura/);
   });
 
-  it("hides the CTA in import mode", () => {
-    setup({ importMode: true, onImportStart: vi.fn() });
-    expect(
-      screen.queryByRole("button", { name: IMPORT_CSV_CTA_LABEL }),
-    ).not.toBeInTheDocument();
-  });
-
   it("disables the CTA while the agent is busy", () => {
     setup({ disabled: true, onImportStart: vi.fn() });
     expect(
