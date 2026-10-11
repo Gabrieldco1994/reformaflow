@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -9,7 +9,9 @@ interface SpeechRecognitionLike {
   onend: (() => void) | null;
   onerror: ((event: { error: string }) => void) | null;
   onresult:
-    | ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void)
+    | ((event: {
+        results: ArrayLike<ArrayLike<{ transcript: string }>>;
+      }) => void)
     | null;
   start: () => void;
   stop: () => void;
@@ -32,9 +34,10 @@ export function useSpeechRecognition() {
   const [listening, setListening] = useState(false);
   const ctorRef = useRef<SpeechRecognitionCtor | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const ownershipRef = useRef<symbol | null>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === "undefined") return;
     const win = window as Window & {
       SpeechRecognition?: SpeechRecognitionCtor;
       webkitSpeechRecognition?: SpeechRecognitionCtor;
@@ -55,57 +58,95 @@ export function useSpeechRecognition() {
   const start = useCallback((callbacks: VoiceCaptureCallbacks) => {
     const ctor = ctorRef.current;
     if (!ctor) {
-      callbacks.onError?.('Seu navegador não suporta captura de voz.');
+      callbacks.onError?.("Seu navegador não suporta captura de voz.");
       return;
     }
 
+    let recognition: SpeechRecognitionLike;
     try {
-      recognitionRef.current?.abort();
+      recognition = new ctor();
+    } catch {
+      callbacks.onError?.("Falha ao iniciar o microfone neste dispositivo.");
+      return;
+    }
+
+    const previousRecognition = recognitionRef.current;
+    const ownership = Symbol("speech-recognition");
+    ownershipRef.current = ownership;
+    recognitionRef.current = recognition;
+    setListening(false);
+
+    try {
+      previousRecognition?.abort();
     } catch {
       // sem instância anterior
     }
 
+    const ownsRecognition = () => ownershipRef.current === ownership;
     try {
-      const recognition = new ctor();
-      recognitionRef.current = recognition;
-      recognition.lang = 'pt-BR';
+      recognition.lang = "pt-BR";
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
       recognition.continuous = false;
-      recognition.onstart = () => setListening(true);
-      recognition.onend = () => setListening(false);
-      recognition.onerror = (event) => {
+      recognition.onstart = () => {
+        if (!ownsRecognition()) return;
+        setListening(true);
+      };
+      recognition.onend = () => {
+        if (!ownsRecognition()) return;
+        ownershipRef.current = null;
+        recognitionRef.current = null;
         setListening(false);
-        if (event.error === 'no-speech') {
-          callbacks.onError?.('Não captei sua voz. Tente novamente.');
+      };
+      recognition.onerror = (event) => {
+        if (!ownsRecognition()) return;
+        ownershipRef.current = null;
+        recognitionRef.current = null;
+        setListening(false);
+        if (event.error === "no-speech") {
+          callbacks.onError?.("Não captei sua voz. Tente novamente.");
           return;
         }
-        if (event.error === 'not-allowed') {
-          callbacks.onError?.('Microfone bloqueado. Permita o acesso para usar voz.');
+        if (event.error === "not-allowed") {
+          callbacks.onError?.(
+            "Microfone bloqueado. Permita o acesso para usar voz.",
+          );
           return;
         }
-        if (event.error === 'aborted') return;
-        callbacks.onError?.('Não consegui captar sua voz. Tente novamente.');
+        if (event.error === "aborted") return;
+        callbacks.onError?.("Não consegui captar sua voz. Tente novamente.");
       };
       recognition.onresult = (event) => {
-        const text = event.results[0]?.[0]?.transcript?.trim() ?? '';
+        if (!ownsRecognition()) return;
+        const text = event.results[0]?.[0]?.transcript?.trim() ?? "";
         if (!text) {
-          callbacks.onError?.('Não consegui entender o áudio.');
+          callbacks.onError?.("Não consegui entender o áudio.");
           return;
         }
         callbacks.onResult(text);
       };
       recognition.start();
     } catch {
+      if (!ownsRecognition()) return;
+      ownershipRef.current = null;
+      recognitionRef.current = null;
       setListening(false);
-      callbacks.onError?.('Falha ao iniciar o microfone neste dispositivo.');
+      try {
+        recognition.abort();
+      } catch {
+        // no-op
+      }
+      callbacks.onError?.("Falha ao iniciar o microfone neste dispositivo.");
     }
   }, []);
 
   useEffect(() => {
     return () => {
+      const recognition = recognitionRef.current;
+      ownershipRef.current = null;
+      recognitionRef.current = null;
       try {
-        recognitionRef.current?.abort();
+        recognition?.abort();
       } catch {
         // no-op
       }
