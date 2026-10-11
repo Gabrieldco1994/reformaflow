@@ -3,7 +3,7 @@
  * Read-only assertions for an isolated Maria CSV QA database (never dev.db).
  * node scripts/qa/maria-csv-assert.mjs pre-confirm --db "$RUNNER_TEMP/qa.db" --vault "$RUNNER_TEMP/vault"
  * node scripts/qa/maria-csv-assert.mjs post-confirm --db "$RUNNER_TEMP/qa.db" --selected-count 2 --session <id>
- * Optional: --selected-ids <comma-separated receipt line IDs>, --purge-wait-ms 30000.
+ * Optional: --selected-ids <comma-separated receipt line IDs>, --purge-wait-ms 75000.
  * With no selection flag, post-confirm expects every purchase in expected.json.
  * --selected-ids contains receipt line IDs, not observation or expense IDs.
  * --session must identify the original session; omit only when discovery is unambiguous.
@@ -138,7 +138,7 @@ function options(argv) {
   );
   if (selectedIds)
     assert.equal(count, selectedIds.length, "Selected IDs/count disagree");
-  const purgeWaitMs = Number(args["--purge-wait-ms"] ?? 30000);
+  const purgeWaitMs = Number(args["--purge-wait-ms"] ?? 75000);
   assert(
     Number.isSafeInteger(purgeWaitMs) &&
       purgeWaitMs >= 0 &&
@@ -263,7 +263,8 @@ function attachments(config, session) {
   return query(
     config.db,
     `SELECT id, artifact_id, position, file_name, state, released_at, reserved_bytes,
-    temporary_storage_key FROM import_session_artifacts WHERE session_id=${literal(session.id)} ORDER BY position`,
+    temporary_storage_key, temporary_purge_pending
+    FROM import_session_artifacts WHERE session_id=${literal(session.id)} ORDER BY position`,
   );
 }
 
@@ -321,7 +322,6 @@ function assertDuplicate(config, session) {
     "Duplicate attachment must be RELEASED",
   );
   assert(duplicate.released_at !== null, "Duplicate release timestamp missing");
-  assert.equal(duplicate.reserved_bytes, 0, "Duplicate quota was not released");
   assert.equal(
     duplicate.artifact_id,
     null,
@@ -333,7 +333,7 @@ function assertDuplicate(config, session) {
     !pending.includes(duplicate.id),
     "Duplicate remains in pendingAttachmentIds",
   );
-  return refs;
+  return duplicate;
 }
 
 function rawFiles(root, current = root) {
@@ -350,69 +350,166 @@ function rawFiles(root, current = root) {
   return files;
 }
 
-async function checkVault(config, session) {
-  if (!config.vault)
-    return {
-      checked: false,
-      note: "DB-only; raw-byte retention was not checked",
-    };
-  const deadline = Date.now() + config.purgeWaitMs;
-  for (;;) {
-    try {
-      const files = rawFiles(config.vault);
-      assert(files.length <= 1, "Vault retains duplicate raw bytes");
-      for (const file of files) {
-        assert.equal(
-          fs.statSync(file).size,
-          fixture.length,
-          "Unexpected vault byte length",
-        );
-        assert.equal(
-          sha256(fs.readFileSync(file)),
-          fixtureHash,
-          "Vault bytes differ from synthetic fixture",
-        );
-      }
-      if (config.phase === "pre-confirm")
-        return { checked: true, rawFileCount: files.length };
-      const liveRefs = query(
+function vaultState(config, session, duplicate) {
+  const currentDuplicate = attachments(config, session).find(
+    (ref) => ref.id === duplicate.id,
+  );
+  const files = config.vault ? rawFiles(config.vault) : null;
+  const liveRefs = config.vault
+    ? query(
         config.db,
         `SELECT r.id, r.session_id, s.state, s.expires_at FROM import_session_artifacts r
         JOIN import_artifacts a ON a.id=r.artifact_id JOIN import_sessions s ON s.id=r.session_id
         WHERE a.document_sha256=${literal(fixtureHash)} AND a.tenant_id=${literal(session.tenant_id)}
         AND a.owner_project_id=${literal(session.owner_project_id)} AND r.state!='RELEASED'`,
+      )
+    : [];
+  const artifacts = config.vault
+    ? query(
+        config.db,
+        `SELECT id, state, storage_key FROM import_artifacts WHERE document_sha256=${literal(fixtureHash)}
+        AND tenant_id=${literal(session.tenant_id)} AND owner_project_id=${literal(session.owner_project_id)}`,
+      )
+    : [];
+  let duplicateTemporaryPathExists = null;
+  if (config.vault && duplicate.temporary_storage_key !== null) {
+    const temporaryPath = path.resolve(
+      config.vault,
+      duplicate.temporary_storage_key,
+    );
+    assert(
+      inside(config.vault, temporaryPath),
+      "Duplicate temporary storage key escapes vault",
+    );
+    duplicateTemporaryPathExists = fs.existsSync(temporaryPath);
+  }
+  return {
+    duplicate: currentDuplicate,
+    duplicateTemporaryPathExists,
+    rawFiles: files?.map((file) => path.relative(config.vault, file)) ?? null,
+    liveRefs,
+    artifacts,
+  };
+}
+
+function assertVaultState(config, state) {
+  const duplicate = state.duplicate;
+  assert(duplicate, "Duplicate attachment disappeared during purge");
+  assert.equal(
+    duplicate.state,
+    "RELEASED",
+    "Duplicate attachment stopped being RELEASED during purge",
+  );
+  assert(
+    duplicate.released_at !== null,
+    "Duplicate release timestamp disappeared during purge",
+  );
+  assert.equal(
+    duplicate.artifact_id,
+    null,
+    "Duplicate bound a canonical artifact during purge",
+  );
+  assert.equal(
+    duplicate.temporary_storage_key,
+    null,
+    "Duplicate temporary storage key was not cleared",
+  );
+  assert.equal(
+    duplicate.temporary_purge_pending,
+    0,
+    "Duplicate temporary purge remains pending",
+  );
+  assert.equal(duplicate.reserved_bytes, 0, "Duplicate quota was not released");
+  if (!config.vault)
+    return {
+      checked: false,
+      note: "DB-only; raw-byte retention was not checked",
+    };
+  if (state.duplicateTemporaryPathExists !== null)
+    assert.equal(
+      state.duplicateTemporaryPathExists,
+      false,
+      "Duplicate temporary raw bytes still present",
+    );
+  assert(state.rawFiles.length <= 1, "Vault retains duplicate raw bytes");
+  for (const relativeFile of state.rawFiles) {
+    const file = path.join(config.vault, relativeFile);
+    assert.equal(
+      fs.statSync(file).size,
+      fixture.length,
+      "Unexpected vault byte length",
+    );
+    assert.equal(
+      sha256(fs.readFileSync(file)),
+      fixtureHash,
+      "Vault bytes differ from synthetic fixture",
+    );
+  }
+  for (const ref of state.liveRefs) {
+    assert(
+      !terminal.has(ref.state) && instant(ref.expires_at) > Date.now(),
+      "Unauthorized/expired retained reference",
+    );
+  }
+  if (state.liveRefs.length > 0)
+    return {
+      checked: true,
+      rawFileCount: state.rawFiles.length,
+      retainedByLiveSessionIds: [
+        ...new Set(state.liveRefs.map((ref) => ref.session_id)),
+      ],
+    };
+  assert.equal(
+    state.rawFiles.length,
+    0,
+    "Unreferenced raw CSV still present; wait for asynchronous purger",
+  );
+  assert(
+    state.artifacts.every((row) => row.storage_key === null),
+    "Unreferenced artifact still points to raw storage",
+  );
+  return { checked: true, rawFileCount: 0, retainedByLiveSessionIds: [] };
+}
+
+async function checkVault(config, session, duplicate) {
+  if (config.phase === "pre-confirm") {
+    if (!config.vault)
+      return {
+        checked: false,
+        note: "DB-only; raw-byte retention was not checked",
+      };
+    const files = rawFiles(config.vault);
+    assert(files.length <= 1, "Vault retains duplicate raw bytes");
+    for (const file of files) {
+      assert.equal(
+        fs.statSync(file).size,
+        fixture.length,
+        "Unexpected vault byte length",
       );
-      for (const ref of liveRefs) {
-        assert(
-          !terminal.has(ref.state) && instant(ref.expires_at) > Date.now(),
-          "Unauthorized/expired retained reference",
+      assert.equal(
+        sha256(fs.readFileSync(file)),
+        fixtureHash,
+        "Vault bytes differ from synthetic fixture",
+      );
+    }
+    return { checked: true, rawFileCount: files.length };
+  }
+  const startedAt = Date.now();
+  const deadline = startedAt + config.purgeWaitMs;
+  let lastState = null;
+  let lastError = null;
+  for (;;) {
+    try {
+      lastState = vaultState(config, session, duplicate);
+      return assertVaultState(config, lastState);
+    } catch (error) {
+      lastError = error;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out waiting for duplicate cleanup after ${Date.now() - startedAt}ms; ` +
+            `last state=${JSON.stringify(lastState)}; unmet=${lastError.message}`,
         );
       }
-      if (liveRefs.length > 0)
-        return {
-          checked: true,
-          rawFileCount: files.length,
-          retainedByLiveSessionIds: [
-            ...new Set(liveRefs.map((ref) => ref.session_id)),
-          ],
-        };
-      assert.equal(
-        files.length,
-        0,
-        "Unreferenced raw CSV still present; wait for asynchronous purger",
-      );
-      const artifacts = query(
-        config.db,
-        `SELECT storage_key FROM import_artifacts WHERE document_sha256=${literal(fixtureHash)}
-        AND tenant_id=${literal(session.tenant_id)} AND owner_project_id=${literal(session.owner_project_id)}`,
-      );
-      assert(
-        artifacts.every((row) => row.storage_key === null),
-        "Unreferenced artifact still points to raw storage",
-      );
-      return { checked: true, rawFileCount: 0, retainedByLiveSessionIds: [] };
-    } catch (error) {
-      if (Date.now() >= deadline) throw error;
       await delay(Math.min(250, deadline - Date.now()));
     }
   }
@@ -715,7 +812,7 @@ try {
   let result = { phase: config.phase, foreignKeys: "PASS" };
   if (config.phase !== "fk") {
     const session = findSession(config);
-    assertDuplicate(config, session);
+    const duplicate = assertDuplicate(config, session);
     const rows = financialRows(config, session);
     if (config.phase === "pre-confirm") {
       assert(
@@ -749,7 +846,7 @@ try {
         sessionId: session.id,
         ...checkReceipt(config, session, rows),
       };
-    result.vault = await checkVault(config, session);
+    result.vault = await checkVault(config, session, duplicate);
   }
   console.log(JSON.stringify({ status: "PASS", ...result }, null, 2));
 } catch (error) {

@@ -23,6 +23,8 @@ const REQUIRED_RUN_PREFIX = [
   'test -n "${QA_RUNTIME_DIR:-}"',
   'test "${TMPDIR:-}" = "$QA_RUNTIME_DIR"',
 ];
+const REQUIRED_POST_CONFIRM =
+  'node scripts/qa/maria-csv-assert.mjs post-confirm --db "$QA_DB_PATH" --selected-count 2 --vault "$QA_VAULT_DIR" --purge-wait-ms 75000';
 
 function parseWorkflow() {
   return parseYaml(readFileSync(WORKFLOW_PATH, "utf8"), {});
@@ -69,6 +71,13 @@ function assertScopedTempRoot(workflow) {
       `${name} must fail closed before its first QA command`,
     );
   }
+
+  const inventoryStep = steps.find((step) => step.name === TARGET_STEPS[1]);
+  assert.equal(
+    inventoryStep.run.trim().split("\n")[3],
+    REQUIRED_POST_CONFIRM,
+    "post-confirm must poll DB quota and raw-byte cleanup beyond one scheduler cadence",
+  );
 }
 
 test("only the two DB-consuming Maria QA steps trust the scoped ext4 temp root", () => {
@@ -95,6 +104,15 @@ test("the scoped temp-root contract rejects missing, broad, arbitrary, or unguar
         (candidate) => candidate.name === TARGET_STEPS[1],
       );
       step.run = step.run.replace(`${REQUIRED_RUN_PREFIX[2]}\n`, "");
+    },
+    (workflow) => {
+      const step = workflow.jobs[TARGET_JOB].steps.find(
+        (candidate) => candidate.name === TARGET_STEPS[1],
+      );
+      step.run = step.run.replace(
+        '--vault "$QA_VAULT_DIR" --purge-wait-ms 75000',
+        "--purge-wait-ms 30000",
+      );
     },
   ];
 

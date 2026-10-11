@@ -227,7 +227,7 @@ jobs:
           set -euo pipefail
           test -n "${QA_RUNTIME_DIR:-}"
           test "${TMPDIR:-}" = "$QA_RUNTIME_DIR"
-          node scripts/qa/maria-csv-assert.mjs post-confirm --db "$QA_DB_PATH" --selected-count 2
+          node scripts/qa/maria-csv-assert.mjs post-confirm --db "$QA_DB_PATH" --selected-count 2 --vault "$QA_VAULT_DIR" --purge-wait-ms 75000
           node scripts/qa/maria-csv-assert.mjs fk --db "$QA_DB_PATH"
       - name: Stop owned QA servers
         if: always() && env.QA_RUNTIME_DIR != ''

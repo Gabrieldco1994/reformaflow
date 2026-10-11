@@ -82,7 +82,8 @@ function check(phase, shouldPass = true, extra = [], message = "") {
     shouldPass ? 0 : 1,
     `${phase}: ${result.stdout}\n${result.stderr}`,
   );
-  if (message) assert(result.stderr.includes(message), result.stderr);
+  for (const expectedMessage of [message].flat().filter(Boolean))
+    assert(result.stderr.includes(expectedMessage), result.stderr);
   cases++;
   return shouldPass ? JSON.parse(result.stdout) : null;
 }
@@ -428,6 +429,83 @@ COMMIT;`);
     vault,
   ]);
   assert.deepEqual(retained.vault.retainedByLiveSessionIds, ["qa-successor"]);
+
+  const duplicateTemporaryKey = "t/qa-copy";
+  const duplicateTemporaryRoot = path.join(vault, duplicateTemporaryKey);
+  const duplicateTemporaryBlob = path.join(
+    duplicateTemporaryRoot,
+    "g2",
+    "blob",
+  );
+  fs.mkdirSync(path.dirname(duplicateTemporaryBlob), { recursive: true });
+  fs.writeFileSync(duplicateTemporaryBlob, bytes);
+  sql(
+    `UPDATE import_session_artifacts
+     SET reserved_bytes=${bytes.length},temporary_storage_key=${sqlText(duplicateTemporaryKey)},temporary_purge_pending=1
+     WHERE id='qa-copy';`,
+  );
+  const duplicatePurger = spawn(
+    process.execPath,
+    [
+      "-e",
+      `
+    const fs = require('node:fs');
+    const { spawnSync } = require('node:child_process');
+    setTimeout(() => {
+      fs.rmSync(process.argv[1], { recursive: true });
+      const result = spawnSync('sqlite3', ['-cmd', '.timeout 5000', process.argv[2],
+        "UPDATE import_session_artifacts SET reserved_bytes=0,temporary_storage_key=NULL,temporary_purge_pending=0 WHERE id='qa-copy';"
+      ]);
+      process.exitCode = result.status ?? 1;
+    }, 150);
+  `,
+      duplicateTemporaryRoot,
+      db,
+    ],
+    { env, stdio: "inherit" },
+  );
+  const duplicatePurged = new Promise((resolve, reject) => {
+    duplicatePurger.once("error", reject);
+    duplicatePurger.once("exit", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`Synthetic duplicate purger exited ${code}`)),
+    );
+  });
+  try {
+    const asynchronouslyPurged = check("post-confirm", true, [
+      "--selected-count",
+      "2",
+      "--vault",
+      vault,
+      "--purge-wait-ms",
+      "2000",
+    ]);
+    assert.deepEqual(asynchronouslyPurged.vault.retainedByLiveSessionIds, [
+      "qa-successor",
+    ]);
+    await duplicatePurged;
+  } finally {
+    if (duplicatePurger.exitCode === null) duplicatePurger.kill();
+  }
+
+  fs.mkdirSync(path.dirname(duplicateTemporaryBlob), { recursive: true });
+  fs.writeFileSync(duplicateTemporaryBlob, bytes);
+  check(
+    "post-confirm",
+    false,
+    ["--selected-count", "2", "--vault", vault, "--purge-wait-ms", "25"],
+    [
+      "Timed out waiting for duplicate cleanup",
+      '"reserved_bytes":0',
+      '"temporary_storage_key":null',
+      '"temporary_purge_pending":0',
+      '"rawFiles":["original.csv","t/qa-copy/g2/blob"]',
+      "Vault retains duplicate raw bytes",
+    ],
+  );
+  fs.rmSync(duplicateTemporaryRoot, { recursive: true });
+
   sql(`UPDATE import_sessions SET expires_at=0 WHERE id='qa-successor';`);
   check(
     "post-confirm",
