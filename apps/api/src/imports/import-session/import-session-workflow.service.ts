@@ -997,6 +997,8 @@ export class ImportSessionWorkflowService {
         | {
             error: ImportSessionError;
             invalidatedClaims: readonly ImportRawClaim[];
+            /** This transaction won and committed CONFIRMED -> EXPIRED. */
+            terminalTransitioned?: true;
           }
       > => {
         const { actor, row, view } = await this.context(
@@ -1053,6 +1055,7 @@ export class ImportSessionWorkflowService {
             return {
               error: problem(Code.SESSION_EXPIRED, row),
               invalidatedClaims,
+              terminalTransitioned: true,
             };
           }
           return {
@@ -1272,7 +1275,8 @@ export class ImportSessionWorkflowService {
       },
     );
     if ("error" in outcome) {
-      this.raw.abortOwned(outcome.invalidatedClaims, "EXPIRE");
+      if (outcome.terminalTransitioned)
+        this.raw.abortOwned(outcome.invalidatedClaims, "EXPIRE");
       throw outcome.error;
     }
     this.raw.abortOwned(outcome.invalidatedClaims, "AC18");

@@ -2,7 +2,7 @@ import { CARD_IMPORT_IGNORED_REASON } from "@reformaflow/domain";
 
 /** Documentary description only — never a user-editable draft title. */
 export const INVOICE_PAYMENT_LINE_PATTERN =
-  /PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PAGAMENTO\s+DE\s+FATURA\b|PGTO\s+FAT|FATURA\s+PAG/i;
+  /\b(?:PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PAGAMENTO\s+DE\s+FATURA|PGTO\s+FAT|FATURA\s+PAGA)\b/i;
 
 export function invoicePaymentIgnoredReason(
   description: string | null,
