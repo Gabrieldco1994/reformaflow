@@ -55,7 +55,11 @@ for (const answer of cases) {
     answerRequestId: "7262784b-6085-4209-b1ab-9bb3ec9c0959",
     expectedRevision: 9,
     questionId: question.id,
-    answer,
+    channel: "TEXT",
+    answer:
+      answer.field === "targets"
+        ? { field: "targets", value: { kind: "NO_TARGETS" } }
+        : answer,
   };
   const response = (
     body = fresh,

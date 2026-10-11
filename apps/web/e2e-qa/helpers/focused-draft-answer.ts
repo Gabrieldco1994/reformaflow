@@ -377,7 +377,7 @@ export function focusedDraftContract(
         ),
         expectedRevision: current.revision,
         questionId: question.id,
-        channel: expect.stringMatching(/^(TEXT|VOICE)$/),
+        channel: "TEXT",
         answer: strictRequestAnswer(answer),
       });
       expect(response.ok(), `Focused draft HTTP ${response.status()}`).toBe(

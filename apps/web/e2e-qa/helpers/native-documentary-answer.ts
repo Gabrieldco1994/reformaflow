@@ -53,6 +53,7 @@ export function nativeDocumentaryContract(
     version: 1,
     expectedRevision: current.revision,
     questionId: question.id,
+    channel: "TEXT",
     input,
     answer: normalized.answer,
   };
@@ -69,6 +70,7 @@ export function nativeDocumentaryContract(
         "answerRequestId",
         "expectedRevision",
         "questionId",
+        "channel",
         "input",
         "answer",
       ].sort(),
