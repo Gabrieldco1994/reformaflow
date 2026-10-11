@@ -10,7 +10,7 @@ import {
 import {
   IMPORT_SESSION_CAPABILITY,
   type ImportSessionCapability,
-  csvIntakeEnabled,
+  importIntakeEnabled,
 } from "./import-session.capability";
 import { IMPORT_VAULT_GATE, type ImportVaultGate } from "./vault/vault-state";
 
@@ -27,7 +27,7 @@ export class ImportSessionEntryService {
     originChannel: ImportChatChannel = IMPORT_CHAT_CHANNEL.TEXT,
   ): ImportEntryActionV1 {
     if (
-      !csvIntakeEnabled(this.capability) ||
+      !importIntakeEnabled(this.capability) ||
       this.gate.boot.stopped.aborted ||
       !this.gate.boot.runtime()
     )

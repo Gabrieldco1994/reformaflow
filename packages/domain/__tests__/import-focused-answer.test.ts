@@ -27,7 +27,13 @@ describe("deterministic focused import literals", () => {
   it.each([
     ["amountCents", "R$ 10,00 ou R$ 20,00"],
     ["amountCents", "R$ 0,00"],
+    ["amountCents", "-10,00"],
+    ["amountCents", "  -10,00  "],
+    ["amountCents", "R$ -10,00"],
+    ["amountCents", "R$   -10,00"],
     ["installmentCount", "3 ou 4 parcelas"],
+    ["installmentCount", "-3 parcelas"],
+    ["installmentCount", "  -3 parcelas  "],
     ["installmentCount", "25 parcelas"],
     ["dataCompra", "10/10/2026 ou 11/10/2026"],
     ["firstDueDate", "2026-02-30"],

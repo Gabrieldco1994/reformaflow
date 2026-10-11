@@ -71,6 +71,12 @@ describe("create_expense — fallback do MerchantClassifier", () => {
     service = module.get(AgentToolsService);
   });
 
+  it("does not expose a contextual import tool in the live registry", () => {
+    expect(
+      service.getToolDefs().map((definition) => definition.name),
+    ).not.toEqual(expect.arrayContaining([expect.stringMatching(/^import_/)]));
+  });
+
   it("tipoDespesa resolve OUTROS + titulo/fornecedor presente → chama classifyBatch e aplica a regra aprendida (>= limiar)", async () => {
     classifier.classifyBatch.mockResolvedValue(
       new Map([

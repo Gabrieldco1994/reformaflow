@@ -3,7 +3,6 @@ import { AgentService } from "./agent.service";
 import { AgentToolsService } from "./tools/agent-tools.service";
 import { LLM_PROVIDER } from "./llm/llm.types";
 import { ImportSessionEntryService } from "../imports/import-session/import-session-entry.service";
-import { DefaultImportSessionCapability } from "../imports/import-session/import-session.capability";
 import { PrismaService } from "../prisma/prisma.service";
 
 describe("server-owned Maria CSV entry action", () => {
@@ -23,9 +22,15 @@ describe("server-owned Maria CSV entry action", () => {
         where: { tenantId: "tenant-entry" },
       }),
     ]);
-  const make = async (available = true) => {
+  const make = async (
+    formats: readonly ("CSV" | "PDF")[] = ["CSV", "PDF"],
+    available = true,
+  ) => {
     const entry = new ImportSessionEntryService(
-      new DefaultImportSessionCapability(),
+      {
+        writesEnabled: () => false,
+        newImportFormats: () => formats,
+      },
       {
         boot: {
           stopped: { aborted: false },
@@ -83,10 +88,36 @@ describe("server-owned Maria CSV entry action", () => {
           originChannel: origin,
         });
         expect(result.provider).toBe("import-session");
+        expect(result.reply).toContain("CSV");
+        expect(result.reply).toContain("PDF");
         expect(result.toolsUsed).toEqual([]);
         expect(llm.chat).not.toHaveBeenCalled();
         expect(tools.execute).not.toHaveBeenCalled();
         expect(await finance()).toEqual(beforeFinance);
+      } finally {
+        await module.close();
+      }
+    },
+  );
+
+  it.each([
+    [["CSV"] as const, "CSV"],
+    [["PDF"] as const, "PDF"],
+  ])(
+    "derives pre-session copy from the authoritative %s enabled formats",
+    async (formats, expectedFormat) => {
+      const { module, service } = await make(formats);
+      try {
+        const result = await service.chat({
+          tenantId: "tenant-entry",
+          messages: [{ role: "user", content: "Importar fatura" }],
+        });
+        expect(result.reply).toContain(expectedFormat);
+        for (const disabledFormat of ["CSV", "PDF"].filter(
+          (format) => !formats.some((enabled) => enabled === format),
+        )) {
+          expect(result.reply).not.toContain(disabledFormat);
+        }
       } finally {
         await module.close();
       }
@@ -113,7 +144,7 @@ describe("server-owned Maria CSV entry action", () => {
   );
 
   it("does not advertise an import action while the private vault is unavailable", async () => {
-    const { module, llm, service } = await make(false);
+    const { module, llm, service } = await make(["CSV", "PDF"], false);
     try {
       const result = await service.chat({
         tenantId: "tenant-entry",

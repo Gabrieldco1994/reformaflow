@@ -368,25 +368,35 @@ describe("private PDF import native pipeline", () => {
       expect(
         analyzed.lines.flatMap((line) => line.observationIds),
       ).not.toContain(payment[0].id);
-      const editRequest = {
+      const selectionRequest = {
         expectedRevision: analyzed.revision,
         questionId: null,
         selectedLineIds: [analyzed.lines[0].id],
-        replaceLines: analyzed.lines.map((line) => ({
-          ...line,
-          firstDueDate: "2026-10-10",
-          amountMeaning: "TOTAL_PURCHASE" as const,
-          amountCents: 2002,
-          installmentCount: 2,
-          tipoDespesa: ExpenseType.OUTROS,
-          targets: [],
-          decision: { kind: "CREATE" as const, acceptNaturalDuplicate: false },
-        })),
+        replaceLines: [],
       };
       await expect(
-        workflow.edit(otherAuth, analyzed.id, editRequest),
+        workflow.edit(otherAuth, analyzed.id, selectionRequest),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
-      const edited = await workflow.edit(auth, analyzed.id, editRequest);
+      const stored = await prisma.importSession.findUniqueOrThrow({
+        where: { id: analyzed.id },
+      });
+      const fixtureDraft = JSON.parse(stored.draftJson);
+      fixtureDraft.lines = fixtureDraft.lines.map((line: { id: string }) => ({
+        ...line,
+        firstDueDate: "2026-10-10",
+        amountMeaning: "TOTAL_PURCHASE",
+        amountCents: 2002,
+        installmentCount: 2,
+        tipoDespesa: ExpenseType.OUTROS,
+        targets: [],
+        decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+      }));
+      fixtureDraft.selectedLineIds = [analyzed.lines[0].id];
+      await prisma.importSession.update({
+        where: { id: analyzed.id },
+        data: { draftJson: JSON.stringify(fixtureDraft) },
+      });
+      const edited = await workflow.edit(auth, analyzed.id, selectionRequest);
       const ready = await workflow.prepare(auth, edited.id, {
         expectedRevision: edited.revision,
       });

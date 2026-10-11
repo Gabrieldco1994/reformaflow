@@ -74,12 +74,16 @@ export class AgentService {
           : IMPORT_CHAT_CHANNEL.TEXT;
       if (!this.importEntry) throw new ServiceUnavailableException();
       const importEntryAction = this.importEntry.action(originChannel);
+      const enabledFormats =
+        importEntryAction.kind ===
+        IMPORT_ENTRY_ACTION_KIND.START_CARD_INVOICE_IMPORT
+          ? importEntryAction.formats.join(" ou ")
+          : null;
       return {
         importEntryAction,
         reply:
-          importEntryAction.kind ===
-          IMPORT_ENTRY_ACTION_KIND.START_CARD_INVOICE_IMPORT
-            ? "Selecione o cartão e o arquivo CSV aqui na conversa. Depois revise os dados; nada será lançado sem sua confirmação explícita."
+          enabledFormats !== null
+            ? `Selecione o cartão e um arquivo em um dos formatos habilitados (${enabledFormats}) aqui na conversa. Depois revise os dados; nada será lançado sem sua confirmação explícita.`
             : "A importação de fatura não está disponível agora.",
         toolsUsed: [],
         provider: IMPORT_ENTRY_PROVIDER,

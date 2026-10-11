@@ -26,10 +26,10 @@ export type ImportFocusedLiteralValue<F extends ImportFocusedLiteralField> =
       : ImportSessionDateOnly;
 
 const MONEY_TOKEN =
-  /(?<![\p{L}\p{N}_])(?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[,.]\d{1,2})?)(?![\p{L}\p{N}_])/giu;
+  /(?<![\p{L}\p{N}_-])(?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[,.]\d{1,2})?)(?![\p{L}\p{N}_])/giu;
 const DATE_TOKEN =
   /(?<![\p{L}\p{N}_])(?:\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})(?![\p{L}\p{N}_])/gu;
-const COUNT_TOKEN = /(?<![\p{L}\p{N}_])\d+(?![\p{L}\p{N}_])/gu;
+const COUNT_TOKEN = /(?<![\p{L}\p{N}_-])\d+(?![\p{L}\p{N}_])/gu;
 
 function only<T>(values: readonly T[]): T | null {
   return values.length === 1 ? values[0]! : null;

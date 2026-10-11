@@ -37,9 +37,6 @@ export class DefaultImportSessionCapability implements ImportSessionCapability {
 }
 
 /** Intake is qualified independently of the global financial mutation switch. */
-export function csvIntakeEnabled(capability: ImportSessionCapability): boolean {
-  return capability.newImportFormats().includes("CSV");
-}
 export function importIntakeEnabled(
   capability: ImportSessionCapability,
 ): boolean {

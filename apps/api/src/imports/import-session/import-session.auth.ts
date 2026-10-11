@@ -14,6 +14,7 @@ import { parseGrantJson } from "../../auth/grant-json";
 import {
   CREDIT_CARD_MODULE,
   EXPENSE_MODULE,
+  RECEIPT_MODULE,
   resolveAccessibleProjectScope,
 } from "../../common/access-rules";
 import type { AuthenticatedImportContext } from "./import-session.contract";
@@ -276,7 +277,22 @@ export async function assertReceiptParticipantAccess(
   actor: ImportActor,
   participantProjectIds: readonly string[],
 ): Promise<void> {
-  const scope = await accessibleScope(db, actor, EXPENSE_MODULE);
+  return assertImportParticipantAccess(
+    db,
+    actor,
+    participantProjectIds,
+    EXPENSE_MODULE,
+  );
+}
+
+/** Reauthorizes a live import candidate under the module that owns its resource kind. */
+export async function assertImportParticipantAccess(
+  db: Pick<Db, "project">,
+  actor: ImportActor,
+  participantProjectIds: readonly string[],
+  requiredModule: typeof EXPENSE_MODULE | typeof RECEIPT_MODULE,
+): Promise<void> {
+  const scope = await accessibleScope(db, actor, requiredModule);
   const unique = [...new Set(participantProjectIds)];
   const found = await db.project.findMany({
     where: { id: { in: unique }, tenantId: actor.tenantId, deletedAt: null },

@@ -444,18 +444,42 @@ describe("real upload → materialization → native documentary coalescing → 
           expect(
             view.lines.flatMap((line) => line.observationIds),
           ).not.toContain(payment[0].id);
-          // Dedicated native draft action, never conversational/model permission.
-          view = await controller.edit(auth, view.id, {
-            expectedRevision: view.revision,
-            questionId: null,
-            selectedLineIds: view.lines.map((line) => line.id),
-            replaceLines: view.lines.map((line) => ({
+          // Fixture only: production line choices use focused controls. Keep this
+          // integration's direct-workflow coverage on the selection-only legacy port.
+          const storedDraft = JSON.parse(
+            (
+              await prisma.importSession.findUniqueOrThrow({
+                where: { id: view.id },
+              })
+            ).draftJson,
+          );
+          storedDraft.lines = storedDraft.lines.map((line: { id: string }) => {
+            const projected = view.lines.find((item) => item.id === line.id)!;
+            return {
               ...line,
               firstDueDate: "2026-10-10",
               tipoDespesa: ExpenseType.OUTROS,
               targets: [],
-              decision: { kind: "CREATE", acceptNaturalDuplicate: false },
-            })),
+              decision: {
+                kind: "CREATE",
+                acceptNaturalDuplicate: false,
+              },
+              amountMeaning: projected.amountMeaning,
+              amountCents: projected.amountCents,
+              installmentCount: projected.installmentCount,
+              dataCompra: projected.dataCompra,
+            };
+          });
+          storedDraft.selectedLineIds = view.lines.map((line) => line.id);
+          await prisma.importSession.update({
+            where: { id: view.id },
+            data: { draftJson: JSON.stringify(storedDraft) },
+          });
+          view = await controller.edit(auth, view.id, {
+            expectedRevision: view.revision,
+            questionId: null,
+            selectedLineIds: view.lines.map((line) => line.id),
+            replaceLines: [],
           });
           view = await controller.prepare(auth, view.id, {
             expectedRevision: view.revision,
@@ -743,12 +767,16 @@ describe("real upload → materialization → native documentary coalescing → 
             {},
           ),
         ).rejects.toBeDefined();
-        // Human-controlled non-documentary choices remain on their existing production path.
-        view = await workflow.edit(auth, view.id, {
-          expectedRevision: view.revision,
-          questionId: null,
-          selectedLineIds: view.selectedLineIds,
-          replaceLines: view.lines.map((line) => ({
+        // Fixture only: focused choice behavior is covered in
+        // focused-draft-answer.integration.spec.ts. This keeps direct workflow coverage
+        // for the retained selection-only port.
+        const storedChoices = await prisma.importSession.findUniqueOrThrow({
+          where: { id: view.id },
+        });
+        const choiceDraft = JSON.parse(storedChoices.draftJson);
+        choiceDraft.lines = choiceDraft.lines.map((line: { id: string }) => {
+          const projected = view.lines.find((item) => item.id === line.id)!;
+          return {
             ...line,
             firstDueDate: "2026-10-10",
             tipoDespesa: ExpenseType.OUTROS,
@@ -762,8 +790,25 @@ describe("real upload → materialization → native documentary coalescing → 
                       amountCents: 123456,
                     },
                   ],
-            decision: { kind: "CREATE", acceptNaturalDuplicate: false },
-          })),
+            decision: {
+              kind: "CREATE",
+              acceptNaturalDuplicate: false,
+            },
+            amountMeaning: projected.amountMeaning,
+            amountCents: projected.amountCents,
+            installmentCount: projected.installmentCount,
+            dataCompra: projected.dataCompra,
+          };
+        });
+        await prisma.importSession.update({
+          where: { id: view.id },
+          data: { draftJson: JSON.stringify(choiceDraft) },
+        });
+        view = await workflow.edit(auth, view.id, {
+          expectedRevision: view.revision,
+          questionId: null,
+          selectedLineIds: view.selectedLineIds,
+          replaceLines: [],
         });
         view = await workflow.prepare(auth, view.id, {
           expectedRevision: view.revision,

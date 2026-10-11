@@ -2,7 +2,9 @@ import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { randomUUID } from "node:crypto";
 import { ValidationPipe } from "@nestjs/common";
+import { PATH_METADATA } from "@nestjs/common/constants";
 import { AgentChatDto } from "./dto/agent-chat.dto";
+import { AgentController } from "./agent.controller";
 
 describe("generic Maria transport origin", () => {
   it.each(["TEXT", "VOICE"] as const)(
@@ -47,6 +49,10 @@ describe("generic Maria transport origin", () => {
   );
 
   it("rejects active importTurn before provider, tool, prepare or apply can run", async () => {
+    expect(Reflect.getMetadata(PATH_METADATA, AgentController)).toBe("agent");
+    expect(
+      Reflect.getMetadata(PATH_METADATA, AgentController.prototype.chat),
+    ).toBe("chat");
     const activeTurn = {
       version: 1,
       turnId: randomUUID(),

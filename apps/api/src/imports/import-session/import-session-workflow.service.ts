@@ -27,7 +27,6 @@ import {
   ImportSessionErrorCode as Code,
   ImportSessionState as State,
   ProjectType,
-  isZeroOrOneIntegralImportTargetSet,
   parseImportFocusedLiteral,
   type ImportSessionChallengeRequestV1,
   type ImportSessionChallengeResponseV1,
@@ -45,11 +44,13 @@ import {
 import { canonical } from "../../common/canonical";
 import type { PrismaService } from "../../prisma/prisma.service";
 import {
+  assertImportParticipantAccess,
   assertMintedImportContext,
   assertReceiptParticipantAccess,
   reauthorize,
   type ImportActor,
 } from "./import-session.auth";
+import { EXPENSE_MODULE, RECEIPT_MODULE } from "../../common/access-rules";
 import type { CardPurchaseBatchPort } from "./card-purchase-batch.port";
 import type {
   ImportSessionCapability,
@@ -225,50 +226,19 @@ function editRequest(body: unknown): ImportSessionEditRequestV1 {
     "selectedLineIds",
   ]);
   if (
-    !(value.questionId === null || id(value.questionId)) ||
+    value.questionId !== null ||
     !Array.isArray(value.replaceLines) ||
+    value.replaceLines.length !== 0 ||
     !Array.isArray(value.selectedLineIds) ||
     !value.selectedLineIds.every(id) ||
     value.selectedLineIds.length > LIMITS.selectedLines ||
     new Set(value.selectedLineIds).size !== value.selectedLineIds.length
   )
     throw invalid();
-  let replacements: ImportSessionStoredDraftV1;
-  try {
-    replacements = validateStoredDraft({
-      version: IMPORT_SESSION_PROTOCOL_VERSION,
-      lines: value.replaceLines,
-      selectedLineIds: [],
-      questions: [],
-      scope: {
-        observationIds: [
-          ...new Set(
-            value.replaceLines.flatMap((line: unknown) =>
-              record(line) && Array.isArray(line.observationIds)
-                ? line.observationIds
-                : [],
-            ),
-          ),
-        ],
-        pendingAttachmentIds: [],
-      },
-    });
-  } catch (error) {
-    if (error instanceof ImportSessionCorruptStateError) throw invalid();
-    throw error;
-  }
-  if (
-    replacements.lines.some(
-      (line) =>
-        line.targets !== null &&
-        !isZeroOrOneIntegralImportTargetSet(line.targets, line.amountCents),
-    )
-  )
-    throw invalid();
   return {
     ...parseRevisionRequest({ expectedRevision: value.expectedRevision }),
-    questionId: value.questionId,
-    replaceLines: structuredClone(replacements.lines),
+    questionId: null,
+    replaceLines: [],
     selectedLineIds: [...value.selectedLineIds],
   };
 }
@@ -488,9 +458,14 @@ export class ImportSessionWorkflowService {
                           select: { projectId: true },
                         });
                   if (!current) throw invalid();
-                  await assertReceiptParticipantAccess(tx, actor, [
-                    current.projectId,
-                  ]);
+                  await assertImportParticipantAccess(
+                    tx,
+                    actor,
+                    [current.projectId],
+                    candidate.kind === "EXPENSE"
+                      ? EXPENSE_MODULE
+                      : RECEIPT_MODULE,
+                  );
                 } else if (answer.value.kind === "KEEP_EXISTING") {
                   const expenseId = answer.value.expenseId;
                   const candidate =
@@ -545,7 +520,8 @@ export class ImportSessionWorkflowService {
                   },
                   select: { id: true },
                 });
-                if (!project) throw invalid();
+                if (!project || project.id === row.ownerProjectId)
+                  throw invalid();
                 await assertReceiptParticipantAccess(tx, actor, [project.id]);
                 if (answer.value.roomId !== null) {
                   const room = await tx.room.findFirst({
@@ -573,12 +549,12 @@ export class ImportSessionWorkflowService {
               default:
                 return unsupportedFocusedAnswer(answer);
             }
-            focusedEdit = editRequest({
+            focusedEdit = {
               expectedRevision: focusedRequest.expectedRevision,
               questionId: question.id,
               replaceLines: [replacement],
               selectedLineIds: draft.selectedLineIds,
-            });
+            };
           }
           const request = focusedEdit ?? httpRequest;
           if (!request) throw invalid();
