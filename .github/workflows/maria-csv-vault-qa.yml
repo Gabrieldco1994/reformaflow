@@ -207,14 +207,26 @@ jobs:
           bash scripts/qa/maria-csv-boot.sh gate
       - name: Typecheck and list mandatory live CSV + PDF journeys
         run: |
+          node --test scripts/qa/maria-csv-vault-workflow.test.mjs
           cd apps/web
           npx tsc --noEmit
           npx playwright test -c playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts --list
       - name: Run mandatory real Maria CSV + PDF journeys (${{ matrix.viewport }})
         timeout-minutes: 45
-        run: npx playwright test -c apps/web/playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts --project=${{ matrix.viewport }}
-      - name: Assert exact CSV financial inventory (${{ matrix.viewport }})
+        env:
+          TMPDIR: ${{ env.QA_RUNTIME_DIR }}
         run: |
+          set -euo pipefail
+          test -n "${QA_RUNTIME_DIR:-}"
+          test "${TMPDIR:-}" = "$QA_RUNTIME_DIR"
+          npx playwright test -c apps/web/playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts --project=${{ matrix.viewport }}
+      - name: Assert exact CSV financial inventory (${{ matrix.viewport }})
+        env:
+          TMPDIR: ${{ env.QA_RUNTIME_DIR }}
+        run: |
+          set -euo pipefail
+          test -n "${QA_RUNTIME_DIR:-}"
+          test "${TMPDIR:-}" = "$QA_RUNTIME_DIR"
           node scripts/qa/maria-csv-assert.mjs post-confirm --db "$QA_DB_PATH" --selected-count 2
           node scripts/qa/maria-csv-assert.mjs fk --db "$QA_DB_PATH"
       - name: Stop owned QA servers
