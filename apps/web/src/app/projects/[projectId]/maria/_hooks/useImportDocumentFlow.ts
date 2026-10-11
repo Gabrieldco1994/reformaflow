@@ -125,14 +125,15 @@ export function useImportDocumentFlow(
   }
   const generation = scope.current;
   const sessionId = generation.sessionId;
+  const generationBusy = generation.busy;
   useEffect(() => {
-    // URL replacement is concurrent. Do not consume the adoption token during
-    // a speculative render: React may replay the old location before commit.
-    if (adopting && scope.current === generation) {
+    // Keep the token while its controller owns I/O; consume only after an exact
+    // target render commits and the documentary attempt has settled.
+    if (adopting && scope.current === generation && !generationBusy) {
       generation.contextKey = contextKey;
       generation.adoption = null;
     }
-  }, [adopting, contextKey, generation]);
+  }, [adopting, contextKey, generation, generationBusy]);
   useEffect(() => {
     generation.live = scope.current === generation;
     return () => {
