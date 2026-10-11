@@ -193,12 +193,139 @@ COMMIT;`);
     reserved_bytes: 0,
     updated_at: start,
   });
+  for (const index of [1, 2]) {
+    const unrelatedBytes = Buffer.from(`authorized-unrelated-${index}`);
+    const unrelatedProjectId = `qa-unrelated-project-${index}`;
+    const unrelatedSessionId = `qa-unrelated-session-${index}`;
+    const unrelatedArtifactId = `qa-unrelated-artifact-${index}`;
+    const unrelatedStorageKey = `unrelated/${index}/blob`;
+    insert("projects", {
+      id: unrelatedProjectId,
+      tenant_id: "qa-tenant",
+      name: `Synthetic unrelated ${index}`,
+      type: "PESSOAL",
+      updated_at: start,
+    });
+    insert("credit_cards", {
+      id: `qa-unrelated-card-${index}`,
+      project_id: unrelatedProjectId,
+      tenant_id: "qa-tenant",
+      institution: "OUTROS",
+      nickname: `Synthetic unrelated ${index}`,
+      last4: `000${index}`,
+      updated_at: start,
+    });
+    insert("import_sessions", {
+      id: unrelatedSessionId,
+      tenant_id: "qa-tenant",
+      owner_user_id: "qa-user",
+      owner_project_id: unrelatedProjectId,
+      card_id: `qa-unrelated-card-${index}`,
+      kind: "CREATE_CARD_PURCHASES",
+      state: "DRAFT",
+      revision: 1,
+      create_request_id: `qa-unrelated-request-${index}`,
+      create_payload_hash: String(index).repeat(64),
+      consent_policy_version: 1,
+      consented_at: start,
+      created_at: start,
+      updated_at: start,
+      last_user_edit_at: start,
+      expires_at: Date.now() + 3600000,
+      draft_json: JSON.stringify(draft),
+    });
+    insert("import_artifacts", {
+      id: unrelatedArtifactId,
+      tenant_id: "qa-tenant",
+      owner_project_id: unrelatedProjectId,
+      document_sha256: createHash("sha256")
+        .update(unrelatedBytes)
+        .digest("hex"),
+      verified_bytes: unrelatedBytes.length,
+      detected_format: "CSV",
+      state: "EXTRACTED",
+      storage_key: unrelatedStorageKey,
+      parser_version: "card-local-text-v1",
+      updated_at: start,
+    });
+    insert("import_session_artifacts", {
+      id: `qa-unrelated-ref-${index}`,
+      tenant_id: "qa-tenant",
+      owner_project_id: unrelatedProjectId,
+      session_id: unrelatedSessionId,
+      artifact_id: unrelatedArtifactId,
+      position: 0,
+      file_name: `unrelated-${index}.csv`,
+      declared_mime: "text/csv",
+      declared_bytes: unrelatedBytes.length,
+      state: "ATTACHED",
+      verified_at: start,
+      reserved_bytes: 0,
+      updated_at: start,
+    });
+    const unrelatedFile = path.join(vault, unrelatedStorageKey);
+    fs.mkdirSync(path.dirname(unrelatedFile), { recursive: true });
+    fs.writeFileSync(unrelatedFile, unrelatedBytes);
+  }
   fs.writeFileSync(path.join(vault, "original.csv"), bytes);
-  check("pre-confirm", true, ["--vault", vault]);
+  const scopedPreConfirm = check("pre-confirm", true, ["--vault", vault]);
+  assert.equal(scopedPreConfirm.vault.rawFileCount, 1);
+  assert.equal(scopedPreConfirm.vault.reconciledVaultFileCount, 3);
+  assert.deepEqual(scopedPreConfirm.vault.retainedByLiveSessionIds, [
+    "qa-session",
+  ]);
   check("fk");
-  fs.writeFileSync(path.join(vault, "duplicate.csv"), bytes);
-  check("pre-confirm", false, ["--vault", vault], "duplicate raw bytes");
-  fs.unlinkSync(path.join(vault, "duplicate.csv"));
+  fs.writeFileSync(path.join(vault, "original.csv"), bytes.subarray(1));
+  check(
+    "pre-confirm",
+    false,
+    ["--vault", vault],
+    "Target canonical byte length differs from fixture",
+  );
+  fs.writeFileSync(
+    path.join(vault, "original.csv"),
+    Buffer.alloc(bytes.length),
+  );
+  check(
+    "pre-confirm",
+    false,
+    ["--vault", vault],
+    "Target canonical bytes differ from synthetic fixture",
+  );
+  fs.writeFileSync(path.join(vault, "original.csv"), bytes);
+  const untrackedOrphan = path.join(vault, "untracked-orphan.bin");
+  fs.writeFileSync(untrackedOrphan, bytes);
+  check(
+    "pre-confirm",
+    false,
+    ["--vault", vault],
+    "untracked orphan or ambiguous owner",
+  );
+  fs.unlinkSync(untrackedOrphan);
+  sql(
+    `UPDATE import_artifacts SET storage_key='../escaped-target.csv' WHERE id='qa-artifact';`,
+  );
+  check(
+    "pre-confirm",
+    false,
+    ["--vault", vault],
+    "Target artifact storage key escapes vault",
+  );
+  sql(
+    `UPDATE import_artifacts SET storage_key='original.csv' WHERE id='qa-artifact';`,
+  );
+  sql(
+    `UPDATE import_session_artifacts SET temporary_storage_key='../escaped-duplicate' WHERE id='qa-copy';`,
+  );
+  check(
+    "pre-confirm",
+    false,
+    ["--vault", vault],
+    "Duplicate temporary storage key escapes vault",
+  );
+  sql(
+    `UPDATE import_session_artifacts SET temporary_storage_key=NULL WHERE id='qa-copy';`,
+  );
   sql(
     `UPDATE import_session_artifacts SET state='RESERVED' WHERE id='qa-copy';`,
   );
@@ -370,7 +497,7 @@ COMMIT;`);
     "post-confirm",
     false,
     ["--selected-count", "2", "--vault", vault],
-    "Unreferenced raw CSV",
+    "Unreferenced target raw CSV",
   );
   const purger = spawn(
     process.execPath,
@@ -381,7 +508,7 @@ COMMIT;`);
     const { spawnSync } = require('node:child_process');
     setTimeout(() => {
       fs.unlinkSync(process.argv[1]);
-      const result = spawnSync('sqlite3', [process.argv[2], "UPDATE import_artifacts SET storage_key=NULL,state='PURGED';"]);
+      const result = spawnSync('sqlite3', [process.argv[2], "UPDATE import_artifacts SET storage_key=NULL,state='PURGED' WHERE id='qa-artifact';"]);
       process.exitCode = result.status ?? 1;
     }, 150);
   `,
@@ -411,15 +538,23 @@ COMMIT;`);
   } finally {
     if (purger.exitCode === null) purger.kill();
   }
+  sql(`UPDATE import_artifacts SET state='EXTRACTED' WHERE id='qa-artifact';`);
+  check(
+    "post-confirm",
+    false,
+    ["--selected-count", "2", "--vault", vault],
+    "Unreferenced target artifact was not purged",
+  );
+  sql(`UPDATE import_artifacts SET state='PURGED' WHERE id='qa-artifact';`);
   // A continuation's unexpired live reference is legitimate retention, not a purge failure.
   sql(
-    `UPDATE import_artifacts SET storage_key='original.csv',state='RAW_READY';`,
+    `UPDATE import_artifacts SET storage_key='original.csv',state='RAW_READY' WHERE id='qa-artifact';`,
   );
   sql(
     `PRAGMA foreign_keys=ON; UPDATE import_session_artifacts SET session_id='qa-successor',state='ATTACHED' WHERE id='qa-original';`,
   );
   sql(
-    `UPDATE import_artifacts SET storage_key='original.csv',state='EXTRACTED';`,
+    `UPDATE import_artifacts SET storage_key='original.csv',state='EXTRACTED' WHERE id='qa-artifact';`,
   );
   fs.writeFileSync(path.join(vault, "original.csv"), bytes);
   const retained = check("post-confirm", true, [
@@ -500,11 +635,23 @@ COMMIT;`);
       '"reserved_bytes":0',
       '"temporary_storage_key":null',
       '"temporary_purge_pending":0',
-      '"rawFiles":["original.csv","t/qa-copy/g2/blob"]',
-      "Vault retains duplicate raw bytes",
+      '"duplicate_temporary_path_exists":true',
+      '"target":{"artifact_count":1,"artifact_state":"EXTRACTED","storage_key":"[redacted]","raw_file_count":1,"reference_count":1}',
+      '"vault":{"raw_file_count":4,"persisted_key_count":3}',
+      "Duplicate temporary raw bytes still present",
     ],
   );
   fs.rmSync(duplicateTemporaryRoot, { recursive: true });
+
+  const postConfirmOrphan = path.join(vault, "post-confirm-orphan.bin");
+  fs.writeFileSync(postConfirmOrphan, Buffer.from("untracked"));
+  check(
+    "post-confirm",
+    false,
+    ["--selected-count", "2", "--vault", vault],
+    "untracked orphan or ambiguous owner",
+  );
+  fs.unlinkSync(postConfirmOrphan);
 
   sql(`UPDATE import_sessions SET expires_at=0 WHERE id='qa-successor';`);
   check(

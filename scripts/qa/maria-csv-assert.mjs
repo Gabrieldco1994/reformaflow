@@ -333,7 +333,23 @@ function assertDuplicate(config, session) {
     !pending.includes(duplicate.id),
     "Duplicate remains in pendingAttachmentIds",
   );
-  return duplicate;
+  const targetRefs = [...refs, ...transferredRefs].filter(
+    (ref) => ref.position === 0,
+  );
+  assert.equal(
+    targetRefs.length,
+    1,
+    "QA scope must contain exactly one canonical target reference",
+  );
+  assert(
+    targetRefs[0].artifact_id,
+    "Canonical target reference must bind an artifact",
+  );
+  return {
+    duplicate,
+    targetRef: targetRefs[0],
+    continuationId,
+  };
 }
 
 function rawFiles(root, current = root) {
@@ -350,49 +366,176 @@ function rawFiles(root, current = root) {
   return files;
 }
 
-function vaultState(config, session, duplicate) {
-  const currentDuplicate = attachments(config, session).find(
-    (ref) => ref.id === duplicate.id,
+function scopedVaultPath(root, storageKey, label) {
+  assert(
+    typeof storageKey === "string" && storageKey.length > 0,
+    `${label} is empty`,
   );
-  const files = config.vault ? rawFiles(config.vault) : null;
-  const liveRefs = config.vault
-    ? query(
-        config.db,
-        `SELECT r.id, r.session_id, s.state, s.expires_at FROM import_session_artifacts r
-        JOIN import_artifacts a ON a.id=r.artifact_id JOIN import_sessions s ON s.id=r.session_id
-        WHERE a.document_sha256=${literal(fixtureHash)} AND a.tenant_id=${literal(session.tenant_id)}
-        AND a.owner_project_id=${literal(session.owner_project_id)} AND r.state!='RELEASED'`,
-      )
-    : [];
-  const artifacts = config.vault
-    ? query(
-        config.db,
-        `SELECT id, state, storage_key FROM import_artifacts WHERE document_sha256=${literal(fixtureHash)}
-        AND tenant_id=${literal(session.tenant_id)} AND owner_project_id=${literal(session.owner_project_id)}`,
-      )
-    : [];
-  let duplicateTemporaryPathExists = null;
-  if (config.vault && duplicate.temporary_storage_key !== null) {
-    const temporaryPath = path.resolve(
+  const candidate = path.resolve(root, storageKey);
+  assert(inside(root, candidate), `${label} escapes vault`);
+  return candidate;
+}
+
+function targetArtifacts(config, session, targetRef) {
+  const artifacts = query(
+    config.db,
+    `SELECT id, state, storage_key, verified_bytes, document_sha256
+    FROM import_artifacts WHERE document_sha256=${literal(fixtureHash)}
+    AND tenant_id=${literal(session.tenant_id)}
+    AND owner_project_id=${literal(session.owner_project_id)}`,
+  );
+  assert.equal(
+    artifacts.length,
+    1,
+    "Expected exactly one target artifact for fixture hash and owner scope",
+  );
+  assert.equal(
+    artifacts[0].id,
+    targetRef.artifact_id,
+    "Canonical target reference points to another artifact",
+  );
+  assert.equal(
+    artifacts[0].verified_bytes,
+    fixture.length,
+    "Target artifact verified length differs from fixture",
+  );
+  return artifacts;
+}
+
+function createVaultContext(config, session, scope) {
+  const artifacts = targetArtifacts(config, session, scope.targetRef);
+  // Uploads always use t/<attachment id>/g2/blob. Keep the exact released
+  // duplicate root after its DB key is scrubbed so lingering bytes stay visible.
+  const capturedDuplicateTemporaryKey =
+    scope.duplicate.temporary_storage_key ?? `t/${scope.duplicate.id}`;
+  if (!config.vault)
+    return {
+      ...scope,
+      capturedTargetStorageKey: artifacts[0].storage_key,
+      capturedTargetPath: null,
+      capturedDuplicateTemporaryKey,
+      capturedDuplicateTemporaryPath: null,
+    };
+  const capturedTargetPath =
+    artifacts[0].storage_key === null
+      ? null
+      : scopedVaultPath(
+          config.vault,
+          artifacts[0].storage_key,
+          "Target artifact storage key",
+        );
+  const capturedDuplicateTemporaryPath = scopedVaultPath(
+    config.vault,
+    capturedDuplicateTemporaryKey,
+    "Duplicate temporary storage key",
+  );
+  return {
+    ...scope,
+    capturedTargetStorageKey: artifacts[0].storage_key,
+    capturedTargetPath,
+    capturedDuplicateTemporaryKey,
+    capturedDuplicateTemporaryPath,
+  };
+}
+
+function vaultInventory(config) {
+  const files = rawFiles(config.vault);
+  const artifactKeys = query(
+    config.db,
+    `SELECT storage_key FROM import_artifacts WHERE storage_key IS NOT NULL`,
+  ).map((row) =>
+    scopedVaultPath(
       config.vault,
-      duplicate.temporary_storage_key,
-    );
+      row.storage_key,
+      "Persisted artifact storage key",
+    ),
+  );
+  const temporaryKeys = query(
+    config.db,
+    `SELECT temporary_storage_key FROM import_session_artifacts
+    WHERE temporary_storage_key IS NOT NULL`,
+  ).map((row) =>
+    scopedVaultPath(
+      config.vault,
+      `${row.temporary_storage_key}/g2/blob`,
+      "Persisted temporary storage key",
+    ),
+  );
+  return { files, persistedKeys: [...artifactKeys, ...temporaryKeys] };
+}
+
+function vaultState(config, session, context) {
+  const currentDuplicate = attachments(config, session).find(
+    (ref) => ref.id === context.duplicate.id,
+  );
+  const artifacts = targetArtifacts(config, session, context.targetRef);
+  const targetRefs = config.vault
+    ? query(
+        config.db,
+        `SELECT r.id, r.session_id, r.state AS ref_state,
+        s.state AS session_state, s.expires_at, s.tenant_id,
+        s.owner_user_id, s.owner_project_id
+        FROM import_session_artifacts r
+        JOIN import_sessions s ON s.id=r.session_id
+        WHERE r.artifact_id=${literal(artifacts[0].id)}`,
+      )
+    : [];
+  if (config.vault && currentDuplicate?.temporary_storage_key != null) {
     assert(
-      inside(config.vault, temporaryPath),
-      "Duplicate temporary storage key escapes vault",
+      context.capturedDuplicateTemporaryKey !== null &&
+        currentDuplicate.temporary_storage_key ===
+          context.capturedDuplicateTemporaryKey,
+      "Duplicate temporary storage key changed during purge",
     );
-    duplicateTemporaryPathExists = fs.existsSync(temporaryPath);
+    scopedVaultPath(
+      config.vault,
+      currentDuplicate.temporary_storage_key,
+      "Duplicate temporary storage key",
+    );
   }
+  const currentTargetKey = artifacts[0].storage_key;
+  if (config.vault && currentTargetKey !== null) {
+    assert.equal(
+      currentTargetKey,
+      context.capturedTargetStorageKey,
+      "Target artifact storage key changed during purge",
+    );
+    scopedVaultPath(
+      config.vault,
+      currentTargetKey,
+      "Target artifact storage key",
+    );
+  }
+  const inventory = config.vault ? vaultInventory(config) : null;
+  const targetPaths = new Set(
+    [context.capturedTargetPath].filter((candidate) => candidate !== null),
+  );
   return {
     duplicate: currentDuplicate,
-    duplicateTemporaryPathExists,
-    rawFiles: files?.map((file) => path.relative(config.vault, file)) ?? null,
-    liveRefs,
+    duplicateTemporaryPathExists:
+      context.capturedDuplicateTemporaryPath === null
+        ? false
+        : fs.existsSync(context.capturedDuplicateTemporaryPath),
+    inventory,
+    targetFiles:
+      inventory?.files.filter((file) => targetPaths.has(file)) ?? null,
+    targetRefs,
     artifacts,
   };
 }
 
-function assertVaultState(config, state) {
+function assertVaultInventory(state) {
+  for (const file of state.inventory.files) {
+    const owners = state.inventory.persistedKeys.filter((key) => key === file);
+    assert.equal(
+      owners.length,
+      1,
+      "Vault file is not owned by exactly one persisted storage key (untracked orphan or ambiguous owner)",
+    );
+  }
+}
+
+function assertVaultState(config, session, context, state) {
   const duplicate = state.duplicate;
   assert(duplicate, "Duplicate attachment disappeared during purge");
   assert.equal(
@@ -425,74 +568,143 @@ function assertVaultState(config, state) {
       checked: false,
       note: "DB-only; raw-byte retention was not checked",
     };
-  if (state.duplicateTemporaryPathExists !== null)
-    assert.equal(
-      state.duplicateTemporaryPathExists,
-      false,
-      "Duplicate temporary raw bytes still present",
-    );
-  assert(state.rawFiles.length <= 1, "Vault retains duplicate raw bytes");
-  for (const relativeFile of state.rawFiles) {
-    const file = path.join(config.vault, relativeFile);
+  assert.equal(
+    state.duplicateTemporaryPathExists,
+    false,
+    "Duplicate temporary raw bytes still present",
+  );
+  assertVaultInventory(state);
+  assert(
+    state.targetFiles.length <= 1,
+    "Target scope retains duplicate canonical raw bytes",
+  );
+  for (const file of state.targetFiles) {
     assert.equal(
       fs.statSync(file).size,
       fixture.length,
-      "Unexpected vault byte length",
+      "Target canonical byte length differs from fixture",
     );
     assert.equal(
       sha256(fs.readFileSync(file)),
       fixtureHash,
-      "Vault bytes differ from synthetic fixture",
+      "Target canonical bytes differ from synthetic fixture",
     );
   }
-  for (const ref of state.liveRefs) {
+  assert.equal(
+    state.targetRefs.length,
+    1,
+    "Target artifact must have exactly one persisted reference",
+  );
+  assert.equal(
+    state.targetRefs[0].id,
+    context.targetRef.id,
+    "Target artifact reference identity changed",
+  );
+  const liveRefs = state.targetRefs.filter(
+    (ref) => ref.ref_state !== "RELEASED",
+  );
+  for (const ref of liveRefs) {
     assert(
-      !terminal.has(ref.state) && instant(ref.expires_at) > Date.now(),
+      !terminal.has(ref.session_state) && instant(ref.expires_at) > Date.now(),
       "Unauthorized/expired retained reference",
     );
+    for (const key of ["tenant_id", "owner_user_id", "owner_project_id"])
+      assert.equal(
+        ref[key],
+        session[key],
+        "Retained target reference ownership mismatch",
+      );
   }
-  if (state.liveRefs.length > 0)
+  if (liveRefs.length > 0) {
+    const authorizedSessionId =
+      config.phase === "post-confirm" ? context.continuationId : session.id;
+    assert(
+      authorizedSessionId,
+      "Target bytes retained without an authorized continuation",
+    );
+    assert(
+      liveRefs.every((ref) => ref.session_id === authorizedSessionId),
+      "Target bytes retained outside the authorized live session",
+    );
+    assert.equal(
+      state.artifacts[0].storage_key,
+      context.capturedTargetStorageKey,
+      "Live target artifact lost its canonical storage key",
+    );
+    assert.equal(
+      state.targetFiles.length,
+      1,
+      "Authorized live target reference must retain exactly one canonical blob",
+    );
     return {
       checked: true,
-      rawFileCount: state.rawFiles.length,
+      rawFileCount: state.targetFiles.length,
+      reconciledVaultFileCount: state.inventory.files.length,
       retainedByLiveSessionIds: [
-        ...new Set(state.liveRefs.map((ref) => ref.session_id)),
+        ...new Set(liveRefs.map((ref) => ref.session_id)),
       ],
     };
+  }
   assert.equal(
-    state.rawFiles.length,
+    state.targetFiles.length,
     0,
-    "Unreferenced raw CSV still present; wait for asynchronous purger",
+    "Unreferenced target raw CSV still present; wait for asynchronous purger",
   );
-  assert(
-    state.artifacts.every((row) => row.storage_key === null),
-    "Unreferenced artifact still points to raw storage",
+  assert.equal(
+    state.artifacts[0].storage_key,
+    null,
+    "Unreferenced target artifact still points to raw storage",
   );
-  return { checked: true, rawFileCount: 0, retainedByLiveSessionIds: [] };
+  assert.equal(
+    state.artifacts[0].state,
+    "PURGED",
+    "Unreferenced target artifact was not purged",
+  );
+  return {
+    checked: true,
+    rawFileCount: 0,
+    reconciledVaultFileCount: state.inventory.files.length,
+    retainedByLiveSessionIds: [],
+  };
 }
 
-async function checkVault(config, session, duplicate) {
+function redactedVaultState(state) {
+  if (!state) return null;
+  return {
+    duplicate: state.duplicate
+      ? {
+          state: state.duplicate.state,
+          released_at_present: state.duplicate.released_at !== null,
+          artifact_id_present: state.duplicate.artifact_id !== null,
+          reserved_bytes: state.duplicate.reserved_bytes,
+          temporary_storage_key:
+            state.duplicate.temporary_storage_key === null
+              ? null
+              : "[redacted]",
+          temporary_purge_pending: state.duplicate.temporary_purge_pending,
+        }
+      : null,
+    duplicate_temporary_path_exists: state.duplicateTemporaryPathExists ?? null,
+    target: {
+      artifact_count: state.artifacts?.length ?? null,
+      artifact_state: state.artifacts?.[0]?.state ?? null,
+      storage_key:
+        state.artifacts?.[0]?.storage_key === null ? null : "[redacted]",
+      raw_file_count: state.targetFiles?.length ?? null,
+      reference_count: state.targetRefs?.length ?? null,
+    },
+    vault: {
+      raw_file_count: state.inventory?.files.length ?? null,
+      persisted_key_count: state.inventory?.persistedKeys.length ?? null,
+    },
+  };
+}
+
+async function checkVault(config, session, scope) {
+  const context = createVaultContext(config, session, scope);
   if (config.phase === "pre-confirm") {
-    if (!config.vault)
-      return {
-        checked: false,
-        note: "DB-only; raw-byte retention was not checked",
-      };
-    const files = rawFiles(config.vault);
-    assert(files.length <= 1, "Vault retains duplicate raw bytes");
-    for (const file of files) {
-      assert.equal(
-        fs.statSync(file).size,
-        fixture.length,
-        "Unexpected vault byte length",
-      );
-      assert.equal(
-        sha256(fs.readFileSync(file)),
-        fixtureHash,
-        "Vault bytes differ from synthetic fixture",
-      );
-    }
-    return { checked: true, rawFileCount: files.length };
+    const state = vaultState(config, session, context);
+    return assertVaultState(config, session, context, state);
   }
   const startedAt = Date.now();
   const deadline = startedAt + config.purgeWaitMs;
@@ -500,14 +712,14 @@ async function checkVault(config, session, duplicate) {
   let lastError = null;
   for (;;) {
     try {
-      lastState = vaultState(config, session, duplicate);
-      return assertVaultState(config, lastState);
+      lastState = vaultState(config, session, context);
+      return assertVaultState(config, session, context, lastState);
     } catch (error) {
       lastError = error;
       if (Date.now() >= deadline) {
         throw new Error(
           `Timed out waiting for duplicate cleanup after ${Date.now() - startedAt}ms; ` +
-            `last state=${JSON.stringify(lastState)}; unmet=${lastError.message}`,
+            `last state=${JSON.stringify(redactedVaultState(lastState))}; unmet=${lastError.message}`,
         );
       }
       await delay(Math.min(250, deadline - Date.now()));
