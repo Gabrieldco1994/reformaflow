@@ -259,47 +259,42 @@ export function ImportFocusedDraftQuestion({
     const viewport = window.visualViewport;
     if (!viewport) return;
 
-    let animationFrame: number | null = null;
     let lastAdjustment: {
       actionBottom: number;
       viewportBottom: number;
     } | null = null;
 
     const keepActionsVisible = () => {
-      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(() => {
-        animationFrame = null;
-        const formElement = form.current;
-        const actionElement = actions.current;
-        const focused = document.activeElement;
-        if (
-          viewport.width >= NARROW_MOBILE_VIEWPORT_WIDTH ||
-          !formElement ||
-          !actionElement ||
-          !focused ||
-          !formElement.contains(focused) ||
-          !focused.matches("input, select, textarea, button")
-        ) {
-          lastAdjustment = null;
-          return;
-        }
+      const formElement = form.current;
+      const actionElement = actions.current;
+      const focused = document.activeElement;
+      if (
+        viewport.width >= NARROW_MOBILE_VIEWPORT_WIDTH ||
+        !formElement ||
+        !actionElement ||
+        !focused ||
+        !formElement.contains(focused) ||
+        !focused.matches("input, select, textarea, button")
+      ) {
+        lastAdjustment = null;
+        return;
+      }
 
-        const actionBottom = actionElement.getBoundingClientRect().bottom;
-        const viewportBottom = viewport.offsetTop + viewport.height;
-        const overflow = actionBottom - viewportBottom;
-        if (overflow <= 0) {
-          lastAdjustment = null;
-          return;
-        }
-        if (
-          lastAdjustment?.actionBottom === actionBottom &&
-          lastAdjustment.viewportBottom === viewportBottom
-        )
-          return;
+      const actionBottom = actionElement.getBoundingClientRect().bottom;
+      const viewportBottom = viewport.offsetTop + viewport.height;
+      const overflow = actionBottom - viewportBottom;
+      if (overflow <= 0) {
+        lastAdjustment = null;
+        return;
+      }
+      if (
+        lastAdjustment?.actionBottom === actionBottom &&
+        lastAdjustment.viewportBottom === viewportBottom
+      )
+        return;
 
-        lastAdjustment = { actionBottom, viewportBottom };
-        window.scrollBy({ top: overflow, left: 0, behavior: "auto" });
-      });
+      lastAdjustment = { actionBottom, viewportBottom };
+      window.scrollBy({ top: overflow, left: 0, behavior: "auto" });
     };
 
     viewport.addEventListener("resize", keepActionsVisible);
@@ -307,7 +302,6 @@ export function ImportFocusedDraftQuestion({
     return () => {
       viewport.removeEventListener("resize", keepActionsVisible);
       viewport.removeEventListener("scroll", keepActionsVisible);
-      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
     };
   }, []);
 
