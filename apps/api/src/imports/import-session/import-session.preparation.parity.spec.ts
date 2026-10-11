@@ -344,7 +344,7 @@ describe("import preparation parity", () => {
     const deferredLines = [
       {
         ...line("line-25000", "obs-25000"),
-        amountMeaning: ImportSessionAmountMeaning.INSTALLMENT_CHARGE,
+        amountMeaning: ImportSessionAmountMeaning.UNKNOWN,
         amountCents: null,
         installmentCount: 5,
         targets: null,
@@ -390,7 +390,15 @@ describe("import preparation parity", () => {
     };
     const draft: ImportSessionStoredDraftV1 = {
       version: 1,
-      lines: [line("line-selected", "obs-selected"), ...deferredLines],
+      lines: [
+        line("line-selected", "obs-selected"),
+        ...deferredLines,
+        {
+          ...line("line-payment", "obs-payment"),
+          amountCents: null,
+          decision: { kind: "UNRESOLVED" },
+        },
+      ],
       selectedLineIds: ["line-selected"],
       questions,
       declarations,
@@ -454,6 +462,10 @@ describe("import preparation parity", () => {
         amountCents: -12000,
       },
     ]);
+    expect(
+      plan.continuationDraft?.lines.some(({ id }) => id === "line-payment"),
+    ).toBe(false);
+    expect(draft.lines.at(-1)?.amountCents).toBeNull();
     expect({ draft, proposalBody: body, observations, references }).toEqual(
       originalInput,
     );
@@ -468,7 +480,7 @@ describe("import preparation parity", () => {
       expectedAmount: IMPORT_SESSION_PRIMITIVES.minPurchaseCents,
     },
     {
-      case: "zero evidence",
+      case: "zero evidence below the purchase minimum",
       evidenceAmount: 0,
       existingAmount: null,
       grouped: false,
@@ -542,6 +554,38 @@ describe("import preparation parity", () => {
       ]);
     },
   );
+
+  it("fails closed on an unsafe documentary amount without mutating the unresolved line", () => {
+    const deferredLine = {
+      ...line("line-deferred", "obs-deferred"),
+      amountCents: null,
+    };
+    const draft: ImportSessionStoredDraftV1 = {
+      version: 1,
+      lines: [line("line-selected", "obs-selected"), deferredLine],
+      selectedLineIds: ["line-selected"],
+      questions: [],
+      scope: {
+        observationIds: ["obs-selected", "obs-deferred"],
+        pendingAttachmentIds: [],
+      },
+    };
+    const unsafeObservation = {
+      ...observation("obs-deferred", "Deferred"),
+      evidenceJson: evidence("Deferred", Number.MAX_SAFE_INTEGER + 1),
+    };
+
+    expect(() =>
+      buildImportPreparationPlan({
+        session,
+        draft,
+        proposalBody: proposalBody(),
+        observations: [observation("obs-selected"), unsafeObservation],
+        references: [reference()],
+      }),
+    ).toThrow(ImportSessionCorruptStateError);
+    expect(deferredLine.amountCents).toBeNull();
+  });
 
   it.each([
     { ready: 0, pendingAttachment: true, expectedSelected: 0 },

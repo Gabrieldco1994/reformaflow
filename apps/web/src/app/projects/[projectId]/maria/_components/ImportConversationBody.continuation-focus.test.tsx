@@ -1,11 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MariaImportEntry } from "./MariaImportEntry";
 
 const state = vi.hoisted(() => ({
   search: "importSessionId=source-session",
   documentsLoaded: true,
+  receiptSessionId: "source-session",
+  continuationSessionId: "continuation-session",
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -64,7 +72,7 @@ vi.mock("../_hooks/useImportConversation", () => ({
     error: null,
     busy: false,
     guided: null,
-    result: sessionId === "source-session" ? { receipt: {} } : null,
+    result: sessionId === state.receiptSessionId ? { receipt: {} } : null,
     review: false,
     scopeReview: null,
     messages: [],
@@ -94,7 +102,7 @@ vi.mock("@/components/agent/useSpeechRecognition", () => ({
 }));
 vi.mock("../_lib/import-receipt-view", () => ({
   buildReceiptView: () => ({
-    continuationSessionId: "continuation-session",
+    continuationSessionId: state.continuationSessionId,
   }),
 }));
 vi.mock("./ImportReceipt", () => ({
@@ -105,7 +113,7 @@ vi.mock("./ImportReceipt", () => ({
   }) => (
     <button
       type="button"
-      onClick={() => onOpenContinuation?.("continuation-session")}
+      onClick={() => onOpenContinuation?.(state.continuationSessionId)}
     >
       Ver rascunho restante
     </button>
@@ -153,6 +161,8 @@ function moveTo(
 beforeEach(() => {
   state.search = "importSessionId=source-session";
   state.documentsLoaded = true;
+  state.receiptSessionId = "source-session";
+  state.continuationSessionId = "continuation-session";
   mocks.replace.mockReset();
   mocks.invalidate.mockReset();
 });
@@ -222,5 +232,48 @@ describe("MariaImportEntry continuation focus", () => {
     expect(
       screen.getByRole("region", { name: "Conversa da importação" }),
     ).not.toHaveFocus();
+  });
+
+  it("keeps a newer continuation intent when an older focus completion races with it", async () => {
+    state.search = "importSessionId=race-a";
+    state.receiptSessionId = "race-a";
+    state.continuationSessionId = "race-a";
+    const rendered = renderEntry();
+    const region = screen.getByRole("region", {
+      name: "Conversa da importação",
+    });
+    const continuationButton = screen.getByRole("button", {
+      name: "Ver rascunho restante",
+    });
+
+    region.addEventListener(
+      "focus",
+      () => {
+        state.continuationSessionId = "race-b";
+        continuationButton.click();
+      },
+      { once: true },
+    );
+    await act(async () => {
+      fireEvent.click(continuationButton);
+    });
+
+    expect(mocks.replace).toHaveBeenNthCalledWith(
+      1,
+      "/projects/project-1/maria?importSessionId=race-a",
+    );
+    expect(mocks.replace).toHaveBeenNthCalledWith(
+      2,
+      "/projects/project-1/maria?importSessionId=race-b",
+    );
+
+    moveTo(rendered.rerenderEntry, "race-b", false);
+    moveTo(rendered.rerenderEntry, "race-b", true);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("region", { name: "Conversa da importação" }),
+      ).toHaveFocus(),
+    );
   });
 });
