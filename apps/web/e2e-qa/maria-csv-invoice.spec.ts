@@ -22,6 +22,7 @@ import {
   focusedDraftContract,
   isFocusedDraftQuestion,
   nativeFocusedOnly,
+  visibleCurrentQuestionForm,
 } from "./helpers/focused-draft-answer";
 import {
   captureNativeDocumentaryAnswer,
@@ -321,7 +322,13 @@ for (const phase of ["upload", "confirmation"] as const) {
         await page
           .getByRole("checkbox", { name: /organizar minha vida financeira/i })
           .check();
+        const signupResponse = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/auth/register" &&
+            response.request().method() === "POST",
+        );
         await page.getByRole("button", { name: /criar minha conta/i }).click();
+        await evidence.checkApi(await signupResponse);
         await expect(page).toHaveURL(/\/projects\/[^/]+\/conta(?:\?|$)/);
         token =
           (await page.context().cookies()).find(
@@ -655,17 +662,7 @@ for (const phase of ["upload", "confirmation"] as const) {
             );
             if (!question) break;
           }
-          await page
-            .getByRole("button", {
-              name: "Consultar pergunta atual",
-              exact: true,
-            })
-            .click();
-          const form = page.getByRole("form", {
-            name: question.text,
-            exact: true,
-          });
-          await expect(form).toBeVisible();
+          const form = await visibleCurrentQuestionForm(page, question);
           const answer = answerFromFixture(question, current, selectedIds);
           if (isFocusedDraftQuestion(question)) {
             await nativeFocusedOnly(form, async () => {

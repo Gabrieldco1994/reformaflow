@@ -1,4 +1,9 @@
-import { expect, type Locator, type Response } from "@playwright/test";
+import {
+  expect,
+  type Locator,
+  type Page,
+  type Response,
+} from "@playwright/test";
 import { isDeepStrictEqual } from "node:util";
 import {
   ExpenseType,
@@ -49,6 +54,50 @@ export function isFocusedDraftQuestion(question: ImportSessionQuestionV1) {
       "targets",
     ].includes(question.field)
   );
+}
+
+/** The current UI renders the active question form immediately.  Journey QA
+ * must exercise that native form rather than revive the removed query CTA.
+ */
+export async function visibleCurrentQuestionForm(
+  page: Page,
+  question: ImportSessionQuestionV1,
+) {
+  const form = page.getByRole("form", {
+    name: question.text,
+    exact: true,
+  });
+  await expect(
+    form,
+    `Current ${question.field} form must already be rendered`,
+  ).toHaveCount(1);
+  await expect(form).toBeVisible();
+  if (isFocusedDraftQuestion(question) || "subject" in question) {
+    const check = form.getByRole("button", {
+      name: "Conferir informação",
+      exact: true,
+    });
+    const save = form.getByRole("button", {
+      name: "Guardar informação",
+      exact: true,
+    });
+    await expect(check).toHaveCount(1);
+    await expect(check).toBeVisible();
+    await expect(save).toHaveCount(1);
+    await expect(save).toBeVisible();
+  }
+  if (question.field === "amountMeaning" && !("subject" in question)) {
+    await expect(
+      form.getByRole("group", {
+        name: "Significado do valor",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      form.getByRole("radio", { name: "Total da compra", exact: true }),
+    ).toBeVisible();
+  }
+  return form;
 }
 
 function reaisLiteral(cents: number) {

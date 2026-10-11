@@ -503,6 +503,7 @@ export class JourneyEvidence {
   }
 
   async checkApi(response: APIResponse | Response) {
+    const body = response.ok() ? "" : redact(await response.text());
     if (!response.ok())
       this.httpFailures.push({
         status: response.status(),
@@ -511,9 +512,13 @@ export class JourneyEvidence {
         expected: false,
       });
     await this.persist();
+    const throttle =
+      response.status() === 429
+        ? " Journey QA hit the intentional 10-attempt loopback throttle; start a fresh isolated API process before rerunning this journey."
+        : "";
     expect(
       response.ok(),
-      `Live API failed: ${response.status()} ${safeUrl(response.url())}`,
+      `Live API failed: ${response.status()} ${safeUrl(response.url())}.${throttle} Response: ${body}`,
     ).toBe(true);
   }
 

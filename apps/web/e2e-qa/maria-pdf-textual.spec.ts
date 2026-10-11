@@ -23,6 +23,7 @@ import {
   focusedDraftContract,
   isFocusedDraftQuestion,
   nativeFocusedOnly,
+  visibleCurrentQuestionForm,
 } from "./helpers/focused-draft-answer";
 
 let fixtures: string;
@@ -206,19 +207,7 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
         );
         if (!question) break;
       }
-      await evidence.response(
-        `question-${attempt + 1}`,
-        sessionResponse(sessionId),
-        () =>
-          page
-            .getByRole("button", {
-              name: "Consultar pergunta atual",
-              exact: true,
-            })
-            .click(),
-      );
-      const form = page.getByRole("form", { name: question.text, exact: true });
-      await expect(form).toBeVisible();
+      const form = await visibleCurrentQuestionForm(page, question);
       const answer = pdfFixtureAnswer(question, current, selectedIds);
       if (isFocusedDraftQuestion(question)) {
         await nativeFocusedOnly(form, async () => {

@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   expect,
+  type APIResponse,
   type Page,
   type Response,
   type TestInfo,
@@ -21,6 +22,12 @@ const redact = (value: string) =>
   value
     .replace(/eyJ[\w.-]+/g, "[redacted-token]")
     .replace(/[\w.+-]+@[\w.-]+/g, "[redacted-email]");
+type SignupProject = {
+  id: string;
+  name: string;
+  type: string;
+  rooms: Array<{ id: string; name: string }>;
+};
 
 /** PDF-specific evidence: separate directories and one exact expected document failure,
  * unlike the existing CSV evidence collector (which rightly rejects every 422).
@@ -201,10 +208,16 @@ export class PdfEvidence {
           code: expectedCode,
           retryable: false,
         });
-      } else
-        expect(response.ok(), `Real API ${name}: ${response.status()}`).toBe(
-          true,
-        );
+      } else {
+        const throttle =
+          response.status() === 429
+            ? " Journey QA hit the intentional 10-attempt loopback throttle; start a fresh isolated API process before rerunning this journey."
+            : "";
+        expect(
+          response.ok(),
+          `Real API ${name}: ${response.status()}.${throttle} Response: ${redact(body)}`,
+        ).toBe(true);
+      }
       return response;
     } catch (error) {
       await fs.writeFile(
@@ -222,6 +235,44 @@ export class PdfEvidence {
       this.page.off("request", onRequest);
       this.page.off("response", onResponse);
     }
+  }
+  async setupResponse<T>(
+    name: string,
+    response: APIResponse | Response,
+    method: "GET" | "POST",
+  ): Promise<T> {
+    const body = await response.text();
+    const artifact = path.join(
+      this.directory,
+      `${++this.step}-setup-${name}.json`,
+    );
+    await fs.mkdir(this.directory, { recursive: true });
+    // Persist diagnostics before any success assertion. Registration bodies
+    // may include JWT/email fields, so use the same evidence redaction policy.
+    await fs.writeFile(
+      artifact,
+      redact(
+        JSON.stringify(
+          {
+            path: safePath(response.url()),
+            method,
+            status: response.status(),
+            body,
+          },
+          null,
+          2,
+        ),
+      ),
+    );
+    const throttle =
+      response.status() === 429
+        ? " Journey QA hit the intentional 10-attempt loopback throttle; start a fresh isolated API process before rerunning this journey."
+        : "";
+    expect(
+      response.ok(),
+      `PDF setup ${name} failed: ${response.status()} ${safePath(response.url())}.${throttle} Response: ${redact(body)}`,
+    ).toBe(true);
+    return JSON.parse(body) as T;
   }
   async finalize(primary: unknown) {
     await fs.mkdir(this.directory, { recursive: true });
@@ -277,7 +328,79 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
   await page
     .getByRole("checkbox", { name: /organizar minha vida financeira/i })
     .check();
+  await page.getByRole("checkbox", { name: /^reformar/i }).check();
+  await expect(
+    page.getByRole("checkbox", { name: /organizar minha vida financeira/i }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: /^reformar/i }),
+  ).toBeChecked();
+  const signupSetupResponses: Response[] = [];
+  const collectSignupSetup = (response: Response) => {
+    const pathname = safePath(response.url());
+    if (
+      response.request().method() === "POST" &&
+      (pathname === "/auth/register" || pathname === "/projects")
+    )
+      signupSetupResponses.push(response);
+  };
+  page.on("response", collectSignupSetup);
   await page.getByRole("button", { name: /criar minha conta/i }).click();
+  await expect
+    .poll(
+      () =>
+        signupSetupResponses.filter(
+          (response) => safePath(response.url()) === "/auth/register",
+        ).length,
+      { message: "Exactly one account registration belongs to this journey" },
+    )
+    .toBe(1);
+  await evidence.setupResponse(
+    "account",
+    signupSetupResponses.find(
+      (response) => safePath(response.url()) === "/auth/register",
+    )!,
+    "POST",
+  );
+  const createdProjects: SignupProject[] = [];
+  for (let index = 0; index < 2; index++) {
+    await expect
+      .poll(
+        () =>
+          signupSetupResponses.filter(
+            (response) => safePath(response.url()) === "/projects",
+          ).length,
+        {
+          message: `Signup must issue project setup request ${index + 1} of 2`,
+        },
+      )
+      .toBeGreaterThanOrEqual(index + 1);
+    const response = signupSetupResponses.filter(
+      (candidate) => safePath(candidate.url()) === "/projects",
+    )[index];
+    createdProjects.push(
+      await evidence.setupResponse<SignupProject>(
+        `signup-project-${index + 1}`,
+        response,
+        "POST",
+      ),
+    );
+  }
+  page.off("response", collectSignupSetup);
+  expect(
+    signupSetupResponses.filter(
+      (response) => safePath(response.url()) === "/auth/register",
+    ),
+  ).toHaveLength(1);
+  expect(
+    signupSetupResponses.filter(
+      (response) => safePath(response.url()) === "/projects",
+    ),
+  ).toHaveLength(2);
+  expect(createdProjects.map((project) => project.type).sort()).toEqual([
+    "PESSOAL",
+    "REFORMA",
+  ]);
   await expect(page).toHaveURL(/\/projects\/[^/]+\/conta(?:\?|$)/);
   await navigation.mark("signup-first-conta-url");
   const token = (await page.context().cookies()).find(
@@ -295,10 +418,32 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
     );
     return response.json();
   };
-  const projects =
-    await get<{ id: string; name: string; type: string }[]>("/projects");
+  const meResponse = await page.request.get(`${apiURL}/auth/me`, { headers });
+  const me = await evidence.setupResponse<{
+    allowedProjectTypes: string[];
+  }>("auth-grants", meResponse, "GET");
+  expect([...me.allowedProjectTypes].sort()).toEqual(["PESSOAL", "REFORMA"]);
+  const projectsResponse = await page.request.get(`${apiURL}/projects`, {
+    headers,
+  });
+  const projects = await evidence.setupResponse<
+    { id: string; name: string; type: string }[]
+  >("projects", projectsResponse, "GET");
+  expect(projects.map((project) => project.type).sort()).toEqual([
+    "PESSOAL",
+    "REFORMA",
+  ]);
+  expect(projects.map((project) => project.id).sort()).toEqual(
+    createdProjects.map((project) => project.id).sort(),
+  );
   const personal = projects.filter((project) => project.type === "PESSOAL");
   expect(personal).toHaveLength(1);
+  const reformas = createdProjects.filter(
+    (project) => project.type === "REFORMA",
+  );
+  expect(reformas).toHaveLength(1);
+  const reforma = reformas[0];
+  expect(reforma.rooms.length).toBeGreaterThan(0);
   const projectId = personal[0].id;
   await navigation.mark("before-api-card-create");
   const response = await page.request.post(
@@ -316,21 +461,11 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
       },
     },
   );
-  expect(response.ok()).toBe(true);
-  const card: { id: string } = await response.json();
-  const reformaResponse = await page.request.post(`${apiURL}/projects`, {
-    headers,
-    data: { name: "QA PDF Reforma destino", type: "REFORMA" },
-  });
-  expect(reformaResponse.ok()).toBe(true);
-  const reforma: {
-    id: string;
-    name: string;
-    type: string;
-    rooms: Array<{ id: string; name: string }>;
-  } = await reformaResponse.json();
-  expect(reforma.type).toBe("REFORMA");
-  expect(reforma.rooms.length).toBeGreaterThan(0);
+  const card = await evidence.setupResponse<{ id: string }>(
+    "credit-card",
+    response,
+    "POST",
+  );
   await navigation.mark("after-api-card-create");
   const close = page.getByRole("button", {
     name: "Fechar jornada",
