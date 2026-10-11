@@ -6,6 +6,7 @@ import {
   ExpenseType,
   ImportSessionAmountMeaning,
   type ImportSessionDraftLineV1,
+  type ImportSessionQuestionV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
 import { useImportConversation } from "./useImportConversation";
@@ -161,7 +162,10 @@ describe("native create and no-allocation choices", () => {
           expectedRevision: 4,
           questionId: question.id,
           channel: "TEXT",
-          answer: { field, value },
+          answer:
+            field === "targets"
+              ? { field, value: { kind: "NO_TARGETS" } }
+              : { field, value },
         },
         expect.any(AbortSignal),
       );
@@ -354,7 +358,11 @@ describe("focused draft native answers", () => {
         expectedRevision: 4,
         questionId: "q-due",
         channel: "TEXT",
-        answer: { field: "firstDueDate", value: "2025-10-10" },
+        answer: {
+          field: "firstDueDate",
+          literal: "2025-10-10",
+          value: "2025-10-10",
+        },
       },
       expect.any(AbortSignal),
     );
@@ -480,30 +488,120 @@ describe("focused draft native answers", () => {
     },
   );
 
-  it("explicit null is an unresolved draft answer, never an invented date", async () => {
+  it("keeps an explicit null local and makes zero focused request", async () => {
     const view = { ...base, lines: [{ ...line, firstDueDate: "2025-10-10" }] };
     const { result } = setup(view);
     await waitFor(() => expect(result.current.busy).toBe(false));
-    mocks.answerImportFocusedDraftQuestion.mockResolvedValue({
-      ...base,
-      revision: 5,
-    });
     await act(async () => {
       await result.current.saveFocusedDraft({
         ...accepted,
         draftAnswer: { field: "firstDueDate", value: null },
       });
     });
-    expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenCalledWith(
-      base.id,
-      expect.objectContaining({
-        answer: { field: "firstDueDate", value: null },
-      }),
-      expect.any(AbortSignal),
-    );
-    expect(result.current.view?.lines[0].firstDueDate).toBeNull();
+    expect(mocks.answerImportFocusedDraftQuestion).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(result.current.view?.lines[0].firstDueDate).toBe("2025-10-10");
     expect(result.current.question?.field).toBe("firstDueDate");
-    expect(result.current.error).toBeNull();
+    expect(result.current.error).not.toBeNull();
+  });
+
+  it("serializes money and an integral target with deterministic literals", async () => {
+    const cases = [
+      {
+        question: {
+          id: "q-amount",
+          field: "amountCents" as const,
+          lineIds: [line.id],
+          text: "Qual valor?",
+        },
+        accepted: {
+          id: "q-amount",
+          text: "R$ 206,96",
+          draftAnswer: { field: "amountCents" as const, value: 20_696 },
+        },
+        storedLine: { ...line, amountCents: 20_696 },
+        answer: {
+          field: "amountCents",
+          literal: "R$ 206,96",
+          value: 20_696,
+        },
+      },
+      {
+        question: {
+          id: "q-target",
+          field: "targets" as const,
+          lineIds: [line.id],
+          text: "Qual destino?",
+        },
+        accepted: {
+          id: "q-target",
+          text: "target",
+          draftAnswer: {
+            field: "targets" as const,
+            value: [
+              {
+                projectId: "project-reforma",
+                roomId: "room-cozinha",
+                amountCents: 123_456,
+              },
+            ],
+          },
+        },
+        storedLine: {
+          ...line,
+          targets: [
+            {
+              projectId: "project-reforma",
+              roomId: "room-cozinha",
+              amountCents: 123_456,
+            },
+          ],
+        },
+        answer: {
+          field: "targets",
+          value: {
+            kind: "TARGET",
+            projectId: "project-reforma",
+            roomId: "room-cozinha",
+            amountCents: 123_456,
+            literal: "1234,56",
+          },
+        },
+      },
+    ] as const;
+
+    for (const item of cases) {
+      const view: ImportSessionViewV1 = {
+        ...base,
+        questions: [item.question as ImportSessionQuestionV1],
+      };
+      const { result, unmount } = setup(view);
+      await waitFor(() => expect(result.current.busy).toBe(false));
+      mocks.answerImportFocusedDraftQuestion.mockResolvedValue({
+        ...view,
+        revision: 5,
+        questions: [],
+        lines: [item.storedLine as ImportSessionDraftLineV1],
+      });
+      await act(async () => {
+        await result.current.saveFocusedDraft(item.accepted as never);
+      });
+      expect(mocks.answerImportFocusedDraftQuestion).toHaveBeenLastCalledWith(
+        base.id,
+        {
+          version: 1,
+          answerRequestId: expect.any(String),
+          expectedRevision: 4,
+          questionId: item.question.id,
+          channel: "TEXT",
+          answer: item.answer,
+        },
+        expect.any(AbortSignal),
+      );
+      expect(mocks.send).not.toHaveBeenCalled();
+      unmount();
+      mocks.answerImportFocusedDraftQuestion.mockClear();
+    }
   });
 
   it("accepts a proven no-op without revision or expiry renewal", async () => {

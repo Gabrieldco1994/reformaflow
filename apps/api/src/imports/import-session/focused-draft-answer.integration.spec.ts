@@ -1,10 +1,13 @@
 import type { ExecutionContext } from "@nestjs/common";
+import { GUARDS_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import type { Request } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import {
   IMPORT_SESSION_CONSENT_POLICY_VERSION,
   ExpenseType,
   ExpenseStatus,
+  LaborCategory,
+  ImportSessionAmountMeaning,
   PaymentForm,
   ImportSessionErrorCode as Code,
   ProjectType,
@@ -88,7 +91,6 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     { allowed: () => ["http://localhost:3000"] },
     issuer,
   );
-  const chat = jest.spyOn(workflow, "editConversationAnswer");
   let tenantId: string;
   let userId: string;
   let projectId: string;
@@ -96,6 +98,10 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
   let sessionId: string;
   let artifactId: string;
   let view: ImportSessionViewV1;
+  function moneyLiteral(cents: number): string {
+    const reais = Math.floor(cents / 100);
+    return `${reais},${String(cents % 100).padStart(2, "0")}`;
+  }
   const context = (request: object): ExecutionContext =>
     ({
       switchToHttp: () => ({ getRequest: () => request }),
@@ -126,7 +132,16 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     };
   }
   function payload(
-    field: "firstDueDate" | "tipoDespesa" | "decision" | "targets",
+    field:
+      | "amountMeaning"
+      | "amountCents"
+      | "installmentCount"
+      | "dataCompra"
+      | "firstDueDate"
+      | "tipoDespesa"
+      | "categoriaMaoDeObra"
+      | "decision"
+      | "targets",
     value: unknown,
   ): Record<string, unknown> {
     const question = view.questions.find(
@@ -136,12 +151,23 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
         q.lineIds.includes(view.selectedLineIds[0]),
     );
     if (!question) throw Error("Missing focused question");
+    const answer =
+      field === "amountMeaning" ||
+      field === "amountCents" ||
+      field === "installmentCount" ||
+      field === "dataCompra" ||
+      field === "firstDueDate"
+        ? { field, literal: String(value), value }
+        : field === "targets" && Array.isArray(value) && value.length === 0
+          ? { field, value: { kind: "NO_TARGETS" } }
+          : { field, value };
     return {
       version: 1,
       answerRequestId: randomUUID(),
       expectedRevision: view.revision,
       questionId: question.id,
-      answer: { field, value },
+      channel: "TEXT" as const,
+      answer,
     };
   }
   async function submit(
@@ -163,6 +189,52 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       prisma.crossProjectSettlement.count({ where: { tenantId } }),
       prisma.importedInvoiceLiquidation.count({ where: { tenantId } }),
     ]);
+  async function installSingleLineQuestion(
+    field:
+      | "amountMeaning"
+      | "amountCents"
+      | "installmentCount"
+      | "dataCompra"
+      | "categoriaMaoDeObra"
+      | "targets",
+    currentValue: unknown,
+  ): Promise<void> {
+    const stored = await row();
+    const draft = JSON.parse(stored.draftJson);
+    const first = draft.lines[0];
+    const observationIds = draft.lines.flatMap(
+      (line: { observationIds: string[] }) => line.observationIds,
+    );
+    const question = {
+      id: randomUUID(),
+      lineIds: [first.id],
+      field,
+      text: `Fixture ${field}`,
+    };
+    draft.lines = [
+      {
+        ...first,
+        observationIds,
+        [field]: currentValue,
+      },
+    ];
+    draft.selectedLineIds = [first.id];
+    draft.questions = [question];
+    await prisma.importSession.update({
+      where: { id: sessionId },
+      data: {
+        state: "NEEDS_INPUT",
+        draftJson: JSON.stringify(draft),
+        searchJson: null,
+        proposalJson: null,
+        proposalHash: null,
+        preflightHash: null,
+        challengeJson: null,
+      },
+    });
+    view = await service.getSession(authenticated().auth, sessionId);
+    expect(view.questions).toContainEqual(expect.objectContaining(question));
+  }
   beforeEach(async () => {
     expect(process.env.DATABASE_URL).toMatch(/test(?:-worker-\d+)?\.db/);
     await prisma.$connect();
@@ -320,6 +392,7 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
         answerRequestId: randomUUID(),
         expectedRevision: view.revision,
         questionId: question.id,
+        channel: "TEXT" as const,
         input,
         answer: encoded.answer,
       };
@@ -370,7 +443,6 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     view = await submit(payload("firstDueDate", "2026-10-10"));
     const stored = await row();
     const draft = JSON.parse(stored.draftJson);
-    expect(chat).not.toHaveBeenCalled();
     expect(draft.selectedLineIds).toEqual(parsedBefore.selectedLineIds);
     expect(draft.declarations).toEqual(parsedBefore.declarations);
     expect(draft.lines[1]).toEqual(parsedBefore.lines[1]);
@@ -416,6 +488,23 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
         {},
       ),
     ).rejects.toMatchObject({ code: Code.UI_ACTION_REQUIRED });
+  });
+  it("uses the existing UI-guarded PATCH draft route and direct prepare/result APIs", async () => {
+    const edit = ImportSessionController.prototype.edit;
+    expect(Reflect.getMetadata(PATH_METADATA, edit)).toBe(":id/draft");
+    expect(Reflect.getMetadata(GUARDS_METADATA, edit)).toContain(ImportUiGuard);
+    await pendingChoices();
+    view = await submit(
+      payload("decision", { kind: "CREATE", acceptNaturalDuplicate: false }),
+    );
+    view = await submit(payload("targets", []));
+    view = await controller.prepare(authenticated().auth, sessionId, {
+      expectedRevision: view.revision,
+    });
+    expect(view.state).toBe("READY");
+    await expect(
+      controller.getResult(authenticated().auth, sessionId),
+    ).resolves.toEqual({ state: "READY", receipt: null });
   });
   it("preserves an explicitly entered bad cycle and lets preparation reject it without adjustment", async () => {
     view = await submit(payload("tipoDespesa", ExpenseType.OUTROS));
@@ -522,15 +611,6 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       code: Code.REVISION_CONFLICT,
     });
   });
-  it("null is explicit absence and does not remove an unresolved question or renew a no-op", async () => {
-    const before = await row();
-    now = new Date(now.getTime() + 5000);
-    view = await submit(payload("firstDueDate", null));
-    expect(await row()).toEqual(before);
-    expect(view.questions.some((q) => q.field === "firstDueDate")).toBe(true);
-    view = await submit(payload("tipoDespesa", null));
-    expect(await row()).toEqual(before);
-  });
   it("MAO_DE_OBRA never invents the required labor category", async () => {
     view = await submit(payload("tipoDespesa", ExpenseType.MAO_DE_OBRA));
     view = await submit(payload("firstDueDate", "2026-10-10"));
@@ -543,6 +623,170 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       true,
     );
   });
+  it.each([
+    {
+      field: "amountMeaning",
+      current: ImportSessionAmountMeaning.UNKNOWN,
+      literal: "valor da parcela",
+      value: ImportSessionAmountMeaning.INSTALLMENT_CHARGE,
+    },
+    {
+      field: "amountCents",
+      current: 1,
+      literal: "o valor é R$ 206,96",
+      value: 20696,
+    },
+    {
+      field: "installmentCount",
+      current: 2,
+      literal: "foram 3 parcelas",
+      value: 3,
+    },
+    {
+      field: "dataCompra",
+      current: "2026-09-09",
+      literal: "a compra foi em 10/10/2026",
+      value: "2026-10-10",
+    },
+  ] as const)(
+    "reparses the whole $field literal inside the locked writer",
+    async ({ field, current, literal, value }) => {
+      await installSingleLineQuestion(field, current);
+      const before = await row();
+      const body = payload(field, value);
+      (
+        body.answer as {
+          field: string;
+          literal: string;
+          value: unknown;
+        }
+      ).literal = literal;
+      view = await submit(body);
+      expect(view.lines[0][field]).toBe(value);
+      expect((await row()).revision).toBe(before.revision + 1);
+      expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+    },
+  );
+  it("stores an exact labor enum and no other field", async () => {
+    await installSingleLineQuestion("categoriaMaoDeObra", null);
+    const before = await row();
+    const draft = JSON.parse(before.draftJson);
+    view = await submit(
+      payload("categoriaMaoDeObra", LaborCategory.ELETRICISTA),
+    );
+    expect(view.lines[0]).toEqual({
+      ...draft.lines[0],
+      categoriaMaoDeObra: LaborCategory.ELETRICISTA,
+    });
+    expect((await row()).revision).toBe(before.revision + 1);
+    expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+  it("accepts only one authorized integral REFORMA target and rechecks room state", async () => {
+    const reforma = await prisma.project.create({
+      data: { tenantId, name: "target", type: ProjectType.REFORMA },
+    });
+    const room = await prisma.room.create({
+      data: { projectId: reforma.id, name: "cozinha" },
+    });
+    await installSingleLineQuestion("targets", null);
+    const value = {
+      kind: "TARGET" as const,
+      projectId: reforma.id,
+      roomId: room.id,
+      amountCents: view.lines[0].amountCents!,
+      literal: moneyLiteral(view.lines[0].amountCents!),
+    };
+    const body = payload("targets", value);
+    const actor = authenticated();
+    ui.canActivate(context(actor.request));
+    const request = parseFocusedDraftAnswerRequest(body);
+    const grant = issuer.issue(
+      actor.request,
+      actor.auth,
+      focusedDraftAnswerScope(sessionId, request),
+    );
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { deletedAt: now },
+    });
+    await expect(
+      workflow.focusedDraftAnswer(actor.auth, sessionId, request, grant),
+    ).rejects.toMatchObject({ code: Code.INVALID_INPUT });
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { deletedAt: null },
+    });
+    view = await submit(payload("targets", value));
+    expect(view.lines[0].targets).toEqual([
+      {
+        projectId: reforma.id,
+        roomId: room.id,
+        amountCents: value.amountCents,
+      },
+    ]);
+    expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
+  });
+  it("rejects a non-REFORMA, partial or newly unauthorized target", async () => {
+    const reforma = await prisma.project.create({
+      data: { tenantId, name: "restricted target", type: ProjectType.REFORMA },
+    });
+    await installSingleLineQuestion("targets", null);
+    const amountCents = view.lines[0].amountCents!;
+    await expect(
+      submit(
+        payload("targets", {
+          kind: "TARGET",
+          projectId,
+          roomId: null,
+          amountCents,
+          literal: moneyLiteral(amountCents),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: Code.INVALID_INPUT });
+    await expect(
+      submit(
+        payload("targets", {
+          kind: "TARGET",
+          projectId: reforma.id,
+          roomId: null,
+          amountCents: amountCents - 1,
+          literal: moneyLiteral(amountCents - 1),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: Code.INVALID_INPUT });
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        role: "USER",
+        allowedProjects: JSON.stringify([projectId]),
+        allowedProjectTypes: "[]",
+        allowedModules: JSON.stringify(["creditCards", "expenses"]),
+      },
+    });
+    try {
+      await expect(
+        submit(
+          payload("targets", {
+            kind: "TARGET",
+            projectId: reforma.id,
+            roomId: null,
+            amountCents,
+            literal: moneyLiteral(amountCents),
+          }),
+        ),
+      ).rejects.toMatchObject({ code: Code.NOT_FOUND });
+    } finally {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          role: "ADMIN",
+          allowedProjects: "[]",
+          allowedProjectTypes: "[]",
+          allowedModules: "[]",
+        },
+      });
+    }
+  });
   it("keeps legacy selection requests unchanged and provider-free", async () => {
     const actor = authenticated();
     ui.canActivate(context(actor.request));
@@ -553,7 +797,6 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       selectedLineIds: [],
     });
     expect(view.selectedLineIds).toEqual([]);
-    expect(chat).not.toHaveBeenCalled();
   });
   it("binds opaque grants to exact typed request, user, tenant, session, revision and question", async () => {
     const actor = authenticated();
@@ -571,7 +814,14 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       workflow.focusedDraftAnswer(
         actor.auth,
         sessionId,
-        { ...body, answer: { field: "firstDueDate", value: "2026-10-11" } },
+        {
+          ...body,
+          answer: {
+            field: "firstDueDate",
+            literal: "2026-10-11",
+            value: "2026-10-11",
+          },
+        },
         grant,
       ),
     ).rejects.toMatchObject({ code: Code.UI_ACTION_REQUIRED });
@@ -629,7 +879,7 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       workflow.focusedDraftAnswer(actor.auth, sessionId, body, grant),
     ).rejects.toMatchObject({ code: Code.UI_ACTION_REQUIRED });
   });
-  it("rejects expired grants and sessions, and rechecks revocation after admission", async () => {
+  it("rejects expired grants and sessions, and rechecks card/ACL revocation after admission", async () => {
     const actor = authenticated();
     ui.canActivate(context(actor.request));
     const body = parseFocusedDraftAnswerRequest(
@@ -644,6 +894,27 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     await expect(
       workflow.focusedDraftAnswer(actor.auth, sessionId, body, grant),
     ).rejects.toMatchObject({ code: Code.UI_ACTION_REQUIRED });
+    const cardActor = authenticated();
+    ui.canActivate(context(cardActor.request));
+    const cardGrant = issuer.issue(
+      cardActor.request,
+      cardActor.auth,
+      focusedDraftAnswerScope(sessionId, body),
+    );
+    await prisma.creditCard.update({
+      where: { id: cardId },
+      data: { deletedAt: now },
+    });
+    try {
+      await expect(
+        workflow.focusedDraftAnswer(cardActor.auth, sessionId, body, cardGrant),
+      ).rejects.toMatchObject({ code: Code.NOT_FOUND });
+    } finally {
+      await prisma.creditCard.update({
+        where: { id: cardId },
+        data: { deletedAt: null },
+      });
+    }
     const admitted = authenticated();
     ui.canActivate(context(admitted.request));
     const freshGrant = issuer.issue(
@@ -694,7 +965,7 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     });
     expect(await row()).toEqual(before);
   });
-  it("equal non-null answer is a no-op and clearing a draft value keeps its question unresolved", async () => {
+  it("equal answer on a retained current question is a no-op", async () => {
     view = await submit(payload("firstDueDate", "2026-10-11"));
     view = await workflow.prepare(authenticated().auth, sessionId, {
       expectedRevision: view.revision,
@@ -703,15 +974,6 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     now = new Date(now.getTime() + 5000);
     view = await submit(payload("firstDueDate", "2026-10-11"));
     expect(await row()).toEqual(before);
-    view = await submit(payload("firstDueDate", null));
-    expect(view.lines[0].firstDueDate).toBeNull();
-    expect(
-      view.questions.some(
-        (q) =>
-          q.field === "firstDueDate" &&
-          q.lineIds.includes(view.selectedLineIds[0]),
-      ),
-    ).toBe(true);
   });
   async function pendingChoices(): Promise<void> {
     const lineId = view.selectedLineIds[0];
@@ -766,7 +1028,6 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       expect(after.challengeJson).toBeNull();
       expect(after.financialRequestId).toBeNull();
       expect(after.receiptJson).toBeNull();
-      expect(chat).not.toHaveBeenCalled();
     },
   );
   it.each([
@@ -774,15 +1035,7 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
     { field: "decision", value: { kind: "CREATE" } },
     {
       field: "decision",
-      value: { kind: "CREATE", acceptNaturalDuplicate: true },
-    },
-    {
-      field: "decision",
       value: { kind: "CREATE", acceptNaturalDuplicate: false, extra: true },
-    },
-    {
-      field: "decision",
-      value: { kind: "KEEP_EXISTING", expenseId: "anything" },
     },
     { field: "decision", value: { kind: "UNRESOLVED" } },
     { field: "decision", value: { kind: "IGNORE" } },
@@ -913,7 +1166,10 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
     },
   );
-  it("explicit CREATE false never waives a real natural duplicate or enables confirmation", async () => {
+  async function naturalDuplicateQuestion(): Promise<{
+    existingId: string;
+    lineId: string;
+  }> {
     await pendingChoices();
     const line = view.lines.find(
       (line) => line.id === view.selectedLineIds[0],
@@ -964,7 +1220,6 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       payload("decision", { kind: "CREATE", acceptNaturalDuplicate: false }),
     );
     view = await submit(payload("targets", []));
-    const before = await finance();
     view = await workflow.prepare(authenticated().auth, sessionId, {
       expectedRevision: view.revision,
     });
@@ -980,6 +1235,11 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
           question.field === "decision" && question.lineIds.includes(line.id),
       ),
     ).toBe(true);
+    return { existingId: existing.id, lineId: line.id };
+  }
+  it("explicit CREATE false never waives a real natural duplicate or enables confirmation", async () => {
+    await naturalDuplicateQuestion();
+    const before = await finance();
     const beforeRow = await row();
     view = await submit(
       payload("decision", { kind: "CREATE", acceptNaturalDuplicate: false }),
@@ -1014,6 +1274,51 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       ),
     ).rejects.toBeDefined();
     expect(await row()).toEqual(beforeRow);
+    expect(await finance()).toEqual(before);
+  });
+  it("admits an explicit duplicate waiver only for the current live natural candidate", async () => {
+    const { existingId } = await naturalDuplicateQuestion();
+    const before = await finance();
+    const body = payload("decision", {
+      kind: "CREATE",
+      acceptNaturalDuplicate: true,
+    });
+    const actor = authenticated();
+    ui.canActivate(context(actor.request));
+    const request = parseFocusedDraftAnswerRequest(body);
+    const grant = issuer.issue(
+      actor.request,
+      actor.auth,
+      focusedDraftAnswerScope(sessionId, request),
+    );
+    await prisma.expense.update({
+      where: { id: existingId },
+      data: { deletedAt: now },
+    });
+    await expect(
+      workflow.focusedDraftAnswer(actor.auth, sessionId, request, grant),
+    ).rejects.toMatchObject({ code: Code.INVALID_INPUT });
+    await prisma.expense.update({
+      where: { id: existingId },
+      data: { deletedAt: null },
+    });
+    view = await submit(body);
+    expect(view.lines[0].decision).toEqual({
+      kind: "CREATE",
+      acceptNaturalDuplicate: true,
+    });
+    expect(await finance()).toEqual(before);
+  });
+  it("accepts KEEP_EXISTING only for a current authorized expense candidate", async () => {
+    const { existingId } = await naturalDuplicateQuestion();
+    const before = await finance();
+    view = await submit(
+      payload("decision", { kind: "KEEP_EXISTING", expenseId: existingId }),
+    );
+    expect(view.lines[0].decision).toEqual({
+      kind: "KEEP_EXISTING",
+      expenseId: existingId,
+    });
     expect(await finance()).toEqual(before);
   });
   it("separate explicit confirmation creates the source purchase, CFE and session receipt with no allocations", async () => {

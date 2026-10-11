@@ -318,6 +318,19 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
   );
   expect(response.ok()).toBe(true);
   const card: { id: string } = await response.json();
+  const reformaResponse = await page.request.post(`${apiURL}/projects`, {
+    headers,
+    data: { name: "QA PDF Reforma destino", type: "REFORMA" },
+  });
+  expect(reformaResponse.ok()).toBe(true);
+  const reforma: {
+    id: string;
+    name: string;
+    type: string;
+    rooms: Array<{ id: string; name: string }>;
+  } = await reformaResponse.json();
+  expect(reforma.type).toBe("REFORMA");
+  expect(reforma.rooms.length).toBeGreaterThan(0);
   await navigation.mark("after-api-card-create");
   const close = page.getByRole("button", {
     name: "Fechar jornada",
@@ -389,6 +402,12 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
   return {
     projectId,
     card,
+    target: {
+      projectId: reforma.id,
+      projectName: reforma.name,
+      roomId: reforma.rooms[0].id,
+      roomName: reforma.rooms[0].name,
+    },
     get,
     expenses,
     noFinance,

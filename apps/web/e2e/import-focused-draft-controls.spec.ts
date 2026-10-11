@@ -24,8 +24,10 @@ test.beforeAll(async () => {
         import { ImportFocusedQuestion } from ${JSON.stringify(component)};
         import { ProjectProvider } from ${JSON.stringify(path.join(root, "src/contexts/project-context.tsx"))};
         const props = {
-          lines: [{ id: "line", titulo: "Compra documental" }],
+          lines: [{ id: "line", titulo: "Compra documental", amountCents: 20696 }],
           inputLabel: "Sua resposta", inputHint: "Confira",
+          candidates: [{ lineId: "line", kind: "EXPENSE", id: "candidate-current", projectId: "project", description: "Compra já existente", amountCents: 20696, date: "2026-10-10", reason: "NATURAL_MATCH", canKeepExisting: true }],
+          targetProjects: [{ id: "project-reforma", name: "Reforma autorizada", rooms: [{ id: "room-reforma", name: "Cozinha" }] }],
           onAnswer: answer => {
             document.getElementById("output").textContent = JSON.stringify(answer);
           }
@@ -33,8 +35,13 @@ test.beforeAll(async () => {
         createRoot(document.getElementById("root")).render(
           <ProjectProvider value={{projectId: "project", projectType: "REFORMA", projectName: "Reforma"}}>
             <main className="mx-auto w-full max-w-2xl min-w-0 space-y-4 p-4">
+              <ImportFocusedQuestion {...props} question={{id: "q-meaning", field: "amountMeaning", lineIds: ["line"], text: "Significado"}} />
+              <ImportFocusedQuestion {...props} question={{id: "q-amount", field: "amountCents", lineIds: ["line"], text: "Valor"}} />
+              <ImportFocusedQuestion {...props} question={{id: "q-count", field: "installmentCount", lineIds: ["line"], text: "Parcelas"}} />
+              <ImportFocusedQuestion {...props} question={{id: "q-purchase-date", field: "dataCompra", lineIds: ["line"], text: "Data da compra"}} />
               <ImportFocusedQuestion {...props} question={{id: "q-date", field: "firstDueDate", lineIds: ["line"], text: "Primeiro vencimento"}} />
               <ImportFocusedQuestion {...props} question={{id: "q-type", field: "tipoDespesa", lineIds: ["line"], text: "Tipo de despesa"}} />
+              <ImportFocusedQuestion {...props} question={{id: "q-labor", field: "categoriaMaoDeObra", lineIds: ["line"], text: "Categoria de mão de obra"}} />
               <ImportFocusedQuestion {...props} question={{id: "q-create", field: "decision", lineIds: ["line"], text: "Criar compra"}} />
               <ImportFocusedQuestion {...props} question={{id: "q-targets", field: "targets", lineIds: ["line"], text: "Rateio"}} />
             </main>
@@ -96,7 +103,14 @@ for (const width of [375, 390, 1280]) {
       await page.evaluate(() => document.documentElement.clientWidth),
     ).toBe(width);
     await page.addScriptTag({ content: script });
-    const date = page.locator('input[type="date"]');
+    await expect(page.getByRole("form")).toHaveCount(9);
+    await expect(
+      page.getByRole("button", { name: "Responder à pergunta" }),
+    ).toHaveCount(0);
+    const date = page.getByRole("textbox", {
+      name: "Primeiro vencimento",
+      exact: true,
+    });
     await date.fill("2025-10-10");
     await expect(page.locator("#output")).toBeEmpty();
     const dateForm = page.locator("form").filter({ has: date });
@@ -129,14 +143,16 @@ for (const width of [375, 390, 1280]) {
       {
         label: "Criar nova compra",
         id: "q-create",
+        text: "CREATE",
         answer: {
           field: "decision",
           value: { kind: "CREATE", acceptNaturalDuplicate: false },
         },
       },
       {
-        label: "Sem rateio — manter a compra no projeto proprietário",
+        label: "Sem rateio — manter no projeto proprietário",
         id: "q-targets",
+        text: "NO_TARGETS",
         answer: { field: "targets", value: [] },
       },
     ]) {
@@ -155,21 +171,25 @@ for (const width of [375, 390, 1280]) {
       ).toBeDisabled();
       await form.getByRole("button", { name: "Conferir informação" }).click();
       await expect(
-        form.getByRole("list", { name: "Compras afetadas pela escolha" }),
+        form.getByRole("list", { name: "Compras desta pergunta" }),
       ).toContainText("Compra documental");
       await form.getByRole("button", { name: "Guardar informação" }).click();
       await expect(page.locator("#output")).toHaveText(
         JSON.stringify({
           id: choice.id,
-          text: choice.label,
+          text: choice.text,
           draftAnswer: choice.answer,
         }),
       );
     }
     for (const control of await page
       .locator("form button, form input, form select")
-      .all())
+      .all()) {
+      if (await control.isDisabled()) continue;
       await assertTouchable(control);
+      await control.focus();
+      await expect(control).toBeFocused();
+    }
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(width);

@@ -221,14 +221,8 @@ test("the scoped temp-root contract rejects missing, broad, arbitrary, or unguar
 });
 
 const blockerDWorkflowSource = readFileSync(WORKFLOW_PATH, "utf8");
-const blockerDModelLock = JSON.parse(
-  readFileSync(
-    join(ROOT, "scripts", "qa", "maria-import-eval", "model-lock.v1.json"),
-    "utf8",
-  ),
-);
 
-test("blocker D workflow watches eval, prompt, provider, lock and test surfaces", () => {
+test("vault QA still watches its backend, workflow and artifact surfaces", () => {
   for (const required of [
     "scripts/qa/**",
     "apps/api/src/agent/**",
@@ -240,56 +234,36 @@ test("blocker D workflow watches eval, prompt, provider, lock and test surfaces"
     assert.ok(blockerDWorkflowSource.includes(required), required);
 });
 
-test("blocker D has one mandatory dedicated loopback eval job without fallback", () => {
-  assert.equal(
-    (blockerDWorkflowSource.match(/^  maria-model-eval:/gm) ?? []).length,
-    1,
-  );
-  assert.match(blockerDWorkflowSource, /MARIA_IMPORT_MODEL_EVAL:\s*["\x27]?1/);
-  assert.match(
-    blockerDWorkflowSource,
-    /npm --workspace @reformaflow\/api run maria-import:eval/,
-  );
-  assert.doesNotMatch(blockerDWorkflowSource, /continue-on-error:\s*true/);
-  assert.doesNotMatch(blockerDWorkflowSource, /\|\|\s*(true|echo|:)/);
-  assert.doesNotMatch(blockerDWorkflowSource, /AGENT_LLM_FALLBACK/);
-});
-
-test("blocker D reads canonical lock and requires digest provenance plus report validation", () => {
-  assert.equal(blockerDModelLock.name, "qwen2.5:7b-instruct");
-  assert.match(blockerDModelLock.digest, /^sha256:[a-f0-9]{64}$/);
-  assert.match(blockerDWorkflowSource, /model-lock\.v1\.json/);
-  assert.match(blockerDWorkflowSource, /ollama-model-lock\.cjs verify/);
-  assert.match(blockerDWorkflowSource, /maria-model-provenance\.json/);
-  assert.match(blockerDWorkflowSource, /maria-import-eval-report\.json/);
-  assert.match(blockerDWorkflowSource, /if:\s*always\(\)/);
-  assert.match(blockerDWorkflowSource, /validate-report/);
-  assert.match(blockerDWorkflowSource, /assert-sanitized-artifacts/);
-  assert.match(blockerDWorkflowSource, /QA_SANITIZED_ARTIFACTS_DIR/);
-  assert.doesNotMatch(
-    blockerDWorkflowSource,
-    /QA_SANITIZED_ARTIFACTS_DIR[^\n]*\*\.log/,
-  );
-  const uploadBlock = blockerDWorkflowSource.slice(
-    blockerDWorkflowSource.indexOf(
-      "Upload allowlisted sanitized report and provenance",
-    ),
-    blockerDWorkflowSource.indexOf("Stop owned loopback provider"),
-  );
-  assert.doesNotMatch(uploadBlock, /\.log/);
-  assert.match(uploadBlock, /maria-import-eval-report\.json/);
-  assert.match(uploadBlock, /maria-model-provenance\.json/);
-});
-
-test("viewport jobs continue to consume the same explicit locked instruct model", () => {
+test("vault QA keeps the viewport matrix and deterministic financial evidence", () => {
   assert.match(
     blockerDWorkflowSource,
     /matrix:[\s\S]*mobile-375[\s\S]*mobile-390[\s\S]*desktop-1280/,
   );
-  assert.doesNotMatch(blockerDWorkflowSource, /qwen2\.5:7b(?!-instruct)/);
-  assert.match(blockerDWorkflowSource, /QA_OLLAMA_MODEL=\$model/);
-  assert.match(
-    blockerDWorkflowSource,
-    /maria-import-eval-contract\.cjs model-name/,
-  );
+  for (const required of [
+    "npx prisma migrate deploy",
+    "maria-csv-invoice.spec.ts",
+    "maria-pdf-textual.spec.ts",
+    "maria-csv-assert.mjs post-confirm",
+    "maria-csv-assert.mjs fk",
+    "actions/upload-artifact@v4",
+  ])
+    assert.ok(blockerDWorkflowSource.includes(required), required);
+});
+
+test("vault QA has no model install, pull, eval, provenance or report path", () => {
+  for (const removed of [
+    "maria-model-eval",
+    "MARIA_IMPORT_MODEL_EVAL",
+    "maria-import:eval",
+    "ollama",
+    "qwen",
+    "model-lock",
+    "model-provenance",
+    "eval-report",
+    "pull-model",
+  ])
+    assert.ok(
+      !blockerDWorkflowSource.toLowerCase().includes(removed.toLowerCase()),
+      removed,
+    );
 });

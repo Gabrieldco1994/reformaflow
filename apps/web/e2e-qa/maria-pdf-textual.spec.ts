@@ -35,16 +35,12 @@ test.afterAll(async () => {
 
 const sessionFromUrl = (page: Page) =>
   new URL(page.url()).searchParams.get("importSessionId") ?? "";
-const chatResponse =
-  (sessionId: string, intent?: string) => (response: Response) => {
-    if (
-      new URL(response.url()).pathname !== "/agent/chat" ||
-      response.request().method() !== "POST"
-    )
-      return false;
-    const turn = response.request().postDataJSON()?.importTurn;
-    return turn?.sessionId === sessionId && (!intent || turn.intent === intent);
-  };
+const sessionResponse =
+  (sessionId: string, suffix = "", method = "GET") =>
+  (response: Response) =>
+    new URL(response.url()).pathname ===
+      `/import-sessions/${sessionId}${suffix}` &&
+    response.request().method() === method;
 const assertPurchases = (view: ImportSessionViewV1) => {
   expect(view.lines).toHaveLength(pdfExpected.purchases.length);
   for (const purchase of pdfExpected.purchases) {
@@ -57,7 +53,7 @@ const assertPurchases = (view: ImportSessionViewV1) => {
   );
 };
 
-test("real PDF → consent/dedupe → ignored payment → explicit subset confirmation → persistent receipt", async ({
+test("real typed-origin PDF → one integral REFORMA target → ignored payment → persistent receipt", async ({
   page,
 }, info) => {
   // Each real 7b answer has its own 120s transport budget, not a mocked response.
@@ -100,6 +96,15 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
     ).toBeVisible();
     const sessionId = sessionFromUrl(page);
     expect(sessionId).not.toBe("");
+    const activeAgentChatRequests: unknown[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === "/agent/chat" &&
+        request.postDataJSON()?.importTurn?.sessionId === sessionId
+      )
+        activeAgentChatRequests.push(request.postDataJSON());
+    });
     const view = () => journey.view(sessionId);
     const uploaded = await view();
     assertPurchases(uploaded);
@@ -182,7 +187,7 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
       if (!question) {
         await evidence.response(
           `prepare-${attempt + 1}`,
-          chatResponse(sessionId, "OPEN_REVIEW"),
+          sessionResponse(sessionId, "/prepare", "POST"),
           () =>
             page
               .getByRole("button", {
@@ -203,7 +208,7 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
       }
       await evidence.response(
         `question-${attempt + 1}`,
-        chatResponse(sessionId),
+        sessionResponse(sessionId),
         () =>
           page
             .getByRole("button", {
@@ -222,6 +227,7 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
             question,
             pdfExpected.declarations.firstDueDate,
             current,
+            journey.target,
           );
           await evidence.capture(
             `answer-${attempt + 1}-${question.field}-typed-preview`,
@@ -285,11 +291,7 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
         `answer-${attempt + 1}-${question.field}`,
         (r) => {
           if (native) return native.matches(r);
-          if (!chatResponse(sessionId, "ANSWER")(r)) return false;
-          const turn = r.request().postDataJSON().importTurn;
-          return (
-            turn.focus?.id === question.id && turn.literalAnswer === answer
-          );
+          return false;
         },
         () =>
           form
@@ -316,6 +318,24 @@ test("real PDF → consent/dedupe → ignored payment → explicit subset confir
           q.lineIds.some((id) => selectedIds.includes(id)),
       ),
     ).toEqual([]);
+    expect(
+      activeAgentChatRequests,
+      "An active PDF session must never call /agent/chat",
+    ).toEqual([]);
+    const ready = await view();
+    const creates = ready.proposal?.lines.filter(
+      (planned) => planned.kind === "CREATE",
+    );
+    expect(creates).toHaveLength(selected.length);
+    for (const planned of creates ?? []) {
+      if (planned.kind !== "CREATE") throw new Error("expected CREATE");
+      expect(planned.targets).toHaveLength(1);
+      expect(planned.targets[0]).toMatchObject({
+        projectId: journey.target.projectId,
+        roomId: journey.target.roomId,
+        amountCents: planned.totalCents,
+      });
+    }
     const review = page.getByRole("region", {
       name: "Revisão do lote",
       exact: true,

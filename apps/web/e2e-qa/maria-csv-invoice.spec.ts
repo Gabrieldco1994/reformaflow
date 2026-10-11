@@ -207,7 +207,7 @@ for (const phase of ["upload", "confirmation"] as const) {
   test(
     phase === "upload"
       ? "real signup → visible Maria → CSV consent/dedupe/analysis → reload with no expenses"
-      : "real signup → Maria CSV → lost execute response → authorized APPLIED recovery with exact inventory",
+      : "real VOICE-origin CSV → NO_TARGETS → lost answer/execute recovery → exact APPLIED inventory",
     async ({ page }, info) => {
       const evidence = new JourneyEvidence(page, info);
       const expectedViewportWidth = {
@@ -223,6 +223,7 @@ for (const phase of ["upload", "confirmation"] as const) {
       let token = "";
       let projectId = "";
       let sessionId = "";
+      let candidateExpenseId: string | null = null;
       const headers = () => ({
         Authorization: `Bearer ${token}`,
         "x-rf-import-ui": "1",
@@ -251,8 +252,10 @@ for (const phase of ["upload", "confirmation"] as const) {
         expect(
           result.total,
           "No financial writes before explicit confirmation",
-        ).toBe(0);
-        expect(result.items).toEqual([]);
+        ).toBe(candidateExpenseId ? 1 : 0);
+        expect(result.items.map((item) => item.id)).toEqual(
+          candidateExpenseId ? [candidateExpenseId] : [],
+        );
       };
 
       try {
@@ -361,6 +364,30 @@ for (const phase of ["upload", "confirmation"] as const) {
         );
         await evidence.checkApi(cardResponse);
         const card: { id: string } = await cardResponse.json();
+        if (phase === "confirmation") {
+          const candidateResponse = await page.request.post(
+            `${apiURL.replace(/\/$/, "")}/projects/${projectId}/expenses`,
+            {
+              headers: headers(),
+              data: {
+                tipoDespesa: "OUTROS",
+                valor: selectedPurchases[0].amountCents / 100,
+                quantidade: 1,
+                titulo: selectedPurchases[0].title,
+                fornecedor: selectedPurchases[0].title,
+                formaPagamento: "A_VISTA",
+                dataCompra: selectedPurchases[0].date,
+                dataPagamento: expected.declarations.firstDueDate,
+                status: "PLANEJADO",
+                creditCardId: card.id,
+              },
+            },
+          );
+          await evidence.checkApi(candidateResponse);
+          const candidateExpense: { id: string } =
+            await candidateResponse.json();
+          candidateExpenseId = candidateExpense.id;
+        }
         // Signup already entered this project; there is no project-hub tile to click.
         expect(new URL(page.url()).pathname).toBe(
           `/projects/${projectId}/conta`,
@@ -390,8 +417,9 @@ for (const phase of ["upload", "confirmation"] as const) {
         await voiceCta.click();
         const qualifiedEntry = await entryResponse;
         await evidence.checkApi(qualifiedEntry);
-        expect(qualifiedEntry.request().postDataJSON()).toMatchObject({
-          origin: "VOICE",
+        expect(qualifiedEntry.request().postDataJSON()).toEqual({
+          projectId,
+          metadata: { channel: "VOICE" },
           messages: [
             { role: "user", content: "Quero importar a fatura do cartão" },
           ],
@@ -441,6 +469,15 @@ for (const phase of ["upload", "confirmation"] as const) {
         sessionId =
           new URL(page.url()).searchParams.get("importSessionId") ?? "";
         expect(sessionId).not.toBe("");
+        const activeAgentChatRequests: unknown[] = [];
+        page.on("request", (request) => {
+          if (
+            request.method() === "POST" &&
+            new URL(request.url()).pathname === "/agent/chat" &&
+            request.postDataJSON()?.importTurn?.sessionId === sessionId
+          )
+            activeAgentChatRequests.push(request.postDataJSON());
+        });
         await expect
           .poll(async () => {
             const titles = (await view()).lines.map((line) => line.titulo);
@@ -534,6 +571,8 @@ for (const phase of ["upload", "confirmation"] as const) {
         await evidence.capture("ignored-payment-and-human-subset");
 
         let voiceReviewTransition = false;
+        let lostAnswerRecovered = false;
+        let candidateChosen = false;
         // Read-only state identifies the active field; every answer is sent by the actual guided UI.
         for (let attempt = 0; attempt < 30; attempt++) {
           let current = await view();
@@ -545,36 +584,54 @@ for (const phase of ["upload", "confirmation"] as const) {
           if (!question) {
             // PREPARE may add decision/targets questions; an empty pre-prepare
             // question list is not proof that the financial review is ready.
+            let prepareRequests = 0;
+            const countPrepare = (
+              request: import("@playwright/test").Request,
+            ) => {
+              if (
+                request.method() === "POST" &&
+                new URL(request.url()).pathname ===
+                  `/import-sessions/${sessionId}/prepare`
+              )
+                prepareRequests++;
+            };
+            page.on("request", countPrepare);
             const prepared = page.waitForResponse(
               (response) =>
-                new URL(response.url()).pathname === "/agent/chat" &&
-                response.request().method() === "POST" &&
-                response.request().postDataJSON()?.importTurn?.sessionId ===
-                  sessionId &&
-                response.request().postDataJSON()?.importTurn?.intent ===
-                  "OPEN_REVIEW",
+                new URL(response.url()).pathname ===
+                  `/import-sessions/${sessionId}/prepare` &&
+                response.request().method() === "POST",
               { timeout: 120_000 },
             );
             let response;
             if (!voiceReviewTransition) {
               await enqueueSpeech(page, "sim");
-              await evidence.captureImportTurn(
-                {
-                  name: `voice-open-review-${attempt + 1}`,
-                  sessionId,
-                  intent: "OPEN_REVIEW",
-                  literalAnswer: "sim",
-                  channel: "VOICE",
-                },
-                () =>
-                  page
-                    .getByRole("button", {
-                      name: "Responder por voz",
-                      exact: true,
-                    })
-                    .click(),
-              );
-              response = await prepared;
+              await page
+                .getByRole("button", {
+                  name: "Responder por voz",
+                  exact: true,
+                })
+                .click();
+              await expect
+                .poll(() => prepareRequests, {
+                  message: "VOICE recognition must preview, never auto-submit",
+                })
+                .toBe(0);
+              await expect(
+                page.getByRole("button", {
+                  name: "Abrir revisão do lote",
+                  exact: true,
+                }),
+              ).toBeFocused();
+              [response] = await Promise.all([
+                prepared,
+                page
+                  .getByRole("button", {
+                    name: "Abrir revisão do lote",
+                    exact: true,
+                  })
+                  .click(),
+              ]);
               voiceReviewTransition = true;
             } else {
               [response] = await Promise.all([
@@ -587,6 +644,7 @@ for (const phase of ["upload", "confirmation"] as const) {
                   .click(),
               ]);
             }
+            page.off("request", countPrepare);
             await evidence.checkApi(response);
             await evidence.capture(`prepare-${attempt + 1}-response`);
             current = await view();
@@ -616,23 +674,97 @@ for (const phase of ["upload", "confirmation"] as const) {
                 question,
                 expected.declarations.firstDueDate,
                 current,
+                undefined,
+                question.field === "decision"
+                  ? (
+                      (await get(
+                        `/import-sessions/${sessionId}/candidates?lineId=${question.lineIds[0]}`,
+                      )) as {
+                        items: Array<{
+                          id: string;
+                          description: string;
+                          canKeepExisting: boolean;
+                        }>;
+                      }
+                    ).items.find(
+                      (candidate) =>
+                        candidate.id === candidateExpenseId &&
+                        candidate.canKeepExisting,
+                    )
+                  : undefined,
               );
+              if (
+                typed.field === "decision" &&
+                typed.value.kind === "KEEP_EXISTING"
+              )
+                candidateChosen = true;
               await evidence.capture(
                 `answer-${attempt + 1}-${question.field}-typed-preview`,
               );
-              await captureNativeDocumentaryAnswer(
-                page,
-                info,
-                `answer-${attempt + 1}-${question.field}-focused-draft`,
-                focusedDraftContract(sessionId, question, current, typed),
-                () =>
-                  form
-                    .getByRole("button", {
-                      name: "Guardar informação",
-                      exact: true,
-                    })
-                    .click(),
+              const contract = focusedDraftContract(
+                sessionId,
+                question,
+                current,
+                typed,
               );
+              if (!lostAnswerRecovered) {
+                let requests = 0;
+                let committed = false;
+                await page.route(
+                  (url) =>
+                    url.pathname === `/import-sessions/${sessionId}/draft`,
+                  async (route) => {
+                    requests++;
+                    const response = await route.fetch();
+                    expect(response.status()).toBe(200);
+                    committed = true;
+                    await route.abort("failed");
+                  },
+                );
+                const recovered = page.waitForResponse(
+                  (response) =>
+                    committed &&
+                    response.request().method() === "GET" &&
+                    new URL(response.url()).pathname ===
+                      `/import-sessions/${sessionId}` &&
+                    response.ok(),
+                  { timeout: 120_000 },
+                );
+                await form
+                  .getByRole("button", {
+                    name: "Guardar informação",
+                    exact: true,
+                  })
+                  .click();
+                await recovered;
+                await page.unroute(
+                  (url) =>
+                    url.pathname === `/import-sessions/${sessionId}/draft`,
+                );
+                expect(requests).toBe(1);
+                const recoveredView = await view();
+                expect(recoveredView.revision).toBe(current.revision + 1);
+                expect(
+                  recoveredView.questions.some(
+                    (candidate) => candidate.id === question.id,
+                  ),
+                ).toBe(false);
+                lostAnswerRecovered = true;
+              } else {
+                await captureNativeDocumentaryAnswer(
+                  page,
+                  info,
+                  `answer-${attempt + 1}-${question.field}-focused-draft`,
+                  contract,
+                  () =>
+                    form
+                      .getByRole("button", {
+                        name: "Guardar informação",
+                        exact: true,
+                      })
+                      .click(),
+                );
+              }
               await noExpenses();
               await evidence.capture(
                 `answer-${attempt + 1}-${question.field}-saved`,
@@ -719,6 +851,20 @@ for (const phase of ["upload", "confirmation"] as const) {
           ),
         ).toEqual([]);
         expect(voiceReviewTransition).toBe(true);
+        expect(lostAnswerRecovered).toBe(true);
+        expect(candidateChosen).toBe(true);
+        const ready = await view();
+        expect(
+          ready.proposal?.lines.every(
+            (planned) =>
+              planned.kind !== "CREATE" || planned.targets.length === 0,
+          ),
+          "CSV covers the explicit NO_TARGETS branch",
+        ).toBe(true);
+        expect(
+          activeAgentChatRequests,
+          "An active import session must use only direct session endpoints",
+        ).toEqual([]);
         const review = page.getByRole("region", {
           name: "Revisão do lote",
           exact: true,
@@ -837,7 +983,7 @@ for (const phase of ["upload", "confirmation"] as const) {
         ).toEqual(applied.items.map((item) => item.id).sort());
         expect(terminal.receipt!.items).toHaveLength(2);
         expect(terminal.receipt!.snapshot.createdEconomicTotalCents).toBe(
-          19134,
+          selectedPurchases[1].amountCents,
         );
         const auditedReceipt = terminal.receipt as typeof terminal.receipt & {
           auditItems: Array<{
