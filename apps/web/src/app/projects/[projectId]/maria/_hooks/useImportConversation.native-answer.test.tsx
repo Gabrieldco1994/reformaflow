@@ -12,6 +12,7 @@ import {
 import { useImportConversation } from "./useImportConversation";
 import { importRoot } from "../_lib/import-session-keys";
 import { importDeclarationContext } from "../_lib/import-session-read";
+import { readImportWorkflowView } from "../_lib/import-session-workflow-read";
 import { ApiResponseError } from "@/lib/api";
 
 const mocks = vi.hoisted(() => ({
@@ -128,6 +129,127 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("native documentary preview contract", () => {
+  it.each([
+    { path: "initial render", afterSave: false },
+    { path: "saveDeclaration revision transition", afterSave: true },
+  ])(
+    "keeps the pending question inside selected lines on $path",
+    async ({ afterSave }) => {
+      const lines: ImportSessionViewV1["lines"] = [
+        {
+          id: "line-1",
+          observationIds: ["observation-1"],
+          titulo: "Compra selecionada documental",
+          fornecedor: null,
+          tipoDespesa: null,
+          categoriaMaoDeObra: null,
+          amountMeaning: "TOTAL_PURCHASE",
+          amountCents: 20_696,
+          installmentCount: 1,
+          dataCompra: "2026-09-01",
+          firstDueDate: null,
+          targets: [],
+          decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+        },
+        {
+          id: "line-selected-due",
+          observationIds: ["observation-selected-due"],
+          titulo: "Compra selecionada sem vencimento",
+          fornecedor: "Loja Norte",
+          tipoDespesa: null,
+          categoriaMaoDeObra: null,
+          amountMeaning: "TOTAL_PURCHASE",
+          amountCents: 15_000,
+          installmentCount: 3,
+          dataCompra: "2026-09-02",
+          firstDueDate: null,
+          targets: [],
+          decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+        },
+        {
+          id: "line-unselected-cafe",
+          observationIds: ["observation-unselected-cafe"],
+          titulo: "Cafe fora da selecao",
+          fornecedor: null,
+          tipoDespesa: null,
+          categoriaMaoDeObra: null,
+          amountMeaning: "TOTAL_PURCHASE",
+          amountCents: 900,
+          installmentCount: 1,
+          dataCompra: "2026-09-03",
+          firstDueDate: null,
+          targets: [],
+          decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+        },
+      ];
+      const pendingUnselected: ImportObservationQuestionV1 = {
+        id: "oq-unselected-cafe",
+        lineIds: ["line-unselected-cafe"],
+        field: "merchant",
+        text: "Qual estabelecimento do Cafe?",
+        subject: {
+          kind: "OBSERVATION",
+          observationId: "observation-unselected-cafe",
+          meaningContext: null,
+        },
+        answerState: "UNANSWERED",
+      };
+      const pendingSelected: ImportSessionViewV1["questions"][number] = {
+        id: "q-selected-first-due",
+        lineIds: ["line-selected-due"],
+        field: "firstDueDate",
+        text: "Qual o primeiro vencimento?",
+      };
+      const initial: ImportSessionViewV1 = {
+        ...base,
+        revision: 12,
+        lines,
+        selectedLineIds: ["line-1", "line-selected-due"],
+        questions: [question, pendingUnselected, pendingSelected],
+      };
+      const revision13 = readImportWorkflowView({
+        ...initial,
+        revision: 13,
+        questions: [
+          { ...question, answerState: "DECLARED" },
+          pendingUnselected,
+          pendingSelected,
+        ],
+        declaredFacts: [
+          {
+            questionId: question.id,
+            lineId: "line-1",
+            observationId: "observation-1",
+            origin: "USER_ATTESTATION",
+            channel: "TEXT",
+            ...answer,
+            status: "CURRENT",
+          },
+        ],
+      });
+      const { result } = setup(afterSave ? initial : revision13);
+      await waitFor(() => expect(result.current.busy).toBe(false));
+
+      if (afterSave) {
+        mocks.answerImportDocumentaryQuestion.mockResolvedValue(revision13);
+        await act(async () => {
+          await result.current.saveDeclaration(accepted);
+        });
+      }
+
+      expect(result.current.view?.revision).toBe(13);
+      expect(result.current.view?.selectedLineIds).toEqual([
+        "line-1",
+        "line-selected-due",
+      ]);
+      expect(result.current.question).toMatchObject({
+        id: "q-selected-first-due",
+        lineIds: ["line-selected-due"],
+        field: "firstDueDate",
+      });
+    },
+  );
+
   const explicitCases: {
     question: ImportObservationQuestionV1;
     text: string;
