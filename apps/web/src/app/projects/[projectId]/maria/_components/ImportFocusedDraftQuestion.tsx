@@ -86,11 +86,12 @@ export type ImportPurchaseContextLine = Pick<
     >
   >;
 
-const AMOUNT_MEANING_LABELS: Record<ImportSessionAmountMeaning, string> = {
-  [ImportSessionAmountMeaning.TOTAL_PURCHASE]: "Total",
-  [ImportSessionAmountMeaning.INSTALLMENT_CHARGE]: "Parcela",
-  [ImportSessionAmountMeaning.UNKNOWN]: "Valor",
-};
+const AMOUNT_MEANING_LABELS: ReadonlyMap<ImportSessionAmountMeaning, string> =
+  new Map([
+    [ImportSessionAmountMeaning.TOTAL_PURCHASE, "Total"],
+    [ImportSessionAmountMeaning.INSTALLMENT_CHARGE, "Parcela"],
+    [ImportSessionAmountMeaning.UNKNOWN, "Valor"],
+  ]);
 
 export function formatImportPurchaseContext(
   line: ImportPurchaseContextLine,
@@ -107,7 +108,7 @@ export function formatImportPurchaseContext(
   if (date) details.push(date);
   if (line.amountCents !== null && line.amountCents !== undefined) {
     const meaning = line.amountMeaning
-      ? (AMOUNT_MEANING_LABELS[line.amountMeaning] ?? "Valor")
+      ? (AMOUNT_MEANING_LABELS.get(line.amountMeaning) ?? "Valor")
       : "Valor";
     details.push(`${moneyDetail(line.amountCents)} · ${meaning}`);
   }
