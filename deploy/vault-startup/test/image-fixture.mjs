@@ -43,6 +43,18 @@ export async function until(work, message, timeout = 60000) {
   } while (Date.now() < end);
   assert.fail(message);
 }
+export function lazyPublishedOrigin(name, runDocker = docker) {
+  let origin;
+  return () => {
+    if (origin === undefined) {
+      const publication = runDocker("port", name, "3001/tcp");
+      const port = publication.split(":").at(-1);
+      assert.match(port ?? "", /^[1-9][0-9]*$/);
+      origin = `http://127.0.0.1:${port}`;
+    }
+    return origin;
+  };
+}
 export function snapshot(root) {
   const result = [];
   function walk(target, relative) {
@@ -117,7 +129,9 @@ export async function withImageFixture(work) {
         IMAGE,
         ...command,
       );
-      const port = docker("port", name, "3001/tcp").split(":").at(-1);
+      // Startup-rejection cases can exit before Docker retains a published
+      // port. Resolve it only for tests that actually make an HTTP request.
+      const publishedOrigin = lazyPublishedOrigin(name);
       const api = {
         name,
         exec: (...args) => docker("exec", name, ...args),
@@ -127,7 +141,7 @@ export async function withImageFixture(work) {
         exitCode: () =>
           Number(docker("inspect", "-f", "{{.State.ExitCode}}", name)),
         async request(path, options = {}) {
-          return fetch(`http://127.0.0.1:${port}${path}`, {
+          return fetch(`${publishedOrigin()}${path}`, {
             ...options,
             signal: AbortSignal.timeout(3000),
           });

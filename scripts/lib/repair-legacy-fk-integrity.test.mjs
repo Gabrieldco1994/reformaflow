@@ -24,7 +24,7 @@ import { afterEach, test } from "node:test";
 import { spawn, spawnSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
-require("../test-db-env.cjs");
+const testDatabaseGuard = require("../test-db-env.cjs");
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SCRIPT = join(ROOT, "scripts", "repair-legacy-fk-integrity.mjs");
@@ -38,7 +38,7 @@ const QUIESCE_README_SOURCE = readFileSync(
   join(ROOT, "deploy", "quiesce", "README.md"),
   "utf8",
 );
-const TEST_DATABASE = join(ROOT, "prisma", "test.db");
+const TEST_DATABASE = testDatabaseGuard.TEST_DB_PATH;
 const EXPECTED_PROJECTS = 2;
 const EXPECTED_ROOMS = 28;
 const EXPECTED_CASH_FLOW_ENTRIES = 4;
@@ -224,6 +224,7 @@ function createFixture() {
   const database = join(directory, "legacy-fixture.db");
   const proof = join(directory, "scope-proof.json");
   const manifest = join(directory, "manifest.json");
+  assert.notEqual(database, TEST_DATABASE);
   copyFileSync(TEST_DATABASE, database);
   writePrivateJson(proof, scopeProof());
 
@@ -263,10 +264,11 @@ function createFixture() {
     `2026-05-0${index + 1}T00:00:00.000Z`,
   ]);
 
-  sqlite(
+  const foreignKeyModes = sqlite(
     database,
     `
       PRAGMA foreign_keys = OFF;
+      PRAGMA foreign_keys;
       INSERT INTO tenants
         (id, name, created_at, updated_at, deleted_at)
       VALUES
@@ -305,16 +307,23 @@ function createFixture() {
           ]),
         ).replaceAll("'NULL_SENTINEL'", "NULL")};
       PRAGMA foreign_keys = ON;
+      PRAGMA foreign_keys;
     `,
   );
-  assert.equal(foreignKeyViolations(database).length, 32);
+  assert.equal(
+    foreignKeyModes,
+    "0\n1\n",
+    "fixture seeding must disable FKs only for its disposable copy, then restore them",
+  );
+  assertExactLegacyViolations(database);
   return { directory, database, proof, manifest };
 }
 
 function runRepair(database, args, env = {}) {
   const lock = inheritedTestLock(dirname(database));
+  const command = repairCommand(args);
   try {
-    return spawnSync(process.execPath, [SCRIPT, ...args], {
+    return spawnSync(command.executable, command.args, {
       cwd: ROOT,
       encoding: "utf8",
       stdio: lock.stdio,
@@ -329,6 +338,16 @@ function runRepair(database, args, env = {}) {
   } finally {
     lock.close();
   }
+}
+
+function repairCommand(args, platform = process.platform) {
+  if (platform === "linux") {
+    return {
+      executable: "flock",
+      args: ["-x", "9", process.execPath, SCRIPT, ...args],
+    };
+  }
+  return { executable: process.execPath, args: [SCRIPT, ...args] };
 }
 
 function inheritedTestLock(directory) {
@@ -351,10 +370,6 @@ function inheritedTestLock(directory) {
   stdio[2] = "pipe";
   stdio[7] = capabilityFd;
   stdio[9] = lockFd;
-  if (process.platform === "linux") {
-    const locked = spawnSync("flock", ["-x", "9", "true"], { stdio });
-    assert.equal(locked.status, 0, "test harness could not acquire fd-9 lock");
-  }
   return {
     stdio,
     env: {
@@ -436,6 +451,24 @@ function applyArgs(fixture, overrides = {}) {
 function foreignKeyViolations(database) {
   const output = sqlite(database, "PRAGMA foreign_key_check;", ["-json"]);
   return output.trim() ? JSON.parse(output) : [];
+}
+
+function assertExactLegacyViolations(database) {
+  const violations = foreignKeyViolations(database);
+  assert.equal(violations.length, EXPECTED_FOREIGN_KEY_VIOLATIONS);
+  assert.deepEqual(
+    Object.entries(
+      violations.reduce((counts, { table, parent }) => {
+        const key = `${table}->${parent}`;
+        counts[key] = (counts[key] ?? 0) + 1;
+        return counts;
+      }, {}),
+    ).sort(([left], [right]) => left.localeCompare(right)),
+    [
+      ["cash_flow_entries->expenses", EXPECTED_CASH_FLOW_ENTRIES],
+      ["rooms->projects", EXPECTED_ROOMS],
+    ],
+  );
 }
 
 function snapshot(database) {
@@ -653,6 +686,18 @@ test("runbooks describe the trusted-root exception as an expiring audit gate, no
   assert.match(LEGACY_RUNBOOK_SOURCE, /not a non-bypassable security boundary/);
   assert.match(LEGACY_RUNBOOK_SOURCE, /authoritative historical source/);
   assert.match(LEGACY_RUNBOOK_SOURCE, /not\s+cryptographically authenticated/);
+});
+
+test("Linux harness holds fd9 for the recovery process lifetime", () => {
+  const args = ["--dry-run", "--manifest", "synthetic"];
+  assert.deepEqual(repairCommand(args, "linux"), {
+    executable: "flock",
+    args: ["-x", "9", process.execPath, SCRIPT, ...args],
+  });
+  assert.deepEqual(repairCommand(args, "darwin"), {
+    executable: process.execPath,
+    args: [SCRIPT, ...args],
+  });
 });
 
 test("the executable keeps exact topology and an explicit preimage-hash gate without embedded row IDs", () => {
@@ -1224,7 +1269,8 @@ test("concurrent applies serialize; exactly one repairs and the other observes t
   const launch = () =>
     new Promise((resolve) => {
       const lock = inheritedTestLock(fixture.directory);
-      const child = spawn(process.execPath, [SCRIPT, ...args], {
+      const command = repairCommand(args);
+      const child = spawn(command.executable, command.args, {
         cwd: ROOT,
         stdio: lock.stdio,
         env: {
