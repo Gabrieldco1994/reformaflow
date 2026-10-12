@@ -115,6 +115,40 @@ function assertPlaywrightPurgeWindow(source) {
   );
 }
 
+function assertLostAnswerRecovery(source) {
+  const start = source.indexOf("if (!lostAnswerRecovered)");
+  const end = source.indexOf("lostAnswerRecovered = true", start);
+  assert.notEqual(start, -1, "lost-answer branch must exist");
+  assert.notEqual(end, -1, "lost-answer branch must complete");
+  const branch = source.slice(start, end);
+
+  assert.match(
+    branch,
+    /const draftRoute = draftUrl;/,
+    "the one-shot route must use the exact scoped draft URL",
+  );
+  assert.match(
+    branch,
+    /page\.route\(\s*draftRoute,\s*abortDraftResponse,\s*\{ times: 1 \},?\s*\)/,
+    "the committed-response abort must intercept exactly one PATCH",
+  );
+  assert.match(
+    branch,
+    /page\.unroute\(draftRoute,\s*abortDraftResponse\)/,
+    "lost-answer cleanup must remove the exact matcher and handler references",
+  );
+  assert.match(
+    branch,
+    /name: "Consultar estado guardado"[\s\S]*recovery\.click\(\)/,
+    "the journey must perform the visible recovery action after the lost response",
+  );
+  assert.match(
+    branch,
+    /expect\(nextDate\)\.toBeDisabled\(\)[\s\S]*expect\(nextDate\)\.toBeEnabled\(\)/,
+    "the next firstDueDate control must unblock only after explicit recovery",
+  );
+}
+
 function assertOracleDefaultPurgeWindow(source) {
   assert.match(
     source,
@@ -165,9 +199,23 @@ test("only the two DB-consuming Maria QA steps trust the scoped ext4 temp root",
 });
 
 test("every live Maria CSV oracle waits beyond the purge scheduler cadence", () => {
+  const journey = readFileSync(CSV_JOURNEY_PATH, "utf8");
   assertPurgeWindow(QA_VAULT_PURGE_WAIT_MS, "shared QA purge window");
   assertOracleDefaultPurgeWindow(readFileSync(ASSERT_SCRIPT_PATH, "utf8"));
-  assertPlaywrightPurgeWindow(readFileSync(CSV_JOURNEY_PATH, "utf8"));
+  assertPlaywrightPurgeWindow(journey);
+});
+
+test("lost-answer recovery is one-shot and unblocks only after the visible recovery read", () => {
+  const journey = readFileSync(CSV_JOURNEY_PATH, "utf8");
+  assertLostAnswerRecovery(journey);
+  assert.throws(() =>
+    assertLostAnswerRecovery(journey.replace("{ times: 1 }", "{ times: 2 }")),
+  );
+  assert.throws(() =>
+    assertLostAnswerRecovery(
+      journey.replace("recovery.click()", "Promise.resolve()"),
+    ),
+  );
 });
 
 test("the scoped temp-root contract rejects missing, broad, arbitrary, or unguarded trust", () => {

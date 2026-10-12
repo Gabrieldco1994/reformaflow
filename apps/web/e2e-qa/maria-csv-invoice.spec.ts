@@ -688,23 +688,23 @@ for (const phase of ["upload", "confirmation"] as const) {
                     method: "PATCH",
                     url: draftUrl,
                   });
-                await page.route(
-                  (url) =>
-                    url.pathname === `/import-sessions/${sessionId}/draft`,
-                  async (route) => {
-                    requests++;
-                    const abortScope = {
-                      phase: `${phase}-lost-answer`,
-                      method: route.request().method(),
-                      url: route.request().url(),
-                    };
-                    const response = await route.fetch();
-                    expect(response.status()).toBe(200);
-                    committed = true;
-                    await route.abort("failed");
-                    expectedDraftAbort.recordRouteAbort(abortScope);
-                  },
-                );
+                const draftRoute = draftUrl;
+                const abortDraftResponse = async (
+                  route: import("@playwright/test").Route,
+                ) => {
+                  requests++;
+                  const abortScope = {
+                    phase: `${phase}-lost-answer`,
+                    method: route.request().method(),
+                    url: route.request().url(),
+                  };
+                  const response = await route.fetch();
+                  expect(response.status()).toBe(200);
+                  committed = true;
+                  await route.abort("failed");
+                  expectedDraftAbort.recordRouteAbort(abortScope);
+                };
+                await page.route(draftRoute, abortDraftResponse, { times: 1 });
                 const recovered = page.waitForResponse(
                   (response) =>
                     committed &&
@@ -714,18 +714,24 @@ for (const phase of ["upload", "confirmation"] as const) {
                     response.ok(),
                   { timeout: 120_000 },
                 );
-                await form
-                  .getByRole("button", {
-                    name: "Guardar informação",
-                    exact: true,
-                  })
-                  .click();
-                await recovered;
-                await page.unroute(
-                  (url) =>
-                    url.pathname === `/import-sessions/${sessionId}/draft`,
-                );
+                try {
+                  await form
+                    .getByRole("button", {
+                      name: "Guardar informação",
+                      exact: true,
+                    })
+                    .click();
+                  await recovered;
+                } finally {
+                  await page.unroute(draftRoute, abortDraftResponse);
+                }
                 expect(requests).toBe(1);
+                const recovery = page.getByRole("button", {
+                  name: "Consultar estado guardado",
+                  exact: true,
+                });
+                await expect(recovery).toBeVisible();
+                await expect(recovery).toBeEnabled();
                 const recoveredView = await view();
                 expect(recoveredView.revision).toBe(current.revision + 1);
                 expect(
@@ -733,6 +739,35 @@ for (const phase of ["upload", "confirmation"] as const) {
                     (candidate) => candidate.id === question.id,
                   ),
                 ).toBe(false);
+                const nextQuestion = recoveredView.questions.find(
+                  (candidate) =>
+                    isPendingImportQuestion(candidate) &&
+                    candidate.lineIds.some((id) => selectedIds.includes(id)),
+                );
+                expect(nextQuestion?.field).toBe("firstDueDate");
+                const nextForm = await visibleCurrentQuestionForm(
+                  page,
+                  nextQuestion!,
+                );
+                const nextDate = nextForm.getByLabel("Primeiro vencimento", {
+                  exact: true,
+                });
+                await expect(nextDate).toBeDisabled();
+                const synchronizedRecovery = page.waitForResponse(
+                  (response) =>
+                    response.request().method() === "GET" &&
+                    new URL(response.url()).pathname ===
+                      `/import-sessions/${sessionId}` &&
+                    response.ok(),
+                  { timeout: 120_000 },
+                );
+                const [recoveryResponse] = await Promise.all([
+                  synchronizedRecovery,
+                  recovery.click(),
+                ]);
+                await evidence.checkApi(recoveryResponse);
+                await expect(recovery).toHaveCount(0);
+                await expect(nextDate).toBeEnabled();
                 lostAnswerRecovered = true;
               } else {
                 await captureNativeDocumentaryAnswer(
