@@ -11,7 +11,6 @@ import {
   type ImportDeclaredFactViewV1,
   type ImportObservationQuestionV1,
   type ImportSessionCandidateV1,
-  type ImportSessionDraftLineV1,
   type ImportSessionQuestionV1,
 } from "@reformaflow/domain";
 import { moneyDetail } from "@/lib/money";
@@ -20,7 +19,11 @@ import { importDeclarationContext } from "../_lib/import-session-read";
 import type { ImportQuestionAnswerInput } from "../_lib/import-session-api";
 import { Button } from "@/components/ui/button";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
-import { ImportFocusedDraftQuestion } from "./ImportFocusedDraftQuestion";
+import {
+  formatImportPurchaseContext,
+  ImportFocusedDraftQuestion,
+} from "./ImportFocusedDraftQuestion";
+import type { ImportPurchaseContextLine } from "./ImportFocusedDraftQuestion";
 import { isFocusedDraftQuestion } from "../_lib/import-focused-draft";
 import { deterministicVoiceAnswer } from "../_lib/import-manual-answer";
 import type {
@@ -30,9 +33,7 @@ import type {
 
 type ImportFocusedQuestionProps = {
   question: ImportSessionQuestionV1;
-  lines: readonly (Pick<ImportSessionDraftLineV1, "id" | "titulo"> & {
-    amountCents?: number | null;
-  })[];
+  lines: readonly ImportPurchaseContextLine[];
   inputLabel: string;
   inputHint: string;
   /** Local preview acceptance, not a draft mutation or a transport callback. */
@@ -266,8 +267,7 @@ function FocusedQuestion({
           (line, index) =>
             line && (
               <li key={question.lineIds[index]} className="break-words">
-                {line.titulo}{" "}
-                <span className="text-gray-600">— Compra {line.id}</span>
+                {formatImportPurchaseContext(line)}
               </li>
             ),
         )}
@@ -484,8 +484,7 @@ function FocusedQuestion({
           className="space-y-2 rounded-xl bg-lifeone-surface p-3 text-sm"
         >
           <p>
-            Observação {documentary.subject.observationId} · Compra{" "}
-            {documentary.lineIds[0]}
+            {targets[0] ? formatImportPurchaseContext(targets[0]) : "Compra"}
           </p>
           <p>{declarationFieldLabel(currentPreview.answer)}</p>
           <p>
