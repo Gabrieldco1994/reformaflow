@@ -66,6 +66,14 @@ export function focusedIntegralTargetControls(target: FixtureTarget) {
   };
 }
 
+export function focusedNoTargetsMapping() {
+  return {
+    radioName: "Sem rateio — manter no projeto proprietário",
+    previewText: "Sem rateio — manter no projeto proprietário",
+    requestValue: { kind: "NO_TARGETS" as const },
+  };
+}
+
 export function isFocusedDraftQuestion(question: ImportSessionQuestionV1) {
   return (
     !("subject" in question) &&
@@ -155,7 +163,7 @@ function strictRequestAnswer(answer: FixtureFocusedDraftAnswer) {
         field: answer.field,
         value:
           answer.value.length === 0
-            ? { kind: "NO_TARGETS" as const }
+            ? focusedNoTargetsMapping().requestValue
             : {
                 kind: "TARGET" as const,
                 ...answer.value[0],
@@ -241,6 +249,10 @@ export async function fillFocusedDraftPreview(
     answer.field === "targets" && answer.value.length === 1
       ? focusedIntegralTargetControls(target!)
       : null;
+  const noTargets =
+    answer.field === "targets" && answer.value.length === 0
+      ? focusedNoTargetsMapping()
+      : null;
   if (answer.field === "firstDueDate") {
     const date = form.getByLabel("Primeiro vencimento", { exact: true });
     await expect(date).toHaveAttribute("type", "date");
@@ -268,7 +280,7 @@ export async function fillFocusedDraftPreview(
             ? new RegExp(candidate!.description)
             : "Criar nova compra"
           : answer.value.length === 0
-            ? "Sem rateio — manter a compra no projeto proprietário"
+            ? noTargets!.radioName
             : integralTarget!.radioName,
       exact:
         (answer.field === "decision" &&
@@ -340,7 +352,7 @@ export async function fillFocusedDraftPreview(
           ? candidate!.description
           : "Criar nova compra"
         : answer.value.length === 0
-          ? "Sem rateio — manter no projeto proprietário"
+          ? noTargets!.previewText
           : target!.projectName,
     );
     const affected = form.getByRole("list", {

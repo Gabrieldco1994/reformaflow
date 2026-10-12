@@ -8,6 +8,7 @@ import type {
 import {
   focusedDraftContract,
   focusedIntegralTargetControls,
+  focusedNoTargetsMapping,
   isAgentChatPost,
   isFocusedDraftQuestion,
   nativeFocusedOnly,
@@ -182,6 +183,14 @@ test("integral target uses the action radio and exact project/room option data",
     },
   });
   assert.notEqual(controls.radioName, target.projectName);
+});
+
+test("no-target fixture maps the rendered semantic radio to the exact API value", () => {
+  assert.deepEqual(focusedNoTargetsMapping(), {
+    radioName: "Sem rateio — manter no projeto proprietário",
+    previewText: "Sem rateio — manter no projeto proprietário",
+    requestValue: { kind: "NO_TARGETS" },
+  });
 });
 
 test("active-session monitor rejects a generic agent chat POST without reading its body", async () => {
