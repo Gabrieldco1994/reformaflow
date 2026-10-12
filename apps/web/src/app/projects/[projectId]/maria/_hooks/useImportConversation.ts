@@ -88,6 +88,15 @@ const sameFocus = (
   a.field === b.field &&
   a.lineIds.length === b.lineIds.length &&
   a.lineIds.every((id) => b.lineIds.includes(id));
+const firstPendingQuestionForSelection = (
+  view: ImportSessionViewV1,
+): ImportSessionQuestionV1 | null =>
+  view.questions.find(
+    (question) =>
+      isPendingImportQuestion(question) &&
+      (view.selectedLineIds.length === 0 ||
+        question.lineIds.some((id) => view.selectedLineIds.includes(id))),
+  ) ?? null;
 
 /** Inactive consumer; all financial actions remain inside ImportProposalCard. */
 export function useImportConversation(
@@ -201,7 +210,7 @@ export function useImportConversation(
           local.focus &&
           sameFocus(q, local.focus),
       ) ??
-      view?.questions.find(isPendingImportQuestion) ??
+      (view ? firstPendingQuestionForSelection(view) : null) ??
       null);
   const literal =
     question && local.focus && !sameFocus(question, local.focus)
@@ -286,7 +295,7 @@ export function useImportConversation(
       review: outcome === "READY",
       focus:
         outcome === "NEEDS_INPUT"
-          ? (fresh.questions.find(isPendingImportQuestion) ?? null)
+          ? firstPendingQuestionForSelection(fresh)
           : null,
       literal: "",
     });
@@ -469,7 +478,7 @@ export function useImportConversation(
         failure: null,
         literal: "",
         editingQuestionId: null,
-        focus: fresh.questions.find(isPendingImportQuestion) ?? null,
+        focus: firstPendingQuestionForSelection(fresh),
         messages: [...history, assistant],
       });
       return assistant;
@@ -620,7 +629,7 @@ export function useImportConversation(
         failure: null,
         literal: "",
         editingQuestionId: null,
-        focus: fresh.questions.find(isPendingImportQuestion) ?? null,
+        focus: firstPendingQuestionForSelection(fresh),
         messages: [...history, assistant],
       });
       return assistant;
