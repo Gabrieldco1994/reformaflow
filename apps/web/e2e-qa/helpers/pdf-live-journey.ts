@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   expect,
   type APIResponse,
+  type Locator,
   type Page,
   type Response,
   type TestInfo,
@@ -28,6 +29,30 @@ type SignupProject = {
   type: string;
   rooms: Array<{ id: string; name: string }>;
 };
+
+export async function gotoValidatedMariaHref(
+  page: Page,
+  maria: Locator,
+  expectedHref: string,
+) {
+  await expect(maria).toHaveAttribute("href", expectedHref);
+  const href = await maria.getAttribute("href");
+  expect(href).toBe(expectedHref);
+  await page.goto(href!);
+}
+
+export async function waitForMariaImportEntry(page: Page) {
+  await expect(
+    page.getByRole("heading", { name: "Maria", exact: true, level: 1 }),
+  ).toBeVisible();
+  const cta = page.getByRole("button", {
+    name: invoiceImportCTA,
+    exact: true,
+  });
+  await expect(cta).toHaveCount(1);
+  await expect(cta).toBeVisible();
+  return cta;
+}
 
 /** PDF-specific evidence: separate directories and one exact expected document failure,
  * unlike the existing CSV evidence collector (which rightly rejects every 422).
@@ -474,6 +499,7 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
   if (await close.isVisible()) await close.click();
   await navigation.mark("after-close-journey-check");
   await evidence.capture("real-signup-card");
+  const expectedMariaHref = `/projects/${projectId}/maria`;
   if (page.viewportSize()!.width < 768) {
     const maria = page.getByRole("link", { name: "Maria", exact: true });
     await expect(
@@ -481,7 +507,7 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
       "Maria navigation must be rendered after real signup",
     ).toBeVisible();
     await navigation.mark("before-visible-maria-click");
-    await maria.click();
+    await gotoValidatedMariaHref(page, maria, expectedMariaHref);
   } else {
     await page
       .getByRole("button", { name: "Abrir Copiloto Financeiro", exact: true })
@@ -492,15 +518,10 @@ export async function startPdfJourney(page: Page, evidence: PdfEvidence) {
       .click();
   }
   await expect(page).toHaveURL(/\/maria(?:\?|$)/);
+  const cta = await waitForMariaImportEntry(page);
   // Last failed OCR scenarios stopped here, before any upload/analysis. Preserve
   // the actual entry layout and bound missing-CTA failure before auto-scroll.
   await evidence.capture("maria-before-entry-cta");
-  const cta = page.getByRole("button", {
-    name: invoiceImportCTA,
-    exact: true,
-  });
-  await expect(cta).toHaveCount(1);
-  await expect(cta).toBeVisible();
   await assertTouchable(cta);
   const qualifiedEntry = await evidence.response(
     "entry",
