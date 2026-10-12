@@ -33,6 +33,14 @@ type RequestAbortScope = {
   url: string;
 };
 
+type HttpFailureConsoleScope = {
+  phase: string;
+  status: 503;
+  method: string;
+  url: string;
+  reason: string;
+};
+
 type BrowserConsoleError = {
   text: string;
   locationUrl: string;
@@ -40,6 +48,64 @@ type BrowserConsoleError = {
 
 const FAILED_REQUEST_CONSOLE_TEXT = "Failed to load resource: net::ERR_FAILED";
 const FAILED_REQUEST_ERROR_TEXT = "net::ERR_FAILED";
+const SERVICE_UNAVAILABLE_CONSOLE_TEXT =
+  "Failed to load resource: the server responded with a status of 503 (Service Unavailable)";
+
+export class ExpectedHttpFailureConsoleError {
+  private httpFailureCount = 0;
+  private consoleFailureCount = 0;
+
+  constructor(private readonly expected: HttpFailureConsoleScope) {}
+
+  hasSameScope(candidate: HttpFailureConsoleScope) {
+    return (
+      candidate.phase === this.expected.phase &&
+      candidate.status === this.expected.status &&
+      candidate.method === this.expected.method &&
+      candidate.url === this.expected.url
+    );
+  }
+
+  recordHttpFailure(actual: { status: number; method: string; url: string }) {
+    if (
+      actual.status !== this.expected.status ||
+      actual.method !== this.expected.method ||
+      actual.url !== this.expected.url
+    )
+      return false;
+    this.httpFailureCount++;
+    return true;
+  }
+
+  consumeConsoleError(error: BrowserConsoleError) {
+    if (
+      error.text !== SERVICE_UNAVAILABLE_CONSOLE_TEXT ||
+      error.locationUrl !== this.expected.url
+    )
+      return false;
+    this.consoleFailureCount++;
+    return true;
+  }
+
+  reason() {
+    return this.expected.reason;
+  }
+
+  snapshot() {
+    return {
+      ...this.expected,
+      httpFailureCount: this.httpFailureCount,
+      consoleFailureCount: this.consoleFailureCount,
+    };
+  }
+
+  assertSatisfied() {
+    if (this.httpFailureCount !== 1 || this.consoleFailureCount !== 1)
+      throw new Error(
+        `Expected exactly one scoped HTTP failure and browser console failure; observed ${JSON.stringify(this.snapshot())}`,
+      );
+  }
+}
 
 export class ExpectedRequestAbortConsoleFailure {
   private routeAbortCount = 0;
@@ -160,6 +226,8 @@ export class JourneyEvidence {
   private readonly httpFailures: HttpFailure[] = [];
   private readonly expectedRequestAbortConsoleFailures: ExpectedRequestAbortConsoleFailure[] =
     [];
+  private readonly expectedHttpFailureConsoleErrors: ExpectedHttpFailureConsoleError[] =
+    [];
   private readonly answerArtifacts: string[] = [];
   private readonly touchTargets: TouchTargetEvidence[] = [];
   private readonly viewportMeasurements: {
@@ -208,6 +276,15 @@ export class JourneyEvidence {
         )
       )
         return;
+      if (
+        this.expectedHttpFailureConsoleErrors.some((expected) =>
+          expected.consumeConsoleError({
+            text: message.text(),
+            locationUrl: location,
+          }),
+        )
+      )
+        return;
       this.consoleErrors.push(redact(message.text()));
     });
     page.on("pageerror", (error) =>
@@ -225,21 +302,35 @@ export class JourneyEvidence {
     });
     page.on("response", (response) => {
       if (response.status() < 400) return;
-      const expected =
+      let reason: string | undefined;
+      const expectedAnonymousAuth =
         !this.signedIn &&
         response.status() === 401 &&
         new URL(response.url()).pathname.endsWith("/auth/me");
+      const expectedScopedHttpFailure =
+        this.expectedHttpFailureConsoleErrors.find((candidate) => {
+          const matched = candidate.recordHttpFailure({
+            status: response.status(),
+            method: response.request().method(),
+            url: response.url(),
+          });
+          if (matched) reason = candidate.reason();
+          return matched;
+        }) !== undefined;
+      const expected = expectedAnonymousAuth || expectedScopedHttpFailure;
       this.httpFailures.push({
         status: response.status(),
         method: response.request().method(),
         url: safeUrl(response.url()),
         expected,
-        ...(expected
+        ...(expectedAnonymousAuth
           ? {
               reason:
                 "Anonymous AuthProvider session check before real signup.",
             }
-          : {}),
+          : expectedScopedHttpFailure
+            ? { reason }
+            : {}),
       });
     });
   }
@@ -259,6 +350,20 @@ export class JourneyEvidence {
       );
     const allowance = new ExpectedRequestAbortConsoleFailure(expected);
     this.expectedRequestAbortConsoleFailures.push(allowance);
+    return allowance;
+  }
+
+  expectHttpFailureConsoleError(expected: HttpFailureConsoleScope) {
+    if (
+      this.expectedHttpFailureConsoleErrors.some((candidate) =>
+        candidate.hasSameScope(expected),
+      )
+    )
+      throw new Error(
+        `Duplicate expected HTTP-failure scope: ${expected.phase} ${expected.method} ${expected.status} ${expected.url}`,
+      );
+    const allowance = new ExpectedHttpFailureConsoleError(expected);
+    this.expectedHttpFailureConsoleErrors.push(allowance);
     return allowance;
   }
 
@@ -566,6 +671,10 @@ export class JourneyEvidence {
             this.expectedRequestAbortConsoleFailures.map((expected) =>
               expected.snapshot(),
             ),
+          expectedHttpFailureConsoleErrors:
+            this.expectedHttpFailureConsoleErrors.map((expected) =>
+              expected.snapshot(),
+            ),
           answerArtifacts: this.answerArtifacts,
           touchTargets: this.touchTargets,
           viewportMeasurements: this.viewportMeasurements,
@@ -579,6 +688,8 @@ export class JourneyEvidence {
 
   assertClean() {
     for (const expected of this.expectedRequestAbortConsoleFailures)
+      expected.assertSatisfied();
+    for (const expected of this.expectedHttpFailureConsoleErrors)
       expected.assertSatisfied();
     expect(
       this.consoleErrors,

@@ -395,6 +395,14 @@ for (const phase of ["upload", "confirmation"] as const) {
             response.request().method() === "POST",
           { timeout: 120_000 },
         );
+        evidence.expectHttpFailureConsoleError({
+          phase: `${phase}-voice-entry`,
+          status: 503,
+          method: "POST",
+          url: `${apiURL.replace(/\/$/, "")}/tts/stream`,
+          reason:
+            "Private-vault QA intentionally runs without VibeVoice; the textual response remains available.",
+        });
         await enqueueSpeech(page, "Quero importar a fatura do cartão");
         await voiceCta.click();
         const qualifiedEntry = await entryResponse;

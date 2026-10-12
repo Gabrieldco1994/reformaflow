@@ -1,6 +1,8 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import {
   ExpectedRequestAbortConsoleFailure,
+  JourneyEvidence,
   meetsMinimumTouchTarget,
 } from "../../../../../../e2e-qa/helpers/evidence";
 
@@ -139,4 +141,88 @@ describe("ExpectedRequestAbortConsoleFailure", () => {
     expect(allowance.consumeConsoleError(error)).toBe(false);
     expect(allowance.snapshot().consoleFailureCount).toBe(0);
   });
+});
+
+describe("JourneyEvidence expected HTTP console failures", () => {
+  const expected = {
+    phase: "voice CSV entry",
+    status: 503 as const,
+    method: "POST",
+    url: "http://api.test/tts/stream",
+    reason: "Private-vault QA intentionally runs without VibeVoice.",
+  };
+  const failedResource = {
+    type: () => "error",
+    text: () =>
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    location: () => ({ url: expected.url }),
+  };
+  const response = (url: string, status = 503, method = "POST") => ({
+    status: () => status,
+    request: () => ({ method: () => method }),
+    url: () => url,
+  });
+
+  function buildEvidence() {
+    const page = new EventEmitter();
+    const evidence = new JourneyEvidence(
+      page as never,
+      {
+        project: { name: "unit" },
+        title: "unit evidence",
+      } as never,
+    );
+    evidence.expectHttpFailureConsoleError(expected);
+    return { evidence, page };
+  }
+
+  it.each(["response-first", "console-first"] as const)(
+    "accepts the exact expected 503 and Chromium diagnostic in %s order",
+    (order) => {
+      const { evidence, page } = buildEvidence();
+
+      if (order === "response-first")
+        page.emit("response", response(expected.url));
+      page.emit("console", failedResource);
+      if (order === "console-first")
+        page.emit("response", response(expected.url));
+
+      expect(() => evidence.assertClean()).not.toThrow();
+    },
+  );
+
+  it.each([
+    {
+      name: "503 response from another URL",
+      emit: (page: EventEmitter) =>
+        page.emit("response", response("http://api.test/unrelated")),
+      expectedMessage: /Unexpected 4xx\/5xx responses/,
+    },
+    {
+      name: "502 response from the expected URL",
+      emit: (page: EventEmitter) =>
+        page.emit("response", response(expected.url, 502)),
+      expectedMessage: /Unexpected 4xx\/5xx responses/,
+    },
+    {
+      name: "503 console diagnostic from another URL",
+      emit: (page: EventEmitter) =>
+        page.emit("console", {
+          ...failedResource,
+          location: () => ({ url: "http://api.test/unrelated" }),
+        }),
+      expectedMessage: /Unexpected browser console\/page errors/,
+    },
+  ])(
+    "still fails for an unrelated failure: $name",
+    ({ emit, expectedMessage }) => {
+      const { evidence, page } = buildEvidence();
+      page.emit("response", response(expected.url));
+      page.emit("console", failedResource);
+
+      emit(page);
+
+      expect(() => evidence.assertClean()).toThrow(expectedMessage);
+    },
+  );
 });
