@@ -143,6 +143,21 @@ describe('inline bank expense ownership (#690)', () => {
     expect(await setup.expense.count({ where: { tenantId } })).toBe(0);
   });
 
+  it('rejects an inline import room when its destination project is a tombstone', async () => {
+    const room = await setup.room.create({ data: { projectId: targetProjectId, name: 'Recovered orphan room' } });
+    await setup.project.update({
+      where: { id: targetProjectId },
+      data: { deletedAt: new Date('2026-10-12T00:00:00.000Z') },
+    });
+
+    await expect(commit({
+      newTarget: { targetProjectId, tipoDespesa: 'MATERIAL_CONSTRUCAO', roomId: room.id },
+    })).rejects.toMatchObject({ status: 404 });
+
+    expect(await setup.expense.count({ where: { tenantId } })).toBe(0);
+    expect(await setup.bankStatementImport.count({ where: { tenantId } })).toBe(0);
+  });
+
   it('skip and strong dedupe never create another destination', async () => {
     expect(await commit({ action: 'skip' })).toMatchObject({ inlineExpenses: [] });
     expect(await setup.expense.count({ where: { tenantId } })).toBe(0);

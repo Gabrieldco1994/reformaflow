@@ -31,7 +31,10 @@ export async function createRateioTargets(
       throw new BadRequestException(`Projeto destino ${project.id} não possui o módulo de despesas — não pode receber rateio.`);
     }
     if (target.roomId && !await tx.room.findFirst({
-      where: { id: target.roomId, projectId: target.targetProjectId, deletedAt: null },
+      where: {
+        id: target.roomId, projectId: target.targetProjectId,
+        deletedAt: null, project: { deletedAt: null },
+      },
     })) throw new NotFoundException('Sala não encontrada neste projeto');
   }
 

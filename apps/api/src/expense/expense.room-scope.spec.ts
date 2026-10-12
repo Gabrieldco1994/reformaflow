@@ -19,7 +19,7 @@ import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 require('../../../../scripts/test-db-env.cjs');
 
 import { PrismaClient } from '@prisma/client';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
@@ -84,6 +84,10 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
 
   afterEach(async () => {
     await cleanupTransient();
+    await setupPrisma.project.updateMany({
+      where: { id: { in: [PESSOAL, OTHER] } },
+      data: { deletedAt: null },
+    });
   });
 
   const dto = (over: Record<string, unknown> = {}) => ({
@@ -97,6 +101,20 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
   });
 
   describe('create', () => {
+    it('OWNER/ADMIN não alcança room cujo projeto pai virou tombstone', async () => {
+      await setupPrisma.project.update({
+        where: { id: OTHER },
+        data: { deletedAt: new Date('2026-10-12T00:00:00.000Z') },
+      });
+      const before = await setupPrisma.expense.count({ where: { tenantId: TENANT, projectId: OTHER } });
+
+      await expect(
+        service.create(TENANT, OTHER, dto({ roomId: roomInOther }) as any, null, undefined, ADMIN),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(await setupPrisma.expense.count({ where: { tenantId: TENANT, projectId: OTHER } })).toBe(before);
+    });
+
     it('roomId de OUTRO projeto → 404, nenhuma despesa criada', async () => {
       const before = await setupPrisma.expense.count({ where: { tenantId: TENANT, projectId: PESSOAL } });
 
@@ -139,6 +157,35 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
   });
 
   describe('ratearMixed — novo alvo com roomId', () => {
+    it('ADMIN não cria alvo de rateio em room cujo projeto pai é tombstone', async () => {
+      const source = await setupPrisma.expense.create({
+        data: {
+          tenantId: TENANT, projectId: PESSOAL, tipoDespesa: 'MATERIAL_CONSTRUCAO',
+          valor: 20_000, quantidade: 1, valorTotal: 20_000, titulo: 'Fonte tombstone',
+          formaPagamento: 'A_VISTA', status: 'PLANEJADO', dataPagamento: new Date('2026-08-10T12:00:00.000Z'),
+        } as any,
+      });
+      await setupPrisma.project.update({
+        where: { id: OTHER },
+        data: { deletedAt: new Date('2026-10-12T00:00:00.000Z') },
+      });
+
+      await expect(
+        service.ratearMixed(TENANT, PESSOAL, source.id, {
+          newTargets: [{
+            targetProjectId: OTHER, tipoDespesa: 'MATERIAL_CONSTRUCAO',
+            valor: 100, titulo: 'rateio tombstone must not exist',
+            roomId: roomInOther, allocation: 20_000,
+          }],
+          existing: [],
+        } as any, null, ADMIN),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(await setupPrisma.expense.findFirst({
+        where: { titulo: 'rateio tombstone must not exist' },
+      })).toBeNull();
+    });
+
     it('roomId do alvo NOVO em projeto DIFERENTE do targetProjectId → 404 e rollback total (nenhum alvo órfão)', async () => {
       const source = await setupPrisma.expense.create({
         data: {

@@ -7,6 +7,8 @@
 #
 #   op-wrap dryrun
 #   op-wrap apply <manifest-sha256> <expected-groups> <expected-updates>
+#   op-wrap fk-dryrun <scope-proof-sha256>
+#   op-wrap fk-apply <manifest-sha256> <scope-proof-sha256>
 #   op-wrap disarm | status
 #
 # There is deliberately NO "cancel a running chain" verb: `timeout` (inside the
@@ -20,6 +22,10 @@ APP="${QUIESCE_APP_DIR:-/app}"
 DB="${QUIESCE_DB:-/data/dev.db}"
 MIG="${QUIESCE_MIGRATION:-20260826150000_external_id_unique_scope_tenant_project}"
 NORMALIZER="${QUIESCE_NORMALIZER:-/usr/local/bin/node /app/normalize-external-id-duplicates.mjs}"
+FK_REPAIR="${QUIESCE_FK_REPAIR:-/usr/local/bin/node /app/repair-legacy-fk-integrity.mjs}"
+FK_EXPECTED_PROJECTS=2
+FK_EXPECTED_ROOMS=28
+FK_EXPECTED_CASH_FLOW=4
 PRISMA="${QUIESCE_PRISMA:-npx --no-install prisma}"
 SCHEMA="${QUIESCE_SCHEMA:-prisma/schema.prisma}"
 
@@ -48,6 +54,10 @@ atomic_put(){                            # atomic_put <dest> <content>
   mv "$_t" "$_d" || { rm -f "$_t"; echo "op-wrap: rename -> $_d failed" >&2; return 1; }
 }
 set_disarm(){ atomic_put "$Q/DISARM" ""; }
+valid_hash(){
+  case "$1" in *[!0-9a-f]*|"") return 1 ;; esac
+  [ "${#1}" -eq 64 ]
+}
 
 cmd="${1:-status}"; [ $# -gt 0 ] && shift
 
@@ -76,6 +86,29 @@ DATABASE_URL=file:$DB $PRISMA migrate resolve --rolled-back $MIG --schema=$SCHEM
 DATABASE_URL=file:$DB $PRISMA migrate deploy --schema=$SCHEMA"
     echo "queued: apply+resolve+deploy  manifest=$M" ;;
 
+  fk-dryrun)
+    SH="${1:?scope proof sha256}"
+    valid_hash "$SH" || { echo "op-wrap: bad scope-proof hash" >&2; exit 2; }
+    S="$Q/fk-scope-proof.json"
+    [ -f "$S" ] && [ ! -L "$S" ] || { echo "op-wrap: private scope proof is missing or unsafe" >&2; exit 2; }
+    M="$Q/fk-manifest.$(date -u +%Y%m%dT%H%M%SZ).$$.json"
+    publish_run "cd $APP && LEGACY_FK_RECOVERY_OP_WRAP=legacy-fk-integrity-v1 DATABASE_URL=file:$DB $FK_REPAIR --dry-run --scope-proof '$S' --scope-proof-hash $SH --manifest '$M' && mt=\$(mktemp '$Q/.fkmcur.XXXXXX') && printf '%s\\n' '$M' > \"\$mt\" && mv \"\$mt\" '$Q/fk-manifest.current'"
+    echo "queued: fk-dryrun counts=projects:$FK_EXPECTED_PROJECTS,rooms:$FK_EXPECTED_ROOMS,cash-flow:$FK_EXPECTED_CASH_FLOW" ;;
+
+  fk-apply)
+    H="${1:?manifest sha256}"; SH="${2:?scope proof sha256}"
+    valid_hash "$H" || { echo "op-wrap: bad manifest hash" >&2; exit 2; }
+    valid_hash "$SH" || { echo "op-wrap: bad scope-proof hash" >&2; exit 2; }
+    S="$Q/fk-scope-proof.json"
+    [ -f "$S" ] && [ ! -L "$S" ] || { echo "op-wrap: private scope proof is missing or unsafe" >&2; exit 2; }
+    [ -f "$Q/fk-manifest.current" ] && [ ! -L "$Q/fk-manifest.current" ] ||
+      { echo "op-wrap: no safe fk-manifest.current - run fk-dryrun first" >&2; exit 2; }
+    M="$(cat "$Q/fk-manifest.current")"
+    case "$M" in "$Q"/fk-manifest.*.json) ;; *) echo "op-wrap: invalid FK manifest pointer" >&2; exit 2 ;; esac
+    [ -f "$M" ] && [ ! -L "$M" ] || { echo "op-wrap: FK manifest is missing or unsafe" >&2; exit 2; }
+    publish_run "cd $APP && LEGACY_FK_RECOVERY_OP_WRAP=legacy-fk-integrity-v1 DATABASE_URL=file:$DB $FK_REPAIR --apply --scope-proof '$S' --scope-proof-hash $SH --manifest '$M' --hash $H --expected-projects $FK_EXPECTED_PROJECTS --expected-rooms $FK_EXPECTED_ROOMS --expected-cash-flow-entries $FK_EXPECTED_CASH_FLOW"
+    echo "queued: fk-apply counts=projects:$FK_EXPECTED_PROJECTS,rooms:$FK_EXPECTED_ROOMS,cash-flow:$FK_EXPECTED_CASH_FLOW manifest-hash=$(printf '%s' "$H" | cut -c1-12)" ;;
+
   disarm)
     set_disarm || { echo "op-wrap: DISARM not set" >&2; exit 1; }
     echo "DISARM set (watchdog goes Node-direct once the op lock is free)" ;;
@@ -89,9 +122,10 @@ DATABASE_URL=file:$DB $PRISMA migrate deploy --schema=$SCHEMA"
     [ -e "$Q/RUN" ]            && echo "RUN      : queued (not yet claimed)"
     [ -e "$Q/RUN.active" ]     && echo "RUN      : claimed, launching"
     [ -f "$Q/manifest.current" ] && echo "manifest : $(cat "$Q/manifest.current")"
+    [ -f "$Q/fk-manifest.current" ] && echo "fk manifest: ready"
     tail -n 15 "$Q/op.log" 2>/dev/null || true ;;
 
   *)
-    echo "usage: op-wrap {dryrun|apply <sha256> <eg> <eu>|disarm|status}" >&2
+    echo "usage: op-wrap {dryrun|apply <sha256> <eg> <eu>|fk-dryrun <scope-sha256>|fk-apply <manifest-sha256> <scope-sha256>|disarm|status}" >&2
     exit 2 ;;
 esac

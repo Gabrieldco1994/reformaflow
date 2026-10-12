@@ -19,5 +19,10 @@ this file keeps the invariants only.
    `/app`, then remove the exact machine-side files and `rmdir` the unique
    directory. Any unexpected leftover file must make the final `rmdir` fail.
 8. Never touch SQLite manually on the machine while the window is armed.
+9. The legacy-FK recovery has independent `fk-dryrun`/`fk-apply` commands,
+   proof and manifest pointers. It never runs external-ID migration resolution
+   or `prisma migrate deploy`.
 
 See `DEPLOY.md` for the arm/apply/disarm/cleanup commands and evidence checks.
+The one-off legacy-FK operation is documented separately in
+`legacy-fk-recovery.md`; it does not change any vault-activation profile.

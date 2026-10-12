@@ -349,6 +349,54 @@ i=0; while { [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; } && [ $i -lt 20 ]; do s
 gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
+echo "--- T14: dedicated legacy-FK commands are isolated from external-ID migration recovery ---"
+newenv
+echo "$(( $(date +%s) + 600 ))" > "$Q/deadline"
+SCOPE_HASH="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+MANIFEST_HASH="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+: > "$Q/fk-scope-proof.json"; chmod 0600 "$Q/fk-scope-proof.json"
+out=$(QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" sh "$OW" fk-dryrun "$SCOPE_HASH" 2>&1); rc=$?
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'queued: fk-dryrun' &&
+   ! printf '%s\n' "$out" | grep -Eq "$Q|fk-scope-proof|manifest\\." &&
+   grep -q "LEGACY_FK_RECOVERY_OP_WRAP=legacy-fk-integrity-v1" "$Q/RUN" &&
+   grep -q -- "--scope-proof '$Q/fk-scope-proof.json'" "$Q/RUN" &&
+   grep -q -- "--scope-proof-hash $SCOPE_HASH" "$Q/RUN" &&
+   grep -q -- "--dry-run" "$Q/RUN" &&
+   grep -q "fk-manifest.current" "$Q/RUN" &&
+   ! grep -Eq 'normalize-external-id|migrate (resolve|deploy)' "$Q/RUN"; then
+  ok "fk-dryrun publishes only the dedicated repair chain without private paths in output"
+else
+  no "fk-dryrun contract failed (rc=$rc out='$out' run='$(cat "$Q/RUN" 2>/dev/null)')"
+fi
+rm -f "$Q/RUN"
+
+FKM="$Q/fk-manifest.test.json"
+: > "$FKM"; chmod 0600 "$FKM"
+printf '%s\n' "$FKM" > "$Q/fk-manifest.current"
+out=$(QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" sh "$OW" fk-apply "$MANIFEST_HASH" "$SCOPE_HASH" 2>&1); rc=$?
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'queued: fk-apply' &&
+   ! printf '%s\n' "$out" | grep -Eq "$Q|fk-scope-proof|manifest\\." &&
+   grep -q -- "--apply" "$Q/RUN" &&
+   grep -q -- "--hash $MANIFEST_HASH" "$Q/RUN" &&
+   grep -q -- "--expected-projects 2 --expected-rooms 28 --expected-cash-flow-entries 4" "$Q/RUN" &&
+   ! grep -Eq 'normalize-external-id|migrate (resolve|deploy)' "$Q/RUN"; then
+  ok "fk-apply pins 2+28+4 and never invokes external-ID resolution/deploy"
+else
+  no "fk-apply contract failed (rc=$rc out='$out' run='$(cat "$Q/RUN" 2>/dev/null)')"
+fi
+rm -f "$Q/RUN"
+
+out=$(QUIESCE_DIR="$Q" sh "$OW" fk-dryrun bad-hash 2>&1); rc=$?
+{ [ "$rc" -ne 0 ] && [ ! -e "$Q/RUN" ]; } &&
+  ok "fk-dryrun rejects an invalid scope-proof hash before publish" ||
+  no "fk-dryrun accepted invalid hash (rc=$rc out='$out')"
+rm -f "$Q/fk-manifest.current"
+out=$(QUIESCE_DIR="$Q" sh "$OW" fk-apply "$MANIFEST_HASH" "$SCOPE_HASH" 2>&1); rc=$?
+{ [ "$rc" -ne 0 ] && [ ! -e "$Q/RUN" ]; } &&
+  ok "fk-apply requires its dedicated successful dry-run pointer" ||
+  no "fk-apply ran without fk-manifest.current (rc=$rc out='$out')"
+
+# ---------------------------------------------------------------------------
 echo "--- T16: protocol checker + watchdog boundary checks ---"
 REPO="$HERE/../../.."
 DEPLOY="$REPO/DEPLOY.md"

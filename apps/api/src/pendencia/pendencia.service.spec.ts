@@ -106,7 +106,7 @@ describe('PendenciaService', () => {
       expect(prisma.pendencia.create).not.toHaveBeenCalled();
       // guard resolved against the OWNER project from the route
       expect(prisma.room.findFirst).toHaveBeenCalledWith({
-        where: { id: 'foreign-room', projectId: PROJECT },
+        where: { id: 'foreign-room', projectId: PROJECT, project: { tenantId: TENANT, deletedAt: null } },
       });
     });
 
@@ -130,7 +130,15 @@ describe('PendenciaService', () => {
       await service.findAll(TENANT, PROJECT);
 
       expect(prisma.pendencia.findMany).toHaveBeenCalledWith({
-        where: { tenantId: TENANT, projectId: PROJECT },
+        where: {
+          tenantId: TENANT, projectId: PROJECT, project: { deletedAt: null },
+          AND: [{
+            OR: [
+              { roomId: null },
+              { room: { deletedAt: null, project: { deletedAt: null } } },
+            ],
+          }],
+        },
         include: {
           room: { select: { name: true } },
           scheduleTask: { select: { nome: true, numero: true } },
@@ -160,7 +168,15 @@ describe('PendenciaService', () => {
       const res = await service.move(TENANT, PROJECT, 'p1', { status: 'ANDAMENTO', order: 2 });
 
       expect(prisma.pendencia.findFirst).toHaveBeenCalledWith({
-        where: { id: 'p1', tenantId: TENANT, projectId: PROJECT },
+        where: {
+          id: 'p1', tenantId: TENANT, projectId: PROJECT, project: { deletedAt: null },
+          AND: [{
+            OR: [
+              { roomId: null },
+              { room: { deletedAt: null, project: { deletedAt: null } } },
+            ],
+          }],
+        },
       });
       expect(prisma.pendencia.update).toHaveBeenCalledWith({
         where: { id: 'p1' },

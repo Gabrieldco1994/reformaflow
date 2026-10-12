@@ -1121,7 +1121,10 @@ export class BankAccountService {
           await assertInlineProject(client, tenantId, draft.targetProjectId, requester);
           if (draft.targetProjectId === projectId) invalidInline();
           if (draft.roomId && !await client.room.findFirst({
-            where: { id: draft.roomId, projectId: draft.targetProjectId, deletedAt: null },
+            where: {
+              id: draft.roomId, projectId: draft.targetProjectId,
+              deletedAt: null, project: { deletedAt: null },
+            },
           })) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
           row.categoryOverride = effective;
         }

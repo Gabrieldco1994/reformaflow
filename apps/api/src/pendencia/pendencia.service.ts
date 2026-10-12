@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import {
   ExpenseType,
   type InstallmentSettlementSummary,
@@ -85,6 +86,12 @@ const INCLUDE = {
   room: { select: { name: true } },
   scheduleTask: { select: { nome: true, numero: true } },
 } as const;
+const ACTIVE_ROOM_SCOPE = {
+  OR: [
+    { roomId: null },
+    { room: { deletedAt: null, project: { deletedAt: null } } },
+  ],
+} satisfies Prisma.PendenciaWhereInput;
 
 /** Janela de compras considerada ao ranquear faturas candidatas (±120 dias). */
 const CARD_WINDOW_MS = 120 * 24 * 60 * 60 * 1000;
@@ -136,7 +143,7 @@ export class PendenciaService {
   ): Promise<void> {
     if (roomId) {
       const room = await this.prisma.room.findFirst({
-        where: { id: roomId, projectId },
+        where: { id: roomId, projectId, project: { tenantId, deletedAt: null } },
       });
       if (!room) throw new BadRequestException('Ambiente inválido para este projeto');
     }
@@ -150,7 +157,10 @@ export class PendenciaService {
 
   async findAll(tenantId: string, projectId: string): Promise<PendenciaDto[]> {
     const rows = await this.prisma.pendencia.findMany({
-      where: { tenantId, projectId },
+      where: {
+        tenantId, projectId, project: { deletedAt: null },
+        AND: [ACTIVE_ROOM_SCOPE],
+      },
       include: INCLUDE,
       orderBy: [{ status: 'asc' }, { order: 'asc' }, { id: 'asc' }],
     });
@@ -407,7 +417,7 @@ export class PendenciaService {
     await this.assertRefsBelong(tenantId, projectId, dto.roomId, dto.scheduleTaskId);
 
     const last = await this.prisma.pendencia.findFirst({
-      where: { tenantId, projectId },
+      where: { tenantId, projectId, project: { deletedAt: null } },
       orderBy: { order: 'desc' },
       select: { order: true },
     });
@@ -433,7 +443,10 @@ export class PendenciaService {
 
   private async findGuard(tenantId: string, projectId: string, id: string) {
     const found = await this.prisma.pendencia.findFirst({
-      where: { id, tenantId, projectId },
+      where: {
+        id, tenantId, projectId, project: { deletedAt: null },
+        AND: [ACTIVE_ROOM_SCOPE],
+      },
     });
     if (!found) throw new NotFoundException('Pendência não encontrada');
     return found;

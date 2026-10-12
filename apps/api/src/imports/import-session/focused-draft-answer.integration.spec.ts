@@ -990,6 +990,20 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
       where: { id: room.id },
       data: { deletedAt: null },
     });
+    await prisma.project.update({
+      where: { id: reforma.id },
+      data: { deletedAt: now },
+    });
+    try {
+      await expect(submit(body)).rejects.toMatchObject({
+        code: Code.INVALID_INPUT,
+      });
+    } finally {
+      await prisma.project.update({
+        where: { id: reforma.id },
+        data: { deletedAt: null },
+      });
+    }
     view = await submit(payload("targets", value));
     expect(view.lines[0].targets).toEqual([
       {
@@ -998,6 +1012,22 @@ describe("focused typed draft answers: real UI grants, locked writer and card pr
         amountCents: value.amountCents,
       },
     ]);
+    await prisma.project.update({
+      where: { id: reforma.id },
+      data: { deletedAt: now },
+    });
+    try {
+      await expect(
+        workflow.prepare(actor.auth, sessionId, {
+          expectedRevision: view.revision,
+        }),
+      ).rejects.toMatchObject({ code: Code.NOT_FOUND });
+    } finally {
+      await prisma.project.update({
+        where: { id: reforma.id },
+        data: { deletedAt: null },
+      });
+    }
     expect(await finance()).toEqual([0, 0, 0, 0, 0, 0]);
   });
   it("rejects a cross-tenant target and a room outside the locked target project", async () => {

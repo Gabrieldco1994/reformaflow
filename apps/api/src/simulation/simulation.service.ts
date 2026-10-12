@@ -169,7 +169,7 @@ export class SimulationService {
     ];
 
     const allRooms = await this.prisma.room.findMany({
-      where: { projectId },
+      where: { projectId, project: { deletedAt: null } },
       orderBy: { order: 'asc' },
     });
 

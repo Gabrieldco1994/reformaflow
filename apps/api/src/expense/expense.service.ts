@@ -260,7 +260,7 @@ export class ExpenseService {
     const roomDelegate = (db as { room?: { findFirst?: unknown } }).room;
     if (!roomDelegate || typeof roomDelegate.findFirst !== 'function') return;
     const room = await db.room.findFirst({
-      where: { id: roomId, projectId, deletedAt: null },
+      where: { id: roomId, projectId, deletedAt: null, project: { deletedAt: null } },
     });
     if (!room) throw new NotFoundException('Sala não encontrada neste projeto');
   }
