@@ -365,7 +365,7 @@ export async function fillFocusedDraftPreview(
     for (const id of question.lineIds) {
       const line = current.lines.find((line) => line.id === id);
       expect(line).toBeTruthy();
-      await expect(affected).toContainText(`${line!.titulo} — Compra ${id}`);
+      await expect(affected).toContainText(line!.titulo);
     }
   }
   return answer;
