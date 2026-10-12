@@ -149,6 +149,46 @@ function assertLostAnswerRecovery(source) {
   );
 }
 
+function assertReviewPreparation(source) {
+  assert.doesNotMatch(
+    source,
+    /voiceReviewTransition|name: "Responder por voz"/,
+    "review preparation must not use the obsolete review voice branch",
+  );
+  const starts = [...source.matchAll(/if \(!question\) \{/g)];
+  assert.equal(
+    starts.length,
+    1,
+    "the no-question path must have one review-preparation branch",
+  );
+  const start = starts[0].index;
+  const end = source.indexOf("const form =", start);
+  assert.notEqual(end, -1, "review-preparation branch must re-enter questions");
+  const branch = source.slice(start, end);
+
+  assert.match(
+    branch,
+    /new URL\(response\.url\(\)\)\.pathname ===\s*`\/import-sessions\/\$\{sessionId\}\/prepare`\s*&&\s*response\.request\(\)\.method\(\) === "POST"/,
+    "the no-question path must wait for the exact POST /prepare response",
+  );
+  assert.match(
+    branch,
+    /const \[response\] = await Promise\.all\(\[\s*prepared,\s*page\s*\.getByRole\("button", \{\s*name: "Abrir revisão do lote",\s*exact: true,\s*\}\)\s*\.click\(\),\s*\]\)/,
+    "the exact review CTA click must be correlated with its POST /prepare response",
+  );
+  assert.match(
+    branch,
+    /await evidence\.checkApi\(response\)/,
+    "the correlated POST /prepare response must be successful",
+  );
+}
+
+function mutateReviewPreparation(source, before, after) {
+  const start = source.indexOf("if (!question) {");
+  assert.notEqual(start, -1, "review-preparation branch must exist");
+  return source.slice(0, start) + source.slice(start).replace(before, after);
+}
+
 function assertOracleDefaultPurgeWindow(source) {
   assert.match(
     source,
@@ -214,6 +254,34 @@ test("lost-answer recovery is one-shot and unblocks only after the visible recov
   assert.throws(() =>
     assertLostAnswerRecovery(
       journey.replace("recovery.click()", "Promise.resolve()"),
+    ),
+  );
+});
+
+test("review preparation uses only the real review CTA and its exact successful POST", () => {
+  const journey = readFileSync(CSV_JOURNEY_PATH, "utf8");
+  assertReviewPreparation(journey);
+  assert.throws(() =>
+    assertReviewPreparation(
+      mutateReviewPreparation(
+        journey,
+        "Abrir revisão do lote",
+        "Responder por voz",
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertReviewPreparation(
+      mutateReviewPreparation(
+        journey,
+        'response.request().method() === "POST"',
+        'response.request().method() === "GET"',
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertReviewPreparation(
+      mutateReviewPreparation(journey, "await evidence.checkApi(response)", ""),
     ),
   );
 });

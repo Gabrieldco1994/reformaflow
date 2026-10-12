@@ -561,7 +561,6 @@ for (const phase of ["upload", "confirmation"] as const) {
         await noExpenses();
         await evidence.capture("ignored-payment-and-human-subset");
 
-        let voiceReviewTransition = false;
         let lostAnswerRecovered = false;
         let cleanCreateChosen = false;
         // Read-only state identifies the active field; every answer is sent by the actual guided UI.
@@ -575,18 +574,6 @@ for (const phase of ["upload", "confirmation"] as const) {
           if (!question) {
             // PREPARE may add decision/targets questions; an empty pre-prepare
             // question list is not proof that the financial review is ready.
-            let prepareRequests = 0;
-            const countPrepare = (
-              request: import("@playwright/test").Request,
-            ) => {
-              if (
-                request.method() === "POST" &&
-                new URL(request.url()).pathname ===
-                  `/import-sessions/${sessionId}/prepare`
-              )
-                prepareRequests++;
-            };
-            page.on("request", countPrepare);
             const prepared = page.waitForResponse(
               (response) =>
                 new URL(response.url()).pathname ===
@@ -594,48 +581,15 @@ for (const phase of ["upload", "confirmation"] as const) {
                 response.request().method() === "POST",
               { timeout: 120_000 },
             );
-            let response;
-            if (!voiceReviewTransition) {
-              await enqueueSpeech(page, "sim");
-              await page
+            const [response] = await Promise.all([
+              prepared,
+              page
                 .getByRole("button", {
-                  name: "Responder por voz",
-                  exact: true,
-                })
-                .click();
-              await expect
-                .poll(() => prepareRequests, {
-                  message: "VOICE recognition must preview, never auto-submit",
-                })
-                .toBe(0);
-              await expect(
-                page.getByRole("button", {
                   name: "Abrir revisão do lote",
                   exact: true,
-                }),
-              ).toBeFocused();
-              [response] = await Promise.all([
-                prepared,
-                page
-                  .getByRole("button", {
-                    name: "Abrir revisão do lote",
-                    exact: true,
-                  })
-                  .click(),
-              ]);
-              voiceReviewTransition = true;
-            } else {
-              [response] = await Promise.all([
-                prepared,
-                page
-                  .getByRole("button", {
-                    name: "Abrir revisão do lote",
-                    exact: true,
-                  })
-                  .click(),
-              ]);
-            }
-            page.off("request", countPrepare);
+                })
+                .click(),
+            ]);
             await evidence.checkApi(response);
             await evidence.capture(`prepare-${attempt + 1}-response`);
             current = await view();
@@ -874,7 +828,6 @@ for (const phase of ["upload", "confirmation"] as const) {
               q.lineIds.some((id) => selectedIds.includes(id)),
           ),
         ).toEqual([]);
-        expect(voiceReviewTransition).toBe(true);
         expect(lostAnswerRecovered).toBe(true);
         expect(cleanCreateChosen).toBe(true);
         const ready = await view();
