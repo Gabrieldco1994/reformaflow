@@ -25,6 +25,7 @@ import {
   nativeFocusedOnly,
   visibleCurrentQuestionForm,
 } from "./helpers/focused-draft-answer";
+import { reviewBlockerActionButton } from "./helpers/review-blocker-selectors";
 import {
   captureNativeDocumentaryAnswer,
   nativeDocumentaryContract,
@@ -534,25 +535,15 @@ for (const phase of ["upload", "confirmation"] as const) {
           .map((line) => line.id);
         expect(selectedIds).toHaveLength(2);
         for (const line of draft.lines) {
-          const row = page
-            .locator(`[data-review-blocker-line="${line.id}"]`)
-            .first();
-          await expect(row).toBeVisible();
           const wasSelected = (await view()).selectedLineIds.includes(line.id);
-          if (selectedIds.includes(line.id) && !wasSelected) {
-            await row
-              .getByRole("button", {
-                name: `Incluir compra ${line.id} na revisão`,
-                exact: true,
-              })
-              .click();
-          } else if (!selectedIds.includes(line.id) && wasSelected) {
-            await row
-              .getByRole("button", {
-                name: `Retirar compra ${line.id} da seleção`,
-                exact: true,
-              })
-              .click();
+          const desired = selectedIds.includes(line.id);
+          const button = await reviewBlockerActionButton(
+            page,
+            line.titulo,
+            wasSelected ? "remove" : "include",
+          );
+          if (desired !== wasSelected) {
+            await button.click();
           }
           await expect
             .poll(async () => (await view()).selectedLineIds.includes(line.id))

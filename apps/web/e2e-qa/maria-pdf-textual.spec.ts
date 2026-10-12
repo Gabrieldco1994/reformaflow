@@ -30,6 +30,7 @@ import {
   nativeFocusedOnly,
   visibleCurrentQuestionForm,
 } from "./helpers/focused-draft-answer";
+import { reviewBlockerActionButton } from "./helpers/review-blocker-selectors";
 
 let fixtures: string;
 test.beforeAll(async () => {
@@ -154,21 +155,15 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
       .map((line) => line.id);
     expect(selectedIds).toHaveLength(2);
     for (const line of (await view()).lines) {
-      const row = page
-        .locator(`[data-review-blocker-line="${line.id}"]`)
-        .first();
-      await expect(row).toBeVisible();
       const desired = selectedIds.includes(line.id);
       const current = (await view()).selectedLineIds.includes(line.id);
+      const button = await reviewBlockerActionButton(
+        page,
+        line.titulo,
+        current ? "remove" : "include",
+      );
       if (current !== desired) {
-        await row
-          .getByRole("button", {
-            name: desired
-              ? `Incluir compra ${line.id} na revisão`
-              : `Retirar compra ${line.id} da seleção`,
-            exact: true,
-          })
-          .click();
+        await button.click();
       }
       await expect
         .poll(async () => (await view()).selectedLineIds.includes(line.id))
