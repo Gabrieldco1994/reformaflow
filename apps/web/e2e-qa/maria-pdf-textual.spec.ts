@@ -89,7 +89,7 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
       exact: true,
     });
     await assertTouchable(consent);
-    await evidence.response(
+    const analyzeResponse = await evidence.response(
       "textual-analysis",
       (r) =>
         /\/import-sessions\/[^/]+\/attachments\/[^/]+\/analyze$/.test(
@@ -100,8 +100,8 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
     await expect(
       page.getByText(identicalImportNotice, { exact: true }),
     ).toBeVisible();
-    const sessionId = sessionFromUrl(page);
-    expect(sessionId).not.toBe("");
+    const sessionId = sessionIdFromAnalyzeResponseUrl(analyzeResponse.url());
+    const persistentSessionHref = `/projects/${journey.projectId}/maria?importSessionId=${encodeURIComponent(sessionId)}`;
     const activeAgentChatRequests: string[] = [];
     page.on("request", (request) => {
       if (isAgentChatPost(request))
@@ -120,6 +120,7 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
     await journey.noFinance();
     await evidence.capture("identical-pdf-deduplicated-real-analysis");
 
+    await page.goto(persistentSessionHref);
     await page.reload();
     await expect(
       page.getByRole("region", { name: "Conversa da importação", exact: true }),

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import type { Locator, Page } from "@playwright/test";
 import {
   sessionIdFromAnalyzeResponseUrl,
@@ -9,6 +12,12 @@ import {
   gotoValidatedMariaHref,
   waitForMariaEntryButton,
 } from "./maria-entry-navigation";
+
+const PDF_JOURNEY_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "maria-pdf-textual.spec.ts",
+);
 
 type ExpectResult = {
   matches: boolean;
@@ -46,6 +55,42 @@ function locator(
   } as unknown as Locator;
 }
 
+function assertTypedAnalyzeSessionAdoption(source: string) {
+  const start = source.indexOf(
+    'const analyzeResponse = await evidence.response(\n      "textual-analysis"',
+  );
+  const end = source.indexOf("await page.reload()", start);
+  assert.notEqual(start, -1, "typed analysis response must be captured");
+  assert.notEqual(end, -1, "typed persistence reload must exist");
+  const adoption = source.slice(start, end);
+
+  assert.match(
+    adoption,
+    /const analyzeResponse = await evidence\.response\(/,
+    "typed analysis must retain its matched successful response",
+  );
+  assert.match(
+    adoption,
+    /const sessionId = sessionIdFromAnalyzeResponseUrl\(analyzeResponse\.url\(\)\)/,
+    "typed analysis must derive its session from the authoritative response URL",
+  );
+  assert.doesNotMatch(
+    adoption,
+    /sessionFromUrl\(page\)/,
+    "typed analysis must not race asynchronous page URL adoption",
+  );
+  assert.match(
+    adoption,
+    /const persistentSessionHref = `\/projects\/\$\{journey\.projectId\}\/maria\?importSessionId=\$\{encodeURIComponent\(sessionId\)\}`/,
+    "typed persistence must build the canonical project/session URL",
+  );
+  assert.match(
+    adoption,
+    /await page\.goto\(persistentSessionHref\)/,
+    "typed persistence must adopt the canonical session URL before reload",
+  );
+}
+
 test("extracts the authoritative session only from the exact analyze response path", () => {
   assert.equal(
     sessionIdFromAnalyzeResponseUrl(
@@ -70,6 +115,24 @@ test("rejects malformed analyze response paths", () => {
       /exact POST analyze response path/,
       url,
     );
+});
+
+test("successful typed analysis adopts the response session before persistence reload", () => {
+  const source = readFileSync(PDF_JOURNEY_PATH, "utf8");
+  assertTypedAnalyzeSessionAdoption(source);
+  assert.throws(() =>
+    assertTypedAnalyzeSessionAdoption(
+      source.replace(
+        "sessionIdFromAnalyzeResponseUrl(analyzeResponse.url())",
+        "sessionFromUrl(page)",
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertTypedAnalyzeSessionAdoption(
+      source.replace("await page.goto(persistentSessionHref);", ""),
+    ),
+  );
 });
 
 test("mobile Maria destination is the exact validated project link href", async () => {
