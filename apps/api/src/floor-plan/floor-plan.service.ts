@@ -113,19 +113,24 @@ export class FloorPlanService {
           where: {
             OR: [
               { roomId: null },
-              { room: { deletedAt: null, project: { deletedAt: null } } },
+              { room: { projectId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } } },
             ],
           },
           include: {
             room: {
               include: {
-                expenses: { where: { deletedAt: null } },
+                expenses: {
+                  where: { projectId, tenantId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } },
+                },
                 roomImages: { orderBy: { order: 'asc' } },
               },
             },
           },
         },
-        markers: { include: { expense: true } },
+        markers: {
+          where: { expense: { projectId, tenantId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } } },
+          include: { expense: true },
+        },
       },
       orderBy: { order: 'asc' },
     });
@@ -139,19 +144,24 @@ export class FloorPlanService {
           where: {
             OR: [
               { roomId: null },
-              { room: { deletedAt: null, project: { deletedAt: null } } },
+              { room: { projectId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } } },
             ],
           },
           include: {
             room: {
               include: {
-                expenses: { where: { deletedAt: null } },
+                expenses: {
+                  where: { projectId, tenantId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } },
+                },
                 roomImages: { orderBy: { order: 'asc' } },
               },
             },
           },
         },
-        markers: { include: { expense: true } },
+        markers: {
+          where: { expense: { projectId, tenantId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } } },
+          include: { expense: true },
+        },
       },
     });
     if (!fp) throw new NotFoundException('Floor plan not found');

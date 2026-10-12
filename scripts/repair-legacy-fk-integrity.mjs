@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, fstatSync, realpathSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { open } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
@@ -18,6 +20,14 @@ const TOMBSTONE_NAME = "__legacy_fk_recovery_tombstone__";
 const TOMBSTONE_DESCRIPTION = "Technical tombstone created by #722";
 const TOMBSTONE_TIMESTAMP = new Date(0);
 const OP_WRAP_MARKER = "legacy-fk-integrity-v1";
+const REQUIRED_REVIEWERS = 2;
+const REVIEWED_ROOM_BACKLINKS = new Map([
+  ["expenses.room_id", "direct"],
+  ["floor_plan_rooms.room_id", "floor-plan"],
+  ["pendencias.room_id", "direct"],
+  ["room_images.room_id", "room-owned"],
+]);
+const PROTECTED_TRIGGER_TABLES = ["cash_flow_entries", "projects"];
 const CLI_OPTIONS = new Set([
   "dry-run",
   "apply",
@@ -58,6 +68,47 @@ function nonEmptyString(value) {
   return typeof value === "string" && value.length > 0;
 }
 
+async function assertInheritedWatchdogLock() {
+  if (
+    process.env.LEGACY_FK_RECOVERY_OP_WRAP !== OP_WRAP_MARKER ||
+    process.env.LEGACY_FK_RECOVERY_LOCK_FD !== "9" ||
+    process.env.LEGACY_FK_RECOVERY_CAP_FD !== "7" ||
+    !nonEmptyString(process.env.QUIESCE_DIR) ||
+    !isAbsolute(process.env.QUIESCE_DIR)
+  ) {
+    fail();
+  }
+  const quiesceDirectory = realpathSync(process.env.QUIESCE_DIR);
+  const lockPath = join(quiesceDirectory, "lock");
+  if (realpathSync(lockPath) !== lockPath) fail();
+
+  const inheritedLock = fstatSync(9);
+  const lockFile = statSync(lockPath);
+  const capability = fstatSync(7);
+  if (
+    !inheritedLock.isFile() ||
+    inheritedLock.dev !== lockFile.dev ||
+    inheritedLock.ino !== lockFile.ino ||
+    !capability.isFile() ||
+    capability.nlink !== 0 ||
+    (capability.mode & 0o777) !== 0o600
+  ) {
+    fail();
+  }
+
+  // Production is Linux. Prove both halves of lock ownership: a fresh open
+  // cannot acquire Q/lock, while the inherited watchdog OFD on fd 9 can.
+  if (process.platform === "linux") {
+    const competing = spawnSync("flock", ["-n", lockPath, "true"], {
+      stdio: "ignore",
+    });
+    const stdio = Array.from({ length: 10 }, () => "ignore");
+    stdio[9] = 9;
+    const inherited = spawnSync("flock", ["-n", "9", "true"], { stdio });
+    if (competing.status === 0 || inherited.status !== 0) fail();
+  }
+}
+
 function compareProject(left, right) {
   return (
     left.projectId.localeCompare(right.projectId) ||
@@ -73,6 +124,7 @@ function validateScopeProof(proof) {
   if (
     !hasExactKeys(proof, [
       "version",
+      "provenance",
       "missingProjects",
       "orphanCashFlowEntries",
     ]) ||
@@ -83,6 +135,52 @@ function validateScopeProof(proof) {
     proof.orphanCashFlowEntries.length !== EXPECTED_ORPHAN_CASH_FLOW_ENTRIES
   ) {
     fail();
+  }
+
+  const scopeBytes = canonicalBytes({
+    missingProjects: proof.missingProjects,
+    orphanCashFlowEntries: proof.orphanCashFlowEntries,
+  });
+  if (
+    !hasExactKeys(proof.provenance, [
+      "sourceArtifactSha256",
+      "scopeSha256",
+      "generatedAt",
+      "methodology",
+      "attestations",
+    ]) ||
+    !/^[a-f0-9]{64}$/.test(proof.provenance.sourceArtifactSha256) ||
+    proof.provenance.sourceArtifactSha256 === "0".repeat(64) ||
+    proof.provenance.scopeSha256 !== sha256(scopeBytes) ||
+    !nonEmptyString(proof.provenance.generatedAt) ||
+    normalizeTimestamp(proof.provenance.generatedAt) !==
+      proof.provenance.generatedAt ||
+    !nonEmptyString(proof.provenance.methodology) ||
+    !Array.isArray(proof.provenance.attestations) ||
+    proof.provenance.attestations.length !== REQUIRED_REVIEWERS
+  ) {
+    fail();
+  }
+  const reviewers = new Set();
+  const attestationHashes = new Set();
+  for (const attestation of proof.provenance.attestations) {
+    if (
+      !hasExactKeys(attestation, [
+        "reviewer",
+        "scopeSha256",
+        "attestationSha256",
+      ]) ||
+      !nonEmptyString(attestation.reviewer) ||
+      attestation.scopeSha256 !== proof.provenance.scopeSha256 ||
+      !/^[a-f0-9]{64}$/.test(attestation.attestationSha256) ||
+      attestation.attestationSha256 === "0".repeat(64) ||
+      reviewers.has(attestation.reviewer) ||
+      attestationHashes.has(attestation.attestationSha256)
+    ) {
+      fail();
+    }
+    reviewers.add(attestation.reviewer);
+    attestationHashes.add(attestation.attestationSha256);
   }
 
   const identities = new Set();
@@ -413,6 +511,145 @@ function quoteIdentifier(value) {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
+function compareBacklink(left, right) {
+  return (
+    left.table.localeCompare(right.table) ||
+    left.column.localeCompare(right.column)
+  );
+}
+
+async function readRoomBacklinkInventory(prisma, proof) {
+  const roomScope = new Map(
+    proof.missingProjects.flatMap(({ projectId, tenantId, roomIds }) =>
+      roomIds.map((roomId) => [roomId, { projectId, tenantId }]),
+    ),
+  );
+  const roomIds = [...roomScope.keys()];
+  const tables = await prisma.$queryRawUnsafe(
+    `SELECT name
+       FROM sqlite_master
+      WHERE type = 'table'
+        AND name NOT LIKE 'sqlite_%'
+      ORDER BY name`,
+  );
+  const discovered = [];
+  for (const { name } of tables) {
+    const table = quoteIdentifier(name);
+    const foreignKeys = await prisma.$queryRawUnsafe(
+      `PRAGMA foreign_key_list(${table})`,
+    );
+    for (const foreignKey of foreignKeys) {
+      if (foreignKey.table === "rooms" && foreignKey.to === "id") {
+        discovered.push({
+          table: name,
+          column: foreignKey.from,
+          onUpdate: foreignKey.on_update,
+          onDelete: foreignKey.on_delete,
+        });
+      }
+    }
+  }
+  discovered.sort(compareBacklink);
+
+  const knownKeys = new Set(
+    discovered.map(({ table, column }) => `${table}.${column}`),
+  );
+  if ([...REVIEWED_ROOM_BACKLINKS.keys()].some((key) => !knownKeys.has(key))) {
+    fail();
+  }
+
+  const inventory = [];
+  for (const foreignKey of discovered) {
+    const key = `${foreignKey.table}.${foreignKey.column}`;
+    const strategy = REVIEWED_ROOM_BACKLINKS.get(key);
+    const table = quoteIdentifier(foreignKey.table);
+    const column = quoteIdentifier(foreignKey.column);
+    let rows;
+    if (strategy === "floor-plan") {
+      rows = await placeholdersQuery(
+        prisma,
+        `SELECT child.id, child.room_id,
+                owner.project_id AS __scope_project_id,
+                owner.tenant_id AS __scope_tenant_id
+           FROM ${table} child
+           JOIN floor_plans owner ON owner.id = child.floor_plan_id
+          WHERE child.${column} IN (`,
+        roomIds,
+        `) ORDER BY child.id`,
+      );
+    } else if (strategy === "direct") {
+      rows = await placeholdersQuery(
+        prisma,
+        `SELECT id, ${column}, project_id, tenant_id
+           FROM ${table}
+          WHERE ${column} IN (`,
+        roomIds,
+        `) ORDER BY ${column}, id`,
+      );
+    } else {
+      rows = await placeholdersQuery(
+        prisma,
+        `SELECT rowid AS __rowid, ${column}
+           FROM ${table}
+          WHERE ${column} IN (`,
+        roomIds,
+        `) ORDER BY ${column}, rowid`,
+      );
+    }
+
+    if (!REVIEWED_ROOM_BACKLINKS.has(key) && rows.length > 0) fail();
+    for (const row of rows) {
+      const expected = roomScope.get(row[foreignKey.column]);
+      if (!expected) fail();
+      if (
+        strategy === "direct" &&
+        (row.project_id !== expected.projectId ||
+          row.tenant_id !== expected.tenantId)
+      ) {
+        fail();
+      }
+      if (
+        strategy === "floor-plan" &&
+        (row.__scope_project_id !== expected.projectId ||
+          row.__scope_tenant_id !== expected.tenantId)
+      ) {
+        fail();
+      }
+    }
+    inventory.push({
+      table: foreignKey.table,
+      column: foreignKey.column,
+      count: rows.length,
+      rowsHash: sha256(canonicalBytes(rows.map(normalizeObject))),
+    });
+  }
+  return inventory;
+}
+
+async function readProtectedTriggerInventory(prisma) {
+  const triggers = await placeholdersQuery(
+    prisma,
+    `SELECT name, tbl_name, sql
+       FROM sqlite_master
+      WHERE type = 'trigger'
+        AND tbl_name IN (`,
+    PROTECTED_TRIGGER_TABLES,
+    `) ORDER BY tbl_name, name`,
+  );
+  if (triggers.length !== 0) fail();
+  return triggers.map(normalizeObject);
+}
+
+async function readSecurityInventory(prisma, proof) {
+  const roomBacklinks = await readRoomBacklinkInventory(prisma, proof);
+  const protectedTriggers = await readProtectedTriggerInventory(prisma);
+  return {
+    roomBacklinks,
+    protectedTriggers,
+    inventoryHash: sha256(canonicalBytes({ roomBacklinks, protectedTriggers })),
+  };
+}
+
 async function assertExactProjectDependencies(prisma, proof) {
   const projectIds = proof.missingProjects.map(({ projectId }) => projectId);
   const expectedRooms = expectedRoomMap(proof);
@@ -428,8 +665,7 @@ async function assertExactProjectDependencies(prisma, proof) {
     scopedRooms.length !== EXPECTED_ORPHAN_ROOMS ||
     scopedRooms.some(
       (row) =>
-        expectedRooms.get(row.id) !== row.project_id ||
-        row.deleted_at !== null,
+        expectedRooms.get(row.id) !== row.project_id || row.deleted_at !== null,
     )
   ) {
     fail();
@@ -582,7 +818,7 @@ async function assertPostimageTopology(prisma, proof, state) {
   await assertIntegrity(prisma);
 }
 
-function buildManifest(proof, scopeProofSha256, preState) {
+function buildManifest(proof, scopeProofSha256, preState, inventory) {
   const postState = expectedPostState(preState, proof);
   return {
     version: MANIFEST_VERSION,
@@ -594,9 +830,12 @@ function buildManifest(proof, scopeProofSha256, preState) {
       foreignKeyViolationsBefore: EXPECTED_FOREIGN_KEY_VIOLATIONS,
       foreignKeyViolationsAfter: 0,
     },
-    beforeHash: stateHash(preState),
-    postHash: stateHash(postState),
+    beforeHash: stateHash({ state: preState, inventory }),
+    postHash: stateHash({ state: postState, inventory }),
     financialHash: stateHash(protectedFinancialState(preState)),
+    roomBacklinks: inventory.roomBacklinks,
+    protectedTriggers: inventory.protectedTriggers,
+    inventoryHash: inventory.inventoryHash,
     missingProjects: proof.missingProjects,
     orphanCashFlowEntries: proof.orphanCashFlowEntries,
   };
@@ -611,13 +850,16 @@ function validateManifest(manifest, proof, scopeProofSha256) {
       "beforeHash",
       "postHash",
       "financialHash",
+      "roomBacklinks",
+      "protectedTriggers",
+      "inventoryHash",
       "missingProjects",
       "orphanCashFlowEntries",
     ]) ||
     manifest.version !== MANIFEST_VERSION ||
     manifest.scopeProofSha256 !== scopeProofSha256 ||
-    !["beforeHash", "postHash", "financialHash"].every((field) =>
-      /^[a-f0-9]{64}$/.test(manifest[field]),
+    !["beforeHash", "postHash", "financialHash", "inventoryHash"].every(
+      (field) => /^[a-f0-9]{64}$/.test(manifest[field]),
     ) ||
     !hasExactKeys(manifest.counts, [
       "missingProjects",
@@ -638,7 +880,9 @@ function validateManifest(manifest, proof, scopeProofSha256) {
     ) ||
     !canonicalBytes(manifest.orphanCashFlowEntries).equals(
       canonicalBytes(proof.orphanCashFlowEntries),
-    )
+    ) ||
+    !Array.isArray(manifest.roomBacklinks) ||
+    !Array.isArray(manifest.protectedTriggers)
   ) {
     fail();
   }
@@ -777,6 +1021,18 @@ async function applyManifest(prisma, proof, manifest) {
   await prisma.$executeRawUnsafe("BEGIN IMMEDIATE");
   try {
     const state = await readAffectedState(prisma, proof);
+    const inventory = await readSecurityInventory(prisma, proof);
+    if (
+      inventory.inventoryHash !== manifest.inventoryHash ||
+      !canonicalBytes(inventory.roomBacklinks).equals(
+        canonicalBytes(manifest.roomBacklinks),
+      ) ||
+      !canonicalBytes(inventory.protectedTriggers).equals(
+        canonicalBytes(manifest.protectedTriggers),
+      )
+    ) {
+      fail();
+    }
     const preimage = isPreimage(state, proof);
     const postimage = isPostimage(state, proof);
     if (preimage === postimage) fail();
@@ -784,7 +1040,7 @@ async function applyManifest(prisma, proof, manifest) {
     if (postimage) {
       await assertPostimageTopology(prisma, proof, state);
       if (
-        stateHash(state) !== manifest.postHash ||
+        stateHash({ state, inventory }) !== manifest.postHash ||
         stateHash(protectedFinancialState(state)) !== manifest.financialHash
       ) {
         fail();
@@ -795,12 +1051,17 @@ async function applyManifest(prisma, proof, manifest) {
 
     await assertPreimageTopology(prisma, proof, state);
     if (
-      stateHash(state) !== manifest.beforeHash ||
+      stateHash({ state, inventory }) !== manifest.beforeHash ||
       stateHash(protectedFinancialState(state)) !== manifest.financialHash
     ) {
       fail();
     }
-    const rebuilt = buildManifest(proof, manifest.scopeProofSha256, state);
+    const rebuilt = buildManifest(
+      proof,
+      manifest.scopeProofSha256,
+      state,
+      inventory,
+    );
     if (!canonicalBytes(rebuilt).equals(canonicalBytes(manifest))) fail();
 
     let insertedProjects = 0;
@@ -825,7 +1086,7 @@ async function applyManifest(prisma, proof, manifest) {
     const after = await readAffectedState(prisma, proof);
     await assertPostimageTopology(prisma, proof, after);
     if (
-      stateHash(after) !== manifest.postHash ||
+      stateHash({ state: after, inventory }) !== manifest.postHash ||
       stateHash(protectedFinancialState(after)) !== manifest.financialHash
     ) {
       fail();
@@ -843,7 +1104,7 @@ async function applyManifest(prisma, proof, manifest) {
 }
 
 async function main(argv) {
-  if (process.env.LEGACY_FK_RECOVERY_OP_WRAP !== OP_WRAP_MARKER) fail();
+  await assertInheritedWatchdogLock();
   const options = parseArguments(argv);
   const databaseUrl = process.env.DATABASE_URL;
   if (!nonEmptyString(databaseUrl) || !databaseUrl.startsWith("file:")) fail();
@@ -867,10 +1128,12 @@ async function main(argv) {
       try {
         const state = await readAffectedState(prisma, scope.value);
         await assertPreimageTopology(prisma, scope.value, state);
+        const inventory = await readSecurityInventory(prisma, scope.value);
         manifest = buildManifest(
           scope.value,
           options["scope-proof-hash"],
           state,
+          inventory,
         );
       } finally {
         await prisma.$executeRawUnsafe("ROLLBACK");

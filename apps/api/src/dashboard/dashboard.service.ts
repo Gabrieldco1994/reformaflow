@@ -54,7 +54,11 @@ export class DashboardService {
       }),
       this.prisma.expense.findMany({
         where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null },
-        include: { room: true },
+        include: {
+          room: {
+            where: { projectId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } },
+          },
+        },
       }),
     ]);
 

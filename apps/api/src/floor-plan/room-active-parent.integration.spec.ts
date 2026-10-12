@@ -4,6 +4,10 @@ require("../../../../scripts/test-db-env.cjs");
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { FloorPlanService } from "./floor-plan.service";
+import { ConciliacaoService } from "../conciliacao/conciliacao.service";
+import { DashboardService } from "../dashboard/dashboard.service";
+import { ExpenseService } from "../expense/expense.service";
+import type { RateioRequester } from "../expense/rateio.types";
 import { PendenciaService } from "../pendencia/pendencia.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SimulationService } from "../simulation/simulation.service";
@@ -18,21 +22,67 @@ const ACTIVE_ROOM = "room-parent-active-room";
 const TOMBSTONE_ROOM = "room-parent-tombstone-room";
 const ACTIVE_IMAGE = "room-parent-active-image";
 const TOMBSTONE_IMAGE = "room-parent-tombstone-image";
+const FOREIGN_TENANT = "room-parent-foreign-tenant";
+const FOREIGN_PROJECT = "room-parent-foreign-project";
+const FOREIGN_ROOM = "room-parent-foreign-room";
+const FOREIGN_IMAGE = "room-parent-foreign-image";
+const FOREIGN_EXPENSE = "room-parent-foreign-expense";
+const LEGACY_EXPENSE = "room-parent-legacy-expense";
+const TOMBSTONE_EXPENSE = "room-parent-tombstone-expense";
+const FLOOR_PLAN = "room-parent-floor-plan";
+const FOREIGN_FLOOR_PLAN_ROOM = "room-parent-foreign-floor-plan-room";
+const FOREIGN_FLOOR_PLAN_MARKER = "room-parent-foreign-floor-plan-marker";
+const OWNER: RateioRequester = {
+  id: "room-parent-owner",
+  role: "OWNER",
+  allowedProjects: [],
+  allowedProjectTypes: [],
+  allowedModules: [],
+};
+const ADMIN: RateioRequester = {
+  ...OWNER,
+  id: "room-parent-admin",
+  role: "ADMIN",
+};
 
 async function cleanup(): Promise<void> {
-  await setupPrisma.pendencia.deleteMany({ where: { tenantId: TENANT } });
+  await setupPrisma.cashFlowEntry.deleteMany({
+    where: { expenseId: { in: [LEGACY_EXPENSE, TOMBSTONE_EXPENSE] } },
+  });
+  await setupPrisma.pendencia.deleteMany({
+    where: { tenantId: { in: [TENANT, FOREIGN_TENANT] } },
+  });
+  await setupPrisma.floorPlanRoom.deleteMany({
+    where: { id: FOREIGN_FLOOR_PLAN_ROOM },
+  });
+  await setupPrisma.floorPlanMarker.deleteMany({
+    where: { id: FOREIGN_FLOOR_PLAN_MARKER },
+  });
+  await setupPrisma.floorPlan.deleteMany({ where: { id: FLOOR_PLAN } });
+  await setupPrisma.expense.deleteMany({
+    where: {
+      id: { in: [FOREIGN_EXPENSE, LEGACY_EXPENSE, TOMBSTONE_EXPENSE] },
+    },
+  });
   await setupPrisma.roomImage.deleteMany({
-    where: { roomId: { in: [ACTIVE_ROOM, TOMBSTONE_ROOM] } },
+    where: { roomId: { in: [ACTIVE_ROOM, TOMBSTONE_ROOM, FOREIGN_ROOM] } },
   });
   await setupPrisma.room.deleteMany({
-    where: { id: { in: [ACTIVE_ROOM, TOMBSTONE_ROOM] } },
+    where: { id: { in: [ACTIVE_ROOM, TOMBSTONE_ROOM, FOREIGN_ROOM] } },
   });
-  await setupPrisma.project.deleteMany({ where: { tenantId: TENANT } });
-  await setupPrisma.tenant.deleteMany({ where: { id: TENANT } });
+  await setupPrisma.project.deleteMany({
+    where: { tenantId: { in: [TENANT, FOREIGN_TENANT] } },
+  });
+  await setupPrisma.tenant.deleteMany({
+    where: { id: { in: [TENANT, FOREIGN_TENANT] } },
+  });
 }
 
 describe("Room consumers require an active parent project (#722)", () => {
   let floorPlans: FloorPlanService;
+  let conciliacao: ConciliacaoService;
+  let dashboard: DashboardService;
+  let expenses: ExpenseService;
   let pendencias: PendenciaService;
   let simulations: SimulationService;
 
@@ -40,8 +90,11 @@ describe("Room consumers require an active parent project (#722)", () => {
     await setupPrisma.$connect();
     await prisma.onModuleInit();
     await cleanup();
-    await setupPrisma.tenant.create({
-      data: { id: TENANT, name: "Synthetic active-room tenant" },
+    await setupPrisma.tenant.createMany({
+      data: [
+        { id: TENANT, name: "Synthetic active-room tenant" },
+        { id: FOREIGN_TENANT, name: "Synthetic foreign-room tenant" },
+      ],
     });
     await setupPrisma.project.createMany({
       data: [
@@ -59,6 +112,12 @@ describe("Room consumers require an active parent project (#722)", () => {
           type: "REFORMA",
           deletedAt: new Date("2026-10-12T00:00:00.000Z"),
         },
+        {
+          id: FOREIGN_PROJECT,
+          tenantId: FOREIGN_TENANT,
+          name: "Foreign project",
+          type: "REFORMA",
+        },
       ],
     });
     await setupPrisma.room.createMany({
@@ -68,6 +127,11 @@ describe("Room consumers require an active parent project (#722)", () => {
           id: TOMBSTONE_ROOM,
           projectId: TOMBSTONE_PROJECT,
           name: "Recovered orphan room",
+        },
+        {
+          id: FOREIGN_ROOM,
+          projectId: FOREIGN_PROJECT,
+          name: "Foreign confidential room",
         },
       ],
     });
@@ -83,10 +147,86 @@ describe("Room consumers require an active parent project (#722)", () => {
           roomId: TOMBSTONE_ROOM,
           imageUrl: "/fixture/tombstone.jpg",
         },
+        {
+          id: FOREIGN_IMAGE,
+          roomId: FOREIGN_ROOM,
+          imageUrl: "/fixture/foreign-confidential.jpg",
+        },
       ],
+    });
+    await setupPrisma.expense.createMany({
+      data: [
+        {
+          id: FOREIGN_EXPENSE,
+          projectId: FOREIGN_PROJECT,
+          tenantId: FOREIGN_TENANT,
+          tipoDespesa: "OUTROS",
+          roomId: FOREIGN_ROOM,
+          valor: 300,
+          quantidade: 1,
+          valorTotal: 300,
+          titulo: "Foreign confidential expense",
+          formaPagamento: "A_VISTA",
+        },
+        {
+          id: LEGACY_EXPENSE,
+          projectId: ACTIVE_PROJECT,
+          tenantId: TENANT,
+          tipoDespesa: "OUTROS",
+          roomId: FOREIGN_ROOM,
+          valor: 100,
+          quantidade: 1,
+          valorTotal: 100,
+          titulo: "Legacy cross-tenant room expense",
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-10-12T12:00:00.000Z"),
+        },
+        {
+          id: TOMBSTONE_EXPENSE,
+          projectId: ACTIVE_PROJECT,
+          tenantId: TENANT,
+          tipoDespesa: "OUTROS",
+          roomId: TOMBSTONE_ROOM,
+          valor: 200,
+          quantidade: 1,
+          valorTotal: 200,
+          titulo: "Legacy tombstone room expense",
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-10-13T12:00:00.000Z"),
+        },
+      ],
+    });
+    await setupPrisma.floorPlan.create({
+      data: {
+        id: FLOOR_PLAN,
+        projectId: ACTIVE_PROJECT,
+        tenantId: TENANT,
+        name: "Scoped floor plan",
+        imageUrl: "/fixture/floor-plan.jpg",
+      },
+    });
+    await setupPrisma.floorPlanRoom.create({
+      data: {
+        id: FOREIGN_FLOOR_PLAN_ROOM,
+        floorPlanId: FLOOR_PLAN,
+        roomId: FOREIGN_ROOM,
+        label: "Must not serialize",
+        bounds: "{}",
+      },
+    });
+    await setupPrisma.floorPlanMarker.create({
+      data: {
+        id: FOREIGN_FLOOR_PLAN_MARKER,
+        floorPlanId: FLOOR_PLAN,
+        expenseId: FOREIGN_EXPENSE,
+        bounds: "{}",
+      },
     });
 
     floorPlans = new FloorPlanService(prisma, {} as never);
+    conciliacao = new ConciliacaoService(prisma);
+    dashboard = new DashboardService(prisma);
+    expenses = new ExpenseService(prisma, conciliacao);
     pendencias = new PendenciaService(
       prisma,
       {} as never,
@@ -178,5 +318,88 @@ describe("Room consumers require an active parent project (#722)", () => {
     await expect(
       simulations.getData(TENANT, TOMBSTONE_PROJECT),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("omits a floor-plan backlink to a foreign tenant before nested room data can serialize", async () => {
+    for (const payload of [
+      await floorPlans.findAll(ACTIVE_PROJECT, TENANT),
+      await floorPlans.findOne(FLOOR_PLAN, ACTIVE_PROJECT, TENANT),
+    ]) {
+      expect(JSON.stringify(payload)).not.toContain(FOREIGN_FLOOR_PLAN_ROOM);
+      expect(JSON.stringify(payload)).not.toContain(FOREIGN_FLOOR_PLAN_MARKER);
+      expect(JSON.stringify(payload)).not.toContain(FOREIGN_ROOM);
+      expect(JSON.stringify(payload)).not.toContain("Foreign confidential");
+      expect(JSON.stringify(payload)).not.toContain(FOREIGN_IMAGE);
+      expect(JSON.stringify(payload)).not.toContain(FOREIGN_EXPENSE);
+    }
+  });
+
+  it.each([OWNER, ADMIN])(
+    "redacts tombstone and cross-tenant room relations from expense list/detail for $role",
+    async (requester) => {
+      const list = await expenses.findAll(
+        TENANT,
+        ACTIVE_PROJECT,
+        {},
+        requester,
+      );
+      const listed = list.items.filter((row) =>
+        [LEGACY_EXPENSE, TOMBSTONE_EXPENSE].includes(row.id),
+      );
+      expect(listed).toHaveLength(2);
+      expect(listed).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: LEGACY_EXPENSE,
+            roomId: null,
+            room: null,
+          }),
+          expect.objectContaining({
+            id: TOMBSTONE_EXPENSE,
+            roomId: null,
+            room: null,
+          }),
+        ]),
+      );
+
+      for (const id of [LEGACY_EXPENSE, TOMBSTONE_EXPENSE]) {
+        await expect(
+          expenses.findById(TENANT, ACTIVE_PROJECT, id, requester),
+        ).resolves.toEqual(
+          expect.objectContaining({ id, roomId: null, room: null }),
+        );
+      }
+    },
+  );
+
+  it("does not expose a legacy room through dashboard, simulation, or conciliação and does not mutate the FK", async () => {
+    const dashboardPayload = await dashboard.getDashboard(
+      TENANT,
+      ACTIVE_PROJECT,
+    );
+    const simulationPayload = await simulations.getData(TENANT, ACTIVE_PROJECT);
+    expect(JSON.stringify(dashboardPayload)).not.toContain(
+      "Foreign confidential room",
+    );
+    expect(JSON.stringify(simulationPayload)).not.toContain(FOREIGN_ROOM);
+    expect(JSON.stringify(simulationPayload)).not.toContain(
+      "Foreign confidential room",
+    );
+
+    await prisma.$transaction((tx) =>
+      conciliacao.regenerateTargetCashflow(tx, LEGACY_EXPENSE),
+    );
+    await expect(
+      setupPrisma.cashFlowEntry.findMany({
+        where: { expenseId: LEGACY_EXPENSE, deletedAt: null },
+        select: { ambiente: true },
+      }),
+    ).resolves.toEqual([expect.objectContaining({ ambiente: null })]);
+    await expect(
+      setupPrisma.expense.findUnique({
+        where: { id: LEGACY_EXPENSE },
+        select: { roomId: true },
+      }),
+    ).resolves.toEqual({ roomId: FOREIGN_ROOM });
   });
 });

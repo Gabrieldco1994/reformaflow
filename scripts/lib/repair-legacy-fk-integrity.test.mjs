@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
   copyFileSync,
+  existsSync,
   lstatSync,
   mkdtempSync,
+  mkdirSync,
+  openSync,
   readFileSync,
   rmSync,
   statSync,
@@ -24,6 +28,7 @@ require("../test-db-env.cjs");
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SCRIPT = join(ROOT, "scripts", "repair-legacy-fk-integrity.mjs");
+const OP_WRAP = join(ROOT, "deploy", "quiesce", "op-wrap.sh");
 const SCRIPT_SOURCE = readFileSync(SCRIPT, "utf8");
 const TEST_DATABASE = join(ROOT, "prisma", "test.db");
 const EXPECTED_PROJECTS = 2;
@@ -141,13 +146,36 @@ function values(rows) {
 }
 
 function scopeProof() {
-  return {
-    version: 1,
+  const scope = {
     missingProjects: [
       { projectId: PROJECT_A, tenantId: TENANT_A, roomIds: ROOM_IDS_A },
       { projectId: PROJECT_B, tenantId: TENANT_B, roomIds: ROOM_IDS_B },
     ],
     orphanCashFlowEntries: CASH_FLOW_SCOPE.map((row) => ({ ...row })),
+  };
+  const scopeSha256 = sha256(canonicalBytes(scope));
+  return {
+    version: 1,
+    provenance: {
+      sourceArtifactSha256: "c".repeat(64),
+      scopeSha256,
+      generatedAt: "2026-10-12T18:00:00.000Z",
+      methodology:
+        "Synthetic fixture provenance for the restricted recovery proof",
+      attestations: [
+        {
+          reviewer: "fixture-reviewer-a",
+          scopeSha256,
+          attestationSha256: "d".repeat(64),
+        },
+        {
+          reviewer: "fixture-reviewer-b",
+          scopeSha256,
+          attestationSha256: "e".repeat(64),
+        },
+      ],
+    },
+    ...scope,
   };
 }
 
@@ -259,16 +287,61 @@ function createFixture() {
 }
 
 function runRepair(database, args, env = {}) {
-  return spawnSync(process.execPath, [SCRIPT, ...args], {
-    cwd: ROOT,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      DATABASE_URL: `file:${database}`,
-      LEGACY_FK_RECOVERY_OP_WRAP: "legacy-fk-integrity-v1",
-      ...env,
-    },
+  const lock = inheritedTestLock(dirname(database));
+  try {
+    return spawnSync(process.execPath, [SCRIPT, ...args], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: lock.stdio,
+      env: {
+        ...process.env,
+        DATABASE_URL: `file:${database}`,
+        LEGACY_FK_RECOVERY_OP_WRAP: "legacy-fk-integrity-v1",
+        ...lock.env,
+        ...env,
+      },
+    });
+  } finally {
+    lock.close();
+  }
+}
+
+function inheritedTestLock(directory) {
+  const quiesceDirectory = join(directory, ".test-quiesce");
+  mkdirSync(quiesceDirectory, { recursive: true, mode: 0o700 });
+  const lockPath = join(quiesceDirectory, "lock");
+  const lockFd = openSync(lockPath, "a", 0o600);
+  const capabilityPath = join(
+    mkdtempSync(join(quiesceDirectory, ".cap-")),
+    "capability",
+  );
+  writeFileSync(capabilityPath, "test-only inherited capability\n", {
+    mode: 0o600,
   });
+  const capabilityFd = openSync(capabilityPath, "r");
+  unlinkSync(capabilityPath);
+  const stdio = Array.from({ length: 10 }, () => "ignore");
+  stdio[0] = "pipe";
+  stdio[1] = "pipe";
+  stdio[2] = "pipe";
+  stdio[7] = capabilityFd;
+  stdio[9] = lockFd;
+  if (process.platform === "linux") {
+    const locked = spawnSync("flock", ["-x", "9", "true"], { stdio });
+    assert.equal(locked.status, 0, "test harness could not acquire fd-9 lock");
+  }
+  return {
+    stdio,
+    env: {
+      QUIESCE_DIR: quiesceDirectory,
+      LEGACY_FK_RECOVERY_LOCK_FD: "9",
+      LEGACY_FK_RECOVERY_CAP_FD: "7",
+    },
+    close() {
+      closeSync(capabilityFd);
+      closeSync(lockFd);
+    },
+  };
 }
 
 function assertPrivateOutput(result) {
@@ -387,6 +460,23 @@ function dryRun(fixture) {
   return JSON.parse(readFileSync(fixture.manifest, "utf8"));
 }
 
+function expectBacklink(manifest, table, count) {
+  assert.deepEqual(
+    manifest.roomBacklinks.find((entry) => entry.table === table),
+    {
+      table,
+      column: "room_id",
+      count,
+      rowsHash: manifest.roomBacklinks.find((entry) => entry.table === table)
+        ?.rowsHash,
+    },
+  );
+  assert.match(
+    manifest.roomBacklinks.find((entry) => entry.table === table)?.rowsHash,
+    /^[a-f0-9]{64}$/,
+  );
+}
+
 test("dry-run proves the literal 28+4/2 scope and performs no writes", () => {
   const fixture = createFixture();
   const before = snapshot(fixture.database);
@@ -453,6 +543,21 @@ test("dry-run proves the literal 28+4/2 scope and performs no writes", () => {
     updatedCashFlowEntries: 0,
     manifestHash: sha256(manifestBytes).slice(0, 12),
   });
+  assert.deepEqual(
+    manifest.roomBacklinks.map(({ table, column, count }) => ({
+      table,
+      column,
+      count,
+    })),
+    [
+      { table: "expenses", column: "room_id", count: 0 },
+      { table: "floor_plan_rooms", column: "room_id", count: 0 },
+      { table: "pendencias", column: "room_id", count: 0 },
+      { table: "room_images", column: "room_id", count: 0 },
+    ],
+  );
+  assert.deepEqual(manifest.protectedTriggers, []);
+  assert.match(manifest.inventoryHash, /^[a-f0-9]{64}$/);
 });
 
 test("the executable keeps exact topology and an explicit preimage-hash gate without embedded row IDs", () => {
@@ -462,7 +567,7 @@ test("the executable keeps exact topology and an explicit preimage-hash gate wit
   );
   assert.match(
     SCRIPT_SOURCE,
-    /stateHash\(state\) !== manifest\.beforeHash \|\|[\s\S]{0,160}stateHash\(protectedFinancialState\(state\)\) !== manifest\.financialHash/,
+    /stateHash\(\{ state, inventory \}\) !== manifest\.beforeHash \|\|[\s\S]{0,160}stateHash\(protectedFinancialState\(state\)\) !== manifest\.financialHash/,
   );
   for (const fixtureIdentity of PRIVATE_VALUES) {
     assert.doesNotMatch(SCRIPT_SOURCE, new RegExp(fixtureIdentity));
@@ -544,6 +649,12 @@ test("apply inserts two tombstones, nulls four expense FKs only, and is exactly 
   assert.match(result.stdout, /"updatedCashFlowEntries":4/);
 
   const postimage = snapshot(fixture.database);
+  const second = runRepair(fixture.database, applyArgs(fixture));
+  requireSuccess(second);
+  assert.equal(snapshot(fixture.database), postimage);
+  assert.match(second.stdout, /"insertedProjects":0/);
+  assert.match(second.stdout, /"updatedCashFlowEntries":0/);
+
   sqlite(
     fixture.database,
     `
@@ -555,11 +666,9 @@ test("apply inserts two tombstones, nulls four expense FKs only, and is exactly 
       BEGIN SELECT RAISE(ABORT, 'second cash update attempted'); END;
     `,
   );
-  const second = runRepair(fixture.database, applyArgs(fixture));
-  requireSuccess(second);
+  const protectedSecond = runRepair(fixture.database, applyArgs(fixture));
+  requireFailure(protectedSecond);
   assert.equal(snapshot(fixture.database), postimage);
-  assert.match(second.stdout, /"insertedProjects":0/);
-  assert.match(second.stdout, /"updatedCashFlowEntries":0/);
 });
 
 test("hash, mode, expected counts, and symlinks all fail closed", () => {
@@ -658,6 +767,135 @@ test("hash, mode, expected counts, and symlinks all fail closed", () => {
   }
 });
 
+test("restricted scope requires hashed provenance and two distinct reviewer attestations", () => {
+  const mutateProof = [
+    (proof) => {
+      delete proof.provenance;
+    },
+    (proof) => {
+      proof.provenance.scopeSha256 = "0".repeat(64);
+    },
+    (proof) => {
+      proof.provenance.attestations.pop();
+    },
+    (proof) => {
+      proof.provenance.attestations[1].reviewer =
+        proof.provenance.attestations[0].reviewer;
+    },
+    (proof) => {
+      proof.provenance.attestations[1].attestationSha256 =
+        proof.provenance.attestations[0].attestationSha256;
+    },
+  ];
+
+  for (const mutate of mutateProof) {
+    const fixture = createFixture();
+    const proof = scopeProof();
+    mutate(proof);
+    unlinkSync(fixture.proof);
+    writePrivateJson(fixture.proof, proof);
+    const before = snapshot(fixture.database);
+    requireFailure(runRepair(fixture.database, dryRunArgs(fixture)));
+    assert.equal(snapshot(fixture.database), before);
+    assert.equal(existsSync(fixture.manifest), false);
+  }
+});
+
+test("a static op-wrap marker without the inherited watchdog lock fails before opening SQLite", () => {
+  const directory = temporaryDirectory();
+  const database = join(directory, "must-not-open.db");
+  const proof = join(directory, "scope-proof.json");
+  const manifest = join(directory, "manifest.json");
+  writePrivateJson(proof, scopeProof());
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      SCRIPT,
+      "--dry-run",
+      "--scope-proof",
+      proof,
+      "--scope-proof-hash",
+      sha256(proof),
+      "--manifest",
+      manifest,
+    ],
+    {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DATABASE_URL: `file:${database}`,
+        LEGACY_FK_RECOVERY_OP_WRAP: "legacy-fk-integrity-v1",
+      },
+    },
+  );
+
+  requireFailure(result);
+  assert.equal(existsSync(database), false);
+  assert.equal(existsSync(manifest), false);
+});
+
+test("op-wrap rejects malicious and non-generated manifest pointer basenames", () => {
+  const directory = temporaryDirectory();
+  const scopeHash = "a".repeat(64);
+  const manifestHash = "b".repeat(64);
+  writeFileSync(join(directory, "deadline"), `${Date.now()}\n`, {
+    mode: 0o600,
+  });
+  writeFileSync(join(directory, "fk-scope-proof.json"), "{}\n", {
+    mode: 0o600,
+  });
+
+  for (const basename of [
+    "fk-manifest.test.json",
+    "fk-manifest.20261012T191218Z.7.json'$(touch forged)'.json",
+    "fk-manifest.20261012T191218Z.7.json;echo-forged.json",
+    "fk-manifest.20261012T191218Z.7.json\nforged.json",
+    "../fk-manifest.20261012T191218Z.7.json",
+  ]) {
+    const pointer = join(directory, "fk-manifest.current");
+    writeFileSync(pointer, `${basename}\n`, { mode: 0o600 });
+    if (!basename.includes("/") && !basename.includes("\n")) {
+      writeFileSync(join(directory, basename), "{}\n", { mode: 0o600 });
+    }
+    const result = spawnSync(
+      "sh",
+      [OP_WRAP, "fk-apply", manifestHash, scopeHash],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: { ...process.env, QUIESCE_DIR: directory },
+      },
+    );
+    assert.notEqual(result.status, 0, `accepted unsafe basename: ${basename}`);
+    assert.equal(existsSync(join(directory, "RUN")), false);
+    rmSync(pointer, { force: true });
+  }
+
+  for (const basename of [
+    "manifest.test.json",
+    "manifest.20261012T191218Z.7.json'$(touch forged)'.json",
+    "manifest.20261012T191218Z.7.json;echo-forged.json",
+    "manifest.20261012T191218Z.7.json\nforged.json",
+    "../manifest.20261012T191218Z.7.json",
+  ]) {
+    const pointer = join(directory, "manifest.current");
+    writeFileSync(pointer, `${basename}\n`, { mode: 0o600 });
+    if (!basename.includes("/") && !basename.includes("\n")) {
+      writeFileSync(join(directory, basename), "{}\n", { mode: 0o600 });
+    }
+    const result = spawnSync("sh", [OP_WRAP, "apply", manifestHash, "1", "1"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: { ...process.env, QUIESCE_DIR: directory },
+    });
+    assert.notEqual(result.status, 0, `accepted unsafe basename: ${basename}`);
+    assert.equal(existsSync(join(directory, "RUN")), false);
+    rmSync(pointer, { force: true });
+  }
+});
+
 test("scope, topology, dependency, and post-dry-run drift abort without repair writes", () => {
   {
     const fixture = createFixture();
@@ -732,6 +970,138 @@ test("scope, topology, dependency, and post-dry-run drift abort without repair w
   assert.equal(snapshot(postFixture.database), postWithDependency);
 });
 
+test("dry-run inventories every room backlink and rejects mismatched or unreviewed backlinks", () => {
+  const knownMismatches = [
+    `INSERT INTO expenses
+       (id, project_id, tenant_id, tipo_despesa, room_id, valor, quantidade,
+        valor_total, forma_pagamento, status, recorrente, origin, created_at,
+        updated_at)
+     VALUES
+       ('fixture-cross-tenant-expense', ${quote(ACTIVE_PROJECT_B)},
+        ${quote(TENANT_B)}, 'OUTROS', ${quote(ROOM_IDS_A[0])}, 1, 1, 1,
+        'A_VISTA', 'PLANEJADO', 0, 'none', '2026-01-01', '2026-01-01');`,
+    `INSERT INTO floor_plans
+       (id, project_id, tenant_id, name, image_url, "order", created_at,
+        updated_at, deleted_at)
+     VALUES
+       ('fixture-cross-tenant-plan', ${quote(ACTIVE_PROJECT_B)},
+        ${quote(TENANT_B)}, 'Foreign plan', '/fixture/foreign.png', 0,
+        '2026-01-01', '2026-01-01', NULL);
+     INSERT INTO floor_plan_rooms
+       (id, floor_plan_id, room_id, label, bounds, color, created_at, updated_at)
+     VALUES
+       ('fixture-cross-tenant-marker', 'fixture-cross-tenant-plan',
+        ${quote(ROOM_IDS_A[0])}, 'Foreign marker', '{}', '#000000',
+        '2026-01-01', '2026-01-01');`,
+    `INSERT INTO pendencias
+       (id, project_id, tenant_id, title, status, room_id, "order", created_at,
+        updated_at, deleted_at)
+     VALUES
+       ('fixture-cross-tenant-pendencia', ${quote(ACTIVE_PROJECT_B)},
+        ${quote(TENANT_B)}, 'Foreign task', 'PENDENTE',
+        ${quote(ROOM_IDS_A[0])}, 0, '2026-01-01', '2026-01-01', NULL);`,
+  ];
+
+  for (const mutation of knownMismatches) {
+    const fixture = createFixture();
+    sqlite(fixture.database, mutation);
+    const before = snapshot(fixture.database);
+    requireFailure(runRepair(fixture.database, dryRunArgs(fixture)));
+    assert.equal(snapshot(fixture.database), before);
+    assert.throws(() => statSync(fixture.manifest));
+  }
+
+  {
+    const fixture = createFixture();
+    sqlite(
+      fixture.database,
+      `CREATE TABLE fixture_dynamic_room_backlink (
+         id TEXT PRIMARY KEY,
+         room_id TEXT REFERENCES rooms(id)
+       );
+       INSERT INTO fixture_dynamic_room_backlink (id, room_id)
+       VALUES ('fixture-dynamic-link', ${quote(ROOM_IDS_A[0])});`,
+    );
+    requireFailure(runRepair(fixture.database, dryRunArgs(fixture)));
+    assert.throws(() => statSync(fixture.manifest));
+  }
+
+  {
+    const fixture = createFixture();
+    sqlite(
+      fixture.database,
+      `INSERT INTO room_images
+         (id, room_id, image_url, caption, "order", created_at)
+       VALUES
+         ('fixture-recovered-room-image', ${quote(ROOM_IDS_A[0])},
+          '/fixture/recovered.jpg', NULL, 0, '2026-01-01');`,
+    );
+    const manifest = dryRun(fixture);
+    expectBacklink(manifest, "room_images", 1);
+  }
+});
+
+test("apply rejects protected-table triggers before unrelated financial fields can change", () => {
+  const fixture = createFixture();
+  dryRun(fixture);
+  sqlite(
+    fixture.database,
+    `
+      INSERT INTO cash_flow_entries
+        (id, project_id, tenant_id, valor, tipo, data, categoria,
+         forma_pagamento, status, invoice_due_month, created_at, updated_at)
+      VALUES
+        ('fixture-unrelated-cash', ${quote(ACTIVE_PROJECT_A)}, ${quote(TENANT_A)},
+         777, 'DESPESA', '2026-07-01', 'SAFE', 'A_VISTA', 'PLANEJADO',
+         '2026-07', '2026-07-01', '2026-07-01');
+      INSERT INTO expenses
+        (id, project_id, tenant_id, tipo_despesa, valor, quantidade,
+         valor_total, forma_pagamento, status, recorrente, origin, bank_last4,
+         card_last4, settles_invoice_key, created_at, updated_at)
+      VALUES
+        ('fixture-unrelated-expense', ${quote(ACTIVE_PROJECT_A)},
+         ${quote(TENANT_A)}, 'OUTROS', 888, 1, 888, 'A_VISTA', 'PLANEJADO',
+         0, 'none', '1111', '2222', '2222:2026-07', '2026-07-01',
+         '2026-07-01');
+      CREATE TRIGGER mutate_unrelated_financial_state
+      AFTER UPDATE OF expense_id ON cash_flow_entries
+      BEGIN
+        UPDATE cash_flow_entries
+           SET valor = 1,
+               status = 'PAGO',
+               data = '1999-01-01',
+               forma_pagamento = 'TRIGGER',
+               invoice_due_month = '1999-01'
+         WHERE id = 'fixture-unrelated-cash';
+        UPDATE expenses
+           SET bank_last4 = '9999',
+               card_last4 = '9999',
+               settles_invoice_key = '9999:1999-01'
+         WHERE id = 'fixture-unrelated-expense';
+      END;
+    `,
+  );
+  const before = sqlite(
+    fixture.database,
+    `SELECT * FROM cash_flow_entries WHERE id = 'fixture-unrelated-cash';
+     SELECT * FROM expenses WHERE id = 'fixture-unrelated-expense';`,
+    ["-json"],
+  );
+
+  requireFailure(runRepair(fixture.database, applyArgs(fixture)));
+
+  assert.equal(
+    sqlite(
+      fixture.database,
+      `SELECT * FROM cash_flow_entries WHERE id = 'fixture-unrelated-cash';
+       SELECT * FROM expenses WHERE id = 'fixture-unrelated-expense';`,
+      ["-json"],
+    ),
+    before,
+  );
+  assert.equal(foreignKeyViolations(fixture.database).length, 32);
+});
+
 test("a late write failure rolls the entire immediate transaction back", () => {
   const fixture = createFixture();
   dryRun(fixture);
@@ -758,14 +1128,18 @@ test("concurrent applies serialize; exactly one repairs and the other observes t
   const args = applyArgs(fixture);
   const launch = () =>
     new Promise((resolve) => {
+      const lock = inheritedTestLock(fixture.directory);
       const child = spawn(process.execPath, [SCRIPT, ...args], {
         cwd: ROOT,
+        stdio: lock.stdio,
         env: {
           ...process.env,
           DATABASE_URL: `file:${fixture.database}`,
           LEGACY_FK_RECOVERY_OP_WRAP: "legacy-fk-integrity-v1",
+          ...lock.env,
         },
       });
+      lock.close();
       let stdout = "";
       let stderr = "";
       child.stdout.on("data", (chunk) => (stdout += chunk));

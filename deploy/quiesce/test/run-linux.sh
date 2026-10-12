@@ -83,6 +83,7 @@ N=0
 newenv(){
   N=$((N+1))
   Q="$ROOT/q.$N"; mkdir -p "$Q"
+  cp "$OW" "$Q/op-wrap.sh"; chmod 0700 "$Q/op-wrap.sh"
   DB="$Q/dev.db"; : > "$DB"
   # correction 7: the fake node MUST open the DB file so "two writers" is real.
   NODE_STUB="$Q/nodestub"
@@ -231,7 +232,7 @@ M="$Q/manifest.test.json"
 : > "$Q/deadline"; echo "$(( $(date +%s) + 600 ))" > "$Q/deadline"
 QUIESCE_DIR="$Q" QUIESCE_NORMALIZER="/bin/echo X" sh "$OW" dryrun >"$Q/d1" 2>&1
 m1=$(sed -n 's/.*manifest=//p' "$Q/d1")
-rm -f "$Q/RUN"
+rm -f "$Q/RUN" "$Q/REQUEST"
 QUIESCE_DIR="$Q" QUIESCE_NORMALIZER="/bin/echo X" sh "$OW" dryrun >"$Q/d2" 2>&1
 m2=$(sed -n 's/.*manifest=//p' "$Q/d2")
 { [ -n "$m1" ] && [ -n "$m2" ] && [ "$m1" != "$m2" ]; } && ok "op-wrap dryrun uses a fresh manifest path each time" || no "manifest path reused: '$m1' vs '$m2'"
@@ -341,11 +342,11 @@ QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" QUIESCE_NORMALIZER="$NRM_OK" sh "$OW" dryr
 m2=$(mpath "$Q/dr2")
 i=0; while { [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; } && [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done
 rec=$(cat "$Q/manifest.current" 2>/dev/null)
-{ [ -n "$m2" ] && [ "$rec" = "$m2" ]; } && ok "successful dry-run publishes manifest.current == emitted path" || no "m2='$m2' recorded='$rec'"
+{ [ -n "$m2" ] && [ "$rec" = "$(basename "$m2")" ]; } && ok "successful dry-run publishes an exact generated basename" || no "m2='$m2' recorded='$rec'"
 # a subsequent FAILED dry-run must leave the good pointer untouched
 QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" QUIESCE_NORMALIZER="$NRM_FAIL" sh "$OW" dryrun >"$Q/dr3" 2>&1
 i=0; while { [ -e "$Q/RUN" ] || [ -e "$Q/RUN.active" ]; } && [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done
-[ "$(cat "$Q/manifest.current" 2>/dev/null)" = "$m2" ] && ok "a later failed dry-run leaves the prior manifest.current untouched" || no "manifest.current changed to '$(cat "$Q/manifest.current" 2>/dev/null)'"
+[ "$(cat "$Q/manifest.current" 2>/dev/null)" = "$(basename "$m2")" ] && ok "a later failed dry-run leaves the prior manifest.current untouched" || no "manifest.current changed to '$(cat "$Q/manifest.current" 2>/dev/null)'"
 gkill -KILL "$W"; kill -KILL "$W" 2>/dev/null
 
 # ---------------------------------------------------------------------------
@@ -358,33 +359,34 @@ MANIFEST_HASH="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 out=$(QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" sh "$OW" fk-dryrun "$SCOPE_HASH" 2>&1); rc=$?
 if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'queued: fk-dryrun' &&
    ! printf '%s\n' "$out" | grep -Eq "$Q|fk-scope-proof|manifest\\." &&
-   grep -q "LEGACY_FK_RECOVERY_OP_WRAP=legacy-fk-integrity-v1" "$Q/RUN" &&
-   grep -q -- "--scope-proof '$Q/fk-scope-proof.json'" "$Q/RUN" &&
-   grep -q -- "--scope-proof-hash $SCOPE_HASH" "$Q/RUN" &&
-   grep -q -- "--dry-run" "$Q/RUN" &&
-   grep -q "fk-manifest.current" "$Q/RUN" &&
-   ! grep -Eq 'normalize-external-id|migrate (resolve|deploy)' "$Q/RUN"; then
+   [ "$(sed -n '1p' "$Q/REQUEST")" = "fk-dryrun" ] &&
+   printf '%s\n' "$(sed -n '2p' "$Q/REQUEST")" |
+     grep -Eq '^fk-manifest\.[0-9]{8}T[0-9]{6}Z\.[1-9][0-9]*\.json$' &&
+   [ "$(sed -n '3p' "$Q/REQUEST")" = "$SCOPE_HASH" ] &&
+   ! grep -Eq 'normalize-external-id|migrate (resolve|deploy)' "$Q/REQUEST"; then
   ok "fk-dryrun publishes only the dedicated repair chain without private paths in output"
 else
   no "fk-dryrun contract failed (rc=$rc out='$out' run='$(cat "$Q/RUN" 2>/dev/null)')"
 fi
-rm -f "$Q/RUN"
+rm -f "$Q/RUN" "$Q/REQUEST"
 
-FKM="$Q/fk-manifest.test.json"
+FKB="fk-manifest.20261012T191218Z.7.json"
+FKM="$Q/$FKB"
 : > "$FKM"; chmod 0600 "$FKM"
-printf '%s\n' "$FKM" > "$Q/fk-manifest.current"
+printf '%s\n' "$FKB" > "$Q/fk-manifest.current"
 out=$(QUIESCE_DIR="$Q" QUIESCE_APP_DIR="$Q" sh "$OW" fk-apply "$MANIFEST_HASH" "$SCOPE_HASH" 2>&1); rc=$?
 if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'queued: fk-apply' &&
    ! printf '%s\n' "$out" | grep -Eq "$Q|fk-scope-proof|manifest\\." &&
-   grep -q -- "--apply" "$Q/RUN" &&
-   grep -q -- "--hash $MANIFEST_HASH" "$Q/RUN" &&
-   grep -q -- "--expected-projects 2 --expected-rooms 28 --expected-cash-flow-entries 4" "$Q/RUN" &&
-   ! grep -Eq 'normalize-external-id|migrate (resolve|deploy)' "$Q/RUN"; then
+   [ "$(sed -n '1p' "$Q/REQUEST")" = "fk-apply" ] &&
+   [ "$(sed -n '2p' "$Q/REQUEST")" = "$FKB" ] &&
+   [ "$(sed -n '3p' "$Q/REQUEST")" = "$MANIFEST_HASH" ] &&
+   [ "$(sed -n '4p' "$Q/REQUEST")" = "$SCOPE_HASH" ] &&
+   ! grep -Eq 'normalize-external-id|migrate (resolve|deploy)' "$Q/REQUEST"; then
   ok "fk-apply pins 2+28+4 and never invokes external-ID resolution/deploy"
 else
   no "fk-apply contract failed (rc=$rc out='$out' run='$(cat "$Q/RUN" 2>/dev/null)')"
 fi
-rm -f "$Q/RUN"
+rm -f "$Q/RUN" "$Q/REQUEST"
 
 out=$(QUIESCE_DIR="$Q" sh "$OW" fk-dryrun bad-hash 2>&1); rc=$?
 { [ "$rc" -ne 0 ] && [ ! -e "$Q/RUN" ]; } &&
@@ -650,7 +652,9 @@ for S in "$REPO/DEPLOY.md" "$REPO/AGENTS.md" "$REPO/.claude/skills/release-verif
   grep -Eq 'normalize-external-id-duplicates\.mjs --(dry-run|apply)' "$S" \
     && flag "$b invokes the normalizer directly (must go through the op-wrap chain)"
   if grep -q 'REMOTE_MANIFEST=' "$S"; then
-    { grep -Eq 'REMOTE_MANIFEST="\$\(' "$S" && grep -Fq 'manifest.current' "$S"; } \
+    { grep -Eq 'REMOTE_MANIFEST(_BASENAME)?="\$\(' "$S" &&
+      grep -Fq 'manifest.current' "$S" &&
+      grep -Fq 'REMOTE_MANIFEST="$QUIESCE_DIR/$REMOTE_MANIFEST_BASENAME"' "$S"; } \
       || flag "$b sets REMOTE_MANIFEST without deriving it from \$QUIESCE_DIR/manifest.current"
   fi
 done

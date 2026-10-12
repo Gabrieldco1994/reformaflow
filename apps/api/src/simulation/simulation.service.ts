@@ -95,7 +95,11 @@ export class SimulationService {
           }),
       this.prisma.expense.findMany({
         where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null },
-        include: { room: true },
+        include: {
+          room: {
+            where: { projectId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } },
+          },
+        },
       }),
       this.prisma.cashFlowEntry.findMany({
         where: {
@@ -181,7 +185,7 @@ export class SimulationService {
       roomGroups.set(room.id, { label: room.name, expenses: [] });
     }
     for (const exp of expensesAllocated) {
-      if (!exp.roomId) continue;
+      if (!exp.roomId || !exp.room) continue;
       if (!roomGroups.has(exp.roomId)) {
         roomGroups.set(exp.roomId, { label: exp.room?.name ?? exp.roomId, expenses: [] });
       }

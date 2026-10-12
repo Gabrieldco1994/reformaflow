@@ -273,18 +273,22 @@ completo.
 5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run **por `op-wrap dryrun`**, o único
    toque autorizado no banco. O `op-wrap` gera um caminho de manifest novo desta tentativa (dentro de
    `$QUIESCE_DIR`), o imprime (`manifest=<caminho>`) e a **cadeia supervisionada** publica
-   `$QUIESCE_DIR/manifest.current` apontando para ele **somente se o normalizer sair com 0** (fail-
-   closed: normalizer que falha ou é morto não deixa `manifest.current` novo nem ponteiro parcial).
-   Nunca rode o normalizer à mão numa janela armada. Baixe **exatamente** o manifest apontado por
-   `$QUIESCE_DIR/manifest.current`, nunca um caminho inventado em `/tmp`.
+   `$QUIESCE_DIR/manifest.current` com o basename gerado **somente se o normalizer sair com 0**
+   (fail-closed: normalizer que falha ou é morto não deixa `manifest.current` novo nem ponteiro
+   parcial). Nunca rode o normalizer à mão numa janela armada. Baixe **exatamente** o manifest
+   nomeado por `$QUIESCE_DIR/manifest.current`, nunca um caminho inventado em `/tmp`.
 
    ```bash
    LOCAL_MANIFEST="$PRIVATE_DIR/manifest-local-$(date -u +%Y%m%dT%H%M%SZ).json"
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" dryrun'"
    # aguarde a cadeia concluir (op-wrap status via sh -lc -> last rc = 0), então:
-   REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+   REMOTE_MANIFEST_BASENAME="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "cat '$QUIESCE_DIR/manifest.current'")"
+   printf '%s\n' "$REMOTE_MANIFEST_BASENAME" |
+     grep -Eq '^manifest\.[0-9]{8}T[0-9]{6}Z\.[1-9][0-9]*\.json$' ||
+     { echo "ABORT: invalid generated manifest basename"; exit 1; }
+   REMOTE_MANIFEST="$QUIESCE_DIR/$REMOTE_MANIFEST_BASENAME"
    flyctl ssh sftp get "$REMOTE_MANIFEST" "$LOCAL_MANIFEST" \
      --app reformaflow-api --machine "$MACHINE_ID"
    chmod 0600 "$LOCAL_MANIFEST"
@@ -357,8 +361,12 @@ completo.
 12. **Encerrar:** preserve primeiro as evidências. Capture o path do manifest remoto antes de qualquer
    limpeza:
    ```bash
-   REMOTE_MANIFEST="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+   REMOTE_MANIFEST_BASENAME="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "cat '$QUIESCE_DIR/manifest.current'" 2>/dev/null || echo)"
+   printf '%s\n' "$REMOTE_MANIFEST_BASENAME" |
+     grep -Eq '^manifest\.[0-9]{8}T[0-9]{6}Z\.[1-9][0-9]*\.json$' ||
+     { echo "ABORT: invalid generated manifest basename"; exit 1; }
+   REMOTE_MANIFEST="$QUIESCE_DIR/$REMOTE_MANIFEST_BASENAME"
    # Preserve REMOTE_MANIFEST in your operational evidence store (mode 0600, separate from this runbook)
    ```
 
@@ -387,7 +395,7 @@ completo.
 
    ```bash
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "rm -f -- $QUIESCE_DIR/watchdog.sh $QUIESCE_DIR/op-wrap.sh $REMOTE_MANIFEST $QUIESCE_DIR/manifest.current $QUIESCE_DIR/deadline $QUIESCE_DIR/lock $QUIESCE_DIR/RUN $QUIESCE_DIR/RUN.active $QUIESCE_DIR/DISARM $QUIESCE_DIR/op.pgid $QUIESCE_DIR/op.pgid.raw $QUIESCE_DIR/op.rc $QUIESCE_DIR/.publish.lock $QUIESCE_DIR/watchdog.log $QUIESCE_DIR/op.log" &&
+     --command "rm -f -- $QUIESCE_DIR/watchdog.sh $QUIESCE_DIR/op-wrap.sh $REMOTE_MANIFEST $QUIESCE_DIR/manifest.current $QUIESCE_DIR/deadline $QUIESCE_DIR/lock $QUIESCE_DIR/RUN $QUIESCE_DIR/RUN.active $QUIESCE_DIR/REQUEST $QUIESCE_DIR/REQUEST.active $QUIESCE_DIR/DISARM $QUIESCE_DIR/op.pgid $QUIESCE_DIR/op.pgid.raw $QUIESCE_DIR/op.rc $QUIESCE_DIR/.publish.lock $QUIESCE_DIR/watchdog.log $QUIESCE_DIR/op.log" &&
    flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
      --command "rmdir -- $QUIESCE_DIR"
    ```

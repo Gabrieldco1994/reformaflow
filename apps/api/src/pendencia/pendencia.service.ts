@@ -86,12 +86,14 @@ const INCLUDE = {
   room: { select: { name: true } },
   scheduleTask: { select: { nome: true, numero: true } },
 } as const;
-const ACTIVE_ROOM_SCOPE = {
-  OR: [
-    { roomId: null },
-    { room: { deletedAt: null, project: { deletedAt: null } } },
-  ],
-} satisfies Prisma.PendenciaWhereInput;
+function activeRoomScope(projectId: string, tenantId: string): Prisma.PendenciaWhereInput {
+  return {
+    OR: [
+      { roomId: null },
+      { room: { projectId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } } },
+    ],
+  };
+}
 
 /** Janela de compras considerada ao ranquear faturas candidatas (±120 dias). */
 const CARD_WINDOW_MS = 120 * 24 * 60 * 60 * 1000;
@@ -159,7 +161,7 @@ export class PendenciaService {
     const rows = await this.prisma.pendencia.findMany({
       where: {
         tenantId, projectId, project: { deletedAt: null },
-        AND: [ACTIVE_ROOM_SCOPE],
+        AND: [activeRoomScope(projectId, tenantId)],
       },
       include: INCLUDE,
       orderBy: [{ status: 'asc' }, { order: 'asc' }, { id: 'asc' }],
@@ -445,7 +447,7 @@ export class PendenciaService {
     const found = await this.prisma.pendencia.findFirst({
       where: {
         id, tenantId, projectId, project: { deletedAt: null },
-        AND: [ACTIVE_ROOM_SCOPE],
+        AND: [activeRoomScope(projectId, tenantId)],
       },
     });
     if (!found) throw new NotFoundException('Pendência não encontrada');

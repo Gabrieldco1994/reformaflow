@@ -76,6 +76,21 @@ export interface RatearInput {
 export class ConciliacaoService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private scopedRoom(
+    tx: Tx,
+    expense: { roomId: string | null; projectId: string; tenantId: string },
+  ) {
+    if (!expense.roomId) return Promise.resolve(null);
+    return tx.room.findFirst({
+      where: {
+        id: expense.roomId,
+        projectId: expense.projectId,
+        deletedAt: null,
+        project: { id: expense.projectId, tenantId: expense.tenantId, deletedAt: null },
+      },
+    });
+  }
+
   /**
    * Autoriza o projeto real de um alvo recebido fora dos params da rota.
    * `requiredModule` é o módulo DONO do recurso alvo (Expense → `expenses`,
@@ -465,11 +480,12 @@ export class ConciliacaoService {
    * liquidadas (cross-project). Demais parcelas mantêm o valor planejado.
    */
   async regenerateTargetCashflow(tx: Tx, targetExpenseId: string): Promise<void> {
-    const target = await tx.expense.findFirst({
+    const targetRow = await tx.expense.findFirst({
       where: { id: targetExpenseId, deletedAt: null },
-      include: { room: true },
     });
-    if (!target) return;
+    if (!targetRow) return;
+    const room = await this.scopedRoom(tx, targetRow);
+    const target = { ...targetRow, room };
 
     const activeAdditive = await tx.crossProjectSettlement.findMany({
       where: { tenantId: target.tenantId, targetExpenseId, mode: ADDITIVE, reversedAt: null },
@@ -646,11 +662,12 @@ export class ConciliacaoService {
    * ALVO. Status por parcela espelha as parcelas pagas da fonte.
    */
   async regenerateRateioTargetCashflow(tx: Tx, targetExpenseId: string): Promise<void> {
-    const target = await tx.expense.findFirst({
+    const targetRow = await tx.expense.findFirst({
       where: { id: targetExpenseId, deletedAt: null },
-      include: { room: true },
     });
-    if (!target) return;
+    if (!targetRow) return;
+    const room = await this.scopedRoom(tx, targetRow);
+    const target = { ...targetRow, room };
 
     await tx.cashFlowEntry.updateMany({
       where: { expenseId: targetExpenseId, deletedAt: null },

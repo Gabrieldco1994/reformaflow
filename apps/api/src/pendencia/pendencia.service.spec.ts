@@ -135,7 +135,13 @@ describe('PendenciaService', () => {
           AND: [{
             OR: [
               { roomId: null },
-              { room: { deletedAt: null, project: { deletedAt: null } } },
+              {
+                room: {
+                  projectId: PROJECT,
+                  deletedAt: null,
+                  project: { id: PROJECT, tenantId: TENANT, deletedAt: null },
+                },
+              },
             ],
           }],
         },
@@ -173,7 +179,13 @@ describe('PendenciaService', () => {
           AND: [{
             OR: [
               { roomId: null },
-              { room: { deletedAt: null, project: { deletedAt: null } } },
+              {
+                room: {
+                  projectId: PROJECT,
+                  deletedAt: null,
+                  project: { id: PROJECT, tenantId: TENANT, deletedAt: null },
+                },
+              },
             ],
           }],
         },

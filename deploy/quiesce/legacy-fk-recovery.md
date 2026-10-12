@@ -20,7 +20,11 @@ or authorize any other production change.
 The proof must pin exactly two missing project IDs and their proven tenant IDs,
 the exact 28 active room IDs partitioned between them, and the exact four
 already-soft-deleted cash-flow IDs with their missing expense, tenant, and
-project IDs. IDs and paths are confidential evidence.
+project IDs. It must also bind that scope to the SHA-256 of the restricted
+source artifact and to two distinct reviewer attestations. Supplying IDs is not
+tenant provenance: if the private source hash and both attestations are not
+available, production recovery remains blocked. IDs and paths are confidential
+evidence.
 
 The canonical shape is below. Arrays are lexicographically sorted by
 `projectId`, each `roomIds` array by room ID, and cash-flow rows by
@@ -30,6 +34,24 @@ emitted before hashing.
 ```json
 {
   "version": 1,
+  "provenance": {
+    "sourceArtifactSha256": "<private-source-sha256>",
+    "scopeSha256": "<sha256-of-canonical-missingProjects-and-orphanCashFlowEntries>",
+    "generatedAt": "<ISO-8601 UTC timestamp>",
+    "methodology": "<restricted provenance method>",
+    "attestations": [
+      {
+        "reviewer": "<first-distinct-reviewer>",
+        "scopeSha256": "<same-scope-sha256>",
+        "attestationSha256": "<private-attestation-sha256>"
+      },
+      {
+        "reviewer": "<second-distinct-reviewer>",
+        "scopeSha256": "<same-scope-sha256>",
+        "attestationSha256": "<private-attestation-sha256>"
+      }
+    ]
+  },
   "missingProjects": [
     {
       "projectId": "<private-project-id>",
@@ -63,9 +85,17 @@ sh "$QUIESCE_DIR/op-wrap.sh" fk-dryrun "$SCOPE_PROOF_SHA256"
 ```
 
 Wait for `op-wrap status` to report `last rc : 0`. Download the exact manifest
-named by the private `$QUIESCE_DIR/fk-manifest.current` pointer, preserve it
-mode `0600`, verify its SHA-256 locally, and privately review the exact set.
+whose generated basename is stored in the private
+`$QUIESCE_DIR/fk-manifest.current` pointer, preserve it mode `0600`, verify its
+SHA-256 locally, and privately review the exact set. The pointer is one basename
+matching `fk-manifest.YYYYMMDDTHHMMSSZ.PID.json`, never a path.
 Only counts `2/28/4` and the first 12 manifest-hash characters are publishable.
+
+The private manifest must also show the dynamically discovered room backlinks
+(`expenses`, `floor_plan_rooms`, `pendencias`, `room_images`, plus any schema
+addition), their row hashes, and an empty trigger inventory for `projects` and
+`cash_flow_entries`. Any unreviewed backlink row, scope mismatch, attached
+trigger, or inventory drift blocks apply.
 
 Apply only that reviewed manifest and unchanged proof:
 
@@ -78,6 +108,10 @@ sh "$QUIESCE_DIR/op-wrap.sh" fk-apply \
 four cash-flow updates, zero FK violations, and `rc 0`. A repeated apply must
 report zero inserts and zero updates. Any count, hash, mode, topology,
 dependency, integrity, or postimage mismatch is a hard stop.
+
+The repair executable accepts only the watchdog-supervised chain: it verifies
+the inherited fd-9 `flock` ownership and an unlinked per-execution capability
+before opening SQLite. An environment marker alone is never authorization.
 
 ## Finish and evidence
 
