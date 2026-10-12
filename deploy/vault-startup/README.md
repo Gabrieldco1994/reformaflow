@@ -1,8 +1,17 @@
-# Private vault production startup — preparation only
+# Private vault production startup and activation runbook
 
-**STOP: this is not deployment, merge approval, or activation evidence.** No Fly
-configuration, production defaults, financial-write flags, or migration SQL change.
-Parent owns push and Linux CI invocation; no local Docker proof is claimed.
+**STOP: this document and its verifier PR cannot activate the vault.** They do
+not authorize or perform a deploy, a Fly secret change, a financial-write flag
+change, a migration, or a production test. After the corrected `main` deploy is
+green, an authorized `platform-sre` must perform activation as a **separate
+operational change** in an approved exclusive window.
+
+Status on 2026-10-12: the verified deployed baseline was Fly release **v751**
+at `dcc80b5bb90197d12512177368091dd410a495e7`, but run `38289933866` failed
+`Validate deployed Fly machine` on its single machine-state read. That run and
+baseline are not activation evidence. A separate verifier correction may make
+state observation resilient; it cannot set vault configuration or satisfy this
+runbook's authorization and storage preflight.
 
 ## Contract
 
@@ -109,24 +118,233 @@ process to exit zero before its OFF verdict. A real child-process RED regression
 reproduced exit 0; the deadline now remains referenced until existing
 settle/terminate cleanup clears it. Requested-ON still cannot listen on failure.
 
-## Release remains separately blocked
+## Operational activation profile
 
-SRE/PO must disposition the 32 pre-existing FK orphans and review all pending
-migrations' persisted-data effects **even with vault OFF**. No repair or migration
-bypass is added here. Require restorable backup, reviewed retention/data-effect
-manifest and upgrade evidence before merge/deployment.
+The proposed profile is exact, but remains conditional on every preflight item
+below. These are explicit activation values, not application defaults:
 
-Before any later explicit ON authorization, require persistent encrypted-volume
-inventory (mountinfo proves filesystem/mount, not encryption or Fly identity),
-single-machine/quiesced release plan, PO-approved retention/backup/restore policy,
-and sizing for existing 1 GiB global/200 MiB tenant/10 MiB per-file limits,
-transient parser/upload overhead, trash and public/private growth, SQLite
-WAL/journals/migrations, backup overlap and emergency reserve. Headroom is a
-threshold snapshot, not an atomic disk reservation. Match signal-drain budget to
-Fly kill grace and operation deadlines. The image tests' 1 MiB threshold is
-**disposable QA only**, not production sizing approval.
-SRE's suggested headroom 512 MiB, idle 300000 ms and drain 5000 ms remain
-PO-approval-pending recommendations only; none are production defaults here.
+| Setting                         |        Proposed value |
+| ------------------------------- | --------------------: |
+| `IMPORT_VAULT_ENABLED`          |        literal `true` |
+| `IMPORT_VAULT_LOCK_FD`          |                   `9` |
+| `VAULT_DIR`                     |  `/data/import-vault` |
+| `IMPORT_VAULT_IDLE_TIMEOUT_MS`  |              `300000` |
+| `IMPORT_VAULT_HEADROOM_BYTES`   | `536870912` (512 MiB) |
+| `IMPORT_VAULT_DRAIN_TIMEOUT_MS` |                `5000` |
+
+`IMPORT_SESSION_WRITES_ENABLED` remains the compile-time constant `false` in
+`apps/api/src/imports/import-session/import-session.disabled.ts`. It is **not**
+an activation environment variable. Do not add a Fly secret or change code to
+turn it on. The qualified CSV/PDF path remains independently gated.
+
+### Verified preflight facts — still blocked
+
+These facts are a prospective baseline, not completed gates:
+
+- the observed baseline is v751 / full SHA
+  `dcc80b5bb90197d12512177368091dd410a495e7`; activation must nevertheless
+  re-pin whatever full SHA is current after the corrected green deploy;
+- the latest snapshot has been created, but no restore-test evidence or named
+  backup/restore owner exists yet, so it is not a qualified restorable backup;
+- explicit Fly `SIGTERM` and a shutdown grace at least 10 seconds longer than
+  the 5000 ms vault drain have not yet been evidenced; and
+- rollback target v749 / `ee5e4fea338499b89a22d9701c66441401b06288`
+  has not yet been boot-tested against a disposable restore of the current
+  post-migration production database.
+
+Each missing item is a STOP. A later evidence record may close it; this page
+does not claim that it has.
+
+### Hard blockers and evidence record
+
+The authorized `platform-sre` creates one dated activation record and names the
+operator, approver, backup owner and rollback owner. Stop before changing any
+secret unless the record contains all of the following:
+
+1. **Exact current SHA:** capture the full `refs/heads/main` SHA immediately
+   before the window. The completed workflow and deployed machine label must
+   both equal it. All required jobs, including the corrected **Deploy API to
+   Fly**, must be green. Run `38289933866` does not qualify.
+2. **Separate authority:** link the explicit activation authorization. A
+   verifier PR, its merge, its CI, or this documentation commit is not that
+   authorization.
+3. **One machine and one volume:** inventory exactly one API machine and its
+   exact attached volume ID. It must be the authorized persistent volume on
+   that machine; no second machine, old process, replacement, detached clone or
+   separate volume may be able to serve or write during the window.
+4. **Storage identity and encryption:** preserve evidence that `/data` is one
+   writable ext4 mount and that its mount device, machine attachment and Fly
+   volume ID agree. Preserve platform evidence that the identified volume is
+   encrypted. `/proc/*/mountinfo` proves mount/type/device only; it does **not**
+   prove Fly volume identity or encryption. Existing vault/upload roots must
+   pass the ownership, mode, symlink, hard-link, device and overlap checks in
+   the contract above.
+5. **Restorable backup:** identify an off-volume backup made for this window,
+   its integrity evidence, restore procedure, successful restore check and
+   named owner. The latest snapshot exists but currently has neither
+   restore-test evidence nor an owner, so it does not satisfy this gate. A copy
+   on the same volume is not a restorable disaster backup.
+6. **Migrations and FK integrity:** show all expected migrations applied on the
+   production database and a clean `PRAGMA foreign_key_check` result from an
+   approved read-only checker. Do not use raw `sqlite3`, `prisma db execute`,
+   reset, repair, migration bypass or any FK-OFF writer. Any unresolved FK row
+   or migration state is a STOP.
+7. **Retention approval:** link PO/data-owner approval for original-document
+   retention, seven-day inactivity expiry, trash, backup retention, restore and
+   deletion responsibilities. Code defaults and QA evidence are not policy
+   approval.
+8. **Capacity:** record current volume size/free bytes and approved peak
+   calculations for the existing 1 GiB global, 200 MiB tenant and 10 MiB
+   per-file limits; concurrent upload/parser temporary space; trash; public and
+   private uploads; SQLite WAL/journals/migrations; the off-volume backup
+   process if it stages locally; backup overlap; and emergency reserve.
+   `536870912` is only a startup threshold snapshot, not an atomic reservation.
+9. **Termination budget:** require explicit Fly `SIGTERM` and prove the
+   deployed kill grace is at least the proposed `5000` ms drain **plus 10 full
+   seconds** of shutdown margin (at least 15000 ms total). It must also cover
+   the measured operation deadline. Implicit/default signal, unknown grace, or
+   less than that margin is a STOP. This requires a separately reviewed
+   deployment/configuration correction before ON; documentation cannot supply
+   it.
+10. **Exclusive operation window:** freeze deploys, secret/config changes,
+    machine replacement, scaling, mount/alias changes, backup jobs that use the
+    volume and concurrent maintenance. Record the start/end and the sole
+    operator. The old process must fully exit before its replacement can own
+    FD9.
+11. **Rollback compatibility:** boot v749 /
+    `ee5e4fea338499b89a22d9701c66441401b06288` against a disposable restore of
+    the **current post-migration production database**. Record successful
+    startup, migration compatibility, health and a no-mutation comparison.
+    Never point this test at production and never make the restore by copying
+    private data into an unapproved environment. Until that evidence exists,
+    activation is blocked even if every ON check passes.
+
+Do not publish credentials, tokens, document names/content, database rows or
+raw private paths beyond the canonical paths already in this contract. Store
+the sanitized command transcript and identifiers with the operational record.
+
+## Separate activation sequence
+
+The sequence starts only after the blocker record is complete.
+
+1. **Freeze and pin.** Enter the exclusive window. Record `EXPECTED_SHA` from
+   current `origin/main`; do not copy a SHA from this page. Re-read current main
+   immediately before the change and stop if it moved. Record the green
+   workflow URL/run ID, sole machine ID, volume ID, current release/image digest
+   and pre-change health.
+2. **Finish read-only preflight.** Reconfirm machine/volume uniqueness,
+   attachment, ext4/rw/device identity, encryption evidence, free space,
+   ownership/modes/aliases, backup restorability, migrations/FK, retention
+   approval, explicit SIGTERM plus the 10-second shutdown margin, and the v749
+   disposable-restore boot test. Do not create or repair vault nodes manually;
+   the fail-closed launcher provisions only missing allowed nodes.
+3. **Apply the whole profile once.** The authorized `platform-sre`, from the
+   reviewed transcript, runs:
+
+   ```bash
+   flyctl secrets set --app reformaflow-api \
+     IMPORT_VAULT_ENABLED=true \
+     IMPORT_VAULT_LOCK_FD=9 \
+     VAULT_DIR=/data/import-vault \
+     IMPORT_VAULT_IDLE_TIMEOUT_MS=300000 \
+     IMPORT_VAULT_HEADROOM_BYTES=536870912 \
+     IMPORT_VAULT_DRAIN_TIMEOUT_MS=5000
+   ```
+
+   `flyctl secrets set` is an operational release/restart. Do not combine it
+   with a source deploy, scale change, migration repair or any
+   `IMPORT_SESSION_WRITES_ENABLED` setting.
+
+4. **Observe replacement to completion.** Use bounded polling rather than a
+   single machine-state read. Stop and execute flag-off rollback if there is
+   more than one machine, the old process overlaps, the machine does not settle
+   `started`, the sole check does not pass, the release/image/SHA differs, the
+   volume attachment changes, or any `vault_startup:*`/`vault_boot` failure is
+   reported.
+5. **Collect the exact ON evidence below.** Do not ask the PO to upload or test
+   a real document until every item is attached to the activation record.
+6. **Hand off, then unfreeze.** Only after ON evidence is complete may the PO
+   perform the separately approved real journey. Keep the rollback owner
+   present through that test. End the exclusive window only after the decision
+   to retain ON or roll back is recorded.
+
+### Exact ON evidence required before the PO test
+
+All items are required; a green workflow or absence of errors alone is not ON:
+
+- activation timestamp, operator, authorization, exact current-main SHA and the
+  sanitized six-setting command transcript;
+- one machine ID in `started`, exactly one passing check, its
+  `image_ref.labels.GH_SHA` equal to the pinned SHA, latest release `complete`,
+  and release image equal to the machine image (ignoring its digest suffix);
+- the same authorized volume ID attached to that sole machine, with `/data`
+  still writable ext4 on the recorded device and the independent encryption
+  evidence unchanged;
+- PID1 is the API, `/proc/1/fd/9` resolves to
+  `/data/import-vault/.lock`, FD9's device/inode equals the lock path, and
+  `/proc/1/fdinfo/9` shows the exclusive advisory WRITE flock. Record only
+  bounded stat/fd evidence; never dump `/proc/1/environ`;
+- `/data/import-vault`, `t` and `trash` are API-EUID-owned directories mode
+  `0700`; `.lock` is an API-EUID-owned, single-link regular file mode `0600`;
+  all are on the `/data` device, with no nested mount or upload-root alias;
+- post-start logs contain no activation-time `vault_startup:*`,
+  `event=vault_boot` error, drain timeout or lock replacement/collision;
+- `/api/docs-json` returns 200 and unauthenticated `/auth/me` returns 401; and
+- using a pre-approved authenticated operator identity, a read-only
+  `GET /import-sessions` returns only the projected availability evidence
+  `entry: { kind: "CARD_INVOICE", formats: ["CSV", "PDF"] }`. Do not retain or
+  publish the returned session `items`. This read does not authorize upload,
+  confirmation or execution.
+
+Requested-ON startup verifies the physical layout and flock before migration,
+and API bootstrap independently waits for the runtime gate before listening.
+Consequently, the pinned profile plus the positive FD9/layout and read-only
+availability proofs establish ON without a real document. Secret-name presence,
+`configured: true`, HTTP health by itself, or a verifier PR does not.
+
+## Rollback
+
+### First response: flag OFF and preserve vault bytes
+
+For any failed/uncertain activation or PO stop decision, fence new vault
+admission first:
+
+```bash
+flyctl secrets set --app reformaflow-api IMPORT_VAULT_ENABLED=false
+```
+
+This restart must be observed with the same one-machine/release/health checks.
+OFF intentionally does not inspect, truncate, unlink, rename, purge or recreate
+the vault. Do not unset the other five profile values, delete
+`/data/import-vault`, detach the volume, run cleanup, or roll schema back.
+Record bounded pre/post inode, size and content-integrity evidence for the vault
+bytes without exposing names or content. Preserve the backup and volume.
+
+OFF is only vault-admission containment. As stated in the contract, already
+materialized qualified sessions can retain independent prepare/confirm/execute
+authority; use the separately authorized financial containment procedure if
+that risk must also be fenced.
+
+### Application rollback: release v749 / `ee5e4fea`
+
+If application rollback is also authorized, keep the vault flag OFF and have
+`platform-sre` roll the API back to Fly release **v749**, whose expected image
+label is the full commit
+`ee5e4fea338499b89a22d9701c66441401b06288`. Verify that exact release/image/SHA
+mapping in Fly before selecting it; stop if it does not match.
+
+This production rollback target is not authorized until the pre-activation
+gate has booted v749 successfully against a disposable restore of the current
+post-migration production database and preserved the reviewed evidence. The
+existing snapshot does not satisfy that test while restore proof and ownership
+remain missing.
+
+The rollback is application-only. **Retain the additive schema and all vault
+bytes.** Do not run down migrations, drop import tables/columns, restore an old
+database over the current one, or remove the volume. After rollback, repeat the
+one-machine, release/image, check and HTTP evidence, and keep the backup until
+the incident owner closes the window. A later reactivation starts again at the
+top of this runbook; it is never an automatic forward toggle.
 
 ## Canonical deploy command preparation
 

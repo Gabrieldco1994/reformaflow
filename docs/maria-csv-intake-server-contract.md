@@ -143,6 +143,14 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
   configuração e verificações físicas válidas, permite a inicialização privada. Ausência, valor
   diferente ou falha devolve o estado OFF; os controles focados não mudam esse comportamento.
   Este documento não afirma vault ON em produção.
+- Verificação e ativação são mudanças separadas. PR/check de verificador não configura o vault
+  nem autoriza operação. Depois de um deploy corrigido de `main` inteiramente verde, somente
+  `platform-sre` autorizado pode executar a ativação operacional, com preflight e rollback do
+  [runbook de startup do vault](../deploy/vault-startup/README.md#operational-activation-profile).
+  O perfil ON não altera o switch amplo, que permanece constante de compilação em OFF. O preflight
+  também exige `SIGTERM` explícito, dez segundos de margem além do drain e boot do rollback v749
+  contra restore descartável do banco corrente pós-migrations; snapshot sem owner/restore test
+  não fecha o gate.
 - Consentimento e confirmação não são substituídos por habilitação. Contrato inativo/default-OFF
   não satisfaz a jornada funcional nem autoriza ativação em produção para obter evidência.
 - Testes focados e typecheck no SHA integrado, regressões de ACL/privacidade, zero efeitos

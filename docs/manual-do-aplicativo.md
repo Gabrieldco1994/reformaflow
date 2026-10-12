@@ -369,12 +369,13 @@ crescente. Projetos excluídos ou fora do escopo de `recurringBills` não partic
 da escolha. O critério não depende da ordem de inserção nem do índice do banco.
 
 - **Importação guiada de fatura na Maria (#711/#718):** o comportamento descrito
-  está presente na árvore candidata atual. `881e9b5c` foi uma base histórica de
-  implementação, não o candidato final atual. Antes de merge ou release, o SHA
-  exato da composição final **MUST** ser atestado por checks externos
-  correspondentes da PR #718; enquanto eles não corresponderem ao SHA final, este
-  manual não o atesta nem fixa um SHA final futuro ou circular. Isso não significa
-  merge, disponibilidade em produção, jornada Linux nem gate de release aprovado.
+  foi integrado em `main`; `881e9b5c` foi apenas uma base histórica. Integração,
+  PR de verificador e CI não significam vault ON nem disponibilidade em produção.
+  A ativação exige primeiro um deploy corrigido do SHA exato de `main` inteiramente
+  verde e depois uma operação separada, autorizada e executada por `platform-sre`
+  conforme o [runbook do vault](../deploy/vault-startup/README.md#separate-activation-sequence).
+  Nenhum verificador pode ativá-lo. Este manual não declara ativação, jornada
+  Linux de produção nem gate de release aprovado.
   A métrica de projeção de contexto elegível do corpus puro cobre somente o
   resultado e a projeção do avaliador; não prova autenticação, isolamento de
   tenant, passagem pela API nem revalidação do servidor, que pertencem à
