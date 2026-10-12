@@ -639,7 +639,12 @@ for (const phase of ["upload", "confirmation"] as const) {
               );
               if (!lostAnswerRecovered) {
                 let requests = 0;
-                let committed = false;
+                let resolveCommittedDraft!: () => void;
+                let rejectCommittedDraft!: (reason?: unknown) => void;
+                const committedDraft = new Promise<void>((resolve, reject) => {
+                  resolveCommittedDraft = resolve;
+                  rejectCommittedDraft = reject;
+                });
                 const draftUrl = `${apiURL.replace(/\/$/, "")}/import-sessions/${sessionId}/draft`;
                 const expectedDraftAbort =
                   evidence.expectRequestAbortConsoleFailure({
@@ -652,21 +657,25 @@ for (const phase of ["upload", "confirmation"] as const) {
                   route: import("@playwright/test").Route,
                 ) => {
                   requests++;
-                  const abortScope = {
-                    phase: `${phase}-lost-answer`,
-                    method: route.request().method(),
-                    url: route.request().url(),
-                  };
-                  const response = await route.fetch();
-                  expect(response.status()).toBe(200);
-                  committed = true;
-                  await route.abort("failed");
-                  expectedDraftAbort.recordRouteAbort(abortScope);
+                  try {
+                    const abortScope = {
+                      phase: `${phase}-lost-answer`,
+                      method: route.request().method(),
+                      url: route.request().url(),
+                    };
+                    const response = await route.fetch();
+                    expect(response.status()).toBe(200);
+                    await route.abort("failed");
+                    expectedDraftAbort.recordRouteAbort(abortScope);
+                    resolveCommittedDraft();
+                  } catch (error) {
+                    rejectCommittedDraft(error);
+                    throw error;
+                  }
                 };
                 await page.route(draftRoute, abortDraftResponse, { times: 1 });
                 const recovered = page.waitForResponse(
                   (response) =>
-                    committed &&
                     response.request().method() === "GET" &&
                     new URL(response.url()).pathname ===
                       `/import-sessions/${sessionId}` &&
@@ -674,17 +683,22 @@ for (const phase of ["upload", "confirmation"] as const) {
                   { timeout: 120_000 },
                 );
                 try {
-                  await form
-                    .getByRole("button", {
-                      name: "Guardar informação",
-                      exact: true,
-                    })
-                    .click();
-                  await recovered;
+                  const [recoveryResponse] = await Promise.all([
+                    recovered,
+                    committedDraft,
+                    form
+                      .getByRole("button", {
+                        name: "Guardar informação",
+                        exact: true,
+                      })
+                      .click(),
+                  ]);
+                  expect(requests).toBe(1);
+                  expect(expectedDraftAbort.snapshot().routeAbortCount).toBe(1);
+                  await evidence.checkApi(recoveryResponse);
                 } finally {
                   await page.unroute(draftRoute, abortDraftResponse);
                 }
-                expect(requests).toBe(1);
                 const recovery = page.getByRole("button", {
                   name: "Consultar estado guardado",
                   exact: true,

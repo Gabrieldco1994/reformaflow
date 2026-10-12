@@ -137,6 +137,31 @@ function assertLostAnswerRecovery(source) {
     /page\.unroute\(draftRoute,\s*abortDraftResponse\)/,
     "lost-answer cleanup must remove the exact matcher and handler references",
   );
+  assert.doesNotMatch(
+    branch,
+    /\bcommitted\s*&&/,
+    "the recovery GET predicate must not depend on mutable PATCH handler ordering",
+  );
+  assert.match(
+    branch,
+    /const recovered = page\.waitForResponse\(\s*\(response\) =>\s*response\.request\(\)\.method\(\) === "GET" &&\s*new URL\(response\.url\(\)\)\.pathname ===\s*`\/import-sessions\/\$\{sessionId\}` &&\s*response\.ok\(\)/,
+    "the recovery read must correlate the exact successful GET /import-sessions/{sessionId}",
+  );
+  assert.match(
+    branch,
+    /const \[recoveryResponse\] = await Promise\.all\(\[\s*recovered,\s*committedDraft,[\s\S]*name: "Guardar informação"[\s\S]*\.click\(\),?\s*\]\)/,
+    "the journey must await both the pre-registered GET and committed PATCH abort",
+  );
+  assert.match(
+    branch,
+    /expect\(response\.status\(\)\)\.toBe\(200\)[\s\S]*route\.abort\("failed"\)[\s\S]*recordRouteAbort\(abortScope\)[\s\S]*resolveCommittedDraft\(\)/,
+    "PATCH 200, route abort and abort evidence must complete before recovery is accepted",
+  );
+  assert.match(
+    branch,
+    /expect\(requests\)\.toBe\(1\)[\s\S]*expectedDraftAbort\.snapshot\(\)\.routeAbortCount\)\.toBe\(1\)[\s\S]*evidence\.checkApi\(recoveryResponse\)/,
+    "exact PATCH and route-abort cardinality must be proved before accepting the GET",
+  );
   assert.match(
     branch,
     /name: "Consultar estado guardado"[\s\S]*recovery\.click\(\)/,
@@ -254,6 +279,30 @@ test("lost-answer recovery is one-shot and unblocks only after the visible recov
   assert.throws(() =>
     assertLostAnswerRecovery(
       journey.replace("recovery.click()", "Promise.resolve()"),
+    ),
+  );
+  assert.throws(() =>
+    assertLostAnswerRecovery(
+      journey.replace(
+        'response.request().method() === "GET"',
+        'committed && response.request().method() === "GET"',
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertLostAnswerRecovery(
+      journey.replace(
+        "`/import-sessions/${sessionId}` &&",
+        "`/import-sessions/${sessionId}/draft` &&",
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertLostAnswerRecovery(
+      journey.replace(
+        "recovered,\n                    committedDraft,",
+        "recovered,",
+      ),
     ),
   );
 });
