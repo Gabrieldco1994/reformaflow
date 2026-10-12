@@ -31,6 +31,14 @@ Regra: o CONTRATO é atemporal e não carrega narrativa de "antes/depois". Hist�
 | [`archive/estado-atual-historico-2026.md`](archive/estado-atual-historico-2026.md) | Histórico detalhado movido do estado-atual do cockpit (incrementos/commits de 2026).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | [`archive/`](archive/README.md)                                                    | Notas históricas de sessões anteriores (não normativas); o índice local torna cada snapshot alcançável.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
+## Operação de produção
+
+- [Runbook de ativação do vault](../deploy/vault-startup/README.md) — operação
+  separada e exclusiva de `platform-sre`: preflight de SHA, máquina, volume,
+  backup, FK, retenção e capacidade; perfil ON exato; evidência antes do teste
+  real; e rollback flag-OFF/aplicação sem apagar bytes nem schema aditivo. PR de
+  verificador não ativa o vault.
+
 ## Designs e pesquisas versionados
 
 Estes registros dão contexto a decisões específicas, mas não substituem os contratos vivos

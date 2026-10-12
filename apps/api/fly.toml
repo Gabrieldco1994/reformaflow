@@ -4,6 +4,8 @@
 
 app = "reformaflow-api"
 primary_region = "gru" # São Paulo. Trocar se preferir: gig (Rio), iad (Virginia), etc.
+kill_signal = "SIGTERM"
+kill_timeout = 15
 
 [env]
   NODE_ENV = "production"
