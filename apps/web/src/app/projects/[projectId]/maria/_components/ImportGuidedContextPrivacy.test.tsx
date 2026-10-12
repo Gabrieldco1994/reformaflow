@@ -299,6 +299,35 @@ it.each([
   },
 );
 
+it.each(["constructor", "toString", "__proto__"])(
+  "maps malformed amount meaning key %s to neutral Valor",
+  (meaning) => {
+    render(
+      <ImportFocusedQuestion
+        question={amountQuestion}
+        lines={[
+          draftLine({
+            amountMeaning: meaning as ImportSessionDraftLineV1["amountMeaning"],
+          }),
+        ]}
+        inputLabel="Valor da compra"
+        inputHint="Confira antes de guardar."
+        declaredFacts={[]}
+        onAnswer={vi.fn()}
+      />,
+    );
+
+    const purchaseList = screen.getByRole("list", {
+      name: "Compras desta pergunta",
+    });
+    expect(purchaseList).toHaveTextContent("R$ 123,45 · Valor");
+    expect(purchaseList).not.toHaveTextContent(
+      /function|native code|\[object Object\]/i,
+    );
+    expectNoInternalPresentationText(meaning);
+  },
+);
+
 it("falls back to title and then Compra while omitting unavailable context", () => {
   const question: ImportSessionQuestionV1 = {
     id: DRAFT_QUESTION_ID,
