@@ -539,7 +539,7 @@ for (const phase of ["upload", "confirmation"] as const) {
           const desired = selectedIds.includes(line.id);
           const button = await reviewBlockerActionButton(
             page,
-            line.titulo,
+            line,
             wasSelected ? "remove" : "include",
           );
           if (desired !== wasSelected) {

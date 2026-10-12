@@ -1,48 +1,83 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { reviewBlockerButtonName } from "./review-blocker-selectors";
+import {
+  reviewBlockerArticleName,
+  reviewBlockerButtonName,
+  type ReviewBlockerPurchaseContext,
+} from "./review-blocker-selectors";
 
-test("review actions require the human-readable purchase context", () => {
-  const title = "Parafuso (inox) + arruela";
-  const context = `Compra de materiais: ${title}`;
+const firstPurchase = {
+  titulo: "Liquidificador (inox)",
+  fornecedor: "Casa Norte",
+  dataCompra: "2026-10-10",
+  amountCents: 12_345,
+  installmentCount: 1,
+} satisfies ReviewBlockerPurchaseContext;
 
-  assert.equal(
-    reviewBlockerButtonName("include", title).test(
-      `Incluir compra ${context} na revisão`,
-    ),
-    true,
-  );
-  assert.equal(
-    reviewBlockerButtonName("include", title).test(
-      "Incluir compra uma compra sem o título na revisão",
-    ),
-    false,
-  );
-  assert.equal(
-    reviewBlockerButtonName("remove", title).test(
-      `Retirar compra ${context} da seleção`,
-    ),
-    true,
-  );
-  assert.equal(
-    reviewBlockerButtonName("remove", title).test(
-      "Retirar compra uma compra sem o título da seleção",
-    ),
-    false,
-  );
-});
+const firstContext =
+  "Casa Norte — Liquidificador (inox) · 10/10/2026 · R$ 123,45 · Total · 1 parcela";
 
-test("purchase title punctuation is literal and blank context fails closed", () => {
-  const title = "Arruela (inox) + porca";
-  const includeName = reviewBlockerButtonName("include", title);
+test("duplicate titles resolve to the right row and action from full human context", () => {
+  const duplicateContexts = [
+    {
+      field: "merchant",
+      purchase: { ...firstPurchase, fornecedor: "Casa Sul" },
+      visibleName:
+        "Casa Sul — Liquidificador (inox) · 10/10/2026 · R$ 123,45 · Total · 1 parcela",
+    },
+    {
+      field: "date",
+      purchase: { ...firstPurchase, dataCompra: "2026-10-11" },
+      visibleName:
+        "Casa Norte — Liquidificador (inox) · 11/10/2026 · R$ 123,45 · Total · 1 parcela",
+    },
+    {
+      field: "amount",
+      purchase: { ...firstPurchase, amountCents: 1_234_567 },
+      visibleName:
+        "Casa Norte — Liquidificador (inox) · 10/10/2026 · R$ 12.345,67 · Total · 1 parcela",
+    },
+    {
+      field: "installment count",
+      purchase: { ...firstPurchase, installmentCount: 2 },
+      visibleName:
+        "Casa Norte — Liquidificador (inox) · 10/10/2026 · R$ 123,45 · Total · 2 parcelas",
+    },
+  ] satisfies {
+    field: string;
+    purchase: ReviewBlockerPurchaseContext;
+    visibleName: string;
+  }[];
 
-  assert.equal(
-    includeName.test(
-      `Incluir compra Material — ${title} · R$ 10,00 na revisão`,
-    ),
-    true,
-  );
-  assert.throws(() => reviewBlockerButtonName("include", "  \n  "), {
-    message: "Review blocker row requires a readable purchase title",
-  });
+  for (const duplicate of duplicateContexts) {
+    const articleNames = [firstContext, duplicate.visibleName];
+    const buttonNames = [
+      `Incluir compra ${firstContext} na revisão`,
+      `Retirar compra ${firstContext} da seleção`,
+      `Incluir compra ${duplicate.visibleName} na revisão`,
+      `Retirar compra ${duplicate.visibleName} da seleção`,
+    ];
+
+    assert.deepEqual(
+      articleNames.filter((name) =>
+        reviewBlockerArticleName(firstPurchase).test(name),
+      ),
+      [firstContext],
+      duplicate.field,
+    );
+    assert.deepEqual(
+      buttonNames.filter((name) =>
+        reviewBlockerButtonName("include", firstPurchase).test(name),
+      ),
+      [buttonNames[0]],
+      duplicate.field,
+    );
+    assert.deepEqual(
+      buttonNames.filter((name) =>
+        reviewBlockerButtonName("remove", duplicate.purchase).test(name),
+      ),
+      [buttonNames[3]],
+      duplicate.field,
+    );
+  }
 });
