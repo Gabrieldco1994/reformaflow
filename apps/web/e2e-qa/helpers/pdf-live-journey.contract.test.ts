@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Locator, Page } from "@playwright/test";
-import { waitForMariaImportEntry } from "./pdf-live-journey";
+import {
+  sessionIdFromAnalyzeResponseUrl,
+  waitForMariaImportEntry,
+} from "./pdf-live-journey";
 import {
   gotoValidatedMariaHref,
   waitForMariaEntryButton,
@@ -42,6 +45,32 @@ function locator(
     toString: () => name,
   } as unknown as Locator;
 }
+
+test("extracts the authoritative session only from the exact analyze response path", () => {
+  assert.equal(
+    sessionIdFromAnalyzeResponseUrl(
+      "http://api.test/import-sessions/session-123/attachments/attachment-456/analyze",
+    ),
+    "session-123",
+  );
+});
+
+test("rejects malformed analyze response paths", () => {
+  for (const url of [
+    "not-a-url",
+    "http://api.test/import-sessions//attachments/attachment-456/analyze",
+    "http://api.test/import-sessions/session-123/attachments//analyze",
+    "http://api.test/import-sessions/session-123/attachments/attachment-456",
+    "http://api.test/import-sessions/session-123/attachments/attachment-456/analyze/extra",
+    "http://api.test/prefix/import-sessions/session-123/attachments/attachment-456/analyze",
+    "http://api.test/import-sessions/session%2Fother/attachments/attachment-456/analyze",
+  ])
+    assert.throws(
+      () => sessionIdFromAnalyzeResponseUrl(url),
+      /exact POST analyze response path/,
+      url,
+    );
+});
 
 test("mobile Maria destination is the exact validated project link href", async () => {
   const events: string[] = [];

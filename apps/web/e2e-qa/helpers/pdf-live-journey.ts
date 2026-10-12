@@ -37,6 +37,23 @@ export async function waitForMariaImportEntry(page: Page) {
   return waitForMariaEntryButton(page, invoiceImportCTA);
 }
 
+export function sessionIdFromAnalyzeResponseUrl(responseUrl: string) {
+  let pathname = "";
+  try {
+    pathname = new URL(responseUrl).pathname;
+  } catch {
+    // Fall through to the same fail-loud path-shape error.
+  }
+  const match = pathname.match(
+    /^\/import-sessions\/([A-Za-z0-9_-]+)\/attachments\/[A-Za-z0-9_-]+\/analyze$/,
+  );
+  if (!match)
+    throw new Error(
+      `Expected exact POST analyze response path, received ${pathname || "<invalid URL>"}`,
+    );
+  return match[1];
+}
+
 /** PDF-specific evidence: separate directories and one exact expected document failure,
  * unlike the existing CSV evidence collector (which rightly rejects every 422).
  */

@@ -15,7 +15,11 @@ import {
   pdfExpected,
   pdfFixtureAnswer,
 } from "./helpers/pdf-fixture";
-import { PdfEvidence, startPdfJourney } from "./helpers/pdf-live-journey";
+import {
+  PdfEvidence,
+  sessionIdFromAnalyzeResponseUrl,
+  startPdfJourney,
+} from "./helpers/pdf-live-journey";
 import { identicalImportNotice } from "./helpers/supported-import-entry";
 import { nativeDocumentaryContract } from "./helpers/native-documentary-answer";
 import {
@@ -464,7 +468,7 @@ for (const fixture of [
           };
         }
       });
-      await evidence.response(
+      const analyzeResponse = await evidence.response(
         "document-rejection",
         (r) =>
           r.request().method() === "POST" &&
@@ -478,8 +482,8 @@ for (const fixture of [
             .click(),
         fixture.code,
       );
-      const sessionId = sessionFromUrl(page);
-      expect(sessionId).not.toBe("");
+      const sessionId = sessionIdFromAnalyzeResponseUrl(analyzeResponse.url());
+      const persistentSessionHref = `/projects/${journey.projectId}/maria?importSessionId=${encodeURIComponent(sessionId)}`;
       await expect(
         page.getByRole("alert").filter({ hasText: fixture.copy }),
       ).toBeVisible();
@@ -527,6 +531,7 @@ for (const fixture of [
       ).toBeVisible();
       await assertUnpublished();
       // Reload reads persistent server state without re-analyzing/re-uploading.
+      await page.goto(persistentSessionHref);
       await page.reload();
       await expect(
         page.getByRole("region", {
