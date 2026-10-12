@@ -137,7 +137,7 @@ describe("selection transitions arbitrate current question and edit state", () =
 
     expect(result.current.question?.id).toBe(questionB.id);
     expect(result.current.literal).toBe("");
-    expect(result.current.focus ?? null).toBeNull();
+    expect(result.current.focus).toEqual(questionB);
   });
 
   it("has no current question after deselecting every line", async () => {
@@ -158,7 +158,7 @@ describe("selection transitions arbitrate current question and edit state", () =
     expect(result.current.focus ?? null).toBeNull();
   });
 
-  it("clears edit and focus when the edited A line is deselected", async () => {
+  it("clears the stale A edit and moves focus to B when A is deselected", async () => {
     const answeredA = answeredQuestion("line-a");
     const questionB = pendingQuestion("line-b");
     const initial = baseView(["line-a", "line-b"], [answeredA, questionB]);
@@ -179,7 +179,7 @@ describe("selection transitions arbitrate current question and edit state", () =
 
     expect(result.current.question?.id).toBe(questionB.id);
     expect(result.current.editingQuestionId).toBeNull();
-    expect(result.current.focus ?? null).toBeNull();
+    expect(result.current.focus).toEqual(questionB);
     expect(result.current.literal).toBe("");
   });
 
@@ -195,6 +195,11 @@ describe("selection transitions arbitrate current question and edit state", () =
     expect(result.current.question?.id).toBe(questionB.id);
     expect(result.current.editingQuestionId).toBeNull();
     expect(result.current.focus ?? null).toBeNull();
-    expect(result.current.error).toBeNull();
+    expect(result.current.error).toEqual({
+      message:
+        "Resultado não confirmado. Consulte o estado guardado antes de responder novamente.",
+      recovery: "READ_SESSION",
+      privateContextLost: false,
+    });
   });
 });
