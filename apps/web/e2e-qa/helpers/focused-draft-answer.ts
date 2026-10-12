@@ -39,6 +39,33 @@ type FixtureFocusedDraftAnswer =
           ];
     };
 
+type FixtureTarget = {
+  projectId: string;
+  projectName: string;
+  roomId: string | null;
+  roomName: string | null;
+};
+
+export function focusedIntegralTargetControls(target: FixtureTarget) {
+  if (target.roomId && !target.roomName)
+    throw new Error("The target room option must have a label");
+  return {
+    radioName: "Enviar o valor integral para outro projeto",
+    project: {
+      controlName: "Projeto de destino",
+      optionValue: target.projectId,
+      optionLabel: target.projectName,
+    },
+    room: target.roomId
+      ? {
+          controlName: "Cômodo (opcional)",
+          optionValue: target.roomId,
+          optionLabel: target.roomName!,
+        }
+      : null,
+  };
+}
+
 export function isFocusedDraftQuestion(question: ImportSessionQuestionV1) {
   return (
     !("subject" in question) &&
@@ -148,12 +175,7 @@ export async function fillFocusedDraftPreview(
   question: ImportSessionQuestionV1,
   firstDueDate: string,
   current: ImportSessionViewV1,
-  target?: {
-    projectId: string;
-    projectName: string;
-    roomId: string | null;
-    roomName: string | null;
-  },
+  target?: FixtureTarget,
   candidate?: { id: string; description: string },
 ) {
   expect(isFocusedDraftQuestion(question)).toBe(true);
@@ -215,6 +237,10 @@ export async function fillFocusedDraftPreview(
                           : [],
                       }
   ) as FixtureFocusedDraftAnswer;
+  const integralTarget =
+    answer.field === "targets" && answer.value.length === 1
+      ? focusedIntegralTargetControls(target!)
+      : null;
   if (answer.field === "firstDueDate") {
     const date = form.getByLabel("Primeiro vencimento", { exact: true });
     await expect(date).toHaveAttribute("type", "date");
@@ -243,11 +269,11 @@ export async function fillFocusedDraftPreview(
             : "Criar nova compra"
           : answer.value.length === 0
             ? "Sem rateio — manter a compra no projeto proprietário"
-            : new RegExp(target!.projectName),
+            : integralTarget!.radioName,
       exact:
         (answer.field === "decision" &&
           answer.value.kind !== "KEEP_EXISTING") ||
-        (answer.field === "targets" && answer.value.length === 0),
+        answer.field === "targets",
     });
     // Admission must be a deliberate human choice, not a default or affirmative text.
     await expect(choice).not.toBeChecked();
@@ -259,14 +285,33 @@ export async function fillFocusedDraftPreview(
     ).toHaveCount(0);
     await choice.check();
     await expect(choice).toBeChecked();
-    if (
-      answer.field === "targets" &&
-      answer.value.length === 1 &&
-      target?.roomId
-    ) {
-      const room = form.getByRole("combobox");
-      await room.selectOption(target.roomId);
-      await expect(room).toHaveValue(target.roomId);
+    if (integralTarget) {
+      const project = form.getByRole("combobox", {
+        name: integralTarget.project.controlName,
+        exact: true,
+      });
+      await expect(
+        project.getByRole("option", {
+          name: integralTarget.project.optionLabel,
+          exact: true,
+        }),
+      ).toHaveAttribute("value", integralTarget.project.optionValue);
+      await project.selectOption(integralTarget.project.optionValue);
+      await expect(project).toHaveValue(integralTarget.project.optionValue);
+      if (integralTarget.room) {
+        const room = form.getByRole("combobox", {
+          name: integralTarget.room.controlName,
+          exact: true,
+        });
+        await expect(
+          room.getByRole("option", {
+            name: integralTarget.room.optionLabel,
+            exact: true,
+          }),
+        ).toHaveAttribute("value", integralTarget.room.optionValue);
+        await room.selectOption(integralTarget.room.optionValue);
+        await expect(room).toHaveValue(integralTarget.room.optionValue);
+      }
     }
   } else if (answer.field === "amountMeaning") {
     await form

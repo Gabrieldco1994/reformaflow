@@ -7,6 +7,7 @@ import type {
 } from "@reformaflow/domain";
 import {
   focusedDraftContract,
+  focusedIntegralTargetControls,
   isAgentChatPost,
   isFocusedDraftQuestion,
   nativeFocusedOnly,
@@ -155,6 +156,32 @@ test("unsupported and documentary choices never enter focused native branch", ()
     } as unknown as ImportSessionQuestionV1),
     false,
   );
+});
+
+test("integral target uses the action radio and exact project/room option data", () => {
+  const target = {
+    projectId: "reforma-project",
+    projectName: "Minha reforma",
+    roomId: "reforma-room",
+    roomName: "Cozinha",
+  };
+
+  const controls = focusedIntegralTargetControls(target);
+
+  assert.deepEqual(controls, {
+    radioName: "Enviar o valor integral para outro projeto",
+    project: {
+      controlName: "Projeto de destino",
+      optionValue: "reforma-project",
+      optionLabel: "Minha reforma",
+    },
+    room: {
+      controlName: "Cômodo (opcional)",
+      optionValue: "reforma-room",
+      optionLabel: "Cozinha",
+    },
+  });
+  assert.notEqual(controls.radioName, target.projectName);
 });
 
 test("active-session monitor rejects a generic agent chat POST without reading its body", async () => {
