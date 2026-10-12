@@ -34,6 +34,7 @@ import {
   ImportDeclaredFacts,
 } from "./ImportReviewBlockerNotice";
 import { ImportReceipt } from "./ImportReceipt";
+import { questionIntersectsSelectedLines } from "../_lib/import-question-selection";
 type AgentChannel = "TEXT" | "VOICE";
 
 function Conversation({
@@ -382,7 +383,12 @@ function Conversation({
             {view.questions
               .filter(
                 (question) =>
-                  "subject" in question && !isPendingImportQuestion(question),
+                  "subject" in question &&
+                  !isPendingImportQuestion(question) &&
+                  questionIntersectsSelectedLines(
+                    question,
+                    view.selectedLineIds,
+                  ),
               )
               .map((question) => (
                 <div key={question.id} className="space-y-2 text-sm">

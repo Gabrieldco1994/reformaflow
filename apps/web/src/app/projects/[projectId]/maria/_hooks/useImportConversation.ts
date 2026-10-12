@@ -36,6 +36,7 @@ import {
   verifiedFocusedDraftAnswer,
 } from "../_lib/import-focused-draft";
 import { serializeFocusedDraftAnswerRequest } from "../_lib/import-focused-draft-transport";
+import { questionIntersectsSelectedLines } from "../_lib/import-question-selection";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -94,8 +95,7 @@ const firstPendingQuestionForSelection = (
   view.questions.find(
     (question) =>
       isPendingImportQuestion(question) &&
-      (view.selectedLineIds.length === 0 ||
-        question.lineIds.some((id) => view.selectedLineIds.includes(id))),
+      questionIntersectsSelectedLines(question, view.selectedLineIds),
   ) ?? null;
 
 /** Inactive consumer; all financial actions remain inside ImportProposalCard. */
@@ -203,12 +203,17 @@ export function useImportConversation(
     userId && sessionId && !generation.revoked ? (query.data ?? null) : null;
   const question = generation.revoked
     ? null
-    : (view?.questions.find((q) => q.id === local.editingQuestionId) ??
+    : (view?.questions.find(
+        (q) =>
+          q.id === local.editingQuestionId &&
+          questionIntersectsSelectedLines(q, view.selectedLineIds),
+      ) ??
       view?.questions.find(
         (q) =>
           isPendingImportQuestion(q) &&
           local.focus &&
-          sameFocus(q, local.focus),
+          sameFocus(q, local.focus) &&
+          questionIntersectsSelectedLines(q, view.selectedLineIds),
       ) ??
       (view ? firstPendingQuestionForSelection(view) : null) ??
       null);
@@ -518,7 +523,8 @@ export function useImportConversation(
       !("input" in accepted) ||
       !("answer" in accepted) ||
       failure ||
-      !view.actions.includes("RESOLVE")
+      !view.actions.includes("RESOLVE") ||
+      !questionIntersectsSelectedLines(question, view.selectedLineIds)
     ) {
       fail(new ImportWorkflowResponseError());
       return null;
@@ -542,6 +548,7 @@ export function useImportConversation(
       view.questions,
       view.actions,
       view.declaredFacts,
+      view.selectedLineIds,
     ]);
     const visibleContext = () => {
       const cached = client.getQueryData<ImportSessionViewV1>(key);
@@ -551,6 +558,7 @@ export function useImportConversation(
           cached?.questions,
           cached?.actions,
           cached?.declaredFacts,
+          cached?.selectedLineIds,
         ]) === admittedContext
       );
     };
@@ -666,7 +674,8 @@ export function useImportConversation(
       !selected ||
       !("subject" in selected) ||
       failure ||
-      !view?.actions.includes("RESOLVE")
+      !view?.actions.includes("RESOLVE") ||
+      !questionIntersectsSelectedLines(selected, view.selectedLineIds)
     ) {
       fail(new ImportWorkflowResponseError());
       return;
@@ -788,11 +797,44 @@ export function useImportConversation(
       if (fresh.id !== sessionId || !snapshotStillCurrent(expectedRevision))
         throw new ImportWorkflowResponseError();
       client.setQueryData(key, fresh);
+      const editingQuestion = local.editingQuestionId
+        ? fresh.questions.find(
+            (candidate) =>
+              candidate.id === local.editingQuestionId &&
+              questionIntersectsSelectedLines(candidate, fresh.selectedLineIds),
+          )
+        : undefined;
+      const previousFocus = local.focus;
+      const focusedQuestion = previousFocus
+        ? fresh.questions.find(
+            (candidate) =>
+              isPendingImportQuestion(candidate) &&
+              sameFocus(candidate, previousFocus) &&
+              questionIntersectsSelectedLines(candidate, fresh.selectedLineIds),
+          )
+        : undefined;
+      const nextFocus =
+        editingQuestion ??
+        focusedQuestion ??
+        firstPendingQuestionForSelection(fresh);
+      const retainsCurrentFocus =
+        question !== null &&
+        nextFocus !== null &&
+        sameFocus(question, nextFocus);
       update({
         pending: false,
         failure: null,
         review: false,
         result: null,
+        focus: nextFocus,
+        editingQuestionId: editingQuestion?.id ?? null,
+        ...(retainsCurrentFocus
+          ? {}
+          : {
+              literal: "",
+              attachmentId: null,
+              guided: null,
+            }),
       });
     } catch (error) {
       if (active()) fail(error);
