@@ -15,6 +15,10 @@ const dockerfile = readFileSync(
   join(ROOT, "apps", "api", "Dockerfile"),
   "utf8",
 );
+const entrypoint = readFileSync(
+  join(ROOT, "apps/api/docker-entrypoint.sh"),
+  "utf8",
+);
 const CHECKS_FIXTURE = JSON.stringify({
   "48e123": [
     {
@@ -35,6 +39,34 @@ function deployJob() {
   assert.notEqual(start, -1, "deploy-api job is missing");
   return workflow.slice(start);
 }
+
+function assertDeployArgv(job) {
+  const commands = job
+    .split("\n")
+    .filter((line) => /^\s*run: flyctl deploy\b/.test(line));
+  assert.equal(commands.length, 1, "exactly one canonical deploy command");
+  assert.equal(
+    commands[0].trim(),
+    "run: flyctl deploy -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only --strategy immediate --ha=false --update-only",
+  );
+}
+
+test("canonical deploy selects immediate single-existing-machine replacement", () => {
+  assertDeployArgv(deployJob());
+});
+
+test("removing any replacement safeguard or changing strategy fails the argv contract", () => {
+  const valid =
+    "run: flyctl deploy -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only --strategy immediate --ha=false --update-only";
+  assertDeployArgv(valid);
+  for (const mutation of [
+    valid.replace(" --strategy immediate", ""),
+    valid.replace(" --ha=false", ""),
+    valid.replace(" --update-only", ""),
+    valid.replace("--strategy immediate", "--strategy rolling"),
+  ])
+    assert.throws(() => assertDeployArgv(mutation));
+});
 
 test("deploy remains serialized without cancelling an in-flight release", () => {
   assert.match(deployJob(), /concurrency:[\s\S]*?cancel-in-progress:\s*false/);
@@ -186,9 +218,9 @@ test("Fly relies on Docker CMD for app and adds no process override, health rout
   assert.doesNotMatch(flyConfig, /entrypoint\s*=|cmd\s*=/i);
   assert.doesNotMatch(workflow, /--build-arg[^\n]*(?:SHA|COMMIT)/i);
   assert.match(dockerfile, /CMD\s*\["\/entrypoint\.sh"\]/);
-  const entrypoint = dockerfile.slice(
-    dockerfile.indexOf("# Entrypoint:"),
-    dockerfile.indexOf("\nEXPOSE"),
+  assert.match(
+    dockerfile,
+    /COPY --chmod=755 apps\/api\/docker-entrypoint\.sh \/entrypoint\.sh/,
   );
   const migrate = entrypoint.indexOf(
     "npx prisma migrate deploy --schema=prisma/schema.prisma",
@@ -197,10 +229,13 @@ test("Fly relies on Docker CMD for app and adds no process override, health rout
   assert.ok(migrate >= 0, "entrypoint must run prisma migrate deploy");
   assert.ok(exec > migrate, "entrypoint must migrate before exec node");
   assert.match(
-    dockerfile,
+    entrypoint,
     /exec node apps\/api\/dist\/main\.js/,
     "app process must still exec the normal Nest entrypoint",
   );
   assert.doesNotMatch(dockerfile, /^\s*ARG\s+.*(?:SHA|COMMIT)/im);
-  assert.doesNotMatch(`${workflow}\n${flyConfig}\n${dockerfile}`, /\/health\b/);
+  assert.doesNotMatch(
+    `${workflow}\n${flyConfig}\n${dockerfile}\n${entrypoint}`,
+    /\/health\b/,
+  );
 });

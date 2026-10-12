@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { Volume2, Square } from 'lucide-react';
-import type { ChatMessage } from '@/components/agent/useFinancialAgent';
-import { detectPendingExpenseConfirmation } from '../_lib/pending-expense';
-import { detectVerdict } from '../_lib/verdict';
+import { Volume2, Square } from "lucide-react";
+import type { ChatMessage } from "@/components/agent/useFinancialAgent";
+import { detectPendingExpenseConfirmation } from "../_lib/pending-expense";
+import { detectVerdict } from "../_lib/verdict";
 
 interface Props {
   message: ChatMessage;
@@ -41,7 +41,7 @@ export function MariaMessageBubble({
   ttsSupported,
   onToggleSpeak,
 }: Props) {
-  const isUser = message.role === 'user';
+  const isUser = message.role === "user";
 
   if (isUser) {
     return (
@@ -51,7 +51,10 @@ export function MariaMessageBubble({
     );
   }
 
-  const pending = detectPendingExpenseConfirmation(message);
+  const pending =
+    message.mode === "IMPORT" || message.importEntryAction
+      ? null
+      : detectPendingExpenseConfirmation(message);
   if (pending) {
     return (
       <div className="max-w-[86%] space-y-2">
@@ -59,7 +62,7 @@ export function MariaMessageBubble({
           Entendi assim — confere?
         </div>
         <div
-          className={`minimal-soft-card rounded-2xl border-[1.5px] border-dashed border-emerald-200 bg-emerald-50 p-4 ${confirmed ? 'opacity-70' : ''}`}
+          className={`minimal-soft-card rounded-2xl border-[1.5px] border-dashed border-emerald-200 bg-emerald-50 p-4 ${confirmed ? "opacity-70" : ""}`}
         >
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-800">
             nova despesa
@@ -93,34 +96,42 @@ export function MariaMessageBubble({
     );
   }
 
-  const verdict = detectVerdict(precedingUserText, message.content);
+  const verdict =
+    message.mode === "IMPORT" || message.importEntryAction
+      ? null
+      : detectVerdict(precedingUserText, message.content);
 
   return (
     <div className="max-w-[86%] space-y-2">
       <div className="minimal-chat-bubble rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
         {formatInlineBold(message.content)}
-        {ttsSupported && (
-          <button
-            type="button"
-            onClick={onToggleSpeak}
-            aria-label={speaking ? 'Parar áudio' : 'Ouvir resposta'}
-            className="mt-2 flex min-h-[44px] items-center gap-1 rounded-full border border-lifeone-hairline px-2.5 py-1 text-[11px] font-semibold text-lifeone-ink-3"
-          >
-            {speaking ? <Square className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
-            {speaking ? 'Parar' : 'Ouvir'}
-          </button>
-        )}
+        {ttsSupported &&
+          (message.mode !== "IMPORT" || Boolean(message.speechText)) && (
+            <button
+              type="button"
+              onClick={onToggleSpeak}
+              aria-label={speaking ? "Parar áudio" : "Ouvir resposta"}
+              className="mt-2 flex min-h-[44px] items-center gap-1 rounded-full border border-lifeone-hairline px-2.5 py-1 text-[11px] font-semibold text-lifeone-ink-3"
+            >
+              {speaking ? (
+                <Square className="h-3 w-3" />
+              ) : (
+                <Volume2 className="h-3 w-3" />
+              )}
+              {speaking ? "Parar" : "Ouvir"}
+            </button>
+          )}
       </div>
       {verdict && (
         <div
           className={`rounded-2xl border px-3.5 py-3 ${
-            verdict.tone === 'good'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-red-200 bg-red-50 text-red-800'
+            verdict.tone === "good"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-red-200 bg-red-50 text-red-800"
           }`}
         >
           <p className="text-sm font-bold leading-5">
-            {verdict.tone === 'good' ? 'Cabe no plano.' : 'Não cabe no plano.'}
+            {verdict.tone === "good" ? "Cabe no plano." : "Não cabe no plano."}
           </p>
         </div>
       )}

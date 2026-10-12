@@ -1,7 +1,6 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useJourneyRuntime } from '@/contexts/journey-runtime-context';
 import { ApiResponseError, api } from '@/lib/api';
@@ -19,9 +18,8 @@ function newIdempotencyKey() {
 }
 
 export function RegisterForm() {
-  const router = useRouter();
   const { register, refresh } = useAuth();
-  const { emitSignupCompleted, emitProjectsCreated } = useJourneyRuntime();
+  const { completeSignup } = useJourneyRuntime();
   const [ownerName, setOwnerName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,7 +52,7 @@ export function RegisterForm() {
     submissionLock.current = true;
     setSubmitting(true);
     try {
-      await register(
+      const registeredUser = await register(
         {
           ownerName: ownerName.trim(),
           email: email.trim(),
@@ -63,7 +61,6 @@ export function RegisterForm() {
         },
         idempotencyKey.current,
       );
-      void emitSignupCompleted();
       // Os projetos do cadastro nascem aqui, não na tela de projetos — sem este
       // emit nenhum PROJECT_CREATED chega ao runtime e a jornada de onboarding
       // nunca abre para quem acabou de criar a conta. Um objetivo marcado = um
@@ -77,8 +74,9 @@ export function RegisterForm() {
         created.push({ id: project.id, type: project.type as ProjectType });
       }
       await refresh();
-      void emitProjectsCreated(created);
-      router.replace('/projects');
+      // Runtime owns both the first FULL journey route and the no-journey hub
+      // fallback, including submissions made before auth's next render.
+      await completeSignup(created, registeredUser.id);
     } catch (caught) {
       if (caught instanceof ApiResponseError) idempotencyKey.current = newIdempotencyKey();
       setError(caught instanceof Error ? caught.message : 'Não foi possível criar sua conta. Tente novamente.');

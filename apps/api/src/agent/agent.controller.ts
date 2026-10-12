@@ -4,34 +4,35 @@ import {
   Post,
   UseGuards,
   UseInterceptors,
-} from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AgentService } from './agent.service';
-import { AgentChatDto } from './dto/agent-chat.dto';
-import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
+} from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { AgentService } from "./agent.service";
+import { AgentChatDto } from "./dto/agent-chat.dto";
+import { TenantInterceptor } from "../common/interceptors/tenant.interceptor";
 import {
   CurrentTenant,
   CurrentUser,
-} from '../common/decorators/tenant.decorator';
-import { resolveAccessibleProjectScope } from '../common/access-rules';
-import { PrismaService } from '../prisma/prisma.service';
-import { AgentChatThrottleGuard } from './agent-chat-throttle.guard';
-import { AgentDailyQuotaGuard } from './agent-daily-quota.guard';
+} from "../common/decorators/tenant.decorator";
+import { resolveAccessibleProjectScope } from "../common/access-rules";
+import { PrismaService } from "../prisma/prisma.service";
+import { AgentChatThrottleGuard } from "./agent-chat-throttle.guard";
+import { AgentDailyQuotaGuard } from "./agent-daily-quota.guard";
+import { IMPORT_CHAT_CHANNEL } from "@reformaflow/domain";
 
-@ApiTags('agent')
+@ApiTags("agent")
 @ApiBearerAuth()
 @UseInterceptors(TenantInterceptor)
-@Controller('agent')
+@Controller("agent")
 export class AgentController {
   constructor(
     private readonly agent: AgentService,
     private readonly prisma: PrismaService,
   ) {}
 
-  @Post('chat')
+  @Post("chat")
   @UseGuards(AgentChatThrottleGuard, AgentDailyQuotaGuard)
   @ApiOperation({
-    summary: 'Conversa com o Copiloto Financeiro (tool-calling)',
+    summary: "Conversa com o Copiloto Financeiro (tool-calling)",
   })
   async chat(
     @CurrentTenant() tenantId: string,
@@ -55,6 +56,10 @@ export class AgentController {
     );
     return this.agent.chat({
       tenantId,
+      originChannel:
+        dto.metadata?.channel === IMPORT_CHAT_CHANNEL.VOICE
+          ? IMPORT_CHAT_CHANNEL.VOICE
+          : IMPORT_CHAT_CHANNEL.TEXT,
       projectId: dto.projectId ?? null,
       // Escopo AMPLO de projeto (visibilidade). NÃO autoriza recurso financeiro:
       // as tools derivam a lente POR MÓDULO a partir da ACL bruta abaixo (#483).

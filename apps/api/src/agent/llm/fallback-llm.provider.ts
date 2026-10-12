@@ -1,13 +1,15 @@
-import { Logger } from '@nestjs/common';
-import { ChatMessage, LlmChatResult, LlmProvider, ToolDef } from './llm.types';
+import { Logger, ServiceUnavailableException } from "@nestjs/common";
+import { ChatMessage, LlmChatResult, LlmProvider, ToolDef } from "./llm.types";
 
 /** Erro de cota/sobrecarga do LLM — vale tentar o próximo provider. */
 const RATE_LIMIT_STATUSES = new Set([429, 500, 502, 503, 413]);
 
 export class RateLimitError extends Error {
-  constructor(message = 'O limite de uso da IA foi atingido. Tente novamente em alguns minutos.') {
+  constructor(
+    message = "O limite de uso da IA foi atingido. Tente novamente em alguns minutos.",
+  ) {
     super(message);
-    this.name = 'RateLimitError';
+    this.name = "RateLimitError";
   }
 }
 
@@ -22,17 +24,20 @@ export class FallbackLlmProvider implements LlmProvider {
   private readonly logger = new Logger(FallbackLlmProvider.name);
 
   constructor(private readonly providers: LlmProvider[]) {
-    this.id = providers.map((p) => p.id).join('+');
+    this.id = providers.map((p) => p.id).join("+");
   }
 
   isConfigured(): boolean {
     return this.providers.some((p) => p.isConfigured());
   }
 
-  async chat(messages: ChatMessage[], tools: ToolDef[]): Promise<LlmChatResult> {
+  async chat(
+    messages: ChatMessage[],
+    tools: ToolDef[],
+  ): Promise<LlmChatResult> {
     const active = this.providers.filter((p) => p.isConfigured());
     if (active.length === 0) {
-      throw new Error('Nenhum provider de LLM configurado.');
+      throw new ServiceUnavailableException();
     }
 
     let lastRateLimited = false;
@@ -41,7 +46,8 @@ export class FallbackLlmProvider implements LlmProvider {
         return await active[i]!.chat(messages, tools);
       } catch (e) {
         const status = (e as { status?: number }).status;
-        const rateLimited = status !== undefined && RATE_LIMIT_STATUSES.has(status);
+        const rateLimited =
+          status !== undefined && RATE_LIMIT_STATUSES.has(status);
         const isLast = i === active.length - 1;
 
         // Erro que não é de cota: propaga (não adianta tentar outro provider).
@@ -57,6 +63,6 @@ export class FallbackLlmProvider implements LlmProvider {
     }
 
     if (lastRateLimited) throw new RateLimitError();
-    throw new Error('Falha ao chamar o LLM.');
+    throw new Error("Falha ao chamar o LLM.");
   }
 }

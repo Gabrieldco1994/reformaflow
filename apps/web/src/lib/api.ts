@@ -24,6 +24,8 @@ interface RequestExtra {
   /** Timeout específico em ms (sobrepõe o default de 25s). Ex.: Copilot/LLM. */
   timeoutMs?: number;
   headers?: Record<string, string>;
+  /** Cancelamento do chamador; aborta o fetch sem virar ApiTimeoutError. */
+  signal?: AbortSignal;
 }
 
 export class ApiResponseError extends Error {
@@ -52,10 +54,15 @@ async function request<T>(
   extra?: RequestExtra,
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(),
-    extra?.timeoutMs ?? REQUEST_TIMEOUT_MS,
-  );
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, extra?.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const caller = extra?.signal;
+  const onCallerAbort = () => controller.abort();
+  if (caller?.aborted) controller.abort();
+  else caller?.addEventListener("abort", onCallerAbort, { once: true });
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -89,11 +96,12 @@ async function request<T>(
     return JSON.parse(text) as T;
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
-      throw new ApiTimeoutError();
+      if (timedOut || !caller?.aborted) throw new ApiTimeoutError();
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    caller?.removeEventListener("abort", onCallerAbort);
   }
 }
 
@@ -108,6 +116,17 @@ export const api = {
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }, opts),
   delete: <T>(path: string, opts?: RequestExtra) =>
     request<T>(path, { method: "DELETE" }, opts),
+  /** PUT de bytes brutos (upload privado): corpo binário, sem JSON. */
+  putBytes: <T>(path: string, body: Blob, opts?: RequestExtra) =>
+    request<T>(
+      path,
+      {
+        method: "PUT",
+        body,
+        headers: { "Content-Type": "application/octet-stream" },
+      },
+      opts,
+    ),
   upload: <T>(
     path: string,
     formData: FormData,

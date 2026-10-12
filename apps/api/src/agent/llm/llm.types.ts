@@ -1,4 +1,4 @@
-export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
+export type ChatRole = "system" | "user" | "assistant" | "tool";
 
 export interface ToolCall {
   id: string;
@@ -38,4 +38,4 @@ export interface LlmProvider {
   chat(messages: ChatMessage[], tools: ToolDef[]): Promise<LlmChatResult>;
 }
 
-export const LLM_PROVIDER = Symbol('LLM_PROVIDER');
+export const LLM_PROVIDER = Symbol("LLM_PROVIDER");

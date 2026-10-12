@@ -1,0 +1,434 @@
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { __parsePrettierYamlConfig as parseYaml } from "prettier/plugins/yaml";
+import {
+  IMPORT_VAULT_PURGE_SCHEDULER_INTERVAL_MS,
+  QA_VAULT_PURGE_WAIT_MARGIN_MS,
+  QA_VAULT_PURGE_WAIT_MS,
+} from "./maria-csv-vault-timing.mjs";
+
+const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+const WORKFLOW_PATH = join(
+  ROOT,
+  ".github",
+  "workflows",
+  "maria-csv-vault-qa.yml",
+);
+const PLAYWRIGHT_ROOT = join(ROOT, "apps", "web", "e2e-qa");
+const CSV_JOURNEY_PATH = join(PLAYWRIGHT_ROOT, "maria-csv-invoice.spec.ts");
+const ASSERT_SCRIPT_PATH = join(ROOT, "scripts", "qa", "maria-csv-assert.mjs");
+const TARGET_JOB = "maria-csv-vault";
+const TARGET_STEPS = [
+  "Run mandatory real Maria CSV + PDF journeys (${{ matrix.viewport }})",
+  "Assert exact CSV financial inventory (${{ matrix.viewport }})",
+];
+const EXPECTED_TMPDIR = "${{ env.QA_RUNTIME_DIR }}";
+const REQUIRED_RUN_PREFIX = [
+  "set -euo pipefail",
+  'test -n "${QA_RUNTIME_DIR:-}"',
+  'test "${TMPDIR:-}" = "$QA_RUNTIME_DIR"',
+];
+const REQUIRED_POST_CONFIRM = `node scripts/qa/maria-csv-assert.mjs post-confirm --db "$QA_DB_PATH" --selected-count 2 --vault "$QA_VAULT_DIR" --purge-wait-ms ${QA_VAULT_PURGE_WAIT_MS}`;
+
+function parseWorkflow() {
+  return parseYaml(readFileSync(WORKFLOW_PATH, "utf8"), {});
+}
+
+function tmpdirLocations(workflow) {
+  const locations = [];
+  if (Object.hasOwn(workflow.env ?? {}, "TMPDIR"))
+    locations.push({ location: "workflow", value: workflow.env.TMPDIR });
+
+  for (const [jobName, job] of Object.entries(workflow.jobs ?? {})) {
+    if (Object.hasOwn(job.env ?? {}, "TMPDIR"))
+      locations.push({
+        location: `jobs.${jobName}`,
+        value: job.env.TMPDIR,
+      });
+    for (const step of job.steps ?? []) {
+      if (Object.hasOwn(step.env ?? {}, "TMPDIR"))
+        locations.push({
+          location: `jobs.${jobName}.steps.${step.name ?? "<unnamed>"}`,
+          value: step.env.TMPDIR,
+        });
+    }
+  }
+  return locations;
+}
+
+function assertPurgeWindow(milliseconds, label) {
+  assert(
+    Number.isSafeInteger(milliseconds) &&
+      milliseconds >=
+        IMPORT_VAULT_PURGE_SCHEDULER_INTERVAL_MS +
+          QA_VAULT_PURGE_WAIT_MARGIN_MS,
+    `${label} must exceed one purge scheduler interval by the QA margin`,
+  );
+  assert.equal(
+    milliseconds,
+    QA_VAULT_PURGE_WAIT_MS,
+    `${label} must use the shared QA purge window`,
+  );
+}
+
+function commandPurgeWait(command) {
+  const matches = [...command.matchAll(/--purge-wait-ms(?:=|\s+)([0-9]+)/g)];
+  assert.equal(matches.length, 1, "expected exactly one purge wait option");
+  return Number(matches[0][1]);
+}
+
+function playwrightOracleCallsites(directory = PLAYWRIGHT_ROOT) {
+  const callsites = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const candidate = join(directory, entry.name);
+    if (entry.isDirectory())
+      callsites.push(...playwrightOracleCallsites(candidate));
+    else if (
+      entry.isFile() &&
+      candidate.endsWith(".ts") &&
+      readFileSync(candidate, "utf8").includes("maria-csv-assert.mjs")
+    )
+      callsites.push(candidate);
+  }
+  return callsites;
+}
+
+function assertPlaywrightPurgeWindow(source) {
+  assert.deepEqual(playwrightOracleCallsites(), [CSV_JOURNEY_PATH]);
+  assert.equal(
+    source.match(/execFileAsync\(process\.execPath/g)?.length,
+    1,
+    "CSV journey must have exactly one active oracle subprocess",
+  );
+  assert.equal(
+    source.match(/"--purge-wait-ms"/g)?.length,
+    1,
+    "Every active Playwright oracle subprocess must set one purge window",
+  );
+  assert.match(
+    source,
+    /"--purge-wait-ms",\s*String\(QA_VAULT_PURGE_WAIT_MS\),/,
+    "Playwright oracle must use the shared QA purge window",
+  );
+}
+
+function assertLostAnswerRecovery(source) {
+  const start = source.indexOf("if (!lostAnswerRecovered)");
+  const end = source.indexOf("lostAnswerRecovered = true", start);
+  assert.notEqual(start, -1, "lost-answer branch must exist");
+  assert.notEqual(end, -1, "lost-answer branch must complete");
+  const branch = source.slice(start, end);
+
+  assert.match(
+    branch,
+    /const draftRoute = draftUrl;/,
+    "the one-shot route must use the exact scoped draft URL",
+  );
+  assert.match(
+    branch,
+    /page\.route\(\s*draftRoute,\s*abortDraftResponse,\s*\{ times: 1 \},?\s*\)/,
+    "the committed-response abort must intercept exactly one PATCH",
+  );
+  assert.match(
+    branch,
+    /page\.unroute\(draftRoute,\s*abortDraftResponse\)/,
+    "lost-answer cleanup must remove the exact matcher and handler references",
+  );
+  assert.doesNotMatch(
+    branch,
+    /\bcommitted\s*&&/,
+    "the recovery GET predicate must not depend on mutable PATCH handler ordering",
+  );
+  assert.match(
+    branch,
+    /const recovered = page\.waitForResponse\(\s*\(response\) =>\s*response\.request\(\)\.method\(\) === "GET" &&\s*new URL\(response\.url\(\)\)\.pathname ===\s*`\/import-sessions\/\$\{sessionId\}` &&\s*response\.ok\(\)/,
+    "the recovery read must correlate the exact successful GET /import-sessions/{sessionId}",
+  );
+  assert.match(
+    branch,
+    /const \[recoveryResponse\] = await Promise\.all\(\[\s*recovered,\s*committedDraft,[\s\S]*name: "Guardar informação"[\s\S]*\.click\(\),?\s*\]\)/,
+    "the journey must await both the pre-registered GET and committed PATCH abort",
+  );
+  assert.match(
+    branch,
+    /expect\(response\.status\(\)\)\.toBe\(200\)[\s\S]*route\.abort\("failed"\)[\s\S]*recordRouteAbort\(abortScope\)[\s\S]*resolveCommittedDraft\(\)/,
+    "PATCH 200, route abort and abort evidence must complete before recovery is accepted",
+  );
+  assert.match(
+    branch,
+    /expect\(requests\)\.toBe\(1\)[\s\S]*expectedDraftAbort\.snapshot\(\)\.routeAbortCount\)\.toBe\(1\)[\s\S]*evidence\.checkApi\(recoveryResponse\)/,
+    "exact PATCH and route-abort cardinality must be proved before accepting the GET",
+  );
+  assert.match(
+    branch,
+    /name: "Consultar estado guardado"[\s\S]*recovery\.click\(\)/,
+    "the journey must perform the visible recovery action after the lost response",
+  );
+  assert.match(
+    branch,
+    /expect\(nextDate\)\.toBeDisabled\(\)[\s\S]*expect\(nextDate\)\.toBeEnabled\(\)/,
+    "the next firstDueDate control must unblock only after explicit recovery",
+  );
+}
+
+function assertReviewPreparation(source) {
+  assert.doesNotMatch(
+    source,
+    /voiceReviewTransition|name: "Responder por voz"/,
+    "review preparation must not use the obsolete review voice branch",
+  );
+  const starts = [...source.matchAll(/if \(!question\) \{/g)];
+  assert.equal(
+    starts.length,
+    1,
+    "the no-question path must have one review-preparation branch",
+  );
+  const start = starts[0].index;
+  const end = source.indexOf("const form =", start);
+  assert.notEqual(end, -1, "review-preparation branch must re-enter questions");
+  const branch = source.slice(start, end);
+
+  assert.match(
+    branch,
+    /new URL\(response\.url\(\)\)\.pathname ===\s*`\/import-sessions\/\$\{sessionId\}\/prepare`\s*&&\s*response\.request\(\)\.method\(\) === "POST"/,
+    "the no-question path must wait for the exact POST /prepare response",
+  );
+  assert.match(
+    branch,
+    /const \[response\] = await Promise\.all\(\[\s*prepared,\s*page\s*\.getByRole\("button", \{\s*name: "Abrir revisão do lote",\s*exact: true,\s*\}\)\s*\.click\(\),\s*\]\)/,
+    "the exact review CTA click must be correlated with its POST /prepare response",
+  );
+  assert.match(
+    branch,
+    /await evidence\.checkApi\(response\)/,
+    "the correlated POST /prepare response must be successful",
+  );
+}
+
+function mutateReviewPreparation(source, before, after) {
+  const start = source.indexOf("if (!question) {");
+  assert.notEqual(start, -1, "review-preparation branch must exist");
+  return source.slice(0, start) + source.slice(start).replace(before, after);
+}
+
+function assertOracleDefaultPurgeWindow(source) {
+  assert.match(
+    source,
+    /import \{ QA_VAULT_PURGE_WAIT_MS \} from "\.\/maria-csv-vault-timing\.mjs";/,
+    "Oracle default must import the shared QA purge window",
+  );
+  assert.match(
+    source,
+    /args\["--purge-wait-ms"\] \?\? QA_VAULT_PURGE_WAIT_MS/,
+    "Oracle default must use the shared QA purge window",
+  );
+}
+
+function assertScopedTempRoot(workflow) {
+  assert.deepEqual(
+    tmpdirLocations(workflow),
+    TARGET_STEPS.map((name) => ({
+      location: `jobs.${TARGET_JOB}.steps.${name}`,
+      value: EXPECTED_TMPDIR,
+    })),
+  );
+
+  const steps = workflow.jobs[TARGET_JOB].steps;
+  for (const name of TARGET_STEPS) {
+    const matches = steps.filter((step) => step.name === name);
+    assert.equal(matches.length, 1, `expected exactly one "${name}" step`);
+    assert.deepEqual(
+      matches[0].run.trim().split("\n").slice(0, 3),
+      REQUIRED_RUN_PREFIX,
+      `${name} must fail closed before its first QA command`,
+    );
+  }
+
+  const inventoryStep = steps.find((step) => step.name === TARGET_STEPS[1]);
+  assert.equal(
+    inventoryStep.run.trim().split("\n")[3],
+    REQUIRED_POST_CONFIRM,
+    "post-confirm must poll DB quota and raw-byte cleanup beyond one scheduler cadence",
+  );
+  assertPurgeWindow(
+    commandPurgeWait(inventoryStep.run),
+    "workflow inventory oracle",
+  );
+}
+
+test("only the two DB-consuming Maria QA steps trust the scoped ext4 temp root", () => {
+  assertScopedTempRoot(parseWorkflow());
+});
+
+test("every live Maria CSV oracle waits beyond the purge scheduler cadence", () => {
+  const journey = readFileSync(CSV_JOURNEY_PATH, "utf8");
+  assertPurgeWindow(QA_VAULT_PURGE_WAIT_MS, "shared QA purge window");
+  assertOracleDefaultPurgeWindow(readFileSync(ASSERT_SCRIPT_PATH, "utf8"));
+  assertPlaywrightPurgeWindow(journey);
+});
+
+test("lost-answer recovery is one-shot and unblocks only after the visible recovery read", () => {
+  const journey = readFileSync(CSV_JOURNEY_PATH, "utf8");
+  assertLostAnswerRecovery(journey);
+  assert.throws(() =>
+    assertLostAnswerRecovery(journey.replace("{ times: 1 }", "{ times: 2 }")),
+  );
+  assert.throws(() =>
+    assertLostAnswerRecovery(
+      journey.replace("recovery.click()", "Promise.resolve()"),
+    ),
+  );
+  assert.throws(() =>
+    assertLostAnswerRecovery(
+      journey.replace(
+        'response.request().method() === "GET"',
+        'committed && response.request().method() === "GET"',
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertLostAnswerRecovery(
+      journey.replace(
+        "`/import-sessions/${sessionId}` &&",
+        "`/import-sessions/${sessionId}/draft` &&",
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertLostAnswerRecovery(
+      journey.replace(
+        "recovered,\n                    committedDraft,",
+        "recovered,",
+      ),
+    ),
+  );
+});
+
+test("review preparation uses only the real review CTA and its exact successful POST", () => {
+  const journey = readFileSync(CSV_JOURNEY_PATH, "utf8");
+  assertReviewPreparation(journey);
+  assert.throws(() =>
+    assertReviewPreparation(
+      mutateReviewPreparation(
+        journey,
+        "Abrir revisão do lote",
+        "Responder por voz",
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertReviewPreparation(
+      mutateReviewPreparation(
+        journey,
+        'response.request().method() === "POST"',
+        'response.request().method() === "GET"',
+      ),
+    ),
+  );
+  assert.throws(() =>
+    assertReviewPreparation(
+      mutateReviewPreparation(journey, "await evidence.checkApi(response)", ""),
+    ),
+  );
+});
+
+test("the scoped temp-root contract rejects missing, broad, arbitrary, or unguarded trust", () => {
+  const mutations = [
+    (workflow) => {
+      delete workflow.jobs[TARGET_JOB].steps.find(
+        (step) => step.name === TARGET_STEPS[0],
+      ).env.TMPDIR;
+    },
+    (workflow) => {
+      workflow.jobs[TARGET_JOB].env = { TMPDIR: EXPECTED_TMPDIR };
+    },
+    (workflow) => {
+      workflow.jobs[TARGET_JOB].steps.find(
+        (step) => step.name === TARGET_STEPS[0],
+      ).env.TMPDIR = "${{ env.ARBITRARY_RUNTIME_DIR }}";
+    },
+    (workflow) => {
+      const step = workflow.jobs[TARGET_JOB].steps.find(
+        (candidate) => candidate.name === TARGET_STEPS[1],
+      );
+      step.run = step.run.replace(`${REQUIRED_RUN_PREFIX[2]}\n`, "");
+    },
+    (workflow) => {
+      const step = workflow.jobs[TARGET_JOB].steps.find(
+        (candidate) => candidate.name === TARGET_STEPS[1],
+      );
+      step.run = step.run.replace(
+        '--vault "$QA_VAULT_DIR" --purge-wait-ms 75000',
+        "--purge-wait-ms 30000",
+      );
+    },
+  ];
+
+  for (const mutate of mutations) {
+    const workflow = structuredClone(parseWorkflow());
+    mutate(workflow);
+    assert.throws(() => assertScopedTempRoot(workflow));
+  }
+
+  const shortJourney = readFileSync(CSV_JOURNEY_PATH, "utf8").replace(
+    "String(QA_VAULT_PURGE_WAIT_MS)",
+    '"30000"',
+  );
+  assert.throws(() => assertPlaywrightPurgeWindow(shortJourney));
+  const shortDefault = readFileSync(ASSERT_SCRIPT_PATH, "utf8").replace(
+    'args["--purge-wait-ms"] ?? QA_VAULT_PURGE_WAIT_MS',
+    'args["--purge-wait-ms"] ?? 30000',
+  );
+  assert.throws(() => assertOracleDefaultPurgeWindow(shortDefault));
+});
+
+const blockerDWorkflowSource = readFileSync(WORKFLOW_PATH, "utf8");
+
+test("vault QA still watches its backend, workflow and artifact surfaces", () => {
+  for (const required of [
+    "scripts/qa/**",
+    "apps/api/src/agent/**",
+    "packages/domain/src/import-*.ts",
+    "package-lock.json",
+    "docs/maria-ia.md",
+    ".github/workflows/maria-csv-vault-qa.yml",
+  ])
+    assert.ok(blockerDWorkflowSource.includes(required), required);
+});
+
+test("vault QA keeps the viewport matrix and deterministic financial evidence", () => {
+  assert.match(
+    blockerDWorkflowSource,
+    /matrix:[\s\S]*mobile-375[\s\S]*mobile-390[\s\S]*desktop-1280/,
+  );
+  for (const required of [
+    "npx prisma migrate deploy",
+    "maria-csv-invoice.spec.ts",
+    "maria-pdf-textual.spec.ts",
+    "maria-csv-assert.mjs post-confirm",
+    "maria-csv-assert.mjs fk",
+    "actions/upload-artifact@v4",
+  ])
+    assert.ok(blockerDWorkflowSource.includes(required), required);
+});
+
+test("vault QA has no model install, pull, eval, provenance or report path", () => {
+  for (const removed of [
+    "maria-model-eval",
+    "MARIA_IMPORT_MODEL_EVAL",
+    "maria-import:eval",
+    "ollama",
+    "qwen",
+    "model-lock",
+    "model-provenance",
+    "eval-report",
+    "pull-model",
+  ])
+    assert.ok(
+      !blockerDWorkflowSource.toLowerCase().includes(removed.toLowerCase()),
+      removed,
+    );
+});

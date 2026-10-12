@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import type { ProjectType, OnboardingFunding } from "@reformaflow/domain";
 import { useAuth } from "@/contexts/auth-context";
 import {
@@ -61,6 +62,10 @@ interface JourneyRuntimeContextValue {
   emitProjectsCreated: (
     projects: Array<{ id: string; type: JourneyProject["type"] }>,
   ) => Promise<void>;
+  completeSignup: (
+    projects: Array<{ id: string; type: JourneyProject["type"] }>,
+    registeredUserId: string,
+  ) => Promise<void>;
   next: () => void;
   back: () => void;
   skip: () => void;
@@ -110,6 +115,8 @@ export function JourneyRuntimeProvider({
   const { user, loading: authLoading } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const [active, setActive] = useState<ActiveJourney | null>(null);
   const [queue, setQueue] = useState<QueuedJourney[]>([]);
   const [projects, setProjects] = useState<JourneyProject[]>([]);
@@ -141,18 +148,76 @@ export function JourneyRuntimeProvider({
   // nem uma requisição. Guardamos o contexto e reemitimos quando o usuário
   // aparece, o que preserva "nunca disparar sem usuário autenticado" sem
   // perder o gatilho.
-  const pendingEmit = useRef<JourneyEligibilityContext[] | null>(null);
+  const pendingEmit = useRef<{
+    contexts: JourneyEligibilityContext[];
+    signup: boolean;
+    userId?: string;
+  } | null>(null);
+  const emission = useRef({ generation: 0, signup: false });
+  const currentUserId = useRef(user?.id);
+  currentUserId.current = user?.id;
+  const currentAuthLoading = useRef(authLoading);
+  currentAuthLoading.current = authLoading;
+  const previousUserId = useRef(user?.id);
+  const activeUserId = useRef(user?.id);
+  const authIdentityGeneration = useRef(0);
+  const [renderAuthGeneration, setRenderAuthGeneration] = useState(0);
+  useLayoutEffect(() => {
+    if (
+      (previousUserId.current && previousUserId.current !== user?.id) ||
+      (user &&
+        pendingEmit.current?.signup &&
+        pendingEmit.current.userId !== user.id)
+    ) {
+      ++emission.current.generation;
+      ++authIdentityGeneration.current;
+      setRenderAuthGeneration(authIdentityGeneration.current);
+      emission.current.signup = false;
+      pendingEmit.current = null;
+      setError(null);
+      setLoading(false);
+      setActive(null);
+      setQueue([]);
+      setProjects([]);
+    }
+    previousUserId.current = user?.id;
+  }, [user?.id]);
 
   const emitMany = useCallback(
-    async (contexts: JourneyEligibilityContext[]) => {
-      if (active || contexts.length === 0) return;
-      if (!user || authLoading) {
-        pendingEmit.current = contexts;
+    async (
+      contexts: JourneyEligibilityContext[],
+      signup = false,
+      signupUserId?: string,
+    ) => {
+      if (renderAuthGeneration !== authIdentityGeneration.current) return;
+      if ((!signup && active) || contexts.length === 0) return;
+      if (
+        signup &&
+        currentUserId.current &&
+        currentUserId.current !== signupUserId
+      )
+        return;
+      if (!currentUserId.current || currentAuthLoading.current) {
+        // Screen/action events cannot replace the pending authenticated signup.
+        if (!pendingEmit.current?.signup || signup)
+          pendingEmit.current = {
+            contexts,
+            signup,
+            userId: signup ? signupUserId : currentUserId.current,
+          };
         return;
       }
+      // Signup supersedes an older additive screen lookup; screen/action events
+      // cannot race its initial destination while its eligibility is unresolved.
+      if (emission.current.signup && !signup) return;
+      const generation = signup
+        ? ++emission.current.generation
+        : emission.current.generation;
+      emission.current.signup = signup;
+      const emittingUserId = currentUserId.current;
       pendingEmit.current = null;
       setLoading(true);
-      setError(null);
+      if (signup) setError(null);
       try {
         const knownStepKeys = getKnownJourneyStepKeys();
         // Um gatilho por projeto, todos em paralelo: o cadastro com N objetivos
@@ -163,12 +228,13 @@ export function JourneyRuntimeProvider({
             // projectId (quando existe) já é conhecido ANTES da resposta de
             // elegibilidade, então esperar essa resposta para só então buscar o
             // tipo do projeto era um segundo round-trip sequencial sem motivo.
-            const projectTypePromise = context.projectId
-              ? getProjectType(context.projectId).catch(() => null)
+            const projectTypeRead = context.projectId
+              ? getProjectType(context.projectId)
               : Promise.resolve(null);
+            const eligibilityRead = getEligibleJourneys(context);
             const [eligible, projectType] = await Promise.all([
-              getEligibleJourneys(context).catch(() => []),
-              projectTypePromise,
+              signup ? eligibilityRead : eligibilityRead.catch(() => []),
+              signup ? projectTypeRead : projectTypeRead.catch(() => null),
             ]);
             return eligible.map((j) => ({
               journey: normalizeJourney(j, { knownStepKeys }),
@@ -177,6 +243,11 @@ export function JourneyRuntimeProvider({
             }));
           }),
         );
+        if (
+          generation !== emission.current.generation ||
+          currentUserId.current !== emittingUserId
+        )
+          return;
 
         const seen = new Set<string>();
         const entries: QueuedJourney[] = [];
@@ -193,10 +264,23 @@ export function JourneyRuntimeProvider({
 
         const [first] = entries;
         if (first) {
+          activeUserId.current = emittingUserId;
           if (first.journey.crossProject) {
             void listJourneyProjects()
-              .then(setProjects)
-              .catch(() => setProjects([]));
+              .then((projects) => {
+                if (
+                  generation === emission.current.generation &&
+                  currentUserId.current === emittingUserId
+                )
+                  setProjects(projects);
+              })
+              .catch(() => {
+                if (
+                  generation === emission.current.generation &&
+                  currentUserId.current === emittingUserId
+                )
+                  setProjects([]);
+              });
           }
           setActive({
             journey: first.journey,
@@ -205,14 +289,50 @@ export function JourneyRuntimeProvider({
             projectType: first.projectType,
           });
           setQueue(entries);
+        } else if (signup) {
+          setActive(null);
+          setQueue([]);
         }
-      } catch {
+        // The FULL activation effect owns the project destination. Only an
+        // absent/summary first journey falls back to the hub, from this owner.
+        const step = first?.journey.steps[0];
+        if (
+          signup &&
+          !(step?.experience === "FULL" && step.slug && first.projectId)
+        )
+          routerRef.current.replace("/projects");
+      } catch (caught: unknown) {
         // The runtime is additive: an unavailable journey API must not break the app.
+        if (
+          signup &&
+          generation === emission.current.generation &&
+          currentUserId.current === emittingUserId
+        ) {
+          const message =
+            "Não foi possível carregar a jornada inicial. Seus projetos continuam disponíveis no Hub.";
+          setError(message);
+          setActive(null);
+          setQueue([]);
+          // Same diagnostic convention as SummaryStepPanel; do not silently
+          // reinterpret a server/programming failure as an empty journey plan.
+          console.error(
+            "[jornadas] Falha ao carregar a jornada do cadastro:",
+            caught,
+          );
+          toast.error(message);
+          routerRef.current.replace("/projects");
+        }
       } finally {
-        setLoading(false);
+        if (
+          generation === emission.current.generation &&
+          currentUserId.current === emittingUserId
+        ) {
+          emission.current.signup = false;
+          setLoading(false);
+        }
       }
     },
-    [active, authLoading, user],
+    [active, authLoading, user, renderAuthGeneration],
   );
 
   const emit = useCallback(
@@ -238,11 +358,34 @@ export function JourneyRuntimeProvider({
     [emitMany],
   );
 
+  const completeSignup = useCallback(
+    (
+      projects: Array<{ id: string; type: JourneyProject["type"] }>,
+      registeredUserId: string,
+    ) =>
+      emitMany(
+        [
+          ...projects.map(
+            (project): JourneyEligibilityContext => ({
+              triggerType: "PROJECT_CREATED",
+              device: device(),
+              projectId: project.id,
+              projectType: project.type,
+            }),
+          ),
+          { triggerType: "SIGNUP_COMPLETED", device: device() },
+        ],
+        true,
+        registeredUserId,
+      ),
+    [emitMany],
+  );
+
   // Drena o gatilho que chegou cedo demais, assim que a autenticação resolve.
   useEffect(() => {
     const pending = pendingEmit.current;
-    if (!pending || !user || authLoading || active) return;
-    void emitMany(pending);
+    if (!pending || !user || authLoading || (active && !pending.signup)) return;
+    void emitMany(pending.contexts, pending.signup, pending.userId);
   }, [active, authLoading, emitMany, user]);
 
   useEffect(() => {
@@ -283,12 +426,25 @@ export function JourneyRuntimeProvider({
   // etapa (ativada direto por emit(), sem passar por next()) e uma jornada de
   // etapa única (nunca chama next() antes de finish()) nunca navegavam.
   useEffect(() => {
-    if (!active) return;
+    if (
+      !active ||
+      !user ||
+      authLoading ||
+      (activeUserId.current && activeUserId.current !== user.id)
+    )
+      return;
     const step = active.journey.steps[active.stepIndex];
     if (step?.experience === "FULL" && step.slug && active.projectId) {
       router.push(`/projects/${active.projectId}/${step.slug}`);
     }
-  }, [active?.journey, active?.stepIndex, active?.projectId, router]);
+  }, [
+    active?.journey,
+    active?.stepIndex,
+    active?.projectId,
+    router,
+    user?.id,
+    authLoading,
+  ]);
 
   const finish = useCallback(async () => {
     if (!active) return;
@@ -374,6 +530,7 @@ export function JourneyRuntimeProvider({
       emit,
       emitSignupCompleted,
       emitProjectsCreated,
+      completeSignup,
       next,
       back,
       skip,
@@ -387,6 +544,7 @@ export function JourneyRuntimeProvider({
       dismiss,
       emit,
       emitProjectsCreated,
+      completeSignup,
       emitSignupCompleted,
       error,
       loading,

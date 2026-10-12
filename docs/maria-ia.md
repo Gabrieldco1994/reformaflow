@@ -83,6 +83,50 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
     eval externo sem autorização específica; não expor dados pessoais, caminhos privados,
     nonces ou recibos internos em logs, evidências públicas ou contexto Maria.
 
+### Sessão ativa: controles determinísticos
+
+- Perguntas ativas do rascunho são respondidas por controles manuais focados. A UI monta o
+  envelope tipado e usa `PATCH /import-sessions/:id/draft`; nem modelo nem tool da Maria
+  interpreta, escolhe ou envia a resposta. A atestação documental nativa conserva seu endpoint
+  próprio e também não passa por `/agent/chat`.
+- A arquitetura contextual de importação foi removida: não há contrato público de turno/outcome,
+  resposta livre, aprovação de escopo nem tool contextual durante a sessão. O PATCH legado
+  aceita somente `questionId: null`, `replaceLines: []` e a lista explícita
+  `selectedLineIds`; ele não é uma porta alternativa para editar linhas ou responder perguntas.
+- Literais de dinheiro, quantidade, data e significado precisam ser aceitos pelo parser estrito
+  e corresponder ao valor exibido. Tipo, categoria e decisão usam opções tipadas/autorizadas.
+  Finalidade é explicitamente `NO_TARGETS` ou um único `TARGET` autorizado, integral e com
+  literal monetário correspondente; ausência de escolha nunca vira destino. O destino precisa
+  ser uma REFORMA ativa, diferente do projeto proprietário e acessível ao usuário; eventual
+  cômodo precisa pertencer a ela.
+- Voz só transcreve para uma prévia determinística do campo focado. Não há autosubmit nem
+  fallback para LLM; entrada inválida ou ambígua permanece para correção manual e nada é enviado.
+  Para estabelecimento, alternativas, separadores, múltiplos nomes ou expressões de incerteza
+  falham fechadas.
+- Preparação e leitura de resultado usam diretamente os endpoints da sessão. `prepare` só abre
+  revisão quando retorna `READY`; em `NEEDS_INPUT`, mantém proposta/confirmar/resultado ausentes e
+  devolve o foco às perguntas pendentes. Guardar uma resposta, preparar ou consultar não concede
+  confirmação financeira. O card e sua ação autenticada continuam separados, com nonce e
+  revalidação do servidor.
+- O canal genérico da Maria continua existindo fora da sessão ativa em `/agent/chat`, com
+  `metadata.channel` aninhado para proveniência `TEXT`/`VOICE`. Essa proveniência não é grant.
+  Detectar deterministicamente o pedido inicial pode devolver a ação de entrada CSV/PDF sem
+  chamar o provider, mas não devolve o controle da sessão ao modelo.
+- CSV e PDF textual usam a mesma seleção local e o mesmo consentimento explícito antes do upload
+  privado; PDF com raster continua exigindo OCR fora deste recorte. Este caminho não altera
+  habilitação do vault nem retenção: vault OFF por padrão continua fail-closed; rascunho pendente
+  continua expirando após sete dias sem edição, sem renovação por consulta.
+
+Esse comportamento está presente na árvore candidata atual da #718. A métrica de
+projeção de contexto elegível do corpus puro cobre somente o resultado e a projeção
+de contexto do avaliador; não comprova autenticação, isolamento de tenant, passagem
+pela API nem revalidação do servidor. Antes de merge ou release, essas garantias e
+o SHA exato da composição final **MUST** ser atestados por checks externos
+correspondentes da PR #718; enquanto eles não corresponderem ao SHA final, esta
+documentação não os atesta, e o avaliador puro não concede autorização. Este
+documento não fixa um SHA final futuro ou circular; `881e9b5c` é apenas uma base
+histórica de implementação, não o candidato final atual.
+
 O recorte e a sequência da jornada estão na
 [experiência de importação](experiencia-importacao.md#importação-conversacional-na-maria).
 Este contrato não habilita uma tool nem atesta conformidade do runtime.
@@ -97,6 +141,9 @@ Este contrato não habilita uma tool nem atesta conformidade do runtime.
   contrato não inventa SLO.
 
 ### Evals e gates
+
+Os gates abaixo regem mudanças que de fato usam prompt, modelo ou tool. Não são uma dependência
+nem uma alegação de qualificação por modelo para os controles determinísticos da sessão ativa.
 
 - Exatidão de valor monetário e decisão de autorização: **100%** no conjunto direcionado; qualquer
   erro bloqueia.

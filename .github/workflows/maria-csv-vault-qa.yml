@@ -1,0 +1,233 @@
+name: Maria CSV + textual PDF private-vault QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      [
+        feat/maria-conversational-csv-20261009,
+        feat/maria-pdf-integration-20261010,
+        feat/maria-current-main-20261010,
+        feat/maria-vault-startup-20261010,
+      ]
+    paths:
+      - .github/workflows/maria-csv-vault-qa.yml
+      - scripts/qa/**
+      - apps/web/e2e-qa/**
+      - apps/web/playwright.qa.config.ts
+      - apps/web/src/app/projects/**/maria/**
+      - apps/web/src/app/register/**
+      - apps/web/src/contexts/journey-runtime-context.tsx
+      - apps/api/src/imports/**
+      - apps/api/src/credit-card/parsers/**
+      - apps/api/src/credit-card/invoice-payment-classification.ts
+      - apps/api/src/agent/**
+      - apps/api/package.json
+      - apps/api/tsconfig.json
+      - package.json
+      - package-lock.json
+      - packages/domain/package.json
+      - docs/maria-ia.md
+      - apps/api/nest-cli.json
+      - apps/api/Dockerfile
+      - apps/api/docker-entrypoint.sh
+      - apps/api/src/main.ts
+      - deploy/vault-startup/**
+      - packages/domain/src/import-*.ts
+      - packages/domain/src/import-session.ts
+      - packages/domain/src/types/card-import-review.ts
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/maria-csv-vault-qa.yml
+      - scripts/qa/**
+      - apps/web/e2e-qa/**
+      - apps/web/playwright.qa.config.ts
+      - apps/web/src/app/projects/**/maria/**
+      - apps/web/src/app/register/**
+      - apps/web/src/contexts/journey-runtime-context.tsx
+      - apps/api/src/imports/**
+      - apps/api/src/credit-card/parsers/**
+      - apps/api/src/credit-card/invoice-payment-classification.ts
+      - apps/api/src/agent/**
+      - apps/api/package.json
+      - apps/api/tsconfig.json
+      - package.json
+      - package-lock.json
+      - packages/domain/package.json
+      - docs/maria-ia.md
+      - apps/api/nest-cli.json
+      - apps/api/Dockerfile
+      - apps/api/docker-entrypoint.sh
+      - apps/api/src/main.ts
+      - deploy/vault-startup/**
+      - packages/domain/src/import-*.ts
+      - packages/domain/src/import-session.ts
+      - packages/domain/src/types/card-import-review.ts
+
+permissions:
+  contents: read
+
+jobs:
+  production-vault-startup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install test tooling for independent canonical legacy fixture
+        run: |
+          npm ci
+          npm --workspace @reformaflow/domain run build
+          npx prisma generate --schema=prisma/schema.prisma
+      - name: Build actual production runtime image (not QA launcher)
+        run: docker build -f apps/api/Dockerfile -t vault-startup:test .
+      - name: Create disposable ext4 mount and exercise actual entrypoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime=$(mktemp -d "$RUNNER_TEMP/vault-image-XXXXXX")
+          mkdir "$runtime/data"
+          truncate -s 2G "$runtime/ext4.img"
+          mkfs.ext4 -q "$runtime/ext4.img"
+          sudo mount -o loop "$runtime/ext4.img" "$runtime/data"
+          trap 'sudo umount "$runtime/data"; rm -f "$runtime/ext4.img"; rmdir "$runtime/data" "$runtime"' EXIT
+          sudo chown "$(id -u):$(id -g)" "$runtime/data"
+          # Container EUID root owns its newly provisioned 0700 tree. Test harness reads
+          # synthetic snapshots as root; no dev.db, production secrets or Fly access.
+          sudo env PATH="$PATH" VAULT_IMAGE_DATA_DIR="$runtime/data" VAULT_STARTUP_IMAGE=vault-startup:test \
+            node --test --test-concurrency=1 deploy/vault-startup/test/production-image.test.mjs
+          sudo env PATH="$PATH" VAULT_IMAGE_DATA_DIR="$runtime/data" VAULT_STARTUP_IMAGE=vault-startup:test \
+            node node_modules/jest/bin/jest.js --runInBand --config apps/api/package.json \
+            apps/api/src/imports/import-session/main-migrations-upgrade.integration.spec.ts \
+            --setupFilesAfterEnv "$PWD/deploy/vault-startup/test/canonical-image.setup.cjs"
+  maria-csv-vault:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Real /auth/register uses the production IP+empty-username bucket (10/10min).
+    # Six scenarios per runner keep that protection intact. Each viewport owns a
+    # fresh API process, SQLite and vault; no retries, shared auth or bypass flags.
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport: [mobile-375, mobile-390, desktop-1280]
+    env:
+      CI: "1"
+      TZ: UTC
+      API_URL: http://127.0.0.1:3011
+      WEB_URL: http://127.0.0.1:3010
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:3011
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build domain and generate Prisma client
+        run: |
+          npm --workspace @reformaflow/domain run build
+          npx prisma generate --schema=prisma/schema.prisma
+      - name: Prepare isolated runtime (no secrets or production access)
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          # Main's requested-ON production contract is not bypassed for Maria QA.
+          # Each matrix job owns a separate disposable runner and ext4 /data mount.
+          test ! -e /data
+          image="$RUNNER_TEMP/maria-ext4-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.viewport }}.img"
+          truncate -s 2G "$image"
+          mkfs.ext4 -q "$image"
+          sudo mkdir /data
+          sudo mount -o loop "$image" /data
+          sudo chown "$(id -u):$(id -g)" /data
+          runtime=/data
+          runtime=$(cd "$runtime" && pwd -P)
+          # vault-probe.ts requires root/t/trash (not .trash), each owner-only 0700.
+          mkdir "$runtime/artifacts" "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash"
+          mkdir "$runtime/public-uploads" "$runtime/private-uploads"
+          touch "$runtime/import-vault/.lock"
+          chmod 700 "$runtime/import-vault" "$runtime/import-vault/t" "$runtime/import-vault/trash"
+          chmod 600 "$runtime/import-vault/.lock"
+          secret=$(node -e 'console.log(require("node:crypto").randomBytes(48).toString("hex"))')
+          echo "::add-mask::$secret"
+          {
+            echo "QA_RUNTIME_DIR=$runtime"
+            echo "QA_DB_PATH=$runtime/maria-qa.db"
+            echo "QA_VAULT_DIR=$runtime/import-vault"
+            echo "QA_ARTIFACTS_DIR=$runtime/artifacts"
+            echo "DATABASE_URL=file:$runtime/maria-qa.db"
+            echo "JWT_SECRET=$secret"
+          } >> "$GITHUB_ENV"
+      - name: Apply committed migrations to disposable SQLite
+        # Same migrate deploy invocation as prepare-test-db.mjs. Do not invoke that
+        # script: its test guard intentionally redirects to the worktree's test.db.
+        run: npx prisma migrate deploy --schema=prisma/schema.prisma
+      - name: Build API and install browser
+        run: |
+          npm --workspace @reformaflow/api run build
+          npx playwright install --with-deps chromium
+          command -v lsof
+          command -v flock
+      - name: Boot API and web with private vault enabled
+        # boot.sh uses IMPORT_VAULT_ENABLED=true, IMPORT_VAULT_LOCK_FD=9,
+        # VAULT_DIR, IMPORT_VAULT_IDLE_TIMEOUT_MS, IMPORT_VAULT_HEADROOM_BYTES,
+        # IMPORT_VAULT_DRAIN_TIMEOUT_MS (vault.config.ts). Real flock survives exec;
+        # the API checks /proc/self/fdinfo/9 itself. No NO_FDINFO override exists.
+        # Broad IMPORT_SESSION_WRITES_ENABLED stays false; CSV is qualified separately.
+        run: |
+          bash scripts/qa/maria-csv-boot.sh api
+          bash scripts/qa/maria-csv-boot.sh web
+          bash scripts/qa/maria-csv-boot.sh wait-api
+          bash scripts/qa/maria-csv-boot.sh wait-web
+          bash scripts/qa/maria-csv-boot.sh gate
+      - name: Typecheck and list mandatory live CSV + PDF journeys
+        run: |
+          node --test scripts/qa/maria-csv-vault-workflow.test.mjs
+          cd apps/web
+          npx tsc --noEmit
+          npx playwright test -c playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts --list
+      - name: Run mandatory real Maria CSV + PDF journeys (${{ matrix.viewport }})
+        timeout-minutes: 45
+        env:
+          TMPDIR: ${{ env.QA_RUNTIME_DIR }}
+        run: |
+          set -euo pipefail
+          test -n "${QA_RUNTIME_DIR:-}"
+          test "${TMPDIR:-}" = "$QA_RUNTIME_DIR"
+          npx playwright test -c apps/web/playwright.qa.config.ts maria-csv-invoice.spec.ts maria-pdf-textual.spec.ts --project=${{ matrix.viewport }}
+      - name: Assert exact CSV financial inventory (${{ matrix.viewport }})
+        env:
+          TMPDIR: ${{ env.QA_RUNTIME_DIR }}
+        run: |
+          set -euo pipefail
+          test -n "${QA_RUNTIME_DIR:-}"
+          test "${TMPDIR:-}" = "$QA_RUNTIME_DIR"
+          node scripts/qa/maria-csv-assert.mjs post-confirm --db "$QA_DB_PATH" --selected-count 2 --vault "$QA_VAULT_DIR" --purge-wait-ms 75000
+          node scripts/qa/maria-csv-assert.mjs fk --db "$QA_DB_PATH"
+      - name: Stop owned QA servers
+        if: always() && env.QA_RUNTIME_DIR != ''
+        run: bash scripts/qa/maria-csv-boot.sh stop
+      - name: Upload screenshots, browser evidence and server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maria-csv-vault-qa-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.viewport }}
+          path: ${{ env.QA_ARTIFACTS_DIR || format('{0}/maria-csv-{1}-{2}-{3}/artifacts', runner.temp, github.run_id, github.run_attempt, matrix.viewport) }}
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Unmount owned disposable Maria filesystem after artifact collection
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/maria-ext4-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${{ matrix.viewport }}.img"
+          if test -f "$image"; then
+            if mountpoint -q /data; then sudo umount /data; fi
+            rm -f "$image"
+            if test -d /data; then sudo rmdir /data; fi
+          fi

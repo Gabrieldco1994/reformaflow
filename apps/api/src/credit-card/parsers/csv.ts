@@ -1,12 +1,16 @@
+import { IMPORT_SESSION_LIMITS } from "@reformaflow/domain";
 import {
   assignOrdinals,
+  buildCardDocument,
+  DocumentExtractionError,
   detectInstallment,
   inferPeriodLabel,
   makeExternalId,
   parseBrlMoney,
   type NormalizedTx,
   type ParseResult,
-} from './types';
+  type DocumentExtractionV1,
+} from "./types";
 
 /**
  * Parser CSV genérico para faturas Nubank e Itaú.
@@ -22,24 +26,17 @@ import {
 
 interface ParseOptions {
   cardId: string;
-  source: 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC';
+  source: "CSV_NUBANK" | "CSV_ITAU" | "CSV_GENERIC";
 }
 
 export function parseCsv(content: string, opts: ParseOptions): ParseResult {
-  const text = content.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const { rows, headerCols, hasHeader } = captureCsv(content);
+  const lines = rows.filter((row) => row.line.trim());
 
   if (lines.length === 0) {
     return { source: opts.source, transactions: [], totalAmountCents: 0 };
   }
 
-  // Detecta separador pela 1a linha de dados
-  const sample = lines[lines.length > 1 ? 1 : 0];
-  const sep = sample.includes(';') ? ';' : ',';
-
-  // Identifica header
-  const headerCols = parseCsvLine(lines[0], sep).map((c) => c.toLowerCase());
-  const hasHeader = headerCols.some((c) => /data|date|descri|title|valor|amount/.test(c));
   const dataLines = hasHeader ? lines.slice(1) : lines;
 
   const idx = mapColumns(headerCols, hasHeader);
@@ -47,13 +44,13 @@ export function parseCsv(content: string, opts: ParseOptions): ParseResult {
   const transactions: NormalizedTx[] = [];
   let totalAmountCents = 0;
 
-  for (const line of dataLines) {
-    const cols = parseCsvLine(line, sep);
+  for (const row of dataLines) {
+    const cols = row.columns.map((value) => value.trim());
     if (cols.length < 3) continue;
 
-    const dateRaw = cols[idx.date] ?? '';
-    const descRaw = cols[idx.merchant] ?? '';
-    const amountRaw = cols[idx.amount] ?? '';
+    const dateRaw = cols[idx.date] ?? "";
+    const descRaw = cols[idx.merchant] ?? "";
+    const amountRaw = cols[idx.amount] ?? "";
     const categoryRaw = idx.category != null ? cols[idx.category] : undefined;
 
     const date = parseFlexibleDate(dateRaw);
@@ -71,9 +68,9 @@ export function parseCsv(content: string, opts: ParseOptions): ParseResult {
 
     const { current, total, cleanMerchant } = detectInstallment(descRaw);
     transactions.push({
-      externalId: '',  // preenchido abaixo após assignOrdinals
+      externalId: "", // preenchido abaixo após assignOrdinals
       date,
-      merchant: cleanMerchant || 'Lançamento',
+      merchant: cleanMerchant || "Lançamento",
       amountCents,
       rawCategory: categoryRaw?.trim() || undefined,
       installmentCurrent: current,
@@ -102,26 +99,106 @@ export function parseCsv(content: string, opts: ParseOptions): ParseResult {
   };
 }
 
+export function parseCsvDocument(
+  content: string,
+  profile: "CSV_NUBANK" | "CSV_ITAU",
+): DocumentExtractionV1 {
+  const { rows, headerCols, hasHeader } = captureCsv(
+    content,
+    profile === "CSV_ITAU" ? ";" : ",",
+  );
+  const headerIndex = rows.findIndex((row) => row.line.trim() !== "");
+  const idx = mapColumns(headerCols, hasHeader);
+  if (
+    !hasHeader ||
+    !headerCols.some((c) => /data|date/.test(c)) ||
+    !headerCols.some((c) =>
+      /descri|title|memo|historic|estabelec|lançamento/.test(c),
+    ) ||
+    !headerCols.some((c) => /valor|amount|value/.test(c)) ||
+    rows.some((row) => !row.supported) ||
+    rows
+      .slice(headerIndex + 1)
+      .some((row) => row.columns.length > headerCols.length)
+  ) {
+    throw new DocumentExtractionError("UNSUPPORTED_DOCUMENT");
+  }
+  return buildCardDocument(
+    rows.slice(headerIndex + 1).map((row) => ({
+      reference: `csv:record:${row.record}`,
+      date: row.columns[idx.date] ?? null,
+      description: row.columns[idx.merchant] ?? null,
+      amount: row.columns[idx.amount] ?? null,
+      fitId: null,
+    })),
+    "CSV",
+    "UNKNOWN",
+  );
+}
+
 // ─── helpers ────────────────────────────────────────────────
 
-function parseCsvLine(line: string, sep: string): string[] {
+function captureCsv(content: string, separator?: string) {
+  const text = content.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  const lines = text.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  if (separator !== undefined) {
+    const header = lines.findIndex((line) => line.trim() !== "");
+    if (
+      header >= 0 &&
+      lines.length - header - 1 > IMPORT_SESSION_LIMITS.parsedRowsPerFile
+    ) {
+      throw new DocumentExtractionError("LIMIT_EXCEEDED");
+    }
+  }
+  const nonempty = lines.filter((line) => line.trim() !== "");
+  const sample = nonempty[nonempty.length > 1 ? 1 : 0] ?? "";
+  const sep = separator ?? (sample.includes(";") ? ";" : ",");
+  const rows = lines.map((line, index) => ({
+    line,
+    record: index + 1,
+    ...parseCsvLine(line, sep),
+  }));
+  const headerCols = (
+    rows.find((row) => row.line.trim() !== "")?.columns ?? []
+  ).map((c) => c.trim().toLowerCase());
+  const hasHeader = headerCols.some((c) =>
+    /data|date|descri|title|valor|amount/.test(c),
+  );
+  return { rows, headerCols, hasHeader };
+}
+
+function parseCsvLine(
+  line: string,
+  sep: string,
+): { columns: string[]; supported: boolean } {
   const out: string[] = [];
-  let cur = '';
+  let cur = "";
   let inQuotes = false;
+  let closedQuote = false;
+  let supported = true;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (c === '"') {
-      if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
-      else { inQuotes = !inQuotes; }
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else {
+        if (!inQuotes && (cur.trim() !== "" || closedQuote)) supported = false;
+        if (inQuotes) closedQuote = true;
+        inQuotes = !inQuotes;
+      }
     } else if (c === sep && !inQuotes) {
       out.push(cur);
-      cur = '';
+      cur = "";
+      closedQuote = false;
     } else {
+      if (closedQuote && !inQuotes && c.trim() !== "") supported = false;
       cur += c;
     }
   }
   out.push(cur);
-  return out.map((s) => s.trim());
+  return { columns: out, supported: supported && !inQuotes };
 }
 
 interface ColumnMap {
@@ -141,10 +218,17 @@ function mapColumns(header: string[], hasHeader: boolean): ColumnMap {
     }
     return -1;
   };
-  const date = find('data', 'date');
-  const merchant = find('descri', 'title', 'memo', 'historic', 'estabelec', 'lançamento');
-  const amount = find('valor', 'amount', 'value');
-  const category = find('categ', 'category');
+  const date = find("data", "date");
+  const merchant = find(
+    "descri",
+    "title",
+    "memo",
+    "historic",
+    "estabelec",
+    "lançamento",
+  );
+  const amount = find("valor", "amount", "value");
+  const category = find("categ", "category");
   return {
     date: date >= 0 ? date : 0,
     merchant: merchant >= 0 ? merchant : 1,

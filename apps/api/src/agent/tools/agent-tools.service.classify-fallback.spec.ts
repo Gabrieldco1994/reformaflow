@@ -1,25 +1,34 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { AgentToolsService, type ToolContext } from './agent-tools.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { TenantFinancialService } from '../../tenant-financial/tenant-financial.service';
-import { ExpenseService } from '../../expense/expense.service';
-import { ReceiptService } from '../../receipt/receipt.service';
-import { CreditCardService } from '../../credit-card/credit-card.service';
-import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
-import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
-import { PriceMonitorService } from '../../price-compare/price-monitor.service';
+import { Test, TestingModule } from "@nestjs/testing";
+import { AgentToolsService, type ToolContext } from "./agent-tools.service";
+import { PrismaService } from "../../prisma/prisma.service";
+import { TenantFinancialService } from "../../tenant-financial/tenant-financial.service";
+import { ExpenseService } from "../../expense/expense.service";
+import { ReceiptService } from "../../receipt/receipt.service";
+import { CreditCardService } from "../../credit-card/credit-card.service";
+import { MonthlyOverviewService } from "../../monthly-overview/monthly-overview.service";
+import { MerchantClassifierService } from "../../merchant-classifier/merchant-classifier.service";
+import { PriceMonitorService } from "../../price-compare/price-monitor.service";
 
-describe('create_expense — fallback do MerchantClassifier', () => {
+describe("create_expense — fallback do MerchantClassifier", () => {
   let service: AgentToolsService;
   let prisma: any;
   let expenses: any;
-  let classifier: { classifyBatch: jest.Mock; resolveLearnedExpenseType: jest.Mock };
-  const ctx: ToolContext = { tenantId: 'tenant-1', role: 'ADMIN', projectId: 'proj-1' };
+  let classifier: {
+    classifyBatch: jest.Mock;
+    resolveLearnedExpenseType: jest.Mock;
+  };
+  const ctx: ToolContext = {
+    tenantId: "tenant-1",
+    role: "ADMIN",
+    projectId: "proj-1",
+  };
 
   beforeEach(async () => {
     prisma = {
       project: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'proj-1', name: 'Casa', type: 'PESSOAL' }),
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: "proj-1", name: "Casa", type: "PESSOAL" }),
       },
       expense: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -28,12 +37,21 @@ describe('create_expense — fallback do MerchantClassifier', () => {
       bankAccount: { findFirst: jest.fn() },
     };
     expenses = {
-      create: jest.fn().mockResolvedValue({ id: 'exp-1', titulo: null, fornecedor: null, valorTotal: 10000 }),
+      create: jest.fn().mockResolvedValue({
+        id: "exp-1",
+        titulo: null,
+        fornecedor: null,
+        valorTotal: 10000,
+      }),
     };
     classifier = {
       classifyBatch: jest.fn().mockResolvedValue(new Map()),
       resolveLearnedExpenseType: jest.fn().mockResolvedValue({
-        expenseType: null, source: null, confidence: null, category: null, reason: 'sem-regra',
+        expenseType: null,
+        source: null,
+        confidence: null,
+        category: null,
+        reason: "sem-regra",
       }),
     };
 
@@ -53,121 +71,153 @@ describe('create_expense — fallback do MerchantClassifier', () => {
     service = module.get(AgentToolsService);
   });
 
-  it('tipoDespesa resolve OUTROS + titulo/fornecedor presente → chama classifyBatch e aplica a regra aprendida (>= limiar)', async () => {
+  it("does not expose a contextual import tool in the live registry", () => {
+    expect(
+      service.getToolDefs().map((definition) => definition.name),
+    ).not.toEqual(expect.arrayContaining([expect.stringMatching(/^import_/)]));
+  });
+
+  it("tipoDespesa resolve OUTROS + titulo/fornecedor presente → chama classifyBatch e aplica a regra aprendida (>= limiar)", async () => {
     classifier.classifyBatch.mockResolvedValue(
       new Map([
         [
-          MerchantClassifierService.normalizeKey('Ifood'),
-          { merchant: 'Ifood', category: 'alimentação', subcategory: null, source: 'AI' as const, confidence: 0.9 },
+          MerchantClassifierService.normalizeKey("Ifood"),
+          {
+            merchant: "Ifood",
+            category: "alimentação",
+            subcategory: null,
+            source: "AI" as const,
+            confidence: 0.9,
+          },
         ],
       ]),
     );
     classifier.resolveLearnedExpenseType.mockResolvedValue({
-      expenseType: 'ALIMENTACAO', source: 'AI_TENANT', confidence: 0.9, category: 'alimentação', reason: 'resolvido',
+      expenseType: "ALIMENTACAO",
+      source: "AI_TENANT",
+      confidence: 0.9,
+      category: "alimentação",
+      reason: "resolvido",
     });
 
-    const res: any = await service.execute('create_expense', ctx, {
-      valor: '50,00',
-      fornecedor: 'Ifood',
+    const res: any = await service.execute("create_expense", ctx, {
+      valor: "50,00",
+      fornecedor: "Ifood",
     });
 
-    expect(classifier.classifyBatch).toHaveBeenCalledWith(['Ifood'], 'tenant-1');
-    expect(classifier.resolveLearnedExpenseType).toHaveBeenCalledWith('Ifood', 'tenant-1');
+    expect(classifier.classifyBatch).toHaveBeenCalledWith(
+      ["Ifood"],
+      "tenant-1",
+    );
+    expect(classifier.resolveLearnedExpenseType).toHaveBeenCalledWith(
+      "Ifood",
+      "tenant-1",
+    );
     expect(res.error).toBeUndefined();
-    expect(res.despesa.tipoDespesa).toBe('ALIMENTACAO');
+    expect(res.despesa.tipoDespesa).toBe("ALIMENTACAO");
     expect(expenses.create).toHaveBeenCalledWith(
-      'tenant-1',
-      'proj-1',
-      expect.objectContaining({ tipoDespesa: 'ALIMENTACAO', valor: 50 }),
+      "tenant-1",
+      "proj-1",
+      expect.objectContaining({ tipoDespesa: "ALIMENTACAO", valor: 50 }),
       null,
       undefined,
-      expect.objectContaining({ role: 'ADMIN' }),
+      expect.objectContaining({ role: "ADMIN" }),
     );
   });
 
-  it('#582 PR-2: regra AI sub-limiar (0.7) → tipoDespesa fica OUTROS (era ALIMENTACAO)', async () => {
+  it("#582 PR-2: regra AI sub-limiar (0.7) → tipoDespesa fica OUTROS (era ALIMENTACAO)", async () => {
     classifier.classifyBatch.mockResolvedValue(
       new Map([
         [
-          MerchantClassifierService.normalizeKey('Ifood'),
-          { merchant: 'Ifood', category: 'alimentação', subcategory: null, source: 'AI' as const, confidence: 0.7 },
+          MerchantClassifierService.normalizeKey("Ifood"),
+          {
+            merchant: "Ifood",
+            category: "alimentação",
+            subcategory: null,
+            source: "AI" as const,
+            confidence: 0.7,
+          },
         ],
       ]),
     );
     classifier.resolveLearnedExpenseType.mockResolvedValue({
-      expenseType: null, source: null, confidence: null, category: null, reason: 'sub-limiar',
+      expenseType: null,
+      source: null,
+      confidence: null,
+      category: null,
+      reason: "sub-limiar",
     });
 
-    const res: any = await service.execute('create_expense', ctx, {
-      valor: '50,00',
-      fornecedor: 'Ifood',
+    const res: any = await service.execute("create_expense", ctx, {
+      valor: "50,00",
+      fornecedor: "Ifood",
     });
 
     expect(res.error).toBeUndefined();
-    expect(res.despesa.tipoDespesa).toBe('OUTROS');
+    expect(res.despesa.tipoDespesa).toBe("OUTROS");
     // o fallback NUNCA toca o valor — nem quando NÃO muda a categoria
     expect(expenses.create).toHaveBeenCalledWith(
-      'tenant-1',
-      'proj-1',
-      expect.objectContaining({ tipoDespesa: 'OUTROS', valor: 50 }),
+      "tenant-1",
+      "proj-1",
+      expect.objectContaining({ tipoDespesa: "OUTROS", valor: 50 }),
       null,
       undefined,
-      expect.objectContaining({ role: 'ADMIN' }),
+      expect.objectContaining({ role: "ADMIN" }),
     );
   });
 
-  it('agente já infere tipoDespesa != OUTROS → NUNCA chama o classifier', async () => {
-    const res: any = await service.execute('create_expense', ctx, {
-      valor: '50,00',
-      fornecedor: 'Ifood',
-      tipoDespesa: 'ALIMENTACAO',
+  it("agente já infere tipoDespesa != OUTROS → NUNCA chama o classifier", async () => {
+    const res: any = await service.execute("create_expense", ctx, {
+      valor: "50,00",
+      fornecedor: "Ifood",
+      tipoDespesa: "ALIMENTACAO",
     });
 
     expect(classifier.classifyBatch).not.toHaveBeenCalled();
     expect(classifier.resolveLearnedExpenseType).not.toHaveBeenCalled();
     expect(res.error).toBeUndefined();
-    expect(res.despesa.tipoDespesa).toBe('ALIMENTACAO');
+    expect(res.despesa.tipoDespesa).toBe("ALIMENTACAO");
   });
 
-  it('tipoDespesa OUTROS mas sem titulo nem fornecedor → não chama o classifier', async () => {
-    const res: any = await service.execute('create_expense', ctx, {
-      valor: '50,00',
+  it("tipoDespesa OUTROS mas sem titulo nem fornecedor → não chama o classifier", async () => {
+    const res: any = await service.execute("create_expense", ctx, {
+      valor: "50,00",
     });
 
     expect(classifier.classifyBatch).not.toHaveBeenCalled();
     expect(res.error).toBeUndefined();
-    expect(res.despesa.tipoDespesa).toBe('OUTROS');
+    expect(res.despesa.tipoDespesa).toBe("OUTROS");
   });
 
-  it('classifier sem hit válido → mantém OUTROS, não lança', async () => {
+  it("classifier sem hit válido → mantém OUTROS, não lança", async () => {
     classifier.classifyBatch.mockResolvedValue(new Map());
 
-    const res: any = await service.execute('create_expense', ctx, {
-      valor: '50,00',
-      fornecedor: 'Loja Desconhecida XYZ',
+    const res: any = await service.execute("create_expense", ctx, {
+      valor: "50,00",
+      fornecedor: "Loja Desconhecida XYZ",
     });
 
     expect(classifier.classifyBatch).toHaveBeenCalled();
     expect(res.error).toBeUndefined();
-    expect(res.despesa.tipoDespesa).toBe('OUTROS');
+    expect(res.despesa.tipoDespesa).toBe("OUTROS");
   });
 
   it('repassa ctx.userId como createdByUserId (KPI "despesas criadas" via Maria/voz depende disso)', async () => {
-    const ctxWithUser: ToolContext = { ...ctx, userId: 'user-maria-1' };
+    const ctxWithUser: ToolContext = { ...ctx, userId: "user-maria-1" };
 
-    await service.execute('create_expense', ctxWithUser, {
-      valor: '50,00',
-      fornecedor: 'Ifood',
-      tipoDespesa: 'ALIMENTACAO',
+    await service.execute("create_expense", ctxWithUser, {
+      valor: "50,00",
+      fornecedor: "Ifood",
+      tipoDespesa: "ALIMENTACAO",
     });
 
     expect(expenses.create).toHaveBeenCalledWith(
-      'tenant-1',
-      'proj-1',
+      "tenant-1",
+      "proj-1",
       expect.any(Object),
-      'user-maria-1',
+      "user-maria-1",
       undefined,
-      expect.objectContaining({ role: 'ADMIN' }),
+      expect.objectContaining({ role: "ADMIN" }),
     );
   });
 });

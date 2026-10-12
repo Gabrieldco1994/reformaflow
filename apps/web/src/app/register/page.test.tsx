@@ -7,21 +7,15 @@ const mocks = vi.hoisted(() => ({
   register: vi.fn(),
   refresh: vi.fn(),
   apiPost: vi.fn(),
-  replace: vi.fn(),
-  emitSignupCompleted: vi.fn(),
-  emitProjectsCreated: vi.fn(),
+  completeSignup: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace }),
-}));
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ register: mocks.register, refresh: mocks.refresh }),
 }));
 vi.mock("@/contexts/journey-runtime-context", () => ({
   useJourneyRuntime: () => ({
-    emitSignupCompleted: mocks.emitSignupCompleted,
-    emitProjectsCreated: mocks.emitProjectsCreated,
+    completeSignup: mocks.completeSignup,
   }),
 }));
 vi.mock("@/lib/api", async () => {
@@ -84,6 +78,7 @@ describe("/register form behavior", () => {
     mocks.register.mockResolvedValue({ id: "u1" });
     mocks.refresh.mockResolvedValue(undefined);
     mocks.apiPost.mockResolvedValue({ id: "p1" });
+    mocks.completeSignup.mockResolvedValue(undefined);
   });
 
   it("exposes name, email, and password fields plus the objective picker", () => {
@@ -99,7 +94,7 @@ describe("/register form behavior", () => {
     expect(screen.getByRole("checkbox", { name: /^Reformar/i })).toBeInTheDocument();
   });
 
-  it("submits the payload with the chosen objectives, creates one project per type, and routes to /projects", async () => {
+  it("submits the payload, creates one project per type, and hands navigation to runtime", async () => {
     let finishRegistration!: (value: { id: string }) => void;
     mocks.register.mockImplementationOnce(
       () => new Promise((resolve) => { finishRegistration = resolve; }),
@@ -128,7 +123,7 @@ describe("/register form behavior", () => {
       type: "REFORMA",
     }));
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/projects"));
+    await waitFor(() => expect(mocks.completeSignup).toHaveBeenCalledOnce());
   });
 
   it("creates one project per selected objective, sequentially", async () => {
@@ -142,7 +137,7 @@ describe("/register form behavior", () => {
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
     expect(mocks.apiPost).toHaveBeenNthCalledWith(1, "/projects", { name: "Minha reforma", type: "REFORMA" });
     expect(mocks.apiPost).toHaveBeenNthCalledWith(2, "/projects", { name: "Minha casa", type: "CASA" });
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/projects"));
+    await waitFor(() => expect(mocks.completeSignup).toHaveBeenCalledOnce());
   });
 
   // Regressão: o cadastro criava os projetos direto pela API e nunca emitia
@@ -157,12 +152,12 @@ describe("/register form behavior", () => {
     await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     await waitFor(() =>
-      expect(mocks.emitProjectsCreated).toHaveBeenCalledWith([
+      expect(mocks.completeSignup).toHaveBeenCalledWith([
         { id: "p1", type: "REFORMA" },
-      ]),
+      ], "u1"),
     );
     expect(mocks.refresh.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.emitProjectsCreated.mock.invocationCallOrder[0],
+      mocks.completeSignup.mock.invocationCallOrder[0],
     );
   });
 
@@ -180,10 +175,10 @@ describe("/register form behavior", () => {
     await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     await waitFor(() =>
-      expect(mocks.emitProjectsCreated).toHaveBeenCalledWith([
+      expect(mocks.completeSignup).toHaveBeenCalledWith([
         { id: "p-reforma", type: "REFORMA" },
         { id: "p-casa", type: "CASA" },
-      ]),
+      ], "u1"),
     );
   });
 
@@ -258,7 +253,7 @@ describe("/register form behavior", () => {
     await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));
-    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.completeSignup).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /criar minha conta/i })).toBeEnabled();
     expect(screen.getByText(/email duplicado/i)).toBeInTheDocument();
   });

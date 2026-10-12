@@ -29,6 +29,7 @@ model Tenant {
 }
 
 model User {
+  importSessions ImportSession[]
   id                  String    @id @default(cuid())
   tenantId            String    @map("tenant_id")
   externalId          String?   @unique @map("external_id")
@@ -52,6 +53,7 @@ model User {
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, username])
+  @@unique([tenantId, id])
   @@map("users")
 }
 
@@ -88,6 +90,9 @@ model DemoSeed {
 }
 
 model Project {
+  importSessions ImportSession[]
+  importArtifacts ImportArtifact[]
+  @@unique([tenantId, id])
   id          String    @id @default(cuid())
   tenantId    String    @map("tenant_id")
   createdByUserId String? @map("created_by_user_id")
@@ -176,6 +181,8 @@ model Room {
 // ─── Recebimentos ───────────────────────────────────────────
 
 model Receipt {
+  importObservations ImportObservation[] @relation("ImportObservationReceipt")
+  @@unique([tenantId, projectId, id])
   id              String    @id @default(cuid())
   projectId       String    @map("project_id")
   tenantId        String    @map("tenant_id")
@@ -212,6 +219,8 @@ model Receipt {
 // ─── Despesas ───────────────────────────────────────────────
 
 model Expense {
+  importObservations ImportObservation[] @relation("ImportObservationExpense")
+  @@unique([tenantId, projectId, id])
   id                 String    @id @default(cuid())
   projectId          String    @map("project_id")
   tenantId           String    @map("tenant_id")
@@ -978,6 +987,8 @@ model Pendencia {
 // ─── Cartões de crédito (import de fatura OFX/CSV) ─────────
 
 model CreditCard {
+  importSessions ImportSession[]
+  @@unique([tenantId, projectId, id])
   id                  String    @id @default(cuid())
   projectId           String    @map("project_id")
   tenantId            String    @map("tenant_id")
@@ -1318,4 +1329,143 @@ model JourneyCompletion {
   @@unique([journeyId, completionKey])
   @@index([tenantId])
   @@map("journey_completions")
+}
+
+// Session lifecycle is NOT soft deletion. SQL CHECKs live in the bootstrap migration.
+// No financial data or original documents are backfilled by these coordination models.
+model ImportSession {
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  ownerUserId             String    @map("owner_user_id")
+  ownerProjectId          String    @map("owner_project_id")
+  cardId                  String    @map("card_id")
+  protocolVersion         Int       @default(1) @map("protocol_version")
+  kind                    String
+  state                   String
+  revision                Int
+  createRequestId         String    @map("create_request_id")
+  createPayloadHash       String    @map("create_payload_hash")
+  consentPolicyVersion    Int       @map("consent_policy_version")
+  consentedAt             DateTime  @map("consented_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  lastUserEditAt          DateTime  @map("last_user_edit_at")
+  // Historical deadline remains non-null; terminal DTOs project expiresAt:null.
+  expiresAt               DateTime  @map("expires_at")
+  draftJson               String    @map("draft_json")
+  searchJson              String?   @map("search_json")
+  proposalJson            String?   @map("proposal_json")
+  proposalHash            String?   @map("proposal_hash")
+  preflightHash           String?   @map("preflight_hash")
+  challengeJson           String?   @map("challenge_json")
+  prepareGeneration       Int       @default(0) @map("prepare_generation")
+  prepareLeaseJson        String?   @map("prepare_lease_json")
+  financialRequestId      String?   @map("financial_request_id")
+  confirmedRevision       Int?      @map("confirmed_revision")
+  confirmedSessionVersion Int?      @map("confirmed_session_version")
+  confirmedAt             DateTime? @map("confirmed_at")
+  receiptJson             String?   @map("receipt_json")
+  closedAt                DateTime? @map("closed_at")
+
+  ownerUser           User                    @relation(fields: [tenantId, ownerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  ownerProject        Project                 @relation(fields: [tenantId, ownerProjectId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  card                CreditCard              @relation(fields: [tenantId, ownerProjectId, cardId], references: [tenantId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
+  attachments         ImportSessionArtifact[]
+  leasedArtifacts     ImportArtifact[]        @relation("ImportArtifactLeaseSession")
+  claimedObservations ImportObservation[]     @relation("ImportObservationClaimSession")
+
+  @@unique([tenantId, ownerUserId, createRequestId])
+  @@unique([tenantId, ownerUserId, financialRequestId])
+  @@unique([tenantId, ownerProjectId, id])
+  @@index([state, expiresAt])
+  @@map("import_sessions")
+}
+
+model ImportArtifact {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  ownerProjectId      String    @map("owner_project_id")
+  documentSha256      String?   @map("document_sha256")
+  verifiedBytes       Int       @map("verified_bytes")
+  detectedFormat      String    @map("detected_format")
+  state               String
+  storageKey          String?   @map("storage_key")
+  parserVersion       String?   @map("parser_version")
+  extractionJson      String?   @map("extraction_json")
+  parseGeneration     Int       @default(0) @map("parse_generation")
+  leaseSessionId      String?   @map("lease_session_id")
+  leaseSessionVersion Int?      @map("lease_session_version")
+  leaseTokenExpiresAt DateTime? @map("lease_token_expires_at")
+  leaseExpiresAt      DateTime? @map("lease_expires_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  ownerProject Project                 @relation(fields: [tenantId, ownerProjectId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  leaseSession ImportSession?          @relation("ImportArtifactLeaseSession", fields: [tenantId, ownerProjectId, leaseSessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+  references   ImportSessionArtifact[]
+  observations ImportObservation[]
+
+  @@unique([tenantId, ownerProjectId, documentSha256])
+  @@unique([tenantId, ownerProjectId, id])
+  @@map("import_artifacts")
+}
+
+model ImportSessionArtifact {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  ownerProjectId        String    @map("owner_project_id")
+  sessionId             String    @map("session_id")
+  artifactId            String?   @map("artifact_id")
+  position              Int
+  fileName              String    @map("file_name")
+  declaredMime          String    @map("declared_mime")
+  declaredBytes         Int       @map("declared_bytes")
+  state                 String
+  temporaryStorageKey   String?   @map("temporary_storage_key")
+  reservedBytes         Int       @map("reserved_bytes")
+  uploadGeneration      Int       @default(0) @map("upload_generation")
+  uploadSessionVersion  Int?      @map("upload_session_version")
+  uploadTokenExpiresAt  DateTime? @map("upload_token_expires_at")
+  uploadLeaseExpiresAt  DateTime? @map("upload_lease_expires_at")
+  verifiedAt            DateTime? @map("verified_at")
+  releasedAt            DateTime? @map("released_at")
+  temporaryPurgePending Boolean   @default(false) @map("temporary_purge_pending")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  session  ImportSession   @relation(fields: [tenantId, ownerProjectId, sessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+  artifact ImportArtifact? @relation(fields: [tenantId, ownerProjectId, artifactId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([sessionId, position])
+  @@unique([sessionId, artifactId])
+  @@index([tenantId, ownerProjectId, artifactId])
+  @@map("import_session_artifacts")
+}
+
+model ImportObservation {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  ownerProjectId     String    @map("owner_project_id")
+  artifactId         String    @map("artifact_id")
+  reference          String
+  evidenceJson       String    @map("evidence_json")
+  claimVersion       Int       @default(0) @map("claim_version")
+  canonicalProjectId String?   @map("canonical_project_id")
+  canonicalExpenseId String?   @map("canonical_expense_id")
+  canonicalReceiptId String?   @map("canonical_receipt_id")
+  canonicalIndex     Int?      @map("canonical_index")
+  claimSessionId     String?   @map("claim_session_id")
+  claimReceiptJson   String?   @map("claim_receipt_json")
+  claimedAt          DateTime? @map("claimed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  artifact         ImportArtifact @relation(fields: [tenantId, ownerProjectId, artifactId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+  canonicalExpense Expense?       @relation("ImportObservationExpense", fields: [tenantId, canonicalProjectId, canonicalExpenseId], references: [tenantId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
+  canonicalReceipt Receipt?       @relation("ImportObservationReceipt", fields: [tenantId, canonicalProjectId, canonicalReceiptId], references: [tenantId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
+  claimSession     ImportSession? @relation("ImportObservationClaimSession", fields: [tenantId, ownerProjectId, claimSessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([artifactId, reference])
+  @@index([tenantId, canonicalProjectId, canonicalExpenseId])
+  @@index([tenantId, canonicalProjectId, canonicalReceiptId])
+  @@map("import_observations")
 }

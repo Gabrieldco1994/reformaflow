@@ -1,0 +1,31 @@
+import { describe, expect, expectTypeOf, it } from "vitest";
+import type { ImportEntryActionV1 } from "../src/import-session";
+
+type TransportOrigin = "TEXT" | "VOICE";
+type StartAction = Extract<
+  ImportEntryActionV1,
+  { kind: "START_CARD_INVOICE_IMPORT" }
+>;
+
+describe("Maria generic transport contract", () => {
+  it("keeps a closed TEXT/VOICE vocabulary on generic START", () => {
+    expectTypeOf<
+      StartAction["originChannel"]
+    >().toEqualTypeOf<TransportOrigin>();
+    expect(["TEXT", "VOICE"]).toEqual(["TEXT", "VOICE"]);
+  });
+
+  it.each(["TEXT", "VOICE"] as const)(
+    "carries %s on a typed START action",
+    (origin) => {
+      const action = {
+        version: 1,
+        kind: "START_CARD_INVOICE_IMPORT",
+        formats: ["CSV"],
+        suggestedCardId: null,
+        originChannel: origin,
+      } satisfies ImportEntryActionV1;
+      expect(action.originChannel).toBe(origin);
+    },
+  );
+});

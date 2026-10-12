@@ -1,45 +1,71 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { useProject } from '@/contexts/project-context';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { useProject } from "@/contexts/project-context";
+import {
+  readImportEntryAction,
+  type ImportEntryAction,
+} from "@/app/projects/[projectId]/maria/_lib/import-entry-action";
 
 export interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   toolsUsed?: string[];
+  mode?: "IMPORT";
+  speechText?: string | null;
+  importRevision?: number;
+  importEntryAction?: ImportEntryAction | null;
 }
+
+export type AgentChannel = "TEXT" | "VOICE";
+
+export interface FinancialAgentSendContext {
+  channel?: AgentChannel;
+  signal?: AbortSignal;
+}
+
+export type FinancialAgentSend = (
+  text: string,
+  context?: FinancialAgentSendContext,
+) => Promise<ChatMessage | null>;
 
 interface AgentResponse {
   reply: string;
   toolsUsed: string[];
   provider: string;
+  importEntryAction?: unknown;
 }
 
 // Ferramentas que ALTERAM dados — ao usá-las, as telas precisam recarregar.
-const WRITE_TOOLS = new Set(['create_expense', 'create_receipt', 'create_obra_expense']);
+const WRITE_TOOLS = new Set([
+  "create_expense",
+  "create_receipt",
+  "create_obra_expense",
+]);
 
 // Famílias de query (React Query) afetadas por uma escrita do copiloto.
 const INVALIDATE_ON_WRITE: string[][] = [
-  ['expenses'],
-  ['receipts'],
-  ['cash-flow'],
-  ['dashboard'],
-  ['tenant-financial'],
-  ['cross-project-expenses'],
-  ['monthly-overview'],
-  ['bank-accounts'],
-  ['credit-cards'],
-  ['notifications'],
+  ["expenses"],
+  ["receipts"],
+  ["cash-flow"],
+  ["dashboard"],
+  ["tenant-financial"],
+  ["cross-project-expenses"],
+  ["monthly-overview"],
+  ["bank-accounts"],
+  ["credit-cards"],
+  ["notifications"],
 ];
 
 function describeError(error: unknown): string {
-  const msg = error instanceof Error ? error.message : 'Erro ao falar com o agente.';
+  const msg =
+    error instanceof Error ? error.message : "Erro ao falar com o agente.";
   const lower = msg.toLowerCase();
-  if (lower.includes('limite de uso') || lower.includes('rate limit')) {
-    return '⏳ O limite de uso da IA foi atingido. Tente novamente em alguns minutos.';
+  if (lower.includes("limite de uso") || lower.includes("rate limit")) {
+    return "⏳ O limite de uso da IA foi atingido. Tente novamente em alguns minutos.";
   }
-  if (lower.includes('não configurado') || lower.includes('nao configurado')) {
-    return 'O agente ainda não está configurado neste ambiente.';
+  if (lower.includes("não configurado") || lower.includes("nao configurado")) {
+    return "O agente ainda não está configurado neste ambiente.";
   }
   return `Ops, não consegui responder agora. (${msg})`;
 }
@@ -59,22 +85,33 @@ export function useFinancialAgent() {
     messagesRef.current = messages;
   }, [messages]);
 
-  const send = useCallback(
-    async (text: string): Promise<ChatMessage | null> => {
+  const send: FinancialAgentSend = useCallback(
+    async (
+      text: string,
+      context?: FinancialAgentSendContext,
+    ): Promise<ChatMessage | null> => {
       const content = text.trim();
       if (!content) return null;
+      const channel = context?.channel ?? "TEXT";
 
-      const history: ChatMessage[] = [...messagesRef.current, { role: 'user', content }];
+      const history: ChatMessage[] = [
+        ...messagesRef.current,
+        { role: "user", content },
+      ];
       setMessages(history);
       setLoading(true);
 
       let assistant: ChatMessage;
       try {
         const res = await api.post<AgentResponse>(
-          '/agent/chat',
+          "/agent/chat",
           {
             projectId,
-            messages: history.map((m) => ({ role: m.role, content: m.content })),
+            metadata: { channel },
+            messages: history.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
           },
           // O agente roda um loop LLM (até 12 iterações) com fallback de provider;
           // pode passar bem dos 25s padrão. Damos folga para evitar abortar uma
@@ -82,7 +119,12 @@ export function useFinancialAgent() {
           // duplicatas quando o usuário reenviava após o "timeout").
           { timeoutMs: 120_000 },
         );
-        assistant = { role: 'assistant', content: res.reply, toolsUsed: res.toolsUsed };
+        assistant = {
+          role: "assistant",
+          content: res.reply,
+          toolsUsed: res.toolsUsed,
+          importEntryAction: readImportEntryAction(res.importEntryAction),
+        };
         setMessages((prev) => [...prev, assistant]);
 
         if (res.toolsUsed?.some((t) => WRITE_TOOLS.has(t))) {
@@ -91,7 +133,7 @@ export function useFinancialAgent() {
           }
         }
       } catch (error) {
-        assistant = { role: 'assistant', content: describeError(error) };
+        assistant = { role: "assistant", content: describeError(error) };
         setMessages((prev) => [...prev, assistant]);
       } finally {
         setLoading(false);
