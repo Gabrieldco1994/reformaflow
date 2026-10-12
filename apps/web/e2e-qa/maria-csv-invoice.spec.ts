@@ -20,6 +20,7 @@ import { csvFixtureAnswers, type CsvExpected } from "./helpers/fixture-answers";
 import {
   fillFocusedDraftPreview,
   focusedDraftContract,
+  isAgentChatPost,
   isFocusedDraftQuestion,
   nativeFocusedOnly,
   visibleCurrentQuestionForm,
@@ -269,6 +270,7 @@ for (const phase of ["upload", "confirmation"] as const) {
           (sum, purchase) => sum + purchase.amountCents,
           0,
         );
+        expect(selectedTotal).toBe(19_134);
         const assertPurchaseProjection = (snapshot: ImportSessionViewV1) => {
           const titles = snapshot.lines.map((line) => line.titulo);
           for (const purchase of expected.purchases) {
@@ -449,14 +451,10 @@ for (const phase of ["upload", "confirmation"] as const) {
         sessionId =
           new URL(page.url()).searchParams.get("importSessionId") ?? "";
         expect(sessionId).not.toBe("");
-        const activeAgentChatRequests: unknown[] = [];
+        const activeAgentChatRequests: string[] = [];
         page.on("request", (request) => {
-          if (
-            request.method() === "POST" &&
-            new URL(request.url()).pathname === "/agent/chat" &&
-            request.postDataJSON()?.importTurn?.sessionId === sessionId
-          )
-            activeAgentChatRequests.push(request.postDataJSON());
+          if (isAgentChatPost(request))
+            activeAgentChatRequests.push(new URL(request.url()).pathname);
         });
         await expect
           .poll(async () => {
@@ -949,7 +947,7 @@ for (const phase of ["upload", "confirmation"] as const) {
         ).toEqual(applied.items.map((item) => item.id).sort());
         expect(terminal.receipt!.items).toHaveLength(2);
         expect(terminal.receipt!.snapshot.createdEconomicTotalCents).toBe(
-          selectedPurchases[1].amountCents,
+          selectedTotal,
         );
         const auditedReceipt = terminal.receipt as typeof terminal.receipt & {
           auditItems: Array<{

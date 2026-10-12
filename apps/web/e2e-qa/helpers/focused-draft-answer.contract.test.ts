@@ -7,7 +7,9 @@ import type {
 } from "@reformaflow/domain";
 import {
   focusedDraftContract,
+  isAgentChatPost,
   isFocusedDraftQuestion,
+  nativeFocusedOnly,
 } from "./focused-draft-answer";
 
 // Unit tests for the evidence validator only, not mocked journey/release proof.
@@ -153,4 +155,41 @@ test("unsupported and documentary choices never enter focused native branch", ()
     } as unknown as ImportSessionQuestionV1),
     false,
   );
+});
+
+test("active-session monitor rejects a generic agent chat POST without reading its body", async () => {
+  let listener:
+    | ((request: {
+        method(): string;
+        url(): string;
+        postDataJSON(): unknown;
+      }) => void)
+    | undefined;
+  const page = {
+    on: (event: string, candidate: typeof listener) => {
+      assert.equal(event, "request");
+      listener = candidate;
+    },
+    off: (event: string, candidate: typeof listener) => {
+      assert.equal(event, "request");
+      assert.equal(candidate, listener);
+    },
+  };
+  const form = { page: () => page };
+  let bodyReads = 0;
+  const genericPost = {
+    method: () => "POST",
+    url: () => "http://localhost:3011/agent/chat?source=generic",
+    postDataJSON: () => {
+      bodyReads++;
+      return { messages: [], metadata: { channel: "TEXT" } };
+    },
+  };
+
+  assert.equal(isAgentChatPost(genericPost), true);
+  await assert.rejects(
+    nativeFocusedOnly(form as never, async () => listener?.(genericPost)),
+    /active import session must not call agent chat/i,
+  );
+  assert.equal(bodyReads, 0);
 });

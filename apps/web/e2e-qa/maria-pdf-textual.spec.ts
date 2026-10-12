@@ -21,6 +21,7 @@ import { nativeDocumentaryContract } from "./helpers/native-documentary-answer";
 import {
   fillFocusedDraftPreview,
   focusedDraftContract,
+  isAgentChatPost,
   isFocusedDraftQuestion,
   nativeFocusedOnly,
   visibleCurrentQuestionForm,
@@ -97,14 +98,10 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
     ).toBeVisible();
     const sessionId = sessionFromUrl(page);
     expect(sessionId).not.toBe("");
-    const activeAgentChatRequests: unknown[] = [];
+    const activeAgentChatRequests: string[] = [];
     page.on("request", (request) => {
-      if (
-        request.method() === "POST" &&
-        new URL(request.url()).pathname === "/agent/chat" &&
-        request.postDataJSON()?.importTurn?.sessionId === sessionId
-      )
-        activeAgentChatRequests.push(request.postDataJSON());
+      if (isAgentChatPost(request))
+        activeAgentChatRequests.push(new URL(request.url()).pathname);
     });
     const view = () => journey.view(sessionId);
     const uploaded = await view();

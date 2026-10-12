@@ -314,27 +314,33 @@ export async function fillFocusedDraftPreview(
   return answer;
 }
 
-/** Observe the whole preview/save capture; native choices cannot also send an LLM ANSWER. */
+type RequestRoute = Pick<import("@playwright/test").Request, "method" | "url">;
+
+/** Body-independent guard: every agent chat POST is forbidden once a session is active. */
+export function isAgentChatPost(request: RequestRoute) {
+  return (
+    request.method() === "POST" &&
+    new URL(request.url()).pathname === "/agent/chat"
+  );
+}
+
+/** Observe the whole preview/save capture; native choices cannot also call agent chat. */
 export async function nativeFocusedOnly<T>(
   form: Locator,
   operation: () => Promise<T>,
 ) {
-  const conversational: unknown[] = [];
+  const agentChatPosts: string[] = [];
   const page = form.page();
   const onRequest = (request: import("@playwright/test").Request) => {
-    if (
-      request.method() === "POST" &&
-      new URL(request.url()).pathname === "/agent/chat" &&
-      request.postDataJSON()?.importTurn?.intent === "ANSWER"
-    )
-      conversational.push(request.postDataJSON().importTurn);
+    if (isAgentChatPost(request))
+      agentChatPosts.push(new URL(request.url()).pathname);
   };
   page.on("request", onRequest);
   try {
     const result = await operation();
     expect(
-      conversational,
-      "Focused typed answers must not call agent chat",
+      agentChatPosts,
+      "An active import session must not call agent chat",
     ).toEqual([]);
     return result;
   } finally {
