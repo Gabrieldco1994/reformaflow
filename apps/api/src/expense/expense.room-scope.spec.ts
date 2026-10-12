@@ -101,7 +101,10 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
   });
 
   describe('create', () => {
-    it('OWNER/ADMIN não alcança room cujo projeto pai virou tombstone', async () => {
+    it.each([
+      ['OWNER', TEST_OWNER_REQUESTER],
+      ['ADMIN', ADMIN],
+    ] as const)('%s não alcança room cujo projeto pai virou tombstone', async (_role, requester) => {
       await setupPrisma.project.update({
         where: { id: OTHER },
         data: { deletedAt: new Date('2026-10-12T00:00:00.000Z') },
@@ -109,7 +112,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
       const before = await setupPrisma.expense.count({ where: { tenantId: TENANT, projectId: OTHER } });
 
       await expect(
-        service.create(TENANT, OTHER, dto({ roomId: roomInOther }) as any, null, undefined, ADMIN),
+        service.create(TENANT, OTHER, dto({ roomId: roomInOther }) as any, null, undefined, requester),
       ).rejects.toBeInstanceOf(NotFoundException);
 
       expect(await setupPrisma.expense.count({ where: { tenantId: TENANT, projectId: OTHER } })).toBe(before);

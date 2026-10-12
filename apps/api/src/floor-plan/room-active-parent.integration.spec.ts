@@ -6,6 +6,7 @@ import { PrismaClient } from "@prisma/client";
 import { FloorPlanService } from "./floor-plan.service";
 import { PendenciaService } from "../pendencia/pendencia.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { SimulationService } from "../simulation/simulation.service";
 
 const setupPrisma = new PrismaClient();
 const prisma = new PrismaService();
@@ -33,6 +34,7 @@ async function cleanup(): Promise<void> {
 describe("Room consumers require an active parent project (#722)", () => {
   let floorPlans: FloorPlanService;
   let pendencias: PendenciaService;
+  let simulations: SimulationService;
 
   beforeAll(async () => {
     await setupPrisma.$connect();
@@ -91,6 +93,7 @@ describe("Room consumers require an active parent project (#722)", () => {
       {} as never,
       {} as never,
     );
+    simulations = new SimulationService(prisma);
   });
 
   afterAll(async () => {
@@ -161,5 +164,19 @@ describe("Room consumers require an active parent project (#722)", () => {
     ).resolves.not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: legacy.id })]),
     );
+  });
+
+  it("keeps active simulation rooms and rejects the tombstone parent before returning room data", async () => {
+    await expect(simulations.getData(TENANT, ACTIVE_PROJECT)).resolves.toEqual(
+      expect.objectContaining({
+        ambientes: expect.arrayContaining([
+          expect.objectContaining({ key: ACTIVE_ROOM, label: "Active room" }),
+        ]),
+      }),
+    );
+
+    await expect(
+      simulations.getData(TENANT, TOMBSTONE_PROJECT),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

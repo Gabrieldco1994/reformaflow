@@ -24,6 +24,7 @@ require("../test-db-env.cjs");
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SCRIPT = join(ROOT, "scripts", "repair-legacy-fk-integrity.mjs");
+const SCRIPT_SOURCE = readFileSync(SCRIPT, "utf8");
 const TEST_DATABASE = join(ROOT, "prisma", "test.db");
 const EXPECTED_PROJECTS = 2;
 const EXPECTED_ROOMS = 28;
@@ -146,7 +147,7 @@ function scopeProof() {
       { projectId: PROJECT_A, tenantId: TENANT_A, roomIds: ROOM_IDS_A },
       { projectId: PROJECT_B, tenantId: TENANT_B, roomIds: ROOM_IDS_B },
     ],
-    orphanCashFlowEntries: CASH_FLOW_SCOPE,
+    orphanCashFlowEntries: CASH_FLOW_SCOPE.map((row) => ({ ...row })),
   };
 }
 
@@ -398,7 +399,9 @@ test("dry-run proves the literal 28+4/2 scope and performs no writes", () => {
   assert.deepEqual(readFileSync(fixture.database), beforeDatabase);
   assert.equal(foreignKeyViolations(fixture.database).length, 32);
   assert.equal(statSync(fixture.manifest).mode & 0o777, 0o600);
-  const manifest = JSON.parse(readFileSync(fixture.manifest, "utf8"));
+  const manifestBytes = readFileSync(fixture.manifest);
+  const manifest = JSON.parse(manifestBytes);
+  assert.deepEqual(manifestBytes, canonicalBytes(manifest));
   assert.deepEqual(
     {
       version: manifest.version,
@@ -440,10 +443,30 @@ test("dry-run proves the literal 28+4/2 scope and performs no writes", () => {
   for (const field of ["beforeHash", "postHash", "financialHash"]) {
     assert.match(manifest[field], /^[a-f0-9]{64}$/);
   }
+  assert.deepEqual(JSON.parse(result.stdout), {
+    missingProjects: 2,
+    orphanRooms: 28,
+    orphanCashFlowEntries: 4,
+    foreignKeyViolationsBefore: 32,
+    foreignKeyViolationsAfter: 32,
+    insertedProjects: 0,
+    updatedCashFlowEntries: 0,
+    manifestHash: sha256(manifestBytes).slice(0, 12),
+  });
+});
+
+test("the executable keeps exact topology and an explicit preimage-hash gate without embedded row IDs", () => {
   assert.match(
-    result.stdout.trim(),
-    /^\{"missingProjects":2,"orphanRooms":28,"orphanCashFlowEntries":4,"foreignKeyViolationsBefore":32,"foreignKeyViolationsAfter":32,"insertedProjects":0,"updatedCashFlowEntries":0,"manifestHash":"[a-f0-9]{12}"\}$/,
+    SCRIPT_SOURCE,
+    /const EXPECTED_MISSING_PROJECTS = 2;[\s\S]*const EXPECTED_ORPHAN_ROOMS = 28;[\s\S]*const EXPECTED_ORPHAN_CASH_FLOW_ENTRIES = 4;[\s\S]*const EXPECTED_FOREIGN_KEY_VIOLATIONS = 32;/,
   );
+  assert.match(
+    SCRIPT_SOURCE,
+    /stateHash\(state\) !== manifest\.beforeHash \|\|[\s\S]{0,160}stateHash\(protectedFinancialState\(state\)\) !== manifest\.financialHash/,
+  );
+  for (const fixtureIdentity of PRIVATE_VALUES) {
+    assert.doesNotMatch(SCRIPT_SOURCE, new RegExp(fixtureIdentity));
+  }
 });
 
 test("apply inserts two tombstones, nulls four expense FKs only, and is exactly idempotent", () => {
@@ -473,17 +496,36 @@ test("apply inserts two tombstones, nulls four expense FKs only, and is exactly 
       ["-json"],
     ),
   );
-  assert.equal(projects.length, 2);
-  for (const project of projects) {
-    assert.equal(project.type, "REFORMA");
-    assert.equal(project.name, "__legacy_fk_recovery_tombstone__");
-    assert.equal(project.description, "Technical tombstone created by #722");
-    assert.notEqual(project.deleted_at, null);
-    assert.equal(project.created_by_user_id, null);
-    assert.equal(project.start_date, null);
-    assert.equal(project.end_date, null);
-    assert.equal(project.onboarded_at, null);
-  }
+  assert.deepEqual(projects, [
+    {
+      id: PROJECT_A,
+      tenant_id: TENANT_A,
+      type: "REFORMA",
+      name: "__legacy_fk_recovery_tombstone__",
+      description: "Technical tombstone created by #722",
+      created_by_user_id: null,
+      start_date: null,
+      end_date: null,
+      created_at: 0,
+      updated_at: 0,
+      deleted_at: 0,
+      onboarded_at: null,
+    },
+    {
+      id: PROJECT_B,
+      tenant_id: TENANT_B,
+      type: "REFORMA",
+      name: "__legacy_fk_recovery_tombstone__",
+      description: "Technical tombstone created by #722",
+      created_by_user_id: null,
+      start_date: null,
+      end_date: null,
+      created_at: 0,
+      updated_at: 0,
+      deleted_at: 0,
+      onboarded_at: null,
+    },
+  ]);
 
   const cashAfter = cashFlowSnapshot(fixture.database);
   assert.deepEqual(
@@ -560,6 +602,16 @@ test("hash, mode, expected counts, and symlinks all fail closed", () => {
     assert.throws(() => statSync(fixture.manifest));
   }
 
+  {
+    const fixture = createFixture();
+    const before = snapshot(fixture.database);
+    writePrivateJson(fixture.manifest, { sentinel: "must-not-be-replaced" });
+    const oldManifest = readFileSync(fixture.manifest);
+    requireFailure(runRepair(fixture.database, dryRunArgs(fixture)));
+    assert.equal(snapshot(fixture.database), before);
+    assert.deepEqual(readFileSync(fixture.manifest), oldManifest);
+  }
+
   for (const overrides of [
     { manifestHash: "0".repeat(64) },
     { projects: 1 },
@@ -589,9 +641,36 @@ test("hash, mode, expected counts, and symlinks all fail closed", () => {
     symlinkSync(target, fixture.manifest);
     requireFailure(runRepair(fixture.database, applyArgs(fixture)));
   }
+  {
+    const fixture = createFixture();
+    const manifest = dryRun(fixture);
+    manifest.beforeHash = "0".repeat(64);
+    unlinkSync(fixture.manifest);
+    writePrivateJson(fixture.manifest, manifest);
+    const before = snapshot(fixture.database);
+    requireFailure(
+      runRepair(
+        fixture.database,
+        applyArgs(fixture, { manifestHash: sha256(fixture.manifest) }),
+      ),
+    );
+    assert.equal(snapshot(fixture.database), before);
+  }
 });
 
 test("scope, topology, dependency, and post-dry-run drift abort without repair writes", () => {
+  {
+    const fixture = createFixture();
+    const wrongTenantProof = scopeProof();
+    wrongTenantProof.orphanCashFlowEntries[0].tenantId = TENANT_B;
+    unlinkSync(fixture.proof);
+    writePrivateJson(fixture.proof, wrongTenantProof);
+    const before = snapshot(fixture.database);
+    requireFailure(runRepair(fixture.database, dryRunArgs(fixture)));
+    assert.equal(snapshot(fixture.database), before);
+    assert.throws(() => statSync(fixture.manifest));
+  }
+
   const mutations = [
     `UPDATE rooms SET deleted_at = '2026-06-01' WHERE id = ${quote(ROOM_IDS_A[0])};`,
     `INSERT INTO rooms (id, project_id, name, "order", created_at, deleted_at)
@@ -637,9 +716,7 @@ test("scope, topology, dependency, and post-dry-run drift abort without repair w
 
   const postFixture = createFixture();
   dryRun(postFixture);
-  requireSuccess(
-    runRepair(postFixture.database, applyArgs(postFixture)),
-  );
+  requireSuccess(runRepair(postFixture.database, applyArgs(postFixture)));
   sqlite(
     postFixture.database,
     `
@@ -651,9 +728,7 @@ test("scope, topology, dependency, and post-dry-run drift abort without repair w
     `,
   );
   const postWithDependency = snapshot(postFixture.database);
-  requireFailure(
-    runRepair(postFixture.database, applyArgs(postFixture)),
-  );
+  requireFailure(runRepair(postFixture.database, applyArgs(postFixture)));
   assert.equal(snapshot(postFixture.database), postWithDependency);
 });
 
