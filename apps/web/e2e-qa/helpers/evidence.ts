@@ -100,9 +100,13 @@ export class ExpectedHttpFailureConsoleError {
   }
 
   assertSatisfied() {
-    if (this.httpFailureCount !== 1 || this.consoleFailureCount !== 1)
+    const absent =
+      this.httpFailureCount === 0 && this.consoleFailureCount === 0;
+    const matched =
+      this.httpFailureCount === 1 && this.consoleFailureCount === 1;
+    if (!absent && !matched)
       throw new Error(
-        `Expected exactly one scoped HTTP failure and browser console failure; observed ${JSON.stringify(this.snapshot())}`,
+        `Expected the scoped HTTP failure and browser console failure to be both absent or exactly one matched pair; observed ${JSON.stringify(this.snapshot())}`,
       );
   }
 }

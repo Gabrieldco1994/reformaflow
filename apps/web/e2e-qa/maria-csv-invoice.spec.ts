@@ -681,15 +681,28 @@ for (const phase of ["upload", "confirmation"] as const) {
               if (!lostAnswerRecovered) {
                 let requests = 0;
                 let committed = false;
+                const draftUrl = `${apiURL.replace(/\/$/, "")}/import-sessions/${sessionId}/draft`;
+                const expectedDraftAbort =
+                  evidence.expectRequestAbortConsoleFailure({
+                    phase: `${phase}-lost-answer`,
+                    method: "PATCH",
+                    url: draftUrl,
+                  });
                 await page.route(
                   (url) =>
                     url.pathname === `/import-sessions/${sessionId}/draft`,
                   async (route) => {
                     requests++;
+                    const abortScope = {
+                      phase: `${phase}-lost-answer`,
+                      method: route.request().method(),
+                      url: route.request().url(),
+                    };
                     const response = await route.fetch();
                     expect(response.status()).toBe(200);
                     committed = true;
                     await route.abort("failed");
+                    expectedDraftAbort.recordRouteAbort(abortScope);
                   },
                 );
                 const recovered = page.waitForResponse(

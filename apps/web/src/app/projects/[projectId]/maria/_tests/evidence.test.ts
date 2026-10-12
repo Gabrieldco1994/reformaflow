@@ -143,6 +143,46 @@ describe("ExpectedRequestAbortConsoleFailure", () => {
   });
 });
 
+describe("JourneyEvidence expected request aborts", () => {
+  const expected = {
+    phase: "confirmation-lost-answer",
+    method: "PATCH",
+    url: "http://api.test/import-sessions/session-1/draft",
+  };
+
+  it("correlates a pre-registered PATCH /draft abort even when browser events arrive first", () => {
+    const page = new EventEmitter();
+    const evidence = new JourneyEvidence(
+      page as never,
+      {
+        project: { name: "unit" },
+        title: "unit evidence",
+      } as never,
+    );
+    const allowance = evidence.expectRequestAbortConsoleFailure(expected);
+
+    page.emit("requestfailed", {
+      method: () => expected.method,
+      url: () => expected.url,
+      failure: () => ({ errorText: "net::ERR_FAILED" }),
+    });
+    page.emit("console", {
+      type: () => "error",
+      text: () => "Failed to load resource: net::ERR_FAILED",
+      location: () => ({ url: expected.url }),
+    });
+    allowance.recordRouteAbort(expected);
+
+    expect(() => evidence.assertClean()).not.toThrow();
+    expect(allowance.snapshot()).toEqual({
+      ...expected,
+      routeAbortCount: 1,
+      requestFailureCount: 1,
+      consoleFailureCount: 1,
+    });
+  });
+});
+
 describe("JourneyEvidence expected HTTP console failures", () => {
   const expected = {
     phase: "voice CSV entry",
@@ -176,6 +216,32 @@ describe("JourneyEvidence expected HTTP console failures", () => {
     return { evidence, page };
   }
 
+  it("accepts an absent 503 pair when TTS is not attempted", () => {
+    const { evidence } = buildEvidence();
+
+    expect(() => evidence.assertClean()).not.toThrow();
+  });
+
+  it.each([
+    {
+      name: "HTTP response only",
+      emit: (page: EventEmitter) =>
+        page.emit("response", response(expected.url)),
+    },
+    {
+      name: "console diagnostic only",
+      emit: (page: EventEmitter) => page.emit("console", failedResource),
+    },
+  ])("rejects a one-sided expected 503 pair: $name", ({ emit }) => {
+    const { evidence, page } = buildEvidence();
+
+    emit(page);
+
+    expect(() => evidence.assertClean()).toThrow(
+      /both absent or exactly one matched pair/,
+    );
+  });
+
   it.each(["response-first", "console-first"] as const)(
     "accepts the exact expected 503 and Chromium diagnostic in %s order",
     (order) => {
@@ -205,6 +271,12 @@ describe("JourneyEvidence expected HTTP console failures", () => {
       expectedMessage: /Unexpected 4xx\/5xx responses/,
     },
     {
+      name: "503 GET response from the expected URL",
+      emit: (page: EventEmitter) =>
+        page.emit("response", response(expected.url, 503, "GET")),
+      expectedMessage: /Unexpected 4xx\/5xx responses/,
+    },
+    {
       name: "503 console diagnostic from another URL",
       emit: (page: EventEmitter) =>
         page.emit("console", {
@@ -212,6 +284,17 @@ describe("JourneyEvidence expected HTTP console failures", () => {
           location: () => ({ url: "http://api.test/unrelated" }),
         }),
       expectedMessage: /Unexpected browser console\/page errors/,
+    },
+    {
+      name: "duplicate expected 503 response",
+      emit: (page: EventEmitter) =>
+        page.emit("response", response(expected.url)),
+      expectedMessage: /both absent or exactly one matched pair/,
+    },
+    {
+      name: "duplicate expected 503 console diagnostic",
+      emit: (page: EventEmitter) => page.emit("console", failedResource),
+      expectedMessage: /both absent or exactly one matched pair/,
     },
   ])(
     "still fails for an unrelated failure: $name",
