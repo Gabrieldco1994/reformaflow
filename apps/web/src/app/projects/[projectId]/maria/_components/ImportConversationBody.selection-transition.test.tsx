@@ -12,6 +12,13 @@ const mocks = vi.hoisted(() => ({
   conversation: {} as Record<string, unknown>,
 }));
 
+const LINE_A_ID = "550e8400-e29b-41d4-a716-446655440001";
+const LINE_B_ID = "550e8400-e29b-41d4-a716-446655440002";
+const OBSERVATION_A_ID = "6ba7b810-9dad-11d1-80b4-00c04fd430c1";
+const OBSERVATION_B_ID = "6ba7b810-9dad-11d1-80b4-00c04fd430c2";
+const QUESTION_A_ID = "9fd160aa-52b6-4df1-bb10-9a179900a211";
+const QUESTION_B_ID = "9fd160aa-52b6-4df1-bb10-9a179900a212";
+
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "project-owner" }),
   useRouter: () => ({ replace: vi.fn() }),
@@ -68,14 +75,18 @@ vi.mock("./ImportReviewBlockerNotice", () => ({
 vi.mock("./ImportProposalCard", () => ({ ImportProposalCard: () => null }));
 vi.mock("./ImportReceipt", () => ({ ImportReceipt: () => null }));
 
-const answered = (lineId: string): ImportObservationQuestionV1 => ({
-  id: `answered-${lineId}`,
+const answered = (
+  lineId: string,
+  observationId: string,
+  questionId: string,
+): ImportObservationQuestionV1 => ({
+  id: questionId,
   lineIds: [lineId],
   field: "merchant",
-  text: `Fornecedor de ${lineId}`,
+  text: "Estabelecimento informado",
   subject: {
     kind: "OBSERVATION",
-    observationId: `observation-${lineId}`,
+    observationId,
     meaningContext: null,
   },
   answerState: "DECLARED",
@@ -90,23 +101,43 @@ const view: ImportSessionViewV1 = {
   revision: 4,
   expiresAt: "2026-10-18T00:00:00.000Z",
   attachments: [],
-  lines: ["line-a", "line-b"].map((id) => ({
-    id,
-    observationIds: [`observation-${id}`],
-    titulo: `Compra ${id}`,
-    fornecedor: "Fornecedor guardado",
-    tipoDespesa: null,
-    categoriaMaoDeObra: null,
-    amountMeaning: ImportSessionAmountMeaning.TOTAL_PURCHASE,
-    amountCents: id === "line-a" ? 12_345 : 6_789,
-    installmentCount: 1,
-    dataCompra: "2026-10-10",
-    firstDueDate: null,
-    targets: [],
-    decision: { kind: "CREATE", acceptNaturalDuplicate: false },
-  })),
-  selectedLineIds: ["line-b"],
-  questions: [answered("line-a"), answered("line-b")],
+  lines: [
+    {
+      id: LINE_A_ID,
+      observationIds: [OBSERVATION_A_ID],
+      titulo: "Liquidificador",
+      fornecedor: "Fornecedor guardado",
+      tipoDespesa: null,
+      categoriaMaoDeObra: null,
+      amountMeaning: ImportSessionAmountMeaning.TOTAL_PURCHASE,
+      amountCents: 12_345,
+      installmentCount: 1,
+      dataCompra: "2026-10-10",
+      firstDueDate: null,
+      targets: [],
+      decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+    },
+    {
+      id: LINE_B_ID,
+      observationIds: [OBSERVATION_B_ID],
+      titulo: "Geladeira",
+      fornecedor: "Fornecedor guardado",
+      tipoDespesa: null,
+      categoriaMaoDeObra: null,
+      amountMeaning: ImportSessionAmountMeaning.TOTAL_PURCHASE,
+      amountCents: 6_789,
+      installmentCount: 2,
+      dataCompra: "2026-10-10",
+      firstDueDate: null,
+      targets: [],
+      decision: { kind: "CREATE", acceptNaturalDuplicate: false },
+    },
+  ],
+  selectedLineIds: [LINE_B_ID],
+  questions: [
+    answered(LINE_A_ID, OBSERVATION_A_ID, QUESTION_A_ID),
+    answered(LINE_B_ID, OBSERVATION_B_ID, QUESTION_B_ID),
+  ],
   declaredFacts: [],
   reviewBlockers: [],
   searchComplete: false,
@@ -164,15 +195,52 @@ it("offers edit only for answered lines that remain selected", () => {
     />,
   );
 
-  expect(
-    screen.queryByRole("button", {
-      name: "Editar compra line-a: fornecedor",
-    }),
-  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /550e8400-e29b/ })).toBeNull();
   expect(
     screen.getByRole("button", {
-      name: "Editar compra line-b: fornecedor",
+      name: /Editar compra Fornecedor guardado.*Geladeira.*10\/10\/2026.*R\$ 67,89.*Total.*2 parcelas: fornecedor/,
     }),
   ).toBeEnabled();
   expect(mocks.editQuestion).not.toHaveBeenCalled();
+  expect(document.body.textContent ?? "").not.toMatch(
+    /550e8400-e29b-41d4-a716-44665544000[12]|6ba7b810-9dad-11d1-80b4-00c04fd430c[12]|amountMeaning/i,
+  );
+});
+
+it("renders guided response context without line or observation identifiers", () => {
+  mocks.conversation.guided = {
+    lineId: LINE_B_ID,
+    observationId: OBSERVATION_B_ID,
+    literal: "Estabelecimento informado",
+  };
+
+  render(
+    <ImportConversationBody
+      sessionId={view.id}
+      documents={
+        {
+          busy: false,
+          error: null,
+          notice: null,
+          recover: vi.fn(),
+          analyze: vi.fn(),
+        } as never
+      }
+    />,
+  );
+
+  expect(screen.getByText(/Resposta recebida/)).toHaveTextContent(
+    /Fornecedor guardado.*Geladeira.*10\/10\/2026.*R\$ 67,89.*Total.*2 parcelas/,
+  );
+  expect(
+    screen.getByRole("button", { name: /Editar compra/ }),
+  ).toHaveAccessibleName(/Geladeira/);
+  expect(document.body.textContent ?? "").not.toMatch(
+    /550e8400-e29b-41d4-a716-44665544000[12]|6ba7b810-9dad-11d1-80b4-00c04fd430c[12]|amountMeaning/i,
+  );
+  for (const button of screen.getAllByRole("button")) {
+    expect(button).not.toHaveAccessibleName(
+      /550e8400-e29b-41d4-a716-44665544000[12]|6ba7b810-9dad-11d1-80b4-00c04fd430c[12]|amountMeaning/i,
+    );
+  }
 });

@@ -34,6 +34,7 @@ import {
   ImportDeclaredFacts,
 } from "./ImportReviewBlockerNotice";
 import { ImportReceipt } from "./ImportReceipt";
+import { formatImportPurchaseContext } from "./ImportFocusedDraftQuestion";
 import { questionIntersectsSelectedLines } from "../_lib/import-question-selection";
 type AgentChannel = "TEXT" | "VOICE";
 
@@ -75,6 +76,9 @@ function Conversation({
     )
       ? conversation.guided
       : null;
+  const guidedLine = guided
+    ? view?.lines.find((line) => line.id === guided.lineId)
+    : undefined;
   const relatedQuestions =
     question && "subject" in question && view
       ? view.questions.filter(
@@ -376,7 +380,7 @@ function Conversation({
             {view.lines.map((line) => (
               <ImportDeclaredFacts
                 key={line.id}
-                lineId={line.id}
+                line={line}
                 facts={view.declaredFacts}
               />
             ))}
@@ -390,25 +394,33 @@ function Conversation({
                     view.selectedLineIds,
                   ),
               )
-              .map((question) => (
-                <div key={question.id} className="space-y-2 text-sm">
-                  <p>{question.text}</p>
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      !mayAnswer ||
-                      Boolean(error) ||
-                      Boolean(documents.error)
-                    }
-                    aria-label={`Editar compra ${question.lineIds[0]}: ${IMPORT_QUESTION_FIELD_LABEL[question.field]}`}
-                    className="min-h-11 rounded-xl border px-3"
-                    onClick={() => conversation.editQuestion(question.id)}
-                  >
-                    Editar {IMPORT_QUESTION_FIELD_LABEL[question.field]}
-                  </button>
-                </div>
-              ))}
+              .map((question) => {
+                const line = view.lines.find(
+                  (candidate) => candidate.id === question.lineIds[0],
+                );
+                const purchaseContext = line
+                  ? formatImportPurchaseContext(line)
+                  : "Compra";
+                return (
+                  <div key={question.id} className="space-y-2 text-sm">
+                    <p>{question.text}</p>
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        !mayAnswer ||
+                        Boolean(error) ||
+                        Boolean(documents.error)
+                      }
+                      aria-label={`Editar compra ${purchaseContext}: ${IMPORT_QUESTION_FIELD_LABEL[question.field]}`}
+                      className="min-h-11 rounded-xl border px-3"
+                      onClick={() => conversation.editQuestion(question.id)}
+                    >
+                      Editar {IMPORT_QUESTION_FIELD_LABEL[question.field]}
+                    </button>
+                  </div>
+                );
+              })}
           </div>
         )}
         {conversation.review && !documents.error && (
@@ -453,11 +465,10 @@ function Conversation({
         )}
         {!error?.privateContextLost && (
           <div className="min-w-0 space-y-3">
-            {guided && (
+            {guided && guidedLine && (
               <div className="space-y-1 break-words text-sm">
                 <p>
-                  Resposta recebida · Compra {guided.lineId} · Observação{" "}
-                  {guided.observationId}
+                  Resposta recebida · {formatImportPurchaseContext(guidedLine)}
                 </p>
                 <p>{guided.literal}</p>
               </div>

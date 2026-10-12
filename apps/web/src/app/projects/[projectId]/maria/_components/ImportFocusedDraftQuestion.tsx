@@ -54,9 +54,7 @@ export interface ImportVoiceCapture {
 
 export interface ImportFocusedDraftQuestionProps {
   question: ImportSessionQuestionV1;
-  lines: readonly (Pick<ImportSessionDraftLineV1, "id" | "titulo"> & {
-    amountCents?: number | null;
-  })[];
+  lines: readonly ImportPurchaseContextLine[];
   onAnswer?: (answer: ImportQuestionAnswerInput) => void;
   pending?: boolean;
   disabled?: boolean;
@@ -71,6 +69,56 @@ export interface ImportFocusedDraftQuestionProps {
   voiceCapture?: ImportVoiceCapture | null;
   revision?: number;
   onVoiceGuidance?: (message: string) => void;
+}
+
+export type ImportPurchaseContextLine = Pick<
+  ImportSessionDraftLineV1,
+  "id" | "titulo"
+> &
+  Partial<
+    Pick<
+      ImportSessionDraftLineV1,
+      | "fornecedor"
+      | "amountMeaning"
+      | "amountCents"
+      | "dataCompra"
+      | "installmentCount"
+    >
+  >;
+
+const AMOUNT_MEANING_LABELS: Record<ImportSessionAmountMeaning, string> = {
+  [ImportSessionAmountMeaning.TOTAL_PURCHASE]: "Total",
+  [ImportSessionAmountMeaning.INSTALLMENT_CHARGE]: "Parcela",
+  [ImportSessionAmountMeaning.UNKNOWN]: "Valor",
+};
+
+export function formatImportPurchaseContext(
+  line: ImportPurchaseContextLine,
+): string {
+  const merchant = line.fornecedor?.trim() ?? "";
+  const title = line.titulo.trim();
+  const identity = merchant
+    ? title && title !== merchant
+      ? `${merchant} — ${title}`
+      : merchant
+    : title || "Compra";
+  const details = [identity];
+  const date = formatDateOnly(line.dataCompra);
+  if (date) details.push(date);
+  if (line.amountCents !== null && line.amountCents !== undefined) {
+    const meaning = line.amountMeaning
+      ? (AMOUNT_MEANING_LABELS[line.amountMeaning] ?? "Valor")
+      : "Valor";
+    details.push(`${moneyDetail(line.amountCents)} · ${meaning}`);
+  }
+  if (line.installmentCount !== null && line.installmentCount !== undefined) {
+    details.push(
+      `${line.installmentCount} ${
+        line.installmentCount === 1 ? "parcela" : "parcelas"
+      }`,
+    );
+  }
+  return details.join(" · ");
 }
 
 const MEANING_OPTIONS = [
@@ -682,7 +730,7 @@ export function ImportFocusedDraftQuestion({
           (line, index) =>
             line && (
               <li key={question.lineIds[index]} className="break-words">
-                {line.titulo} — Compra {line.id}
+                {formatImportPurchaseContext(line)}
               </li>
             ),
         )}
