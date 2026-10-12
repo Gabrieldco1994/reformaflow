@@ -74,7 +74,7 @@ const base: ImportSessionViewV1 = {
   expiresAt: "2026-10-16T21:00:00.000Z",
   attachments: [],
   lines: [],
-  selectedLineIds: [],
+  selectedLineIds: ["line-1"],
   questions: [question],
   declaredFacts: [],
   reviewBlockers: [],
