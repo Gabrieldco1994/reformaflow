@@ -24,9 +24,14 @@ this file keeps the invariants only.
 9. The legacy-FK recovery has independent `fk-dryrun`/`fk-apply` commands,
    proof and manifest pointers. It never runs external-ID migration resolution
    or `prisma migrate deploy`.
-10. The legacy-FK executable verifies the inherited watchdog lock and its
-    unlinked execution capability before opening SQLite; a static environment
-    marker is insufficient.
+10. The legacy-FK executable checks the inherited lock and unlinked execution
+    capability before opening SQLite. These are concurrency and
+    expected-process checks only: they do not authenticate watchdog ancestry,
+    and a trusted principal with Fly root can reproduce or bypass them.
+11. The sole exception for that residual trusted-root risk is the expiring,
+    audited `legacy-fk-32-2026-10` operator authorization for issue #722 and
+    exact counts `2/28/4/32`, with zero deletions and zero monetary changes. It
+    expires after this recovery and authorizes no other operation.
 
 See `DEPLOY.md` for the arm/apply/disarm/cleanup commands and evidence checks.
 The one-off legacy-FK operation is documented separately in

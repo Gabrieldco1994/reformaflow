@@ -4,9 +4,9 @@
 
 Stack escolhido (zero migração de DB, custo R$ 0/mês para uso pessoal/demo):
 
-| Camada | Onde |
-|---|---|
-| **Web (Next.js)** | Vercel |
+| Camada                               | Onde                          |
+| ------------------------------------ | ----------------------------- |
+| **Web (Next.js)**                    | Vercel                        |
 | **API (NestJS) + SQLite + uploads/** | Fly.io com volume persistente |
 
 Sem cold-start. O DB e os arquivos enviados ficam num **volume Fly de 3 GB** (free) montado em `/data`.
@@ -64,6 +64,7 @@ curl -sI https://reformaflow-api.fly.dev/api/docs
 > Se mudar o nome do app no `fly.toml`, ajuste em todos os comandos acima.
 
 ### Migrations
+
 O `entrypoint.sh` normal roda `prisma migrate deploy` antes de iniciar o NestJS. Portanto, migration
 falha impede a API de subir; job de deploy verde, sozinho, não prova que a aplicação ficou disponível.
 
@@ -112,6 +113,14 @@ completo.
    Node-direto; um writer manual fura o lock e pode corromper a recuperação. Todo toque no banco passa
    por `op-wrap dryrun` / `op-wrap apply`.
 
+   O `flock`, os descritores herdados e a capability não autenticam ancestralidade do watchdog nem
+   impedem bypass por um principal confiável com root na Fly; são barreiras de concorrência e de
+   processo esperado. A única aceitação desse risco residual é a exceção operacional auditada,
+   expirável e de uso único `legacy-fk-32-2026-10` para #722, limitada aos `2/28/4/32` registros
+   exatos, sem deleções nem alterações monetárias. Ela não autoriza vault, migrations, outro banco
+   ou outro reparo. O procedimento e a evidência privada obrigatória estão em
+   `deploy/quiesce/legacy-fk-recovery.md`.
+
    Toda operação vai pelo `op-wrap` no diretório persistente `$QUIESCE_DIR`. `flyctl ssh console --command`
    não abre shell: comandos simples continuam diretos (`sha256sum`, `cat`, `rm -f`, `rmdir`) e qualquer
    `QUIESCE_DIR=...`, `&&`, `;`, loop, redirecionamento ou substituição de comando começa explicitamente
@@ -127,6 +136,7 @@ completo.
 
    Se houver qualquer write fora do `op-wrap` ou perda de quiescência, descarte a aprovação e reinicie
    pelo dry-run. Detalhes e invariantes: `deploy/quiesce/README.md`.
+
 4. **Fase 1 — Transferir e conferir watchdog.sh e op-wrap.sh (ANTES de machine update):**
    a imagem runtime não contém `scripts/` nem `deploy/`, e `machine update` pode resetar o rootfs. Use um
    diretório único persistente no volume (nunca `/app`, que é efêmero): por exemplo `/data/quiesce-<RECOVERY_RUN>`
@@ -252,51 +262,50 @@ completo.
     - Só então proceda à Fase 2
 
 4.2. **Transferir e conferir o normalizer (APÓS a validação pós-arm):**
-   Após a verificação pós-arm acima confirmar que o watchdog está ativo e a API continua quiescida,
-   transferir o normalizer:
+Após a verificação pós-arm acima confirmar que o watchdog está ativo e a API continua quiescida,
+transferir o normalizer:
 
-   ```bash
-   git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > /tmp/normalize-external-id-duplicates.mjs
-   chmod 0500 /tmp/normalize-external-id-duplicates.mjs
+```bash
+git show "${PR_HEAD_TESTADO}:scripts/normalize-external-id-duplicates.mjs" > /tmp/normalize-external-id-duplicates.mjs
+chmod 0500 /tmp/normalize-external-id-duplicates.mjs
 
-   LOCAL_SHA="$(shasum -a 256 /tmp/normalize-external-id-duplicates.mjs | awk '{print $1}')"
-   flyctl ssh sftp put /tmp/normalize-external-id-duplicates.mjs /app/normalize-external-id-duplicates.mjs \
-     -a reformaflow-api --machine "$MACHINE_ID" --mode 0500
-   REMOTE_SHA="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "sha256sum /app/normalize-external-id-duplicates.mjs" | awk '{print $1}')"
-   [ "$LOCAL_SHA" = "$REMOTE_SHA" ] || { echo "ABORT: checksum mismatch em normalizer ($LOCAL_SHA != $REMOTE_SHA)"; exit 1; }
-   echo "normalizer  $LOCAL_SHA  OK"
-   ```
+LOCAL_SHA="$(shasum -a 256 /tmp/normalize-external-id-duplicates.mjs | awk '{print $1}')"
+flyctl ssh sftp put /tmp/normalize-external-id-duplicates.mjs /app/normalize-external-id-duplicates.mjs \
+  -a reformaflow-api --machine "$MACHINE_ID" --mode 0500
+REMOTE_SHA="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+  --command "sha256sum /app/normalize-external-id-duplicates.mjs" | awk '{print $1}')"
+[ "$LOCAL_SHA" = "$REMOTE_SHA" ] || { echo "ABORT: checksum mismatch em normalizer ($LOCAL_SHA != $REMOTE_SHA)"; exit 1; }
+echo "normalizer  $LOCAL_SHA  OK"
+```
 
-   Registre `RECOVERY_RUN` e `QUIESCE_DIR` apenas na operação privada. Não copie o repositório inteiro
-   nem instale dependências: `createRequire` resolve o `@prisma/client` já existente em `/app/node_modules`.
-5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run **por `op-wrap dryrun`**, o único
-   toque autorizado no banco. O `op-wrap` gera um caminho de manifest novo desta tentativa (dentro de
-   `$QUIESCE_DIR`), o imprime (`manifest=<caminho>`) e a **cadeia supervisionada** publica
-   `$QUIESCE_DIR/manifest.current` com o basename gerado **somente se o normalizer sair com 0**
-   (fail-closed: normalizer que falha ou é morto não deixa `manifest.current` novo nem ponteiro
-   parcial). Nunca rode o normalizer à mão numa janela armada. Baixe **exatamente** o manifest
-   nomeado por `$QUIESCE_DIR/manifest.current`, nunca um caminho inventado em `/tmp`.
+Registre `RECOVERY_RUN` e `QUIESCE_DIR` apenas na operação privada. Não copie o repositório inteiro
+nem instale dependências: `createRequire` resolve o `@prisma/client` já existente em `/app/node_modules`. 5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run **por `op-wrap dryrun`**, o único
+toque autorizado no banco. O `op-wrap` gera um caminho de manifest novo desta tentativa (dentro de
+`$QUIESCE_DIR`), o imprime (`manifest=<caminho>`) e a **cadeia supervisionada** publica
+`$QUIESCE_DIR/manifest.current` com o basename gerado **somente se o normalizer sair com 0**
+(fail-closed: normalizer que falha ou é morto não deixa `manifest.current` novo nem ponteiro
+parcial). Nunca rode o normalizer à mão numa janela armada. Baixe **exatamente** o manifest
+nomeado por `$QUIESCE_DIR/manifest.current`, nunca um caminho inventado em `/tmp`.
 
-   ```bash
-   LOCAL_MANIFEST="$PRIVATE_DIR/manifest-local-$(date -u +%Y%m%dT%H%M%SZ).json"
-   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" dryrun'"
-   # aguarde a cadeia concluir (op-wrap status via sh -lc -> last rc = 0), então:
-   REMOTE_MANIFEST_BASENAME="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "cat '$QUIESCE_DIR/manifest.current'")"
-   printf '%s\n' "$REMOTE_MANIFEST_BASENAME" |
-     grep -Eq '^manifest\.[0-9]{8}T[0-9]{6}Z\.[1-9][0-9]*\.json$' ||
-     { echo "ABORT: invalid generated manifest basename"; exit 1; }
-   REMOTE_MANIFEST="$QUIESCE_DIR/$REMOTE_MANIFEST_BASENAME"
-   flyctl ssh sftp get "$REMOTE_MANIFEST" "$LOCAL_MANIFEST" \
-     --app reformaflow-api --machine "$MACHINE_ID"
-   chmod 0600 "$LOCAL_MANIFEST"
-   ```
+```bash
+LOCAL_MANIFEST="$PRIVATE_DIR/manifest-local-$(date -u +%Y%m%dT%H%M%SZ).json"
+flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+  --command "sh -lc 'QUIESCE_DIR=\"${QUIESCE_DIR}\" exec sh \"${QUIESCE_DIR}/op-wrap.sh\" dryrun'"
+# aguarde a cadeia concluir (op-wrap status via sh -lc -> last rc = 0), então:
+REMOTE_MANIFEST_BASENAME="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+  --command "cat '$QUIESCE_DIR/manifest.current'")"
+printf '%s\n' "$REMOTE_MANIFEST_BASENAME" |
+  grep -Eq '^manifest\.[0-9]{8}T[0-9]{6}Z\.[1-9][0-9]*\.json$' ||
+  { echo "ABORT: invalid generated manifest basename"; exit 1; }
+REMOTE_MANIFEST="$QUIESCE_DIR/$REMOTE_MANIFEST_BASENAME"
+flyctl ssh sftp get "$REMOTE_MANIFEST" "$LOCAL_MANIFEST" \
+  --app reformaflow-api --machine "$MACHINE_ID"
+chmod 0600 "$LOCAL_MANIFEST"
+```
 
-   Registre privadamente o SHA-256 completo e as contagens `expectedGroups`/`expectedUpdates` emitidas.
-   O dry-run não escreve no banco. Guarde a cópia baixada em armazenamento privado; nunca anexe o
-   manifest.
+Registre privadamente o SHA-256 completo e as contagens `expectedGroups`/`expectedUpdates` emitidas.
+O dry-run não escreve no banco. Guarde a cópia baixada em armazenamento privado; nunca anexe o
+manifest.
 
 6. **Revisar:** compare inventário, escopo e invariantes do manifest. Pare se houver mutação de linha
    ativa, mudança fora do escopo ou diferença entre os inventários do dry-run e do backup.
@@ -324,91 +333,93 @@ completo.
    migration consta como aplicada (`last rc` = 0) e só então encerre a janela sem writers.
 
 10. **Disarm:** rode `op-wrap disarm`; o `watchdog.sh` sobe o Node-direto assim que o lock ficar livre
-   (ou já teria subido pelo deadline absoluto / por um restart com lock livre).
+    (ou já teria subido pelo deadline absoluto / por um restart com lock livre).
 
 11. **Restaurar entrypoint:** depois que o `op-wrap apply` retornar `rc 0` e a migration/índices
-   tiverem sido validados, limpe o override **sem** `--skip-health-checks` e espere a saúde:
+    tiverem sido validados, limpe o override **sem** `--skip-health-checks` e espere a saúde:
 
-   ```bash
-   flyctl machine update "$MACHINE_ID" --app reformaflow-api \
-     --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes
+```bash
+flyctl machine update "$MACHINE_ID" --app reformaflow-api \
+  --machine-config '{"init":{"entrypoint":null,"cmd":null}}' --yes
 
-   MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"
-   printf '%s\n' "$MACHINE_JSON" | jq -e --arg id "$MACHINE_ID" '
-     length == 1 and
-     .[0].id == $id and
-     .[0].state == "started" and
-     (.[0].config.init.entrypoint // null) == null and
-     (.[0].config.init.cmd // null) == null
-   ' >/dev/null || { echo "ABORT: machine did not recover after restore"; exit 1; }
+MACHINE_JSON="$(flyctl machines list --json --app reformaflow-api)"
+printf '%s\n' "$MACHINE_JSON" | jq -e --arg id "$MACHINE_ID" '
+  length == 1 and
+  .[0].id == $id and
+  .[0].state == "started" and
+  (.[0].config.init.entrypoint // null) == null and
+  (.[0].config.init.cmd // null) == null
+' >/dev/null || { echo "ABORT: machine did not recover after restore"; exit 1; }
 
-   CHECKS_JSON="$(flyctl checks list --json --app reformaflow-api)"
-   printf '%s\n' "$CHECKS_JSON" | jq -e --arg id "$MACHINE_ID" '
-     has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")
-   ' >/dev/null || { echo "ABORT: machine checks are not exactly one passing check"; exit 1; }
+CHECKS_JSON="$(flyctl checks list --json --app reformaflow-api)"
+printf '%s\n' "$CHECKS_JSON" | jq -e --arg id "$MACHINE_ID" '
+  has($id) and (keys | length == 1) and (.[$id] | length == 1) and (.[$id][0].status == "passing")
+' >/dev/null || { echo "ABORT: machine checks are not exactly one passing check"; exit 1; }
 
-   docs_code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
-   auth_code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
-   [ "$docs_code" = 200 ] || { echo "ABORT: /api/docs-json returned $docs_code"; exit 1; }
-   [ "$auth_code" = 401 ] || { echo "ABORT: /auth/me returned $auth_code"; exit 1; }
+docs_code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/api/docs-json)"
+auth_code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://reformaflow-api.fly.dev/auth/me)"
+[ "$docs_code" = 200 ] || { echo "ABORT: /api/docs-json returned $docs_code"; exit 1; }
+[ "$auth_code" = 401 ] || { echo "ABORT: /auth/me returned $auth_code"; exit 1; }
 
-   flyctl logs --no-tail --machine "$MACHINE_ID" --app reformaflow-api
-   ```
+flyctl logs --no-tail --machine "$MACHINE_ID" --app reformaflow-api
+```
 
-   O Dockerfile `CMD` volta então a governar e o boot migrate-first fica comprovado pelo override
-   limpo, pelas migrations/índices validados e pela API saudável.
+O Dockerfile `CMD` volta então a governar e o boot migrate-first fica comprovado pelo override
+limpo, pelas migrations/índices validados e pela API saudável.
 
 12. **Encerrar:** preserve primeiro as evidências. Capture o path do manifest remoto antes de qualquer
-   limpeza:
-   ```bash
-   REMOTE_MANIFEST_BASENAME="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "cat '$QUIESCE_DIR/manifest.current'" 2>/dev/null || echo)"
-   printf '%s\n' "$REMOTE_MANIFEST_BASENAME" |
-     grep -Eq '^manifest\.[0-9]{8}T[0-9]{6}Z\.[1-9][0-9]*\.json$' ||
-     { echo "ABORT: invalid generated manifest basename"; exit 1; }
-   REMOTE_MANIFEST="$QUIESCE_DIR/$REMOTE_MANIFEST_BASENAME"
-   # Preserve REMOTE_MANIFEST in your operational evidence store (mode 0600, separate from this runbook)
-   ```
+    limpeza:
 
-   Valide que `QUIESCE_DIR` segue o formato esperado e `REMOTE_MANIFEST` é um filho de `QUIESCE_DIR`:
+```bash
+REMOTE_MANIFEST_BASENAME="$(flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+  --command "cat '$QUIESCE_DIR/manifest.current'" 2>/dev/null || echo)"
+printf '%s\n' "$REMOTE_MANIFEST_BASENAME" |
+  grep -Eq '^manifest\.[0-9]{8}T[0-9]{6}Z\.[1-9][0-9]*\.json$' ||
+  { echo "ABORT: invalid generated manifest basename"; exit 1; }
+REMOTE_MANIFEST="$QUIESCE_DIR/$REMOTE_MANIFEST_BASENAME"
+# Preserve REMOTE_MANIFEST in your operational evidence store (mode 0600, separate from this runbook)
+```
 
-   ```bash
-   case "$QUIESCE_DIR" in
-     /data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
-     *) echo "ABORT: QUIESCE_DIR format invalid: $QUIESCE_DIR"; exit 1 ;;
-   esac
-   case "$REMOTE_MANIFEST" in
-     "$QUIESCE_DIR"/manifest.*.json) ;;
-     *) echo "ABORT: REMOTE_MANIFEST not in $QUIESCE_DIR or wrong format: $REMOTE_MANIFEST"; exit 1 ;;
-   esac
-   ```
+Valide que `QUIESCE_DIR` segue o formato esperado e `REMOTE_MANIFEST` é um filho de `QUIESCE_DIR`:
 
-   Depois do entrypoint normal estar ativo, remova o normalizer de `/app` (tolerante após reset do
-   rootfs):
+```bash
+case "$QUIESCE_DIR" in
+  /data/quiesce-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+  *) echo "ABORT: QUIESCE_DIR format invalid: $QUIESCE_DIR"; exit 1 ;;
+esac
+case "$REMOTE_MANIFEST" in
+  "$QUIESCE_DIR"/manifest.*.json) ;;
+  *) echo "ABORT: REMOTE_MANIFEST not in $QUIESCE_DIR or wrong format: $REMOTE_MANIFEST"; exit 1 ;;
+esac
+```
 
-   ```bash
-   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "rm -f -- /app/normalize-external-id-duplicates.mjs"
-   ```
+Depois do entrypoint normal estar ativo, remova o normalizer de `/app` (tolerante após reset do
+rootfs):
 
-   Então remova da machine os caminhos efêmeros exatos do `QUIESCE_DIR`, sem wildcard e sem `rm -rf`:
+```bash
+flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+  --command "rm -f -- /app/normalize-external-id-duplicates.mjs"
+```
 
-   ```bash
-   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "rm -f -- $QUIESCE_DIR/watchdog.sh $QUIESCE_DIR/op-wrap.sh $REMOTE_MANIFEST $QUIESCE_DIR/manifest.current $QUIESCE_DIR/deadline $QUIESCE_DIR/lock $QUIESCE_DIR/RUN $QUIESCE_DIR/RUN.active $QUIESCE_DIR/REQUEST $QUIESCE_DIR/REQUEST.active $QUIESCE_DIR/DISARM $QUIESCE_DIR/op.pgid $QUIESCE_DIR/op.pgid.raw $QUIESCE_DIR/op.rc $QUIESCE_DIR/.publish.lock $QUIESCE_DIR/watchdog.log $QUIESCE_DIR/op.log" &&
-   flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
-     --command "rmdir -- $QUIESCE_DIR"
-   ```
+Então remova da machine os caminhos efêmeros exatos do `QUIESCE_DIR`, sem wildcard e sem `rm -rf`:
 
-   O comando é fail-closed: qualquer arquivo inesperado que reste no volume faz `rmdir` falhar e
-   aborta a limpeza. Nada — scripts, manifest confidencial, deadline, lock, logs ou artefatos da
-   janela — pode permanecer no rootfs ou no volume depois da recuperação.
+```bash
+flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+  --command "rm -f -- $QUIESCE_DIR/watchdog.sh $QUIESCE_DIR/op-wrap.sh $REMOTE_MANIFEST $QUIESCE_DIR/manifest.current $QUIESCE_DIR/deadline $QUIESCE_DIR/lock $QUIESCE_DIR/RUN $QUIESCE_DIR/RUN.active $QUIESCE_DIR/REQUEST $QUIESCE_DIR/REQUEST.active $QUIESCE_DIR/DISARM $QUIESCE_DIR/op.pgid $QUIESCE_DIR/op.pgid.raw $QUIESCE_DIR/op.rc $QUIESCE_DIR/.publish.lock $QUIESCE_DIR/watchdog.log $QUIESCE_DIR/op.log" &&
+flyctl ssh console --app reformaflow-api --machine "$MACHINE_ID" \
+  --command "rmdir -- $QUIESCE_DIR"
+```
+
+O comando é fail-closed: qualquer arquivo inesperado que reste no volume faz `rmdir` falhar e
+aborta a limpeza. Nada — scripts, manifest confidencial, deadline, lock, logs ou artefatos da
+janela — pode permanecer no rootfs ou no volume depois da recuperação.
 
 Não adicione `[processes] app="/entrypoint.sh"` ao `fly.toml`: isso não remove o override por machine.
 O `http_service.processes = ["app"]` existente basta depois que SRE limpa `init.entrypoint` e
 `init.cmd`.
 
 ### Bootstrap admin
+
 O `main.ts` cria o admin a partir das envs `ADMIN_USERNAME`/`ADMIN_PASSWORD` em cada start (idempotente — se já existir, só sincroniza senha).
 
 ---
@@ -460,6 +471,7 @@ flyctl secrets set --app reformaflow-api \
 ## Cookies cross-domain (já configurado)
 
 Em `NODE_ENV=production`, o auth controller usa:
+
 - `sameSite: 'none'` (permite cross-site)
 - `secure: true` (exigido pelo browser para sameSite=none)
 
@@ -516,8 +528,8 @@ flyctl deploy --app reformaflow-api -c apps/api/fly.toml --dockerfile apps/api/D
    - a release mais recente está `complete`; remova o sufixo `@digest` de `machine.config.image` e
      compare o valor normalizado com o `ImageRef` da release;
    - `curl` em `/api/docs-json` retorna 200 e em `/auth/me` retorna 401.
-   Machine `stopped` ou qualquer divergência bloqueia a release, mesmo que o job esteja verde. O SHA
-   já vem de `image_ref.labels.GH_SHA`: não crie `/health` nem build arg para expô-lo.
+     Machine `stopped` ou qualquer divergência bloqueia a release, mesmo que o job esteja verde. O SHA
+     já vem de `image_ref.labels.GH_SHA`: não crie `/health` nem build arg para expô-lo.
 7. Depois dos checks e smokes, compare novamente o SHA completo do run com o SHA completo atual de
    `main`. Se `main` avançou durante o deploy, falhe o gate pós-smokes: a release não pode ficar verde.
 8. Se algo falhar, ver logs do GitHub Actions (build) e Fly/Vercel logs (flyctl logs / Vercel UI).
@@ -529,16 +541,19 @@ flyctl deploy --app reformaflow-api -c apps/api/fly.toml --dockerfile apps/api/D
 
 > Observação de segurança: nunca comitar tokens ou secrets. Use `flyctl secrets set` e `vercel env add`.
 
-
 **"Database locked" no Fly**
+
 - SQLite não suporta múltiplas réplicas. Mantenha `min_machines_running = 0` ou `1` (nunca 2+).
 
 **Cookies não persistem entre web → API**
+
 - Conferir `CORS_ORIGIN` no Fly inclui exatamente o domínio do Vercel (incluindo o `https://`).
 - Conferir que está em HTTPS dos dois lados (browser bloqueia `sameSite=none` sem `secure`).
 
 **"Module not found: @reformaflow/domain" no build**
+
 - A pasta `packages/domain` precisa estar no contexto do Docker build. O `.dockerignore` na raiz já está liberando — só não exclua a pasta.
 
 **Volume ficou sem espaço**
+
 - `flyctl volumes extend <id> --size 10` (até 3 GB grátis; acima cobra USD 0.15/GB/mês).

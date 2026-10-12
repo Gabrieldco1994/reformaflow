@@ -1,15 +1,15 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { PendenciaService } from './pendencia.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
-import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
-import { BankAccountService } from '../bank-account/bank-account.service';
+import { Test, TestingModule } from "@nestjs/testing";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { PendenciaService } from "./pendencia.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.service";
+import { MerchantClassifierService } from "../merchant-classifier/merchant-classifier.service";
+import { BankAccountService } from "../bank-account/bank-account.service";
 
-const TENANT = 't1';
-const PROJECT = 'reforma1';
+const TENANT = "t1";
+const PROJECT = "reforma1";
 const REQUESTER = {
-  role: 'OWNER',
+  role: "OWNER",
   allowedProjects: [],
   allowedProjectTypes: [],
   allowedModules: [],
@@ -17,26 +17,26 @@ const REQUESTER = {
 
 function makeRow(over: Partial<any> = {}) {
   return {
-    id: 'p1',
+    id: "p1",
     projectId: PROJECT,
     tenantId: TENANT,
-    title: 'Comprar cimento',
+    title: "Comprar cimento",
     description: null,
-    status: 'PENDENTE',
+    status: "PENDENTE",
     dueDate: null,
     owner: null,
     roomId: null,
     scheduleTaskId: null,
     order: 0,
-    createdAt: new Date('2026-01-01'),
-    updatedAt: new Date('2026-01-01'),
+    createdAt: new Date("2026-01-01"),
+    updatedAt: new Date("2026-01-01"),
     room: null,
     scheduleTask: null,
     ...over,
   };
 }
 
-describe('PendenciaService', () => {
+describe("PendenciaService", () => {
   let service: PendenciaService;
   let prisma: any;
   let monthlyOverviewService: any;
@@ -56,21 +56,35 @@ describe('PendenciaService', () => {
       scheduleTask: { findFirst: jest.fn() },
       expense: { findMany: jest.fn().mockResolvedValue([]) },
     };
+    prisma.$executeRaw = jest.fn().mockResolvedValue(1);
+    prisma.$transaction = jest.fn(
+      async (operation: (tx: typeof prisma) => Promise<unknown>) =>
+        operation(prisma),
+    );
     monthlyOverviewService = { getAccountView: jest.fn() };
     merchantClassifierService = {
       fromCache: jest.fn(),
       resolveLearnedExpenseType: jest.fn().mockResolvedValue({
-        expenseType: null, source: null, confidence: null, category: null, reason: 'sem-regra',
+        expenseType: null,
+        source: null,
+        confidence: null,
+        category: null,
+        reason: "sem-regra",
       }),
     };
-    bankAccountService = { loadCardsWithEntries: jest.fn().mockResolvedValue([]) };
+    bankAccountService = {
+      loadCardsWithEntries: jest.fn().mockResolvedValue([]),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PendenciaService,
         { provide: PrismaService, useValue: prisma },
         { provide: MonthlyOverviewService, useValue: monthlyOverviewService },
-        { provide: MerchantClassifierService, useValue: merchantClassifierService },
+        {
+          provide: MerchantClassifierService,
+          useValue: merchantClassifierService,
+        },
         { provide: BankAccountService, useValue: bankAccountService },
       ],
     }).compile();
@@ -78,180 +92,199 @@ describe('PendenciaService', () => {
     service = module.get(PendenciaService);
   });
 
-  describe('create', () => {
-    it('applies default status/order and scopes writes to tenant+project', async () => {
+  describe("create", () => {
+    it("applies default status/order and scopes writes to tenant+project", async () => {
       prisma.pendencia.findFirst.mockResolvedValue({ order: 4 }); // max order
       prisma.pendencia.create.mockResolvedValue(makeRow({ order: 5 }));
 
-      const res = await service.create(TENANT, PROJECT, { title: 'Comprar cimento' });
+      const res = await service.create(TENANT, PROJECT, {
+        title: "Comprar cimento",
+      });
 
       const arg = prisma.pendencia.create.mock.calls[0][0];
       expect(arg.data).toMatchObject({
         tenantId: TENANT,
         projectId: PROJECT,
-        title: 'Comprar cimento',
-        status: 'PENDENTE',
+        title: "Comprar cimento",
+        status: "PENDENTE",
         order: 5, // max(4)+1
       });
-      expect(res.status).toBe('PENDENTE');
+      expect(res.status).toBe("PENDENTE");
       expect(res.roomName).toBeNull();
     });
 
-    it('rejects a roomId from another project (BadRequest, create not called)', async () => {
+    it("rejects a roomId from another project (BadRequest, create not called)", async () => {
       prisma.room.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.create(TENANT, PROJECT, { title: 'x', roomId: 'foreign-room' }),
+        service.create(TENANT, PROJECT, { title: "x", roomId: "foreign-room" }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.pendencia.create).not.toHaveBeenCalled();
       // guard resolved against the OWNER project from the route
       expect(prisma.room.findFirst).toHaveBeenCalledWith({
-        where: { id: 'foreign-room', projectId: PROJECT, project: { tenantId: TENANT, deletedAt: null } },
+        where: {
+          id: "foreign-room",
+          projectId: PROJECT,
+          deletedAt: null,
+          project: { id: PROJECT, tenantId: TENANT, deletedAt: null },
+        },
       });
     });
 
-    it('rejects a scheduleTaskId from another project (BadRequest, create not called)', async () => {
+    it("rejects a scheduleTaskId from another project (BadRequest, create not called)", async () => {
       prisma.scheduleTask.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.create(TENANT, PROJECT, { title: 'x', scheduleTaskId: 'foreign-task' }),
+        service.create(TENANT, PROJECT, {
+          title: "x",
+          scheduleTaskId: "foreign-task",
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.pendencia.create).not.toHaveBeenCalled();
       expect(prisma.scheduleTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'foreign-task', projectId: PROJECT, tenantId: TENANT },
+        where: { id: "foreign-task", projectId: PROJECT, tenantId: TENANT },
       });
     });
   });
 
-  describe('findAll', () => {
-    it('scopes by tenant+project, includes chip labels and uses deterministic orderBy', async () => {
+  describe("findAll", () => {
+    it("scopes by tenant+project, includes chip labels and uses deterministic orderBy", async () => {
       prisma.pendencia.findMany.mockResolvedValue([]);
 
       await service.findAll(TENANT, PROJECT);
 
       expect(prisma.pendencia.findMany).toHaveBeenCalledWith({
         where: {
-          tenantId: TENANT, projectId: PROJECT, project: { deletedAt: null },
-          AND: [{
-            OR: [
-              { roomId: null },
-              {
-                room: {
-                  projectId: PROJECT,
-                  deletedAt: null,
-                  project: { id: PROJECT, tenantId: TENANT, deletedAt: null },
-                },
-              },
-            ],
-          }],
+          tenantId: TENANT,
+          projectId: PROJECT,
+          project: { deletedAt: null },
         },
         include: {
-          room: { select: { name: true } },
+          room: {
+            where: {
+              projectId: PROJECT,
+              deletedAt: null,
+              project: { id: PROJECT, tenantId: TENANT, deletedAt: null },
+            },
+            select: { name: true },
+          },
           scheduleTask: { select: { nome: true, numero: true } },
         },
-        orderBy: [{ status: 'asc' }, { order: 'asc' }, { id: 'asc' }],
+        orderBy: [{ status: "asc" }, { order: "asc" }, { id: "asc" }],
       });
     });
 
-    it('maps roomName from the included room and leaves scheduleTaskNome null when absent', async () => {
+    it("maps roomName from the included room and leaves scheduleTaskNome null when absent", async () => {
       prisma.pendencia.findMany.mockResolvedValue([
-        makeRow({ roomId: 'r1', room: { name: 'Cozinha' }, scheduleTask: null }),
+        makeRow({
+          roomId: "r1",
+          room: { name: "Cozinha" },
+          scheduleTask: null,
+        }),
       ]);
 
       const [dto] = await service.findAll(TENANT, PROJECT);
 
-      expect(dto.roomName).toBe('Cozinha');
+      expect(dto.roomName).toBe("Cozinha");
       expect(dto.scheduleTaskNome).toBeNull();
       expect(dto.scheduleTaskNumero).toBeNull();
     });
   });
 
-  describe('move', () => {
-    it('guards then updates status+order', async () => {
+  describe("move", () => {
+    it("guards then updates status+order", async () => {
       prisma.pendencia.findFirst.mockResolvedValue(makeRow());
-      prisma.pendencia.update.mockResolvedValue(makeRow({ status: 'ANDAMENTO', order: 2 }));
+      prisma.pendencia.update.mockResolvedValue(
+        makeRow({ status: "ANDAMENTO", order: 2 }),
+      );
 
-      const res = await service.move(TENANT, PROJECT, 'p1', { status: 'ANDAMENTO', order: 2 });
+      const res = await service.move(TENANT, PROJECT, "p1", {
+        status: "ANDAMENTO",
+        order: 2,
+      });
 
       expect(prisma.pendencia.findFirst).toHaveBeenCalledWith({
         where: {
-          id: 'p1', tenantId: TENANT, projectId: PROJECT, project: { deletedAt: null },
-          AND: [{
-            OR: [
-              { roomId: null },
-              {
-                room: {
-                  projectId: PROJECT,
-                  deletedAt: null,
-                  project: { id: PROJECT, tenantId: TENANT, deletedAt: null },
-                },
-              },
-            ],
-          }],
+          id: "p1",
+          tenantId: TENANT,
+          projectId: PROJECT,
+          project: { deletedAt: null },
         },
       });
       expect(prisma.pendencia.update).toHaveBeenCalledWith({
-        where: { id: 'p1' },
-        data: { status: 'ANDAMENTO', order: 2 },
+        where: { id: "p1" },
+        data: { status: "ANDAMENTO", order: 2 },
         include: {
-          room: { select: { name: true } },
+          room: {
+            where: {
+              projectId: PROJECT,
+              deletedAt: null,
+              project: { id: PROJECT, tenantId: TENANT, deletedAt: null },
+            },
+            select: { name: true },
+          },
           scheduleTask: { select: { nome: true, numero: true } },
         },
       });
-      expect(res.status).toBe('ANDAMENTO');
+      expect(res.status).toBe("ANDAMENTO");
     });
 
-    it('throws NotFound for a foreign row and does not update', async () => {
+    it("throws NotFound for a foreign row and does not update", async () => {
       prisma.pendencia.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.move(TENANT, PROJECT, 'foreign', { status: 'PARADO', order: 0 }),
+        service.move(TENANT, PROJECT, "foreign", {
+          status: "PARADO",
+          order: 0,
+        }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.pendencia.update).not.toHaveBeenCalled();
     });
   });
 
-  describe('remove', () => {
-    it('guards then calls prisma.delete (soft-delete via $use) and returns {deleted:true}', async () => {
+  describe("remove", () => {
+    it("guards then calls prisma.delete (soft-delete via $use) and returns {deleted:true}", async () => {
       prisma.pendencia.findFirst.mockResolvedValue(makeRow());
       prisma.pendencia.delete.mockResolvedValue(makeRow());
 
-      const res = await service.remove(TENANT, PROJECT, 'p1');
+      const res = await service.remove(TENANT, PROJECT, "p1");
 
-      expect(prisma.pendencia.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
+      expect(prisma.pendencia.delete).toHaveBeenCalledWith({
+        where: { id: "p1" },
+      });
       expect(res).toEqual({ deleted: true });
     });
   });
 
-  describe('findFinancialQueue', () => {
-    it('copies only the canonical summary and fails closed when capability is missing', async () => {
+  describe("findFinancialQueue", () => {
+    it("copies only the canonical summary and fails closed when capability is missing", async () => {
       const summary = {
         contractedCents: 80000,
         paidCents: 40000,
         remainingCents: 40000,
-        settlementStatus: 'PARTIAL',
+        settlementStatus: "PARTIAL",
       };
       monthlyOverviewService.getAccountView.mockResolvedValue({
-        mesSelecionado: '2026-09',
+        mesSelecionado: "2026-09",
         cartoes: [],
         entradas: [],
         saidas: [
           {
-            id: 'synthetic-target#0',
-            foreignExpenseId: 'synthetic-target',
+            id: "synthetic-target#0",
+            foreignExpenseId: "synthetic-target",
             parcelaIndex: 0,
-            descricao: 'Synthetic installment',
+            descricao: "Synthetic installment",
             valor: 80000,
-            data: '2026-09-20T00:00:00.000Z',
+            data: "2026-09-20T00:00:00.000Z",
             isInvoice: false,
             realizado: false,
             cardLast4: null,
             bankLast4: null,
-            tipoDespesa: 'MAO_DE_OBRA',
+            tipoDespesa: "MAO_DE_OBRA",
             installmentSettlement: {
               ...summary,
-              dueDate: '2026-09-20T00:00:00.000Z',
-              contributions: [{ sourceId: 'never-forward-source' }],
+              dueDate: "2026-09-20T00:00:00.000Z",
+              contributions: [{ sourceId: "never-forward-source" }],
             },
           },
         ],
@@ -259,117 +292,135 @@ describe('PendenciaService', () => {
       const result = await service.findFinancialQueue(
         TENANT,
         PROJECT,
-        '2026-09',
+        "2026-09",
         REQUESTER,
       );
       expect(result.grupos.map((group) => group.tipo)).toEqual([
-        'SEM_CONTA',
-        'PARCELA_FOREIGN_PENDENTE',
+        "SEM_CONTA",
+        "PARCELA_FOREIGN_PENDENTE",
       ]);
       for (const group of result.grupos) {
         expect(group.valorTotal).toBe(40000);
         expect(group.itens[0]).toMatchObject({
           valor: 40000,
           canExecuteAction: false,
-          label: 'Parcela parcialmente paga',
+          label: "Parcela parcialmente paga",
         });
-        expect(group.itens[0]).toHaveProperty('installmentSettlement', summary);
+        expect(group.itens[0]).toHaveProperty("installmentSettlement", summary);
       }
-      expect(JSON.stringify(result)).not.toContain('never-forward-source');
+      expect(JSON.stringify(result)).not.toContain("never-forward-source");
     });
 
-    it('aggregates queue groups and keeps only rows with actionable payload', async () => {
+    it("aggregates queue groups and keeps only rows with actionable payload", async () => {
       const dueSoon = new Date();
       dueSoon.setDate(dueSoon.getDate() + 2);
       monthlyOverviewService.getAccountView.mockResolvedValue({
-        mesSelecionado: '2026-07',
+        mesSelecionado: "2026-07",
         cartoes: [
           {
-            nickname: 'Nubank',
-            last4: '1234',
-            dueMonth: '2026-07',
+            nickname: "Nubank",
+            last4: "1234",
+            dueMonth: "2026-07",
             vencimento: dueSoon.toISOString(),
-            status: 'a pagar',
+            status: "a pagar",
             faturaPendente: 20000,
           },
         ],
         saidas: [
           {
-            id: 'e1',
-            descricao: 'PIX pedreiro',
+            id: "e1",
+            descricao: "PIX pedreiro",
             valor: 9000,
-            data: '2026-07-10T00:00:00.000Z',
+            data: "2026-07-10T00:00:00.000Z",
             isInvoice: false,
             cardLast4: null,
             bankLast4: null,
-            tipoDespesa: 'OUTROS',
+            tipoDespesa: "OUTROS",
             realizado: false,
-            foreignExpenseId: 'fx1',
+            foreignExpenseId: "fx1",
             parcelaIndex: 2,
           },
         ],
         entradas: [
           {
-            id: 'r1',
-            descricao: 'Recebimento cliente',
+            id: "r1",
+            descricao: "Recebimento cliente",
             valor: 4500,
-            data: '2025-01-01T00:00:00.000Z',
-            status: 'PREVISTO',
-            bankLast4: '1234',
+            data: "2025-01-01T00:00:00.000Z",
+            status: "PREVISTO",
+            bankLast4: "1234",
           },
           {
-            id: 'r2',
-            descricao: 'Recebimento sem conta',
+            id: "r2",
+            descricao: "Recebimento sem conta",
             valor: 7000,
-            data: '2026-07-05T00:00:00.000Z',
-            status: 'EM_CAIXA',
+            data: "2026-07-05T00:00:00.000Z",
+            status: "EM_CAIXA",
             bankLast4: null,
-            origem: { tipo: 'carteira' },
+            origem: { tipo: "carteira" },
           },
         ],
       });
       merchantClassifierService.resolveLearnedExpenseType.mockResolvedValue({
-        expenseType: 'ALIMENTACAO', source: 'AI_TENANT', confidence: 0.9, category: 'alimentação', reason: 'resolvido',
+        expenseType: "ALIMENTACAO",
+        source: "AI_TENANT",
+        confidence: 0.9,
+        category: "alimentação",
+        reason: "resolvido",
       });
 
-      const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
+      const res = await service.findFinancialQueue(
+        TENANT,
+        PROJECT,
+        "2026-07",
+        REQUESTER,
+      );
 
-      expect(monthlyOverviewService.getAccountView).toHaveBeenCalledWith(TENANT, PROJECT, '2026-07', REQUESTER);
+      expect(monthlyOverviewService.getAccountView).toHaveBeenCalledWith(
+        TENANT,
+        PROJECT,
+        "2026-07",
+        REQUESTER,
+      );
       expect(res.total).toBe(5);
       expect(res.grupos.map((g: any) => g.tipo)).toEqual([
-        'SEM_CONTA',
-        'SEM_CATEGORIA',
-        'FATURA_NAO_PAGA',
-        'PARCELA_FOREIGN_PENDENTE',
-        'RECEBIMENTO_PREVISTO_ATRASADO',
+        "SEM_CONTA",
+        "SEM_CATEGORIA",
+        "FATURA_NAO_PAGA",
+        "PARCELA_FOREIGN_PENDENTE",
+        "RECEBIMENTO_PREVISTO_ATRASADO",
       ]);
-      expect(res.grupos[0].itens[0].expenseId).toBe('e1');
-      expect(res.grupos[0].itens[0].foreignExpenseId).toBe('fx1');
+      expect(res.grupos[0].itens[0].expenseId).toBe("e1");
+      expect(res.grupos[0].itens[0].foreignExpenseId).toBe("fx1");
       expect(res.grupos[0].itens[0].parcelaIndex).toBe(2);
-      expect(res.grupos[0].itens[0].label).toBe('Quitar parcela');
-      expect(res.grupos[1].itens[0].suggestionTipoDespesa).toBe('ALIMENTACAO');
-      expect(res.grupos[2].itens[0].cardLast4).toBe('1234');
+      expect(res.grupos[0].itens[0].label).toBe("Quitar parcela");
+      expect(res.grupos[1].itens[0].suggestionTipoDespesa).toBe("ALIMENTACAO");
+      expect(res.grupos[2].itens[0].cardLast4).toBe("1234");
       expect(res.grupos[3].itens[0].parcelaIndex).toBe(2);
-      expect(res.grupos.find((g: any) => g.tipo === 'RECEBIMENTO_SEM_CONTA')).toBeUndefined();
-      const atrasado = res.grupos.find((g: any) => g.tipo === 'RECEBIMENTO_PREVISTO_ATRASADO')!;
-      expect(atrasado.itens[0].receiptId).toBe('r1');
+      expect(
+        res.grupos.find((g: any) => g.tipo === "RECEBIMENTO_SEM_CONTA"),
+      ).toBeUndefined();
+      const atrasado = res.grupos.find(
+        (g: any) => g.tipo === "RECEBIMENTO_PREVISTO_ATRASADO",
+      )!;
+      expect(atrasado.itens[0].receiptId).toBe("r1");
     });
 
-    describe('SEM_CATEGORIA usa resolveLearnedExpenseType — limiar e precedência (#582 PR-2)', () => {
+    describe("SEM_CATEGORIA usa resolveLearnedExpenseType — limiar e precedência (#582 PR-2)", () => {
       const oneOutrosSaida = () => {
         monthlyOverviewService.getAccountView.mockResolvedValue({
-          mesSelecionado: '2026-07',
+          mesSelecionado: "2026-07",
           cartoes: [],
           saidas: [
             {
-              id: 'e-cat',
-              descricao: 'ENEL DISTRIBUICAO',
+              id: "e-cat",
+              descricao: "ENEL DISTRIBUICAO",
               valor: 12000,
-              data: '2026-07-10T00:00:00.000Z',
+              data: "2026-07-10T00:00:00.000Z",
               isInvoice: false,
-              cardLast4: '1234',
+              cardLast4: "1234",
               bankLast4: null,
-              tipoDespesa: 'OUTROS',
+              tipoDespesa: "OUTROS",
               realizado: false,
             },
           ],
@@ -378,40 +429,75 @@ describe('PendenciaService', () => {
         prisma.expense.findMany.mockResolvedValue([]);
       };
 
-      it('regra AI < limiar (sub-limiar) → nenhum item SEM_CATEGORIA, mesmo com fromCache retornando categoria', async () => {
+      it("regra AI < limiar (sub-limiar) → nenhum item SEM_CATEGORIA, mesmo com fromCache retornando categoria", async () => {
         oneOutrosSaida();
-        merchantClassifierService.fromCache.mockResolvedValue({ category: 'alimentação' });
+        merchantClassifierService.fromCache.mockResolvedValue({
+          category: "alimentação",
+        });
         merchantClassifierService.resolveLearnedExpenseType.mockResolvedValue({
-          expenseType: null, source: null, confidence: null, category: null, reason: 'sub-limiar',
+          expenseType: null,
+          source: null,
+          confidence: null,
+          category: null,
+          reason: "sub-limiar",
         });
 
-        const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
+        const res = await service.findFinancialQueue(
+          TENANT,
+          PROJECT,
+          "2026-07",
+          REQUESTER,
+        );
 
-        expect(res.grupos.find((g: any) => g.tipo === 'SEM_CATEGORIA')).toBeUndefined();
+        expect(
+          res.grupos.find((g: any) => g.tipo === "SEM_CATEGORIA"),
+        ).toBeUndefined();
       });
 
-      it('resolução sem tipo de despesa (expenseType null) → nenhum item SEM_CATEGORIA', async () => {
+      it("resolução sem tipo de despesa (expenseType null) → nenhum item SEM_CATEGORIA", async () => {
         oneOutrosSaida();
-        merchantClassifierService.fromCache.mockResolvedValue({ category: 'saúde' });
+        merchantClassifierService.fromCache.mockResolvedValue({
+          category: "saúde",
+        });
         merchantClassifierService.resolveLearnedExpenseType.mockResolvedValue({
-          expenseType: null, source: 'MANUAL_TENANT', confidence: 1, category: 'compras', reason: 'sem-categoria-equivalente',
+          expenseType: null,
+          source: "MANUAL_TENANT",
+          confidence: 1,
+          category: "compras",
+          reason: "sem-categoria-equivalente",
         });
 
-        const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
+        const res = await service.findFinancialQueue(
+          TENANT,
+          PROJECT,
+          "2026-07",
+          REQUESTER,
+        );
 
-        expect(res.grupos.find((g: any) => g.tipo === 'SEM_CATEGORIA')).toBeUndefined();
+        expect(
+          res.grupos.find((g: any) => g.tipo === "SEM_CATEGORIA"),
+        ).toBeUndefined();
       });
 
-      it('regra MANUAL/AI >= limiar → item SEM_CATEGORIA com o tipo sugerido', async () => {
+      it("regra MANUAL/AI >= limiar → item SEM_CATEGORIA com o tipo sugerido", async () => {
         oneOutrosSaida();
         merchantClassifierService.resolveLearnedExpenseType.mockResolvedValue({
-          expenseType: 'MORADIA', source: 'MANUAL_TENANT', confidence: 1, category: 'moradia', reason: 'resolvido',
+          expenseType: "MORADIA",
+          source: "MANUAL_TENANT",
+          confidence: 1,
+          category: "moradia",
+          reason: "resolvido",
         });
 
-        const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
+        const res = await service.findFinancialQueue(
+          TENANT,
+          PROJECT,
+          "2026-07",
+          REQUESTER,
+        );
 
-        const grupo = res.grupos.find((g: any) => g.tipo === 'SEM_CATEGORIA')!;
-        expect(grupo.itens[0].suggestionTipoDespesa).toBe('MORADIA');
+        const grupo = res.grupos.find((g: any) => g.tipo === "SEM_CATEGORIA")!;
+        expect(grupo.itens[0].suggestionTipoDespesa).toBe("MORADIA");
       });
     });
 
@@ -419,49 +505,62 @@ describe('PendenciaService', () => {
     // cardLast4 é neutro, então accountExpenseList o exclui e ele não aparece
     // em NENHUMA lista da Visão Conta — enquanto sai do caixa e deixa a fatura
     // em aberto. A fila é a única superfície que pode denunciá-lo.
-    it('lista pagamento de fatura sem cartão com os cartões candidatos ranqueados', async () => {
+    it("lista pagamento de fatura sem cartão com os cartões candidatos ranqueados", async () => {
       monthlyOverviewService.getAccountView.mockResolvedValue({
-        mesSelecionado: '2026-07',
+        mesSelecionado: "2026-07",
         cartoes: [],
         saidas: [],
         entradas: [],
       });
       prisma.expense.findMany.mockResolvedValue([
         {
-          id: 'exp-fatura',
-          titulo: 'FATURA PAGA Itau Personn',
-          fornecedor: 'FATURA PAGA Itau Personn',
+          id: "exp-fatura",
+          titulo: "FATURA PAGA Itau Personn",
+          fornecedor: "FATURA PAGA Itau Personn",
           valor: 1765585,
-          dataPagamento: new Date('2026-07-21T00:00:00.000Z'),
+          dataPagamento: new Date("2026-07-21T00:00:00.000Z"),
         },
       ]);
       bankAccountService.loadCardsWithEntries.mockResolvedValue([
         {
-          last4: '5572',
-          nickname: 'Visa ****5572',
+          last4: "5572",
+          nickname: "Visa ****5572",
           closingDay: null,
           dueDay: 5,
-          entries: [{ data: new Date('2026-08-10T00:00:00.000Z'), valor: 1842813 }],
+          entries: [
+            { data: new Date("2026-08-10T00:00:00.000Z"), valor: 1842813 },
+          ],
         },
       ]);
 
-      const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
+      const res = await service.findFinancialQueue(
+        TENANT,
+        PROJECT,
+        "2026-07",
+        REQUESTER,
+      );
 
       expect(prisma.expense.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+            tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
             cardLast4: null,
           }),
         }),
       );
-      const grupo = res.grupos.find((g: any) => g.tipo === 'PAGAMENTO_FATURA_SEM_CARTAO');
+      const grupo = res.grupos.find(
+        (g: any) => g.tipo === "PAGAMENTO_FATURA_SEM_CARTAO",
+      );
       expect(grupo).toBeDefined();
-      expect(grupo!.itens[0].expenseId).toBe('exp-fatura');
-      expect(grupo!.itens[0].label).toBe('Escolher cartão');
+      expect(grupo!.itens[0].expenseId).toBe("exp-fatura");
+      expect(grupo!.itens[0].label).toBe("Escolher cartão");
       // Delta de R$ 772,28 — match exato não acharia; o candidato ainda aparece.
       expect(grupo!.itens[0].cardCandidates).toEqual([
-        expect.objectContaining({ cardLast4: '5572', dueMonth: '2026-08', deltaCents: 77228 }),
+        expect.objectContaining({
+          cardLast4: "5572",
+          dueMonth: "2026-08",
+          deltaCents: 77228,
+        }),
       ]);
     });
 
@@ -473,16 +572,21 @@ describe('PendenciaService', () => {
      * `pendencia.financial-queue.fixture.integration.spec.ts` para a prova
      * do vazamento real de um PESSOAL irmão através dessa mesma chamada).
      */
-    it('repassa o requester para monthlyOverviewService.getAccountView (B0 #447)', async () => {
+    it("repassa o requester para monthlyOverviewService.getAccountView (B0 #447)", async () => {
       monthlyOverviewService.getAccountView.mockResolvedValue({
-        mesSelecionado: '2026-07',
+        mesSelecionado: "2026-07",
         cartoes: [],
         saidas: [],
         entradas: [],
       });
-      const requester = { id: 'sentinel-requester-b0-447', role: 'USER' };
+      const requester = { id: "sentinel-requester-b0-447", role: "USER" };
 
-      await (service as any).findFinancialQueue(TENANT, PROJECT, '2026-07', requester);
+      await (service as any).findFinancialQueue(
+        TENANT,
+        PROJECT,
+        "2026-07",
+        requester,
+      );
 
       const callArgs = monthlyOverviewService.getAccountView.mock.calls[0];
       expect(JSON.stringify(callArgs)).toContain(requester.id);

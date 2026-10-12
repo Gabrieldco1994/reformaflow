@@ -15,6 +15,8 @@ const EXPECTED_MISSING_PROJECTS = 2;
 const EXPECTED_ORPHAN_ROOMS = 28;
 const EXPECTED_ORPHAN_CASH_FLOW_ENTRIES = 4;
 const EXPECTED_FOREIGN_KEY_VIOLATIONS = 32;
+const TRUSTED_OPERATOR_PURPOSE = "legacy-fk-32-2026-10";
+const TRUSTED_OPERATOR_ISSUE = "#722";
 const TOMBSTONE_TYPE = "REFORMA";
 const TOMBSTONE_NAME = "__legacy_fk_recovery_tombstone__";
 const TOMBSTONE_DESCRIPTION = "Technical tombstone created by #722";
@@ -96,8 +98,10 @@ async function assertInheritedWatchdogLock() {
     fail();
   }
 
-  // Production is Linux. Prove both halves of lock ownership: a fresh open
-  // cannot acquire Q/lock, while the inherited watchdog OFD on fd 9 can.
+  // Production is Linux. Check expected-process lock continuity: a fresh open
+  // cannot acquire Q/lock, while the inherited OFD on fd 9 can. This is a
+  // concurrency guard, not watchdog-ancestry authentication; trusted Fly root
+  // can reproduce these local conditions and is governed by the audit gate.
   if (process.platform === "linux") {
     const competing = spawnSync("flock", ["-n", lockPath, "true"], {
       stdio: "ignore",
@@ -124,6 +128,7 @@ function validateScopeProof(proof) {
   if (
     !hasExactKeys(proof, [
       "version",
+      "trustedOperatorException",
       "provenance",
       "missingProjects",
       "orphanCashFlowEntries",
@@ -133,6 +138,41 @@ function validateScopeProof(proof) {
     !Array.isArray(proof.orphanCashFlowEntries) ||
     proof.missingProjects.length !== EXPECTED_MISSING_PROJECTS ||
     proof.orphanCashFlowEntries.length !== EXPECTED_ORPHAN_CASH_FLOW_ENTRIES
+  ) {
+    fail();
+  }
+
+  const exception = proof.trustedOperatorException;
+  if (
+    !hasExactKeys(exception, [
+      "purpose",
+      "issue",
+      "singleUse",
+      "expectedCounts",
+      "maximumDeletions",
+      "maximumMonetaryChangeCents",
+      "expiresAt",
+    ]) ||
+    exception.purpose !== TRUSTED_OPERATOR_PURPOSE ||
+    exception.issue !== TRUSTED_OPERATOR_ISSUE ||
+    exception.singleUse !== true ||
+    !hasExactKeys(exception.expectedCounts, [
+      "missingProjects",
+      "orphanRooms",
+      "orphanCashFlowEntries",
+      "foreignKeyViolations",
+    ]) ||
+    exception.expectedCounts.missingProjects !== EXPECTED_MISSING_PROJECTS ||
+    exception.expectedCounts.orphanRooms !== EXPECTED_ORPHAN_ROOMS ||
+    exception.expectedCounts.orphanCashFlowEntries !==
+      EXPECTED_ORPHAN_CASH_FLOW_ENTRIES ||
+    exception.expectedCounts.foreignKeyViolations !==
+      EXPECTED_FOREIGN_KEY_VIOLATIONS ||
+    exception.maximumDeletions !== 0 ||
+    exception.maximumMonetaryChangeCents !== 0 ||
+    !nonEmptyString(exception.expiresAt) ||
+    normalizeTimestamp(exception.expiresAt) !== exception.expiresAt ||
+    Date.parse(exception.expiresAt) <= Date.now()
   ) {
     fail();
   }

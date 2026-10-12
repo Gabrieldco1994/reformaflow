@@ -30,10 +30,21 @@ const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SCRIPT = join(ROOT, "scripts", "repair-legacy-fk-integrity.mjs");
 const OP_WRAP = join(ROOT, "deploy", "quiesce", "op-wrap.sh");
 const SCRIPT_SOURCE = readFileSync(SCRIPT, "utf8");
+const LEGACY_RUNBOOK_SOURCE = readFileSync(
+  join(ROOT, "deploy", "quiesce", "legacy-fk-recovery.md"),
+  "utf8",
+);
+const QUIESCE_README_SOURCE = readFileSync(
+  join(ROOT, "deploy", "quiesce", "README.md"),
+  "utf8",
+);
 const TEST_DATABASE = join(ROOT, "prisma", "test.db");
 const EXPECTED_PROJECTS = 2;
 const EXPECTED_ROOMS = 28;
 const EXPECTED_CASH_FLOW_ENTRIES = 4;
+const EXPECTED_FOREIGN_KEY_VIOLATIONS = 32;
+const TRUSTED_OPERATOR_PURPOSE = "legacy-fk-32-2026-10";
+const TRUSTED_OPERATOR_ISSUE = "#722";
 const PROJECT_A = "fixture-missing-project-alpha";
 const PROJECT_B = "fixture-missing-project-beta";
 const TENANT_A = "fixture-tenant-alpha";
@@ -156,6 +167,20 @@ function scopeProof() {
   const scopeSha256 = sha256(canonicalBytes(scope));
   return {
     version: 1,
+    trustedOperatorException: {
+      purpose: TRUSTED_OPERATOR_PURPOSE,
+      issue: TRUSTED_OPERATOR_ISSUE,
+      singleUse: true,
+      expectedCounts: {
+        missingProjects: EXPECTED_PROJECTS,
+        orphanRooms: EXPECTED_ROOMS,
+        orphanCashFlowEntries: EXPECTED_CASH_FLOW_ENTRIES,
+        foreignKeyViolations: EXPECTED_FOREIGN_KEY_VIOLATIONS,
+      },
+      maximumDeletions: 0,
+      maximumMonetaryChangeCents: 0,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    },
     provenance: {
       sourceArtifactSha256: "c".repeat(64),
       scopeSha256,
@@ -543,6 +568,7 @@ test("dry-run proves the literal 28+4/2 scope and performs no writes", () => {
     updatedCashFlowEntries: 0,
     manifestHash: sha256(manifestBytes).slice(0, 12),
   });
+
   assert.deepEqual(
     manifest.roomBacklinks.map(({ table, column, count }) => ({
       table,
@@ -558,6 +584,75 @@ test("dry-run proves the literal 28+4/2 scope and performs no writes", () => {
   );
   assert.deepEqual(manifest.protectedTriggers, []);
   assert.match(manifest.inventoryHash, /^[a-f0-9]{64}$/);
+});
+
+test("trusted-operator exception is exact, one-time, bounded, and unexpired", () => {
+  const mutations = [
+    (proof) => {
+      proof.trustedOperatorException.purpose = "another-purpose";
+    },
+    (proof) => {
+      proof.trustedOperatorException.issue = "#721";
+    },
+    (proof) => {
+      proof.trustedOperatorException.singleUse = false;
+    },
+    (proof) => {
+      proof.trustedOperatorException.expectedCounts.missingProjects = 1;
+    },
+    (proof) => {
+      proof.trustedOperatorException.expectedCounts.orphanRooms = 27;
+    },
+    (proof) => {
+      proof.trustedOperatorException.expectedCounts.orphanCashFlowEntries = 3;
+    },
+    (proof) => {
+      proof.trustedOperatorException.expectedCounts.foreignKeyViolations = 31;
+    },
+    (proof) => {
+      proof.trustedOperatorException.maximumDeletions = 1;
+    },
+    (proof) => {
+      proof.trustedOperatorException.maximumMonetaryChangeCents = 1;
+    },
+    (proof) => {
+      proof.trustedOperatorException.expiresAt = new Date(
+        Date.now() - 60 * 1000,
+      ).toISOString();
+    },
+    (proof) => {
+      proof.trustedOperatorException.unreviewedField = true;
+    },
+  ];
+
+  for (const mutate of mutations) {
+    const fixture = createFixture();
+    const proof = scopeProof();
+    mutate(proof);
+    unlinkSync(fixture.proof);
+    writePrivateJson(fixture.proof, proof);
+    const before = snapshot(fixture.database);
+
+    requireFailure(runRepair(fixture.database, dryRunArgs(fixture)));
+
+    assert.equal(snapshot(fixture.database), before);
+    assert.throws(() => statSync(fixture.manifest));
+  }
+});
+
+test("runbooks describe the trusted-root exception as an expiring audit gate, not authentication", () => {
+  for (const source of [LEGACY_RUNBOOK_SOURCE, QUIESCE_README_SOURCE]) {
+    assert.match(source, /legacy-fk-32-2026-10/);
+    assert.match(source, /2\/28\/4\/32/);
+    assert.match(source, /trusted root|trusted-root/i);
+  }
+  assert.match(
+    LEGACY_RUNBOOK_SOURCE,
+    /do \*\*not\*\* authenticate\s+watchdog ancestry/,
+  );
+  assert.match(LEGACY_RUNBOOK_SOURCE, /not a non-bypassable security boundary/);
+  assert.match(LEGACY_RUNBOOK_SOURCE, /authoritative historical source/);
+  assert.match(LEGACY_RUNBOOK_SOURCE, /not\s+cryptographically authenticated/);
 });
 
 test("the executable keeps exact topology and an explicit preimage-hash gate without embedded row IDs", () => {
