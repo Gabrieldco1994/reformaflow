@@ -159,7 +159,7 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
       const current = (await view()).selectedLineIds.includes(line.id);
       const button = await reviewBlockerActionButton(
         page,
-        line.titulo,
+        line,
         current ? "remove" : "include",
       );
       if (current !== desired) {

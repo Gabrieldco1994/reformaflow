@@ -195,7 +195,11 @@ it("offers edit only for answered lines that remain selected", () => {
     />,
   );
 
-  expect(screen.queryByRole("button", { name: /550e8400-e29b/ })).toBeNull();
+  expect(
+    screen.queryByRole("button", {
+      name: /Editar compra Fornecedor guardado.*Liquidificador.*10\/10\/2026.*R\$ 123,45.*Total.*1 parcela: fornecedor/,
+    }),
+  ).toBeNull();
   expect(
     screen.getByRole("button", {
       name: /Editar compra Fornecedor guardado.*Geladeira.*10\/10\/2026.*R\$ 67,89.*Total.*2 parcelas: fornecedor/,
