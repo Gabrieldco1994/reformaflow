@@ -84,6 +84,7 @@ const MEANING_OPTIONS = [
   },
 ] as const;
 
+const DECISION_CREATE = "CREATE";
 const DECISION_WAIVER = "CREATE_ACCEPT_NATURAL_DUPLICATE";
 const TARGET_NONE = "NO_TARGETS";
 const TARGET_INTEGRAL = "target";
@@ -113,6 +114,15 @@ function supportedDecisionChoices(
   candidates: readonly ImportSessionCandidateV1[],
   lineIds: readonly string[],
 ): DecisionChoice[] {
+  if (candidates.length === 0)
+    return [
+      {
+        value: DECISION_CREATE,
+        label: "Criar nova compra",
+        answer: { kind: "CREATE", acceptNaturalDuplicate: false },
+      },
+    ];
+
   const visible = candidates.filter((candidate) =>
     lineIds.includes(candidate.lineId),
   );
