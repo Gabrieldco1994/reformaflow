@@ -46,7 +46,7 @@ export async function assertSupportedImportEntry(
   );
   await expect(
     form.getByText(
-      `${supported.map((format) => formatCopy[format]).join(", ")}. Até 5 arquivos, 10485760 bytes por arquivo. A seleção não valida o conteúdo; a análise depende dos formatos habilitados.`,
+      `${supported.map((format) => formatCopy[format]).join(" e ")}. Até 5 arquivos, 10485760 bytes por arquivo. A seleção não valida o conteúdo; a análise depende dos formatos habilitados.`,
       { exact: true },
     ),
   ).toBeVisible();
