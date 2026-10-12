@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   isPendingImportQuestion,
   type ImportSessionViewV1,
@@ -34,6 +34,10 @@ import {
   identicalImportNotice,
   invoiceImportCTA,
 } from "./helpers/supported-import-entry";
+import {
+  gotoValidatedMariaHref,
+  waitForMariaEntryButton,
+} from "./helpers/maria-entry-navigation";
 
 const apiURL = process.env.API_URL!;
 const fixtures = path.resolve(__dirname, "fixtures");
@@ -106,14 +110,9 @@ async function enqueueSpeech(page: Page, transcript: string) {
 }
 
 async function assertPrimaryVoiceCtaBeforeScroll(
-  page: Page,
+  cta: Locator,
   evidence: JourneyEvidence,
 ) {
-  const cta = page.getByRole("button", {
-    name: "Iniciar conversa por voz",
-    exact: true,
-  });
-  await expect(cta).toBeVisible();
   await expect(cta).toBeEnabled();
   const measurement = await cta.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -190,10 +189,15 @@ async function dismissJourney(page: Page) {
   if (await close.isVisible()) await close.click();
 }
 
-async function openMaria(page: Page) {
+async function openMaria(page: Page, projectId: string) {
   await dismissJourney(page);
   if (page.viewportSize()!.width < 768) {
-    await page.getByRole("link", { name: "Maria", exact: true }).click();
+    const maria = page.getByRole("link", { name: "Maria", exact: true });
+    await expect(
+      maria,
+      "Maria navigation must be rendered after real signup",
+    ).toBeVisible();
+    await gotoValidatedMariaHref(page, maria, `/projects/${projectId}/maria`);
   } else {
     await page
       .getByRole("button", { name: "Abrir Copiloto Financeiro", exact: true })
@@ -377,11 +381,12 @@ for (const phase of ["upload", "confirmation"] as const) {
         await dismissJourney(page);
         await evidence.capture("personal-project-card-created");
 
-        await openMaria(page);
-        const voiceCta = await assertPrimaryVoiceCtaBeforeScroll(
+        await openMaria(page, projectId);
+        const voiceCta = await waitForMariaEntryButton(
           page,
-          evidence,
+          "Iniciar conversa por voz",
         );
+        await assertPrimaryVoiceCtaBeforeScroll(voiceCta, evidence);
         const cta = page.getByRole("button", {
           name: invoiceImportCTA,
           exact: true,

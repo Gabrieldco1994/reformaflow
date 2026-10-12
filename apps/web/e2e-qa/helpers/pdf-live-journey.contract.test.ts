@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Locator, Page } from "@playwright/test";
+import { waitForMariaImportEntry } from "./pdf-live-journey";
 import {
   gotoValidatedMariaHref,
-  waitForMariaImportEntry,
-} from "./pdf-live-journey";
+  waitForMariaEntryButton,
+} from "./maria-entry-navigation";
 
 type ExpectResult = {
   matches: boolean;
@@ -108,5 +109,34 @@ test("exact Maria heading gate completes before the single exact CTA assertion",
     "locate:button:Importar fatura de cartão:true:",
     "assert:cta:to.have.count:1",
     "assert:cta:to.be.visible",
+  ]);
+});
+
+test("exact Maria heading gate completes before the single exact voice CTA assertion", async () => {
+  const events: string[] = [];
+  const heading = locator("heading", events);
+  const cta = locator("voice-cta", events);
+  const page = {
+    getByRole: (
+      role: string,
+      options: { name: string; exact: boolean; level?: number },
+    ) => {
+      events.push(
+        `locate:${role}:${options.name}:${options.exact}:${options.level ?? ""}`,
+      );
+      return role === "heading" ? heading : cta;
+    },
+  } as unknown as Page;
+
+  assert.equal(
+    await waitForMariaEntryButton(page, "Iniciar conversa por voz"),
+    cta,
+  );
+  assert.deepEqual(events, [
+    "locate:heading:Maria:true:1",
+    "assert:heading:to.be.visible",
+    "locate:button:Iniciar conversa por voz:true:",
+    "assert:voice-cta:to.have.count:1",
+    "assert:voice-cta:to.be.visible",
   ]);
 });

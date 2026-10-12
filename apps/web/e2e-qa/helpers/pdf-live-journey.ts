@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import {
   expect,
   type APIResponse,
-  type Locator,
   type Page,
   type Response,
   type TestInfo,
@@ -16,6 +15,10 @@ import {
   assertSupportedImportEntry,
   invoiceImportCTA,
 } from "./supported-import-entry";
+import {
+  gotoValidatedMariaHref,
+  waitForMariaEntryButton,
+} from "./maria-entry-navigation";
 
 const apiURL = process.env.API_URL!;
 const safePath = (url: string) => new URL(url).pathname;
@@ -30,28 +33,8 @@ type SignupProject = {
   rooms: Array<{ id: string; name: string }>;
 };
 
-export async function gotoValidatedMariaHref(
-  page: Page,
-  maria: Locator,
-  expectedHref: string,
-) {
-  await expect(maria).toHaveAttribute("href", expectedHref);
-  const href = await maria.getAttribute("href");
-  expect(href).toBe(expectedHref);
-  await page.goto(href!);
-}
-
 export async function waitForMariaImportEntry(page: Page) {
-  await expect(
-    page.getByRole("heading", { name: "Maria", exact: true, level: 1 }),
-  ).toBeVisible();
-  const cta = page.getByRole("button", {
-    name: invoiceImportCTA,
-    exact: true,
-  });
-  await expect(cta).toHaveCount(1);
-  await expect(cta).toBeVisible();
-  return cta;
+  return waitForMariaEntryButton(page, invoiceImportCTA);
 }
 
 /** PDF-specific evidence: separate directories and one exact expected document failure,
