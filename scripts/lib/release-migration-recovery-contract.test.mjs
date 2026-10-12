@@ -33,6 +33,8 @@ const MACHINE_IMAGE_FIXTURE =
   "registry.fly.io/reformaflow-api:deployment-01K39@sha256:abc123";
 const RELEASE_IMAGE_FIXTURE =
   "registry.fly.io/reformaflow-api:deployment-01K39";
+const IMPORT_VAULT_DRAIN_TIMEOUT_MS = 5000;
+const REQUIRED_VAULT_DRAIN_MARGIN_MS = 10000;
 
 function deployJob() {
   const start = workflow.indexOf("\n  deploy-api:");
@@ -122,18 +124,19 @@ test("postdeploy verifies the single machine identity, checks, release image, an
   const deploy = job.indexOf("flyctl deploy");
   const postdeploy = job.slice(deploy + "flyctl deploy".length);
 
+  assert.match(postdeploy, /scripts\/ci\/wait-for-fly-machine\.sh/);
+  assert.doesNotMatch(postdeploy, /flyctl\s+machines?\s+list/);
   assert.match(
     postdeploy,
-    /flyctl\s+machines?\s+list[\s\S]{0,1200}--json[\s\S]{0,1200}length[\s\S]{0,200}(?:==\s*1|-eq\s+1)/,
+    /EXPECTED_GH_SHA="\$GITHUB_SHA"[\s\S]{0,300}scripts\/ci\/wait-for-fly-machine\.sh/,
   );
   assert.match(
     postdeploy,
-    /image_ref\.labels\.GH_SHA[\s\S]{0,500}(?:GITHUB_SHA|\$\{\{\s*github\.sha\s*\}\})/,
+    /machine_id="\$\(jq -r '\.id \/\/ empty' <<<"\$machine"\)"/,
   );
-  assert.match(postdeploy, /\[\[\s*"\$machine_state"\s*==\s*"started"\s*\]\]/);
   assert.match(
     postdeploy,
-    /\[\[\s*"\$deployed_sha"\s*==\s*"\$GITHUB_SHA"\s*\]\]/,
+    /machine_image="\$\(jq -r '\.config\.image \/\/ empty' <<<"\$machine"\)"/,
   );
 
   const checksContract =
@@ -211,6 +214,27 @@ test("postdeploy verifies the single machine identity, checks, release image, an
   assert.doesNotMatch(postdeploy, /::7|short|cut\s+-c/);
 });
 
+test("machine convergence has a GNU timeout with a TERM-to-KILL margin", () => {
+  const postdeploy = deployJob().slice(deployJob().indexOf("flyctl deploy"));
+  const timeout = postdeploy.match(
+    /timeout --signal=TERM --kill-after=(\d+)s (\d+)s scripts\/ci\/wait-for-fly-machine\.sh/,
+  );
+
+  assert.ok(timeout, "machine helper must be wrapped in GNU timeout");
+  const killAfterSeconds = Number(timeout[1]);
+  const wallClockSeconds = Number(timeout[2]);
+  const nominalPollingSeconds = 29 * 10;
+  assert.ok(
+    wallClockSeconds > nominalPollingSeconds,
+    "wall clock must exceed the helper's nominal sleep budget",
+  );
+  assert.ok(killAfterSeconds > 0, "timeout must eventually force KILL");
+  assert.ok(
+    killAfterSeconds < wallClockSeconds,
+    "TERM-to-KILL margin must be bounded below the wall timeout",
+  );
+});
+
 test("Fly relies on Docker CMD for app and adds no process override, health route, or build SHA arg", () => {
   assert.match(flyConfig, /processes\s*=\s*\["app"\]/);
   assert.match(flyConfig, /path\s*=\s*"\/api\/docs-json"/);
@@ -238,4 +262,19 @@ test("Fly relies on Docker CMD for app and adds no process override, health rout
     `${workflow}\n${flyConfig}\n${dockerfile}\n${entrypoint}`,
     /\/health\b/,
   );
+});
+
+test("Fly grants SIGTERM more time than the configured vault drain deadline", () => {
+  const signal = flyConfig.match(/^kill_signal\s*=\s*"([^"]+)"\s*$/m);
+  const timeout = flyConfig.match(/^kill_timeout\s*=\s*(\d+)\s*$/m);
+
+  assert.equal(signal?.[1], "SIGTERM");
+  assert.ok(timeout, "fly.toml must set an explicit kill_timeout");
+  assert.equal(Number(timeout[1]), 15);
+  assert.ok(
+    Number(timeout[1]) * 1000 >=
+      IMPORT_VAULT_DRAIN_TIMEOUT_MS + REQUIRED_VAULT_DRAIN_MARGIN_MS,
+    "Fly kill timeout must include ten seconds beyond the 5000ms vault drain",
+  );
+  assert.doesNotMatch(flyConfig, /IMPORT_VAULT_|VAULT_DIR/);
 });

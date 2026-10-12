@@ -209,13 +209,11 @@ jobs:
         run: |
           set -euo pipefail
           app="reformaflow-api"
-          machines="$(flyctl machines list --app "$app" --json)"
-          [[ "$(jq 'length' <<<"$machines")" -eq 1 ]]
-          machine_id="$(jq -r '.[0].id' <<<"$machines")"
-          machine_state="$(jq -r '.[0].state' <<<"$machines")"
-          deployed_sha="$(jq -r '.[0].image_ref.labels.GH_SHA // empty' <<<"$machines")"
-          [[ "$machine_state" == "started" ]]
-          [[ "$deployed_sha" == "$GITHUB_SHA" ]]
+          machine="$(
+            FLY_APP="$app" EXPECTED_GH_SHA="$GITHUB_SHA" \
+              timeout --signal=TERM --kill-after=15s 330s scripts/ci/wait-for-fly-machine.sh
+          )"
+          machine_id="$(jq -r '.id // empty' <<<"$machine")"
 
           checks_healthy=false
           for attempt in {1..30}; do
@@ -233,7 +231,7 @@ jobs:
           releases="$(flyctl releases --app "$app" --json)"
           release_status="$(jq -r '.[0].Status // empty' <<<"$releases")"
           release_image="$(jq -r '.[0].ImageRef // empty' <<<"$releases")"
-          machine_image="$(jq -r '.[0].config.image // empty' <<<"$machines")"
+          machine_image="$(jq -r '.config.image // empty' <<<"$machine")"
           machine_image_without_digest="${machine_image%%@*}"
           [[ "$release_status" == "complete" ]]
           [[ -n "$machine_image" ]]
