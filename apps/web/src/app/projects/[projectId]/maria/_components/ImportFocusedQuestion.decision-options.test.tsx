@@ -177,6 +177,23 @@ describe("server-supported import decisions", () => {
     expect(onAnswer).toHaveBeenCalledOnce();
   });
 
+  it("offers and submits clean CREATE when the candidate catalog is empty", () => {
+    const onAnswer = setup([]);
+
+    expect(screen.getAllByRole("radio")).toHaveLength(1);
+    chooseAndSave("Criar nova compra", "decision-choice-label-CREATE");
+
+    expect(onAnswer).toHaveBeenCalledOnce();
+    expect(onAnswer).toHaveBeenCalledWith({
+      id: "question-decision",
+      text: "CREATE",
+      draftAnswer: {
+        field: "decision",
+        value: { kind: "CREATE", acceptNaturalDuplicate: false },
+      },
+    });
+  });
+
   it.each([
     [
       "a strong receipt",
@@ -186,7 +203,6 @@ describe("server-supported import decisions", () => {
       "an incompatible strong expense",
       [candidate("EXPENSE", "STRONG_IDENTITY", false, "expense-strong")],
     ],
-    ["no visible candidate", []],
     [
       "a natural candidate shadowed by an unsupported strong conflict",
       [

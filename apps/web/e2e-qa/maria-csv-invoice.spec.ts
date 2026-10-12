@@ -224,7 +224,6 @@ for (const phase of ["upload", "confirmation"] as const) {
       let token = "";
       let projectId = "";
       let sessionId = "";
-      let candidateExpenseId: string | null = null;
       const headers = () => ({
         Authorization: `Bearer ${token}`,
         "x-rf-import-ui": "1",
@@ -253,10 +252,8 @@ for (const phase of ["upload", "confirmation"] as const) {
         expect(
           result.total,
           "No financial writes before explicit confirmation",
-        ).toBe(candidateExpenseId ? 1 : 0);
-        expect(result.items.map((item) => item.id)).toEqual(
-          candidateExpenseId ? [candidateExpenseId] : [],
-        );
+        ).toBe(0);
+        expect(result.items.map((item) => item.id)).toEqual([]);
       };
 
       try {
@@ -371,30 +368,6 @@ for (const phase of ["upload", "confirmation"] as const) {
         );
         await evidence.checkApi(cardResponse);
         const card: { id: string } = await cardResponse.json();
-        if (phase === "confirmation") {
-          const candidateResponse = await page.request.post(
-            `${apiURL.replace(/\/$/, "")}/projects/${projectId}/expenses`,
-            {
-              headers: headers(),
-              data: {
-                tipoDespesa: "OUTROS",
-                valor: selectedPurchases[0].amountCents / 100,
-                quantidade: 1,
-                titulo: selectedPurchases[0].title,
-                fornecedor: selectedPurchases[0].title,
-                formaPagamento: "A_VISTA",
-                dataCompra: selectedPurchases[0].date,
-                dataPagamento: expected.declarations.firstDueDate,
-                status: "PLANEJADO",
-                creditCardId: card.id,
-              },
-            },
-          );
-          await evidence.checkApi(candidateResponse);
-          const candidateExpense: { id: string } =
-            await candidateResponse.json();
-          candidateExpenseId = candidateExpense.id;
-        }
         // Signup already entered this project; there is no project-hub tile to click.
         expect(new URL(page.url()).pathname).toBe(
           `/projects/${projectId}/conta`,
@@ -579,7 +552,7 @@ for (const phase of ["upload", "confirmation"] as const) {
 
         let voiceReviewTransition = false;
         let lostAnswerRecovered = false;
-        let candidateChosen = false;
+        let cleanCreateChosen = false;
         // Read-only state identifies the active field; every answer is sent by the actual guided UI.
         for (let attempt = 0; attempt < 30; attempt++) {
           let current = await view();
@@ -666,35 +639,30 @@ for (const phase of ["upload", "confirmation"] as const) {
           const answer = answerFromFixture(question, current, selectedIds);
           if (isFocusedDraftQuestion(question)) {
             await nativeFocusedOnly(form, async () => {
+              if (question.field === "decision") {
+                for (const lineId of question.lineIds) {
+                  const catalog = (await get(
+                    `/import-sessions/${sessionId}/candidates?lineId=${lineId}`,
+                  )) as { items: unknown[] };
+                  expect(
+                    catalog.items,
+                    `Decision candidate catalog for ${lineId} must be empty`,
+                  ).toEqual([]);
+                }
+              }
               const typed = await fillFocusedDraftPreview(
                 form,
                 question,
                 expected.declarations.firstDueDate,
                 current,
-                undefined,
-                question.field === "decision"
-                  ? (
-                      (await get(
-                        `/import-sessions/${sessionId}/candidates?lineId=${question.lineIds[0]}`,
-                      )) as {
-                        items: Array<{
-                          id: string;
-                          description: string;
-                          canKeepExisting: boolean;
-                        }>;
-                      }
-                    ).items.find(
-                      (candidate) =>
-                        candidate.id === candidateExpenseId &&
-                        candidate.canKeepExisting,
-                    )
-                  : undefined,
               );
-              if (
-                typed.field === "decision" &&
-                typed.value.kind === "KEEP_EXISTING"
-              )
-                candidateChosen = true;
+              if (typed.field === "decision") {
+                expect(typed.value).toEqual({
+                  kind: "CREATE",
+                  acceptNaturalDuplicate: false,
+                });
+                cleanCreateChosen = true;
+              }
               await evidence.capture(
                 `answer-${attempt + 1}-${question.field}-typed-preview`,
               );
@@ -849,8 +817,9 @@ for (const phase of ["upload", "confirmation"] as const) {
         ).toEqual([]);
         expect(voiceReviewTransition).toBe(true);
         expect(lostAnswerRecovered).toBe(true);
-        expect(candidateChosen).toBe(true);
+        expect(cleanCreateChosen).toBe(true);
         const ready = await view();
+        expect(ready.state).toBe("READY");
         expect(
           ready.proposal?.lines.every(
             (planned) =>
