@@ -279,13 +279,15 @@ echo "normalizer  $LOCAL_SHA  OK"
 ```
 
 Registre `RECOVERY_RUN` e `QUIESCE_DIR` apenas na operação privada. Não copie o repositório inteiro
-nem instale dependências: `createRequire` resolve o `@prisma/client` já existente em `/app/node_modules`. 5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run **por `op-wrap dryrun`**, o único
-toque autorizado no banco. O `op-wrap` gera um caminho de manifest novo desta tentativa (dentro de
-`$QUIESCE_DIR`), o imprime (`manifest=<caminho>`) e a **cadeia supervisionada** publica
-`$QUIESCE_DIR/manifest.current` com o basename gerado **somente se o normalizer sair com 0**
-(fail-closed: normalizer que falha ou é morto não deixa `manifest.current` novo nem ponteiro
-parcial). Nunca rode o normalizer à mão numa janela armada. Baixe **exatamente** o manifest
-nomeado por `$QUIESCE_DIR/manifest.current`, nunca um caminho inventado em `/tmp`.
+nem instale dependências: `createRequire` resolve o `@prisma/client` já existente em `/app/node_modules`.
+
+5. **Dry-run final:** com o `watchdog.sh` armado, emita o dry-run **por `op-wrap dryrun`**, o único
+   toque autorizado no banco. O `op-wrap` gera um caminho de manifest novo desta tentativa (dentro de
+   `$QUIESCE_DIR`), o imprime (`manifest=<caminho>`) e a **cadeia supervisionada** publica
+   `$QUIESCE_DIR/manifest.current` com o basename gerado **somente se o normalizer sair com 0**
+   (fail-closed: normalizer que falha ou é morto não deixa `manifest.current` novo nem ponteiro
+   parcial). Nunca rode o normalizer à mão numa janela armada. Baixe **exatamente** o manifest
+   nomeado por `$QUIESCE_DIR/manifest.current`, nunca um caminho inventado em `/tmp`.
 
 ```bash
 LOCAL_MANIFEST="$PRIVATE_DIR/manifest-local-$(date -u +%Y%m%dT%H%M%SZ).json"

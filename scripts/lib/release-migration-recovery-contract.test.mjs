@@ -42,6 +42,14 @@ function deployJob() {
   return workflow.slice(start);
 }
 
+function testApiJob() {
+  const start = workflow.indexOf("\n  test-api:");
+  const end = workflow.indexOf("\n  test-web:", start);
+  assert.notEqual(start, -1, "test-api job is missing");
+  assert.notEqual(end, -1, "test-api job boundary is missing");
+  return workflow.slice(start, end);
+}
+
 function assertDeployArgv(job) {
   const commands = job
     .split("\n")
@@ -55,6 +63,34 @@ function assertDeployArgv(job) {
 
 test("canonical deploy selects immediate single-existing-machine replacement", () => {
   assertDeployArgv(deployJob());
+});
+
+test("API CI prepares and checks the 72-migration database before recovery tests", () => {
+  const job = testApiJob();
+  const prepare = job.indexOf("run: npm run test:db:prepare");
+  const integrityCheck = job.indexOf(
+    'run: DATABASE_URL="file:$PWD/prisma/test.db" npm run db:check',
+  );
+  const recovery = job.indexOf("run: npm run test:migration-recovery");
+
+  assert.ok(prepare >= 0, "test database preparation is missing");
+  assert.ok(
+    integrityCheck > prepare,
+    "FK check must follow database preparation",
+  );
+  assert.ok(
+    recovery > integrityCheck,
+    "recovery tests must run after the FK check",
+  );
+  assert.match(
+    job.slice(prepare, recovery),
+    /run: npm run test:db:prepare\n\s+- name: FK integrity check \(#628\)\n\s+run: DATABASE_URL="file:\$PWD\/prisma\/test\.db" npm run db:check/,
+    "FK check must remain immediately after database preparation",
+  );
+  assert.match(
+    job,
+    /name: Prepare disposable test database \(72 committed migrations\)/,
+  );
 });
 
 test("removing any replacement safeguard or changing strategy fails the argv contract", () => {

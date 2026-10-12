@@ -513,6 +513,7 @@ M4="$PROTO_DIR/missing-rmdir.md"
 M5="$PROTO_DIR/missing-sh-lc.md"
 M6="$PROTO_DIR/missing-mkdir-shell-op.md"
 M7="$PROTO_DIR/missing-set-e-cleanup.md"
+M8="$PROTO_DIR/merged-dryrun-heading.md"
 cp "$DEPLOY" "$M1"
 cp "$DEPLOY" "$M2"
 cp "$DEPLOY" "$M3"
@@ -520,6 +521,7 @@ cp "$DEPLOY" "$M4"
 cp "$DEPLOY" "$M5"
 cp "$DEPLOY" "$M6"
 cp "$DEPLOY" "$M7"
+cp "$DEPLOY" "$M8"
 perl -0pi -e 's/\{"init":\{"entrypoint":null,"cmd":null\}\}/{"init":{"entrypoint":null,"cmd":"removed"}}/' "$M1"
 perl -0pi -e 's#https://reformaflow-api.fly.dev/api/docs-json#https://reformaflow-api.fly.dev/api/docs#' "$M2"
 perl -0pi -e 's#case "\$QUIESCE_DIR" in#case removed#g; s#case "\$REMOTE_MANIFEST" in#case removed#g' "$M3"
@@ -527,6 +529,7 @@ perl -0pi -e 's/rmdir -- \$QUIESCE_DIR/rmdir removed/' "$M4"
 perl -0pi -e 's/--command "sh -lc /--command /g' "$M5"
 perl -0pi -e 's/--command "mkdir -p -- \$QUIESCE_DIR"/--command "mkdir -p -- \$QUIESCE_DIR && chmod 0700 -- \$QUIESCE_DIR"/' "$M6"
 perl -0pi -e 's/--command "rm -f -- \$QUIESCE_DIR\/watchdog\.sh/--command "set -e && rm -f -- \$QUIESCE_DIR\/watchdog\.sh/' "$M7"
+perl -0pi -e 's/\n5\. \*\*Dry-run final:/ 5. **Dry-run final:/' "$M8"
 
 for mutant in "$M1" "$M2" "$M3" "$M4" "$M7"; do
   if check_finish_protocol_file "$mutant"; then
@@ -537,7 +540,7 @@ for mutant in "$M1" "$M2" "$M3" "$M4" "$M7"; do
   fi
 done
 
-for mutant in "$M5" "$M6"; do
+for mutant in "$M5" "$M6" "$M8"; do
   if check_protocol_file "$mutant"; then
     no "protocol checker accepted mutated $(basename "$mutant")"
     proto_ok=1
