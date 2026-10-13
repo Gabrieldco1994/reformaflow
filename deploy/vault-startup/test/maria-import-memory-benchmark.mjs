@@ -812,14 +812,17 @@ function dockerInspect(api) {
 }
 
 function readHostCgroupLimits(containerPid) {
+  markStage("host-cgroup-controller-check");
   assert.ok(Number.isSafeInteger(containerPid) && containerPid > 0);
   assert.ok(
     existsSync("/sys/fs/cgroup/cgroup.controllers"),
     "host is not cgroup v2",
   );
+  markStage("host-cgroup-path-read");
   const cgroups = readFileSync(`/proc/${containerPid}/cgroup`, "utf8");
   const match = /^0::(.+)$/m.exec(cgroups);
   assert.ok(match, "container host cgroup path is missing");
+  markStage("host-cgroup-leaf-resolve");
   const root = realpathSync("/sys/fs/cgroup");
   const cgroupRelative = match[1].replace(/^\/+/, "");
   const leaf = realpathSync(resolve(root, cgroupRelative));
@@ -830,6 +833,7 @@ function readHostCgroupLimits(containerPid) {
   const limits = [];
   let current = leaf;
   while (current === root || current.startsWith(`${root}${sep}`)) {
+    markStage("host-cgroup-ancestor-limit-read");
     const raw = readFileSync(join(current, "memory.max"), "utf8").trim();
     if (raw === "max") limits.push(null);
     else {
@@ -843,6 +847,7 @@ function readHostCgroupLimits(containerPid) {
     limits.length > 0 && current === root,
     "host cgroup ancestors are incomplete",
   );
+  markStage("host-cgroup-leaf-limit-verify");
   assert.equal(
     limits[0],
     MEMORY_CAP_BYTES,
