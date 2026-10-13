@@ -185,10 +185,13 @@ secret unless the record contains all of the following:
    restore-test evidence nor an owner, so it does not satisfy this gate. A copy
    on the same volume is not a restorable disaster backup.
 6. **Migrations and FK integrity:** show all expected migrations applied on the
-   production database and a clean `PRAGMA foreign_key_check` result from an
-   approved read-only checker. Do not use raw `sqlite3`, `prisma db execute`,
-   reset, repair, migration bypass or any FK-OFF writer. Any unresolved FK row
-   or migration state is a STOP.
+   production database. The normal gate remains
+   `PRAGMA foreign_key_check = 0`. The sole exception is the one-window #722
+   vault activation baseline described below: exactly 28 active
+   `rooms` → `projects` plus 4 soft-deleted `cash_flow_entries` → `expenses`
+   (32 total), retained byte-identically between capture and compare. No other
+   unresolved FK row or migration state is accepted. Do not use raw SQLite,
+   `prisma db execute`, reset, repair, migration bypass or any FK-OFF writer.
 7. **Retention approval:** link PO/data-owner approval for original-document
    retention, seven-day inactivity expiry, trash, backup retention, restore and
    deletion responsibilities. Code defaults and QA evidence are not policy
@@ -226,6 +229,121 @@ the sanitized command transcript and identifiers with the operational record.
 ## Separate activation sequence
 
 The sequence starts only after the blocker record is complete.
+
+### One-window #722 FK preservation exception
+
+The PO intentionally chose preservation, not repair: the 32 known legacy child
+rows remain byte-identical. There is no quarantine, deletion, relink, tenant
+inference or parent synthesis. This exception authorizes neither a migration nor
+future debt and does not weaken `npm run db:check`, CI, pre-commit or any global
+FK gate. `IMPORT_SESSION_WRITES_ENABLED` remains the source constant `false`.
+It is prohibited to use repair, raw SQLite or migrations for this exception.
+
+For this vault activation window only, the approved read-only evidence is
+`scripts/audit-vault-fk-baseline.mjs`, invoked in production only through
+`deploy/vault-startup/run-fk-baseline-audit.sh`. The launcher fixes
+`/data/dev.db`, `/data`, `/data/vault-fk-baseline.private.json`,
+`/data/vault-fk-baseline.authorization.json` and
+`/app/audit-vault-fk-baseline.mjs`; it accepts only `capture` or `compare`,
+requires an explicit writable ext4 `/data` mount on the database device, and
+checks the exact auditor SHA-256 embedded in the tracked launcher. The auditor
+opens SQLite explicitly read-only, pins one connection and one read
+transaction, enables and verifies `query_only`, and rejects unstable
+path/descriptor identity. Its exact snapshot also includes the relevant
+`sqlite_schema` table/index/trigger SQL, `table_xinfo`, complete index metadata,
+and the directly referenced parent table definitions. This binds generated and
+hidden columns, CHECK/collation text, partial/unique indexes, triggers,
+deferrability, STRICT and WITHOUT ROWID declarations. Any SQLite REAL storage
+class in an affected row is unsupported and fails closed; no decimal rendering
+is treated as byte identity. Transfer the two executables from the pinned release,
+verify the launcher itself against the reviewed release, and never substitute a
+path, statement, table, tenant selector, apply verb or migration command.
+
+Before capture, the approver creates the external authorization as canonical
+JSON at the fixed authorization path, regular single-link mode `0600`. It binds
+the exact full release SHA, release ID, image digest, auditor artifact SHA-256,
+authorization ID, random nonce, window ID/start/expiry and this exception's
+purpose. Its full SHA-256 is supplied separately to the launcher. The window is
+at most four hours. The authorization is not generated or self-approved by the
+auditor.
+
+The private manifest is exclusively created as a regular single-link `0600`
+file in state `captured`. It contains rowids, exact FK multiplicity and
+definitions, table column contracts, typed values and full hashes: keep it only
+in the restricted activation record, never stdout, an issue, PR, artifact or
+general log. Supply the exact release/image/authorization/window values through
+the required `VAULT_FK_*` variables. They must be identical for capture and
+compare, current, and unique to this window. Compare exclusively creates the
+fixed `0600` `.consumed` receipt before reporting success; an existing receipt,
+clock rollback, second compare or recapture is a replay and a STOP.
+
+1. Run launcher `capture` only after freeze/quiescence and all other preflight
+   gates. Existing manifest, unsafe path/mode/link, any count/type other than
+   28/4/32, or any additional violation is a STOP.
+2. Immediately before activation run launcher `compare`. Any changed typed
+   column bytes, row/FK identity, count, release, image, authorization, window,
+   manifest integrity or path identity is a STOP. Keep the database quiescent
+   through the activation decision.
+3. After ON evidence and the retain-ON/flag-OFF decision are recorded, preserve
+   the approved private authorization, manifest and consumed receipt, then
+   clean up only those three exact files and the exact transferred auditor and
+   launcher named by the record. No wildcard and no database/vault cleanup.
+
+Production QA is **review-only** for this release. A deny/flag network guard
+must fail the run if any `POST` reaches confirmation-challenge, confirm or
+execute. QA may navigate the typed import review only until state **READY** with
+`proposal` non-null, `confirmation` and `receipt` null, and state never
+`APPLIED`, then stops. Before/after evidence must show no financial-table
+change and no `UserActivityLog` execute event. It never calls `challenge`,
+`confirm` or `execute`, and never uploads a real document as part of activation
+proof.
+
+This is enforced by the checked-in
+`deploy/vault-startup/run-production-qa-guard.sh` and
+`deploy/vault-startup/production-qa-guard.mjs`, not by operator convention.
+Transfer those exact two release artifacts to
+`/app/run-production-qa-guard.sh` and
+`/app/vault-production-qa-guard.mjs`, verify the launcher against the pinned
+release, and supply one identical set of `VAULT_QA_RELEASE_SHA`,
+`VAULT_QA_RELEASE_ID`, `VAULT_QA_IMAGE_DIGEST`, `VAULT_QA_WINDOW_ID`,
+`VAULT_QA_WINDOW_START`, `VAULT_QA_WINDOW_END`, and `VAULT_QA_ACTOR`. The
+launcher accepts only `run`; the database, private evidence paths, fixed
+`/usr/bin/sqlite3`, loopback port `4317`, and production API origin are fixed.
+There is no SQL, database, origin, table or tenant argument.
+
+Run `run-production-qa-guard.sh run` once after quiescence and keep that exact
+process attached for the entire journey. It generates a fresh nonce, hashes its
+own verified artifact, opens one long-lived read-only SQLite process, verifies
+`query_only`, and takes each complete before/after fingerprint in one
+transaction. On Linux it proves the child descriptor's device/inode through
+`/proc`, while path, parent-directory and `data_version` checks reject
+replacement or concurrent writes. The process exclusively creates and keeps
+open the mode-`0600` manifest before admitting loopback traffic. There is no
+separate capture or compare invocation and no operator-authored trace.
+
+Make the SRE-driven journey use only `http://127.0.0.1:4317`. The guard
+forwards to the fixed production origin, rejects every matching import-session
+confirmation-challenge/confirm/execute `POST`, rejects CONFIRMED/APPLIED or
+malformed READY responses, and stops import-session traffic after the first
+valid READY response. Authorization headers, response bodies, routes and
+session IDs are never written to evidence or stdout. The same supervisor then
+closes admission, creates the trace from its in-memory counters and
+request-summary digest, and compares exact before/after counts plus hashes for
+`bank_accounts`, `bank_statement_imports`, `budget_allocations`,
+`cash_flow_entries`, `credit_cards`, `credit_card_imports`,
+`cross_project_settlements`, `expenses`, `imported_invoice_liquidations`,
+`invoice_adjustments`, `rateio_allocations`, and `receipts`, plus exact
+count/hash equality for
+`user_activity_logs.action = 'importSessions.execute'`.
+
+Manifest, trace and receipt paths must all be absent at startup. Their parent
+components may not be symlinks; files are exclusive, single-link regular
+`0600` nodes held and reread through `O_NOFOLLOW` descriptors, fsynced and
+revalidated against their paths. Only after all checks pass does the same
+process create a receipt hashing the already validated manifest/trace bytes.
+Any path/descriptor swap, changed identity/fingerprint, missing READY,
+forbidden attempt, existing evidence file, interruption or window mismatch is
+a STOP with no receipt; start a newly authorized window rather than overwrite.
 
 1. **Freeze and pin.** Enter the exclusive window. Record `EXPECTED_SHA` from
    current `origin/main`; do not copy a SHA from this page. Re-read current main
@@ -319,6 +437,11 @@ the vault. Do not unset the other five profile values, delete
 `/data/import-vault`, detach the volume, run cleanup, or roll schema back.
 Record bounded pre/post inode, size and content-integrity evidence for the vault
 bytes without exposing names or content. Preserve the backup and volume.
+
+Flag-OFF is also the rollback for any failure of the #722 preservation
+exception. Do not repair the 32 rows, open raw SQLite, run a migration, or
+recapture under a reused/extended window. Close the window and start a newly
+authorized process from the top.
 
 OFF is only vault-admission containment. As stated in the contract, already
 materialized qualified sessions can retain independent prepare/confirm/execute
