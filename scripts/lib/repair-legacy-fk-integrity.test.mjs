@@ -707,6 +707,11 @@ test("Linux harness and production probe require the inherited fd9 lock", () => 
     /const inherited = spawnSync\("flock", \["-n", "9"\], \{ stdio \}\);/,
     "the production continuity probe must use util-linux inherited-fd mode",
   );
+  assert.match(
+    SCRIPT_SOURCE,
+    /const competing = spawnSync\("flock", \["-n", lockPath, "true"\], \{\s*stdio: "ignore",\s*\}\);\s*const stdio = Array\.from\(\{ length: 10 \}, \(\) => "ignore"\);\s*stdio\[9\] = 9;\s*const inherited = spawnSync\("flock", \["-n", "9"\], \{ stdio \}\);/,
+    "the production probe must test a fresh pathname before inherited fd9",
+  );
   assert.doesNotMatch(
     SCRIPT_SOURCE,
     /spawnSync\("flock", \["-n", "9",/,
@@ -745,11 +750,28 @@ import { spawnSync } from "node:child_process";
 const inherited = fstatSync(9);
 const expected = statSync(process.env.EXPECTED_LOCK_PATH);
 const capability = fstatSync(7);
-const competing = spawnSync("flock", ["-n", process.env.EXPECTED_LOCK_PATH, "true"]);
+const competing = spawnSync(
+  "flock",
+  ["-n", process.env.EXPECTED_LOCK_PATH, "true"],
+  { stdio: "ignore" },
+);
+const stdio = Array.from({ length: 10 }, () => "ignore");
+stdio[9] = 9;
+const inheritedProbe = spawnSync("flock", ["-n", "9"], { stdio });
+const codes = (result) => ({
+  status: result.status,
+  signal: result.signal,
+  spawnErrorCode: result.error?.code ?? null,
+});
+process.stdout.write(
+  JSON.stringify({
+    pathname: codes(competing),
+    inheritedFd: codes(inheritedProbe),
+  }) + "\\n",
+);
 if (process.cwd() !== process.env.EXPECTED_CWD ||
     inherited.dev !== expected.dev || inherited.ino !== expected.ino ||
-    capability.nlink !== 0 || competing.status === 0) process.exit(1);
-process.stdout.write("inherited lock held\\n");
+    capability.nlink !== 0) process.exitCode = 1;
 `,
       { mode: 0o600 },
     );
@@ -767,12 +789,39 @@ process.stdout.write("inherited lock held\\n");
           EXPECTED_LOCK_PATH: lockPath,
         },
       });
+      const runnerCodes = {
+        status: result.status,
+        signal: result.signal,
+        spawnErrorCode: result.error?.code ?? null,
+      };
+      const probes = (() => {
+        try {
+          const parsed = JSON.parse(result.stdout ?? "");
+          if (parsed === null || typeof parsed !== "object") {
+            throw new TypeError("probe result is not an object");
+          }
+          return parsed;
+        } catch {
+          assert.fail(
+            `Linux lock probe emitted no sanitized results: ${JSON.stringify(runnerCodes)}`,
+          );
+        }
+      })();
+      assert.deepEqual(
+        probes.pathname,
+        { status: 1, signal: null, spawnErrorCode: null },
+        "a fresh pathname lock attempt must be blocked",
+      );
+      assert.deepEqual(
+        probes.inheritedFd,
+        { status: 0, signal: null, spawnErrorCode: null },
+        "the inherited fd9 lock attempt must succeed",
+      );
       assert.equal(
         result.status,
         0,
-        `Linux lock probe failed\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
+        `Linux lock probe runner codes: ${JSON.stringify(runnerCodes)}`,
       );
-      assert.equal(result.stdout, "inherited lock held\n");
     } finally {
       lock.close();
     }
