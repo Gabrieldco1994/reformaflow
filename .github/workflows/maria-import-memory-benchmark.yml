@@ -1,0 +1,183 @@
+name: Maria import memory benchmark
+
+on:
+  push:
+    branches:
+      - perf/maria-import-memory-benchmark-20261013
+    paths:
+      - .github/workflows/maria-import-memory-benchmark.yml
+      - deploy/vault-startup/test/maria-import-memory-benchmark.mjs
+      - deploy/vault-startup/test/maria-import-memory-fixtures.mjs
+      - deploy/vault-startup/test/maria-import-memory-benchmark.test.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maria-import-memory-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Maria import PDF/upload memory (512 MiB)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout benchmark driver
+        uses: actions/checkout@v5
+        with:
+          path: benchmark
+          persist-credentials: false
+
+      - name: Checkout immutable main source
+        uses: actions/checkout@v5
+        with:
+          path: benchmark-base
+          ref: main
+          persist-credentials: false
+
+      - name: Record exact benchmark and runtime SHAs
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha="$(git -C benchmark-base rev-parse HEAD)"
+          driver_sha="$(git -C benchmark rev-parse HEAD)"
+          [[ "$base_sha" =~ ^[[:xdigit:]]{40}$ ]]
+          [[ "$driver_sha" =~ ^[[:xdigit:]]{40}$ ]]
+          {
+            echo "base_sha=$base_sha"
+            echo "driver_sha=$driver_sha"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Maria import resource benchmark"
+            echo
+            echo "- Runtime/API source SHA: \`$base_sha\`"
+            echo "- Benchmark driver SHA: \`$driver_sha\`"
+            echo "- Runtime cap: 536870912 bytes, cgroup v2, swap disabled"
+            echo "- Scope: synthetic private uploads and PDF analysis only"
+            echo "- Memory samples are raw high-water values (startup and sampling included)"
+            echo "- Upload overlap is within one API process; no deployment-wide slot cap is inferred"
+            echo "- Measurements do not change product limits or enable production vault/OCR"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: benchmark/package-lock.json
+
+      - name: Install benchmark test dependencies
+        working-directory: benchmark
+        run: npm ci
+
+      - name: Prepare guarded disposable test database
+        working-directory: benchmark
+        run: |
+          npm --workspace @reformaflow/domain run build
+          npm exec -- prisma generate --schema=prisma/schema.prisma
+          npm run test:db:prepare
+
+      - name: Build unchanged production image from the pinned main checkout
+        id: image
+        working-directory: benchmark-base
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="rf-maria-import-memory:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker build --file apps/api/Dockerfile --tag "$image" .
+          echo "tag=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Create disposable ext4 benchmark mount
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/rf-maria-memory-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          image="${root}.ext4"
+          test ! -e "$root"
+          test ! -e "$image"
+          truncate -s 2G "$image"
+          mkfs.ext4 -q "$image"
+          mkdir "$root"
+          sudo mount -o loop "$image" "$root"
+          sudo chown "$(id -u):$(id -g)" "$root"
+          {
+            echo "RF_MEMORY_BENCHMARK_ROOT=$root"
+            echo "RF_MEMORY_BENCHMARK_IMAGE=${{ steps.image.outputs.tag }}"
+            echo "RF_MEMORY_BENCHMARK_OUTPUT=$RUNNER_TEMP/maria-import-memory-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+            echo "RF_MEMORY_BENCHMARK_BASE_SHA=${{ steps.source.outputs.base_sha }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Run isolated synthetic benchmark
+        working-directory: benchmark
+        shell: bash
+        env:
+          RF_MEMORY_BENCHMARK_LIVE: "1"
+        run: |
+          set -euo pipefail
+          sudo env \
+            PATH="$PATH" \
+            RUNNER_TEMP="$RUNNER_TEMP" \
+            GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            JEST_WORKER_ID="" \
+            TEST_DATABASE_URL="" \
+            RF_MEMORY_BENCHMARK_LIVE="$RF_MEMORY_BENCHMARK_LIVE" \
+            RF_MEMORY_BENCHMARK_ROOT="$RF_MEMORY_BENCHMARK_ROOT" \
+            RF_MEMORY_BENCHMARK_IMAGE="$RF_MEMORY_BENCHMARK_IMAGE" \
+            RF_MEMORY_BENCHMARK_OUTPUT="$RF_MEMORY_BENCHMARK_OUTPUT" \
+            RF_MEMORY_BENCHMARK_BASE_SHA="$RF_MEMORY_BENCHMARK_BASE_SHA" \
+            node --require ./scripts/test-db-env.cjs \
+            --test --test-concurrency=1 \
+            deploy/vault-startup/test/maria-import-memory-benchmark.test.mjs
+          sudo chown "$(id -u):$(id -g)" "$RF_MEMORY_BENCHMARK_OUTPUT"
+          chmod 600 "$RF_MEMORY_BENCHMARK_OUTPUT"
+
+      - name: Upload sanitized numeric measurements
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maria-import-memory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/maria-import-memory-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Remove exact benchmark resources
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v docker >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+            containers="$(sudo docker ps --all --quiet --filter label=rf-maria-memory-benchmark=true)"
+            if [ -n "$containers" ]; then
+              while IFS= read -r container; do
+                [ -n "$container" ] || continue
+                sudo docker rm --force "$container" >/dev/null
+              done <<< "$containers"
+            fi
+          fi
+
+          root="$RUNNER_TEMP/rf-maria-memory-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          image="${root}.ext4"
+          for name in \
+            data-seed \
+            data-pdf-max-c1 \
+            data-pdf-boundary-contracts \
+            data-pdf-max-c2 \
+            data-upload-max-c1 \
+            data-upload-max-c2 \
+            data-upload-max-c4
+          do
+            directory="$root/$name"
+            if [ -d "$directory" ]; then
+              sudo find "$directory" -mindepth 1 -depth -delete
+              rmdir -- "$directory"
+            fi
+          done
+          if mountpoint -q -- "$root"; then sudo umount -- "$root"; fi
+          if [ -d "$root" ]; then rmdir -- "$root"; fi
+          if [ -f "$image" ]; then rm -f -- "$image"; fi
+
+          report="$RUNNER_TEMP/maria-import-memory-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+          if [ -f "$report" ]; then rm -f -- "$report"; fi
