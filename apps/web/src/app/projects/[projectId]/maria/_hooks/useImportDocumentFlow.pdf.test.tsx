@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportSessionViewV1 } from "@reformaflow/domain";
 import { ApiResponseError } from "@/lib/api";
 import { useImportDocumentFlow } from "./useImportDocumentFlow";
@@ -69,6 +69,7 @@ describe("textual PDF documentary coordinator", () => {
     Object.values(api).forEach((fn) => fn.mockReset());
     auth.user = { id: "user-1" };
   });
+  afterEach(() => vi.restoreAllMocks());
 
   it("reserves PDF MIME independently of the browser-declared MIME", async () => {
     api.getFullImportSession.mockResolvedValue(view());
@@ -183,6 +184,178 @@ describe("textual PDF documentary coordinator", () => {
     expect(
       client.getQueryCache().findAll({ queryKey: importRoot("user-1") }),
     ).toHaveLength(0);
+  });
+
+  it("calls the same analyze endpoint once with the exact v2 consent body and adopts unselected pending review", async () => {
+    const attached = view({
+      actions: ["ANALYZE", "CANCEL"],
+      attachments: [
+        {
+          id: "a1",
+          fileName: "scan.pdf",
+          declaredBytes: 9,
+          state: "ATTACHED",
+          canAnalyze: true,
+          materializedInSession: false,
+        },
+      ],
+    });
+    const materialized = view({
+      revision: 2,
+      actions: ["RESOLVE", "CANCEL"],
+      attachments: [
+        {
+          ...attached.attachments[0],
+          canAnalyze: false,
+          materializedInSession: true,
+        },
+      ],
+      selectedLineIds: [],
+      reviewBlockers: [
+        {
+          lineId: "ocr-line",
+          code: "ORIGINAL_IDENTITY_INCOMPLETE",
+          resolution: "NEEDS_DECLARATION",
+        },
+      ],
+    });
+    api.getFullImportSession.mockResolvedValue(attached);
+    api.analyzeImportAttachment
+      .mockRejectedValueOnce(
+        new ApiResponseError("OCR", 422, {
+          code: "OCR_REQUIRED",
+          retryable: false,
+          sessionId: "s1",
+          currentRevision: 1,
+          reason: null,
+        }),
+      )
+      .mockResolvedValueOnce(materialized);
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "12345678-1234-4123-8123-123456789abc",
+    );
+    const { result } = setup();
+    await waitFor(() => expect(result.current.view).not.toBeNull());
+
+    await act(async () => {
+      await result.current.analyze("a1");
+    });
+    expect(result.current.error?.code).toBe("OCR_REQUIRED");
+
+    await act(async () => {
+      await result.current.consentExternalProcessing("a1");
+    });
+
+    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
+    expect(api.analyzeImportAttachment.mock.calls[1].slice(0, 3)).toEqual([
+      "s1",
+      "a1",
+      {
+        version: 2,
+        expectedRevision: 1,
+        requestId: "12345678-1234-4123-8123-123456789abc",
+        consentExternalProcessing: true,
+      },
+    ]);
+    expect(
+      Object.keys(api.analyzeImportAttachment.mock.calls[1][2]).sort(),
+    ).toEqual([
+      "consentExternalProcessing",
+      "expectedRevision",
+      "requestId",
+      "version",
+    ]);
+    expect(result.current.view?.selectedLineIds).toEqual([]);
+    expect(result.current.view?.reviewBlockers).toEqual([
+      expect.objectContaining({ resolution: "NEEDS_DECLARATION" }),
+    ]);
+    expect(result.current.view?.actions).not.toContain("PREPARE");
+    expect(result.current.error).toBeNull();
+  });
+
+  it("locks an ambiguous v2 call terminally, including after a state read", async () => {
+    const attached = view({
+      actions: ["ANALYZE", "CANCEL"],
+      attachments: [
+        {
+          id: "a1",
+          fileName: "scan.pdf",
+          declaredBytes: 9,
+          state: "ATTACHED",
+          canAnalyze: true,
+          materializedInSession: false,
+        },
+      ],
+    });
+    api.getFullImportSession.mockResolvedValue(attached);
+    api.analyzeImportAttachment
+      .mockRejectedValueOnce(
+        new ApiResponseError("OCR", 422, {
+          code: "OCR_REQUIRED",
+          retryable: false,
+          sessionId: "s1",
+          currentRevision: 1,
+          reason: null,
+        }),
+      )
+      .mockRejectedValueOnce(new TypeError("response lost"));
+    const { result } = setup();
+    await waitFor(() => expect(result.current.view).not.toBeNull());
+    await act(async () => {
+      await result.current.analyze("a1");
+      await result.current.consentExternalProcessing("a1");
+      await result.current.consentExternalProcessing("a1");
+    });
+    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
+    expect(result.current.ocrConsentAttempted).toBe(true);
+
+    await act(async () => {
+      await result.current.recover();
+      await result.current.consentExternalProcessing("a1");
+    });
+    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps textual analysis local and never admits external consent without OCR_REQUIRED", async () => {
+    const attached = view({
+      actions: ["ANALYZE", "CANCEL"],
+      attachments: [
+        {
+          id: "a1",
+          fileName: "textual.pdf",
+          declaredBytes: 9,
+          state: "ATTACHED",
+          canAnalyze: true,
+          materializedInSession: false,
+        },
+      ],
+    });
+    api.getFullImportSession.mockResolvedValue(attached);
+    api.analyzeImportAttachment.mockResolvedValue(
+      view({
+        revision: 2,
+        actions: ["CANCEL"],
+        attachments: [
+          {
+            ...attached.attachments[0],
+            canAnalyze: false,
+            materializedInSession: true,
+          },
+        ],
+      }),
+    );
+    const { result } = setup();
+    await waitFor(() => expect(result.current.view).not.toBeNull());
+    await act(async () => {
+      await result.current.analyze("a1");
+      await result.current.consentExternalProcessing("a1");
+    });
+
+    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(1);
+    expect(api.analyzeImportAttachment.mock.calls[0][2]).toEqual({
+      expectedRevision: 1,
+    });
+    expect(result.current.ocrConsentAttempted).toBe(false);
   });
 
   it("drops a consented local PDF attempt on account change and ignores its late create", async () => {

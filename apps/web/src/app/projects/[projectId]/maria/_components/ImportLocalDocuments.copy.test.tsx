@@ -32,7 +32,7 @@ describe("pre-session CSV/PDF consent contract", () => {
       ),
     );
     expect(paragraph.textContent).toBe(
-      "Ao escolher Analisar e guardar rascunho, você autoriza o envio e processamento dos documentos para análise e armazenamento privado do rascunho. OCR não está disponível nesta importação. Não cria despesas, pagamentos ou rateios. O rascunho pendente e sua referência ao original expiram após 7 dias sem edição sua; consultas não renovam esse prazo.",
+      "Ao escolher Analisar e guardar rascunho, você autoriza o envio e processamento dos documentos para análise e armazenamento privado do rascunho. Essa autorização inicial não permite processamento externo. Não cria despesas, pagamentos ou rateios. O rascunho pendente e sua referência ao original expiram após 7 dias sem edição sua; consultas não renovam esse prazo.",
     );
   });
 });

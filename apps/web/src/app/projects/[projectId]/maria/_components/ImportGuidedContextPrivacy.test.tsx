@@ -596,6 +596,52 @@ it("uses neutral Compra for legacy declarations with only an internal line key",
   expectNoInternalPresentationText();
 });
 
+it("shows a corrected field attestation as invalidated and outside the current selection", () => {
+  const fact: ImportDeclaredFactViewV1 = {
+    lineId: LINE_ID,
+    observationId: OBSERVATION_ID,
+    questionId: QUESTION_ID,
+    origin: "USER_ATTESTATION",
+    field: "amountCents",
+    meaningContext: "TOTAL_PURCHASE",
+    status: "CURRENT",
+    value: 12_345,
+  };
+  const { rerender } = render(
+    <>
+      <ImportDeclaredFacts line={draftLine()} facts={[fact]} />
+      <ImportReviewBlockerNotice
+        line={draftLine()}
+        blockers={[]}
+        selected
+        showLine
+      />
+    </>,
+  );
+  expect(screen.getByText("Informado por você")).toBeVisible();
+  expect(screen.getByText("Selecionada para revisão.")).toBeVisible();
+
+  rerender(
+    <>
+      <ImportDeclaredFacts
+        line={draftLine()}
+        facts={[{ ...fact, status: "CONTEXT_CHANGED" }]}
+      />
+      <ImportReviewBlockerNotice
+        line={draftLine()}
+        blockers={[]}
+        selected={false}
+        showLine
+      />
+    </>,
+  );
+  expect(screen.getByText("Informação anterior")).toBeVisible();
+  expect(
+    screen.getByText("Informação não utilizada no contexto atual."),
+  ).toBeVisible();
+  expect(screen.getByText("Fora da seleção.")).toBeVisible();
+});
+
 it("keeps blocker focus management and answer-field focus when pending settles", async () => {
   const onInclude = vi.fn();
   const blockers: ImportSessionViewV1["reviewBlockers"] = [

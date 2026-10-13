@@ -70,6 +70,7 @@ interface Generation {
   attempt: Attempt | null;
   adoption: { attempt: Attempt; id: string; key: string } | null;
   documentBlocker: DocumentFailure | null;
+  externalProcessingAttempts: Set<string>;
 }
 interface Feedback {
   pending: boolean;
@@ -94,6 +95,7 @@ const newGeneration = (
   attempt: null,
   adoption: null,
   documentBlocker: null,
+  externalProcessingAttempts: new Set(),
 });
 
 /** Documentary coordinator only; server actions still own analysis eligibility. */
@@ -622,6 +624,72 @@ export function useImportDocumentFlow(
     }
   }
 
+  async function consentExternalProcessing(
+    attachmentId: string,
+  ): Promise<void> {
+    const blocker = generation.documentBlocker;
+    if (
+      !active() ||
+      generation.busy ||
+      !userId ||
+      !sessionId ||
+      blocker?.code !== "OCR_REQUIRED" ||
+      blocker.attachmentId !== attachmentId ||
+      generation.externalProcessingAttempts.has(attachmentId)
+    )
+      return;
+    const latest = client.getQueryData<ImportSessionViewV1>(key);
+    const attachment = latest?.attachments.find(
+      (candidate) => candidate.id === attachmentId,
+    );
+    if (
+      !latest ||
+      terminal(latest) ||
+      !latest.actions.includes("ANALYZE") ||
+      !attachment?.canAnalyze ||
+      attachment.materializedInSession
+    )
+      return;
+
+    // This lock is session-attachment scoped and survives reads. An ambiguous
+    // provider outcome must never result in a second external call.
+    generation.externalProcessingAttempts.add(attachmentId);
+    generation.busy = true;
+    const controller = new AbortController();
+    generation.controller = controller;
+    update({ pending: true, error: null });
+    try {
+      const fresh = await analyzeImportAttachment(
+        sessionId,
+        attachmentId,
+        {
+          version: 2,
+          expectedRevision: latest.revision,
+          requestId: crypto.randomUUID(),
+          consentExternalProcessing: true,
+        },
+        controller.signal,
+      );
+      if (!active()) return;
+      controller.signal.throwIfAborted();
+      publish(fresh, latest.revision);
+      if (generation.documentBlocker?.attachmentId === attachmentId)
+        generation.documentBlocker = null;
+      generation.mustRead = false;
+      update({ pending: false, error: null });
+    } catch (error) {
+      if (active()) fail(error, attachmentId);
+    } finally {
+      generation.busy = false;
+      if (generation.controller === controller) generation.controller = null;
+    }
+  }
+
+  const ocrRequiredAttachmentId =
+    generation.documentBlocker?.code === "OCR_REQUIRED"
+      ? (generation.documentBlocker.attachmentId ?? null)
+      : null;
+
   return {
     sessionId,
     hasAttempt: generation.attempt !== null,
@@ -637,6 +705,12 @@ export function useImportDocumentFlow(
     notice: feedback.notice,
     busy: feedback.pending || query.isFetching,
     analyze,
+    consentExternalProcessing,
+    ocrRequiredAttachmentId,
+    ocrConsentAttempted: Boolean(
+      ocrRequiredAttachmentId &&
+      generation.externalProcessingAttempts.has(ocrRequiredAttachmentId),
+    ),
     recover,
     consent,
     canResume,

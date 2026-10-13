@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  analyzeImportAttachment,
   answerImportDocumentaryQuestion,
   answerImportFocusedDraftQuestion,
   getImportResult,
@@ -278,6 +279,34 @@ describe("direct review and result endpoints", () => {
   beforeEach(() => {
     api.post.mockReset();
     api.get.mockReset();
+  });
+
+  it("posts the exact v2 external-consent body to the existing analyze endpoint", async () => {
+    const signal = new AbortController().signal;
+    const request = {
+      version: 2 as const,
+      expectedRevision: 1,
+      requestId: "12345678-1234-4123-8123-123456789abc",
+      consentExternalProcessing: true as const,
+    };
+    api.post.mockResolvedValue(view);
+
+    await analyzeImportAttachment("session", "source", request, signal);
+
+    expect(api.post).toHaveBeenCalledWith(
+      "/import-sessions/session/attachments/source/analyze",
+      request,
+      {
+        headers: { "x-rf-import-ui": "1" },
+        signal,
+      },
+    );
+    expect(Object.keys(api.post.mock.calls[0][1]).sort()).toEqual([
+      "consentExternalProcessing",
+      "expectedRevision",
+      "requestId",
+      "version",
+    ]);
   });
 
   it("prepares the exact admitted revision and preserves the abort signal", async () => {

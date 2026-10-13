@@ -230,7 +230,7 @@ for (const width of [375, 390, 1280]) {
     await card.selectOption(CARD);
     await expect(
       page.getByText(
-        /PDF textual sem imagens; documentos com imagens podem exigir OCR, ainda indisponível/,
+        /Se o servidor concluir que o PDF precisa de leitura externa/,
       ),
     ).toBeVisible();
     await picker.setInputFiles({
@@ -247,7 +247,7 @@ for (const width of [375, 390, 1280]) {
     expect(bounds?.height).toBeGreaterThanOrEqual(44);
     await consent.click();
     await expect(
-      page.getByText(/Este PDF contém imagens e pode exigir OCR/),
+      page.getByText(/Este PDF precisa de leitura externa para continuar/),
     ).toBeVisible();
     const reserved = writes.find((write) =>
       write.path.endsWith("/attachments"),
@@ -264,14 +264,38 @@ for (const width of [375, 390, 1280]) {
       page.getByRole("button", { name: /Analisar documento/ }),
     ).toBeDisabled();
     await page
+      .getByRole("checkbox", {
+        name: /Autorizo o envio deste documento para processamento externo/,
+      })
+      .check();
+    await page
+      .getByRole("button", { name: "Autorizar leitura externa" })
+      .click();
+    const analyses = writes.filter((write) => write.path.endsWith("/analyze"));
+    expect(analyses).toHaveLength(2);
+    expect(analyses[1]?.body).toMatchObject({
+      version: 2,
+      expectedRevision: 3,
+      consentExternalProcessing: true,
+    });
+    expect(Object.keys(analyses[1]?.body as object).sort()).toEqual([
+      "consentExternalProcessing",
+      "expectedRevision",
+      "requestId",
+      "version",
+    ]);
+    await expect(
+      page.getByRole("button", { name: /autorizar|tentar|retry/i }),
+    ).toHaveCount(0);
+    await page
       .getByRole("button", { name: "Consultar estado dos documentos" })
       .click();
     await expect(
-      page.getByText(/Este PDF contém imagens e pode exigir OCR/),
+      page.getByRole("region", { name: "Leitura externa do documento" }),
     ).toBeVisible();
     expect(
       writes.filter((write) => write.path.endsWith("/analyze")),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     const cancel = page.getByRole("button", {
       name: "Cancelar e voltar à Maria para pedir outra importação",
     });
@@ -358,7 +382,7 @@ test("PDF-capable upload reload requires a new local selection and consent", asy
     .getByRole("button", { name: "Analisar e guardar rascunho" })
     .click();
   await expect(
-    page.getByText(/Este PDF contém imagens e pode exigir OCR/),
+    page.getByText(/Este PDF precisa de leitura externa para continuar/),
   ).toBeVisible();
   expect(writes.some((write) => write.path === "/import-sessions")).toBe(false);
   expect(

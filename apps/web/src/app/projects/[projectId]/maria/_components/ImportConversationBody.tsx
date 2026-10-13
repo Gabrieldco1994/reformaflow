@@ -77,13 +77,14 @@ function Conversation({
   const [cancelPending, setCancelPending] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const busy = conversation.busy || documents.busy;
-  const documentBlocked = isPdfDocumentErrorCode(documents.error?.code);
-  const ocrAttachment =
-    documents.error?.code === "OCR_REQUIRED"
-      ? view?.attachments.find(
-          (attachment) => attachment.id === documents.error?.attachmentId,
-        )
-      : undefined;
+  const documentBlocked =
+    isPdfDocumentErrorCode(documents.error?.code) ||
+    Boolean(documents.ocrRequiredAttachmentId);
+  const ocrAttachment = documents.ocrRequiredAttachmentId
+    ? view?.attachments.find(
+        (attachment) => attachment.id === documents.ocrRequiredAttachmentId,
+      )
+    : undefined;
   const privateContextLost =
     error?.privateContextLost || documents.error?.privateContextLost;
   const guided =
@@ -339,14 +340,16 @@ function Conversation({
           >
             <h3 className="font-semibold">
               {documentBlocked
-                ? "Este documento não pode ser analisado"
+                ? ocrAttachment
+                  ? "Este documento precisa de leitura externa"
+                  : "Este documento não pode ser analisado"
                 : "Nenhuma compra para revisar"}
             </h3>
             {documentBlocked ? (
               <p>
-                Para substituir o documento, cancele esta importação e peça
-                outra à Maria com um arquivo legível. Não há confirmação
-                financeira nem tentativa de OCR aqui.
+                {ocrAttachment
+                  ? "A leitura externa deste documento só pode ser solicitada uma vez. Se você não autorizar ou ela não terminar, cancele esta importação e peça outra à Maria com um PDF textual ou CSV."
+                  : "Para substituir o documento, cancele esta importação e peça outra à Maria com um arquivo legível. Não há confirmação financeira nesta etapa."}
               </p>
             ) : (
               <p>
@@ -357,7 +360,7 @@ function Conversation({
             )}
             {view && ocrAttachment && (
               <ImportOcrFoundation
-                triggerCode={documents.error?.code}
+                triggerCode="OCR_REQUIRED"
                 scope={{
                   key: JSON.stringify([
                     conversation.userId,
@@ -367,7 +370,16 @@ function Conversation({
                   ]),
                   fileName: ocrAttachment.fileName,
                 }}
-                availability={{ state: "DISABLED", reason: "FEATURE_OFF" }}
+                pending={documents.busy}
+                attempted={documents.ocrConsentAttempted}
+                errorMessage={
+                  documents.ocrConsentAttempted
+                    ? documents.error?.message
+                    : null
+                }
+                onConsent={() =>
+                  void documents.consentExternalProcessing(ocrAttachment.id)
+                }
               />
             )}
             {view?.actions.includes("CANCEL") ? (

@@ -29,6 +29,7 @@ import {
 } from "./import-session-workflow-read";
 import type { ImportListScope } from "./import-session-keys";
 import type { FocusedDraftAnswer } from "./import-focused-draft-types";
+import type { OcrAnalyzeRequestV2 } from "../_types";
 import {
   isResultRead,
   isRecord,
@@ -176,7 +177,7 @@ export async function uploadImportSessionAttachment(
 export async function analyzeImportAttachment(
   sessionId: string,
   attachmentId: string,
-  request: ImportSessionRevisionRequestV1,
+  request: ImportSessionRevisionRequestV1 | OcrAnalyzeRequestV2,
   signal?: AbortSignal,
 ): Promise<ImportSessionViewV1> {
   const view = readImportWorkflowView(

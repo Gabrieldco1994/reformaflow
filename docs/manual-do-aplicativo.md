@@ -392,12 +392,14 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   pesquisáveis completos permanecem locais mesmo com logotipo, enquanto conteúdo
   misto/ambíguo falha sem envio externo. Isso ocorre porque
   `IMPORT_OCR_ENABLED=false` permanece o padrão e este manual não declara
-  ativação. O slice de servidor da #719, quando explicitamente ativado, reutiliza
-  o mesmo botão de análise após uma declaração afirmativa persistida pelo fluxo
-  documental. Ela informa que o arquivo original completo, inclusive metadados e
-  conteúdo potencialmente não visível/embutido, será enviado ao Vertex regional
-  para transcrição, com retenção de conteúdo por sete dias. PDF textual fica local;
-  somente raster integral observado em 1–10 páginas pode enviar o original uma vez.
+  ativação. Quando a capability da #719 é explicitamente habilitada, a tela explica
+  a finalidade e pede autorização explícita, válida somente para aquele documento.
+  Antes de chamar novamente o mesmo endpoint de análise, o fluxo persiste a
+  declaração afirmativa; somente então `analyze` pode enviar uma única vez o
+  arquivo original completo ao Vertex regional para transcrição. A declaração
+  informa que esse envio inclui metadados e conteúdo potencialmente não
+  visível/embutido, com retenção de conteúdo por sete dias. PDF textual fica local;
+  somente raster integral observado em 1–10 páginas é elegível para esse envio.
   Os candidatos retornam não selecionados e não verificados, exigem
   conferência e declarações documentais atuais antes de preparar e não geram
   dinheiro antes da confirmação/execução já existentes. Timeout ou queda depois
