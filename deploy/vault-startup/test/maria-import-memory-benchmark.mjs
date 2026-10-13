@@ -832,9 +832,26 @@ function readHostCgroupLimits(containerPid) {
   );
   const limits = [];
   let current = leaf;
+  let hierarchyLevel = 0;
   while (current === root || current.startsWith(`${root}${sep}`)) {
-    markStage("host-cgroup-ancestor-limit-read");
-    const raw = readFileSync(join(current, "memory.max"), "utf8").trim();
+    markStage(`host-cgroup-memory-limit-read-level-${hierarchyLevel}`);
+    let raw;
+    try {
+      raw = readFileSync(join(current, "memory.max"), "utf8").trim();
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? error.code
+          : "UNKNOWN";
+      const kind =
+        code === "ENOENT"
+          ? "missing"
+          : code === "EACCES"
+            ? "denied"
+            : "unreadable";
+      markStage(`host-cgroup-memory-limit-${hierarchyLevel}-${kind}`);
+      throw new Error("host cgroup memory limit could not be read");
+    }
     if (raw === "max") limits.push(null);
     else {
       assert.match(raw, /^[0-9]+$/);
@@ -842,6 +859,7 @@ function readHostCgroupLimits(containerPid) {
     }
     if (current === root) break;
     current = dirname(current);
+    hierarchyLevel += 1;
   }
   assert.ok(
     limits.length > 0 && current === root,
