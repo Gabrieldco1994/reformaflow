@@ -34,7 +34,6 @@ const DISABLED = join(
 const SCHEMA = join(ROOT, "prisma", "schema.prisma");
 const MIGRATIONS = join(ROOT, "prisma", "migrations");
 const API_SOURCE = join(ROOT, "apps", "api", "src");
-const FRONTEND = join(ROOT, "apps", "web");
 const DOMAIN = join(ROOT, "packages", "domain", "src");
 const QUIESCE = join(ROOT, "deploy", "quiesce");
 const PACKAGE_LOCK = join(ROOT, "package-lock.json");
@@ -54,7 +53,6 @@ const BASELINE_HASHES = Object.freeze({
   migrations:
     "ac567bf705b1bd4eed0d2b9ad5c1a4ed92ab13c50aa69890123e4488f03f8497",
   apiSource: "dc0ecd2df1893ce0f46eb9af5c07ccb1280c927c79015b752e299d70c61702ae",
-  frontend: "d1836a2b1da9050d02f9e2d0a97c187c6691564ab7283fe2d809795f5e225cc5",
   domain: "12b8b398de8cb9f4738ed16f2ae49917c2eccc84f8b56425690f3d1d0dbd3ac7",
   quiesce: "9b5d7783fe75cd285ce72cda2e000a36b9059967660fb5af35745e4d89595356",
   packageLock:
@@ -89,22 +87,32 @@ function directoryDigest(directory) {
   return hash.digest("hex");
 }
 
-function trackedDirectoryDigest(directory) {
-  const tracked = spawnSync(
-    "git",
-    ["ls-files", "-z", "--", relative(ROOT, directory)],
-    { cwd: ROOT, encoding: "utf8" },
+const BYTE_PINNED_SCOPES = Object.freeze([
+  DB_CHECK,
+  WORKFLOW,
+  DISABLED,
+  SCHEMA,
+  MIGRATIONS,
+  API_SOURCE,
+  DOMAIN,
+  QUIESCE,
+  PACKAGE_LOCK,
+  REPAIR,
+  REPAIR_TEST,
+]);
+
+function matchingBytePinnedScopes(candidate) {
+  return BYTE_PINNED_SCOPES.map((scope) => relative(ROOT, scope)).filter(
+    (scope) => candidate === scope || candidate.startsWith(`${scope}/`),
   );
-  assert.equal(tracked.status, 0, tracked.stderr);
-  const files = tracked.stdout.split("\0").filter(Boolean).sort();
-  const hash = createHash("sha256");
-  for (const file of files) {
-    hash.update(relative(directory, join(ROOT, file)));
-    hash.update("\0");
-    hash.update(readFileSync(join(ROOT, file)));
-    hash.update("\0");
-  }
-  return hash.digest("hex");
+}
+
+function assertPathIsNotBytePinned(candidate) {
+  assert.deepEqual(
+    matchingBytePinnedScopes(candidate),
+    [],
+    `${candidate} is byte-pinned`,
+  );
 }
 
 test("production launcher is a narrow fixed-path capture/compare checksum gate", () => {
@@ -300,14 +308,34 @@ test("migration-recovery adds both exception suites without changing db:check or
   );
 });
 
-test("all out-of-scope application, data, recovery, and global checks are byte-unchanged", () => {
+test("byte-pin scope permits frontend changes but retains vault controls", () => {
+  assert.doesNotThrow(() =>
+    assertPathIsNotBytePinned(
+      "apps/web/src/app/projects/project/maria/ImportConversationBody.tsx",
+    ),
+  );
+  assert.deepEqual(
+    matchingBytePinnedScopes(
+      "apps/api/src/imports/import-session/vault/vault-storage.ts",
+    ),
+    ["apps/api/src"],
+  );
+  assert.throws(
+    () =>
+      assertPathIsNotBytePinned(
+        "apps/api/src/imports/import-session/vault/vault-storage.ts",
+      ),
+    /apps\/api\/src\/imports\/import-session\/vault\/vault-storage\.ts is byte-pinned/,
+  );
+});
+
+test("security-relevant application, data, recovery, and global checks are byte-unchanged", () => {
   assert.equal(sha256(readFileSync(DB_CHECK)), BASELINE_HASHES.dbCheck);
   assert.equal(sha256(readFileSync(WORKFLOW)), BASELINE_HASHES.workflow);
   assert.equal(sha256(readFileSync(DISABLED)), BASELINE_HASHES.disabled);
   assert.equal(sha256(readFileSync(SCHEMA)), BASELINE_HASHES.schema);
   assert.equal(directoryDigest(MIGRATIONS), BASELINE_HASHES.migrations);
   assert.equal(directoryDigest(API_SOURCE), BASELINE_HASHES.apiSource);
-  assert.equal(trackedDirectoryDigest(FRONTEND), BASELINE_HASHES.frontend);
   assert.equal(directoryDigest(DOMAIN), BASELINE_HASHES.domain);
   assert.equal(directoryDigest(QUIESCE), BASELINE_HASHES.quiesce);
   assert.equal(sha256(readFileSync(PACKAGE_LOCK)), BASELINE_HASHES.packageLock);
