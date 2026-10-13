@@ -54,6 +54,8 @@ interface DocumentFailure {
   message: string;
   privateContextLost: boolean;
   code?: ImportWireErrorCode | null;
+  /** Local routing reference only; never rendered as document context. */
+  attachmentId?: string;
 }
 interface Generation {
   userId: string | null;
@@ -216,9 +218,9 @@ export function useImportDocumentFlow(
   }
   const view =
     userId && sessionId && !generation.revoked ? (query.data ?? null) : null;
-  const fail = (error: unknown) => {
+  const fail = (error: unknown, attachmentId?: string) => {
     generation.mustRead = true;
-    const failure = describe(error);
+    const failure = { ...describe(error), attachmentId };
     if (isPdfDocumentErrorCode(failure.code))
       generation.documentBlocker = failure;
     generation.revoked = failure.privateContextLost;
@@ -290,6 +292,7 @@ export function useImportDocumentFlow(
     const controller = new AbortController();
     generation.controller = controller;
     update({ pending: true, error: null, notice: null });
+    let activeAttachmentId: string | undefined;
     try {
       let latest = generation.sessionId
         ? client.getQueryData<ImportSessionViewV1>(keyFor(generation.sessionId))
@@ -381,6 +384,7 @@ export function useImportDocumentFlow(
       }
       for (const { id } of attempt.files) {
         if (!active()) return;
+        activeAttachmentId = id;
         const attachment = latest.attachments.find((a) => a.id === id);
         if (
           !attachment?.canAnalyze ||
@@ -408,7 +412,7 @@ export function useImportDocumentFlow(
           : null,
       });
     } catch (error) {
-      if (active()) fail(error);
+      if (active()) fail(error, activeAttachmentId);
     } finally {
       generation.busy = false;
       if (generation.controller === controller) generation.controller = null;
@@ -580,9 +584,11 @@ export function useImportDocumentFlow(
     generation.controller = controller;
     update({ pending: true, error: null });
     let latest = view;
+    let activeAttachmentId: string | undefined;
     try {
       for (const reference of references) {
         if (!active()) return;
+        activeAttachmentId = reference.id;
         const attachment = latest.attachments.find(
           (a) => a.id === reference.id,
         );
@@ -607,7 +613,7 @@ export function useImportDocumentFlow(
       }
       update({ pending: false, error: null });
     } catch (error) {
-      if (active()) fail(error);
+      if (active()) fail(error, activeAttachmentId);
     } finally {
       generation.busy = false;
       if (generation.controller === controller) generation.controller = null;
