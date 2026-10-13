@@ -2,7 +2,7 @@
 set -eu
 
 readonly GUARD='/app/vault-production-qa-guard.mjs'
-readonly GUARD_SHA256='ce70979334200959fabcc343c20fcb83adb752917b4a6ca0daa9429d336eea12'
+readonly GUARD_SHA256='ea11d6a865ee6e50df81708cbd17e3701a996423938bacaa14d71a48eb397dd5'
 readonly DATABASE='/data/dev.db'
 readonly MOUNT_ROOT='/data'
 
@@ -11,13 +11,10 @@ if [ "$#" -ne 1 ]; then
   exit 64
 fi
 
-case "$1" in
-  capture|guard|compare) readonly MODE="$1" ;;
-  *)
-    echo 'vault production QA launcher: invalid mode' >&2
-    exit 64
-    ;;
-esac
+if [ "$1" != 'run' ]; then
+  echo 'vault production QA launcher: invalid mode' >&2
+  exit 64
+fi
 
 if [ -z "${VAULT_QA_RELEASE_SHA:-}" ] ||
   [ -z "${VAULT_QA_RELEASE_ID:-}" ] ||
@@ -64,4 +61,4 @@ then
   exit 1
 fi
 
-exec node "$GUARD" "$MODE"
+exec node "$GUARD" run

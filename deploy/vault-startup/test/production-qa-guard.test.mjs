@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import {
+  copyFileSync,
+  existsSync,
   lstatSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,11 +25,7 @@ const guardModule = await import(
     ? pathToFileURL(process.env.VAULT_PRODUCTION_QA_GUARD_UNDER_TEST).href
     : new URL("../production-qa-guard.mjs", import.meta.url).href
 );
-const {
-  ProductionQaGuard,
-  captureProductionQaBaseline,
-  compareProductionQaBaseline,
-} = guardModule;
+const { ProductionQaGuard, ProductionQaSupervisor } = guardModule;
 
 const temporaryDirectories = [];
 const GUARD_SOURCE = fileURLToPath(
@@ -64,7 +65,7 @@ test("production launcher pins the guard artifact, database, origin, and CLI sur
     /^readonly GUARD='\/app\/vault-production-qa-guard\.mjs'$/m,
   );
   assert.match(launcher, /^readonly DATABASE='\/data\/dev\.db'$/m);
-  assert.match(launcher, /capture\|guard\|compare/);
+  assert.match(launcher, /\[ "\$1" != 'run' \]/);
   assert.doesNotMatch(
     launcher,
     /DATABASE_URL|--database|--sql|--origin|\beval\b|\$\{@:|\$\*/,
@@ -73,8 +74,16 @@ test("production launcher pins the guard artifact, database, origin, and CLI sur
     source.toString("utf8"),
     /const UPSTREAM_ORIGIN = "https:\/\/reformaflow-api\.fly\.dev"/,
   );
+  assert.match(
+    source.toString("utf8"),
+    /const SQLITE_BINARY = "\/usr\/bin\/sqlite3"/,
+  );
+  assert.doesNotMatch(
+    source.toString("utf8"),
+    /export function (?:capture|compare)ProductionQaBaseline/,
+  );
 
-  for (const args of [[], ["apply"], ["guard", "--origin", "http://evil"]]) {
+  for (const args of [[], ["capture"], ["run", "--origin", "http://evil"]]) {
     const result = spawnSync("sh", [GUARD_LAUNCHER, ...args], {
       encoding: "utf8",
     });
@@ -262,72 +271,48 @@ test("guard fails closed when an upstream session is beyond READY", async () => 
   }
 });
 
-test("before/after evidence rejects financial mutation and execute audit events", () => {
-  const unchanged = fixture();
-  captureProductionQaBaseline({
-    database: unchanged.database,
-    manifest: unchanged.manifest,
-    metadata: RELEASE,
+async function expectJourneyRejected(
+  value,
+  sql,
+  expected = /QA_DATABASE_DRIFT/,
+) {
+  const remote = await upstream({
+    state: "READY",
+    proposal: { lines: [] },
+    confirmation: null,
+    receipt: null,
   });
-  writeFileSync(
-    unchanged.trace,
-    `${JSON.stringify({
-      version: 1,
-      metadata: RELEASE,
-      summary: {
-        allowedRequests: 2,
-        forbiddenRequests: 0,
-        readyObserved: true,
-        stateViolations: 0,
+  const runner = supervisor(value, remote, {
+    testHooks: {
+      afterCapture: () => {
+        const mutation = spawnSync("sqlite3", [value.database], {
+          encoding: "utf8",
+          input: sql,
+        });
+        assert.equal(mutation.status, 0, mutation.stderr);
       },
-    })}\n`,
-    { mode: 0o600 },
-  );
-  compareProductionQaBaseline({
-    database: unchanged.database,
-    manifest: unchanged.manifest,
-    trace: unchanged.trace,
-    receipt: unchanged.receipt,
-    metadata: RELEASE,
+    },
   });
-
-  for (const [label, sql] of [
-    ["financial row", "UPDATE expenses SET amount = 101;"],
-    [
-      "execute audit",
-      "INSERT INTO user_activity_logs VALUES ('audit-id', 'user-id', 'tenant-id', 'importSessions.execute', '2026-10-13');",
-    ],
-  ]) {
-    const changed = fixture();
-    captureProductionQaBaseline({
-      database: changed.database,
-      manifest: changed.manifest,
-      metadata: RELEASE,
-    });
-    writeFileSync(changed.trace, readFileSync(unchanged.trace), {
-      mode: 0o600,
-    });
-    const mutation = spawnSync("sqlite3", [changed.database], {
-      encoding: "utf8",
-      input: sql,
-    });
-    assert.equal(mutation.status, 0, mutation.stderr);
-    assert.throws(
-      () =>
-        compareProductionQaBaseline({
-          database: changed.database,
-          manifest: changed.manifest,
-          trace: changed.trace,
-          receipt: changed.receipt,
-          metadata: RELEASE,
-        }),
-      /QA_DATABASE_DRIFT/,
-      label,
-    );
+  try {
+    await runner.start(RELEASE);
+    await reachReady(runner);
+    await assert.rejects(() => runner.finish(), expected);
+    assert.equal(existsSync(value.receipt), false);
+  } finally {
+    await runner.close();
+    await remote.close();
   }
+}
+
+test("supervised before/after evidence rejects financial mutation and execute audit events", async () => {
+  await expectJourneyRejected(fixture(), "UPDATE expenses SET amount = 101;");
+  await expectJourneyRejected(
+    fixture(),
+    "INSERT INTO user_activity_logs VALUES ('audit-id', 'user-id', 'tenant-id', 'importSessions.execute', '2026-10-13');",
+  );
 });
 
-test("financial fingerprint binds every protected table independently", () => {
+test("supervised financial fingerprint binds every protected table independently", async () => {
   for (const table of [
     "bank_accounts",
     "bank_statement_imports",
@@ -342,47 +327,14 @@ test("financial fingerprint binds every protected table independently", () => {
     "rateio_allocations",
     "receipts",
   ]) {
-    const value = fixture();
-    captureProductionQaBaseline({
-      database: value.database,
-      manifest: value.manifest,
-      metadata: RELEASE,
-    });
-    writeFileSync(
-      value.trace,
-      `${JSON.stringify({
-        version: 1,
-        metadata: RELEASE,
-        summary: {
-          allowedRequests: 1,
-          forbiddenRequests: 0,
-          readyObserved: true,
-          stateViolations: 0,
-        },
-      })}\n`,
-      { mode: 0o600 },
-    );
-    const mutation = spawnSync("sqlite3", [value.database], {
-      encoding: "utf8",
-      input: `INSERT INTO "${table}" VALUES ('mutation-${table}', 999);`,
-    });
-    assert.equal(mutation.status, 0, mutation.stderr);
-    assert.throws(
-      () =>
-        compareProductionQaBaseline({
-          database: value.database,
-          manifest: value.manifest,
-          trace: value.trace,
-          receipt: value.receipt,
-          metadata: RELEASE,
-        }),
-      /QA_DATABASE_DRIFT/,
-      table,
+    await expectJourneyRejected(
+      fixture(),
+      `INSERT INTO "${table}" VALUES ('mutation-${table}', 999);`,
     );
   }
 });
 
-test("execute audit fingerprint rejects same-count row drift", () => {
+test("supervised execute audit fingerprint rejects same-count row drift", async () => {
   const value = fixture();
   const seeded = spawnSync("sqlite3", [value.database], {
     encoding: "utf8",
@@ -390,158 +342,221 @@ test("execute audit fingerprint rejects same-count row drift", () => {
       "INSERT INTO user_activity_logs VALUES ('audit-id', 'user-before', 'tenant-before', 'importSessions.execute', '2026-10-13T12:00:00.000Z');",
   });
   assert.equal(seeded.status, 0, seeded.stderr);
-  captureProductionQaBaseline({
-    database: value.database,
-    manifest: value.manifest,
-    metadata: RELEASE,
-  });
-  writeFileSync(
-    value.trace,
-    `${JSON.stringify({
-      version: 1,
-      metadata: RELEASE,
-      summary: {
-        allowedRequests: 1,
-        forbiddenRequests: 0,
-        readyObserved: true,
-        stateViolations: 0,
-      },
-    })}\n`,
-    { mode: 0o600 },
-  );
-  const mutation = spawnSync("sqlite3", [value.database], {
-    encoding: "utf8",
-    input:
-      "UPDATE user_activity_logs SET user_id = 'user-after' WHERE id = 'audit-id';",
-  });
-  assert.equal(mutation.status, 0, mutation.stderr);
-  assert.throws(
-    () =>
-      compareProductionQaBaseline({
-        database: value.database,
-        manifest: value.manifest,
-        trace: value.trace,
-        receipt: value.receipt,
-        metadata: RELEASE,
-      }),
-    /QA_DATABASE_DRIFT/,
+  await expectJourneyRejected(
+    value,
+    "UPDATE user_activity_logs SET user_id = 'user-after' WHERE id = 'audit-id';",
   );
 });
 
-test("evidence rejects replay/window mismatch and emits no sensitive values", () => {
-  const value = fixture();
-  const captureOutput = captureProductionQaBaseline({
-    database: value.database,
-    manifest: value.manifest,
-    metadata: RELEASE,
-  });
-  assert.doesNotMatch(captureOutput, /sensitive|expense-id|user-id/i);
-  writeFileSync(
-    value.trace,
-    `${JSON.stringify({
-      version: 1,
-      metadata: RELEASE,
-      summary: {
-        allowedRequests: 1,
-        forbiddenRequests: 0,
-        readyObserved: true,
-        stateViolations: 0,
-      },
-    })}\n`,
-    { mode: 0o600 },
-  );
-  for (const metadata of [
-    { ...RELEASE, releaseSha: "c".repeat(40) },
-    { ...RELEASE, releaseId: "different-release" },
-    { ...RELEASE, imageDigest: `sha256:${"d".repeat(64)}` },
-    { ...RELEASE, windowId: "different-window" },
-    {
-      ...RELEASE,
-      windowStart: new Date(
-        Date.parse(RELEASE.windowStart) - 1_000,
-      ).toISOString(),
-    },
-    {
-      ...RELEASE,
-      windowEnd: new Date(Date.parse(RELEASE.windowEnd) + 1_000).toISOString(),
-    },
-    { ...RELEASE, qaActor: "different-qa-actor" },
-  ]) {
-    assert.throws(
-      () =>
-        compareProductionQaBaseline({
-          database: value.database,
-          manifest: value.manifest,
-          trace: value.trace,
-          receipt: value.receipt,
-          metadata,
-        }),
-      /QA_METADATA_MISMATCH/,
-    );
-  }
-
-  writeFileSync(
-    value.trace,
-    `${JSON.stringify({
-      version: 1,
-      metadata: { ...RELEASE, releaseSha: "c".repeat(40) },
-      summary: {
-        allowedRequests: 1,
-        forbiddenRequests: 0,
-        readyObserved: true,
-        stateViolations: 0,
-      },
-    })}\n`,
-    { mode: 0o600 },
-  );
-  assert.throws(
-    () =>
-      compareProductionQaBaseline({
-        database: value.database,
-        manifest: value.manifest,
-        trace: value.trace,
-        receipt: value.receipt,
-        metadata: RELEASE,
-      }),
-    /QA_TRACE_REJECTED/,
-  );
-  writeFileSync(
-    value.trace,
-    `${JSON.stringify({
-      version: 1,
-      metadata: RELEASE,
-      summary: {
-        allowedRequests: 1,
-        forbiddenRequests: 0,
-        readyObserved: true,
-        stateViolations: 0,
-      },
-    })}\n`,
-    { mode: 0o600 },
-  );
-  const compareOutput = compareProductionQaBaseline({
+function supervisor(value, remote, overrides = {}) {
+  return new ProductionQaSupervisor({
     database: value.database,
     manifest: value.manifest,
     trace: value.trace,
     receipt: value.receipt,
-    metadata: RELEASE,
+    upstreamOrigin: remote.origin,
+    artifactPath: GUARD_SOURCE,
+    sqliteBinary: "/usr/bin/sqlite3",
+    host: "127.0.0.1",
+    port: 0,
+    ...overrides,
   });
-  assert.doesNotMatch(compareOutput, /sensitive|expense-id|user-id/i);
-  const receipt = JSON.parse(readFileSync(value.receipt, "utf8"));
-  assert.equal(lstatSync(value.receipt).mode & 0o777, 0o600);
-  assert.deepEqual(receipt.metadata, RELEASE);
-  assert.match(receipt.manifestSha256, /^[0-9a-f]{64}$/);
-  assert.match(receipt.traceSha256, /^[0-9a-f]{64}$/);
-  assert.match(receipt.comparisonSha256, /^[0-9a-f]{64}$/);
-  assert.throws(
-    () =>
-      compareProductionQaBaseline({
-        database: value.database,
-        manifest: value.manifest,
-        trace: value.trace,
-        receipt: value.receipt,
-        metadata: RELEASE,
-      }),
-    /QA_WINDOW_REUSED/,
+}
+
+async function reachReady(runner) {
+  const response = await request(
+    runner.origin,
+    "/import-sessions/sensitive-session-id",
   );
+  assert.equal(response.status, 200);
+}
+
+test("one supervisor owns capture, guard trace, compare, and receipt", async () => {
+  const value = fixture();
+  const remote = await upstream({
+    state: "READY",
+    proposal: { lines: [] },
+    confirmation: null,
+    receipt: null,
+  });
+  const runner = supervisor(value, remote);
+  try {
+    await runner.start(RELEASE);
+    await reachReady(runner);
+    assert.equal(await runner.waitForTerminal(), "ready");
+    const output = await runner.finish();
+    assert.match(output, /^vault-production-qa run ok /);
+    assert.doesNotMatch(output, /sensitive|expense-id|user-id/i);
+    assert.equal(existsSync(value.receipt), true);
+    const manifestBytes = readFileSync(value.manifest);
+    const traceBytes = readFileSync(value.trace);
+    const manifest = JSON.parse(manifestBytes);
+    const trace = JSON.parse(traceBytes);
+    const receipt = JSON.parse(readFileSync(value.receipt));
+    for (const privatePath of [value.manifest, value.trace, value.receipt]) {
+      assert.equal(lstatSync(privatePath).mode & 0o777, 0o600);
+      assert.equal(lstatSync(privatePath).nlink, 1);
+    }
+    assert.deepEqual(manifest.metadata, RELEASE);
+    assert.deepEqual(trace.metadata, RELEASE);
+    assert.deepEqual(receipt.metadata, RELEASE);
+    assert.match(manifest.nonce, /^[0-9a-f]{64}$/);
+    assert.equal(trace.nonce, manifest.nonce);
+    assert.equal(receipt.nonce, manifest.nonce);
+    assert.equal(trace.artifactSha256, manifest.artifactSha256);
+    assert.equal(receipt.artifactSha256, manifest.artifactSha256);
+    assert.match(trace.summary.requestSummarySha256, /^[0-9a-f]{64}$/);
+    assert.ok(BigInt(trace.monotonicEndNs) > BigInt(trace.monotonicStartNs));
+    assert.equal(
+      receipt.manifestSha256,
+      createHash("sha256").update(manifestBytes).digest("hex"),
+    );
+    assert.equal(
+      receipt.traceSha256,
+      createHash("sha256").update(traceBytes).digest("hex"),
+    );
+    assert.doesNotMatch(
+      `${manifestBytes}\n${traceBytes}\n${JSON.stringify(receipt)}`,
+      /sensitive|expense-id|user-id/i,
+    );
+
+    const replay = supervisor(value, remote);
+    await assert.rejects(() => replay.start(RELEASE), /QA_WINDOW_REUSED/);
+    await replay.close();
+  } finally {
+    await runner.close();
+    await remote.close();
+  }
+});
+
+test("supervisor rejects a hand-authored trace before capture", async () => {
+  const value = fixture();
+  const remote = await upstream();
+  writeFileSync(value.trace, "{}\n", { mode: 0o600 });
+  const runner = supervisor(value, remote);
+  try {
+    await assert.rejects(() => runner.start(RELEASE), /QA_WINDOW_REUSED/);
+    assert.equal(existsSync(value.manifest), false);
+    assert.equal(existsSync(value.receipt), false);
+  } finally {
+    await runner.close();
+    await remote.close();
+  }
+});
+
+test("supervisor rejects a forged trace injected during its lifecycle", async () => {
+  const value = fixture();
+  const remote = await upstream({
+    state: "READY",
+    proposal: { lines: [] },
+    confirmation: null,
+    receipt: null,
+  });
+  const runner = supervisor(value, remote, {
+    testHooks: {
+      afterCapture: () =>
+        writeFileSync(
+          value.trace,
+          `${JSON.stringify({
+            version: 2,
+            state: "guarded",
+            summary: {
+              allowedRequests: 1,
+              forbiddenRequests: 0,
+              readyObserved: true,
+              stateViolations: 0,
+            },
+          })}\n`,
+          { mode: 0o600 },
+        ),
+    },
+  });
+  try {
+    await runner.start(RELEASE);
+    await reachReady(runner);
+    await assert.rejects(() => runner.finish(), /QA_WINDOW_REUSED/);
+    assert.equal(existsSync(value.receipt), false);
+  } finally {
+    await runner.close();
+    await remote.close();
+  }
+});
+
+test("supervisor rejects manifest and trace pathname swaps without a receipt", async () => {
+  for (const target of ["manifest", "trace"]) {
+    const value = fixture();
+    const remote = await upstream({
+      state: "READY",
+      proposal: { lines: [] },
+      confirmation: null,
+      receipt: null,
+    });
+    const swapped = `${value[target]}.swapped`;
+    const hook = () => {
+      renameSync(value[target], swapped);
+      copyFileSync(swapped, value[target]);
+    };
+    const runner = supervisor(value, remote, {
+      testHooks:
+        target === "manifest" ? { afterCapture: hook } : { afterTrace: hook },
+    });
+    try {
+      await runner.start(RELEASE);
+      await reachReady(runner);
+      await assert.rejects(() => runner.finish(), /QA_PRIVATE_FILE_REPLACED/);
+      assert.equal(existsSync(value.receipt), false);
+    } finally {
+      await runner.close();
+      await remote.close();
+    }
+  }
+});
+
+test("supervisor rejects a symlinked private-file parent component", async () => {
+  const value = fixture();
+  const remote = await upstream();
+  const realEvidence = join(value.directory, "real-evidence");
+  const linkedEvidence = join(value.directory, "linked-evidence");
+  mkdirSync(realEvidence);
+  symlinkSync(realEvidence, linkedEvidence);
+  const runner = supervisor(value, remote, {
+    manifest: join(linkedEvidence, "manifest.json"),
+    trace: join(linkedEvidence, "trace.json"),
+    receipt: join(linkedEvidence, "receipt.json"),
+  });
+  try {
+    await assert.rejects(() => runner.start(RELEASE), /QA_PRIVATE_FILE_UNSAFE/);
+    assert.equal(existsSync(join(realEvidence, "receipt.json")), false);
+  } finally {
+    await runner.close();
+    await remote.close();
+  }
+});
+
+test("Linux supervisor rejects a database pathname ABA during its snapshot without a receipt", async () => {
+  const value = fixture();
+  const remote = await upstream();
+  const displaced = join(value.directory, "displaced.db");
+  const replacement = join(value.directory, "replacement.db");
+  copyFileSync(value.database, replacement);
+  let swaps = 0;
+  const runner = supervisor(value, remote, {
+    testHooks: {
+      afterSnapshotBegin: () => {
+        if (swaps++ > 0) return;
+        renameSync(value.database, displaced);
+        renameSync(replacement, value.database);
+        renameSync(value.database, replacement);
+        renameSync(displaced, value.database);
+      },
+    },
+  });
+  try {
+    await assert.rejects(() => runner.start(RELEASE), /QA_DATABASE_REPLACED/);
+    assert.equal(swaps, 1);
+    assert.equal(existsSync(value.receipt), false);
+  } finally {
+    await runner.close();
+    await remote.close();
+  }
 });

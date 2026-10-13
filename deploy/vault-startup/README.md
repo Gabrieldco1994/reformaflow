@@ -306,47 +306,57 @@ Transfer those exact two release artifacts to
 `/app/vault-production-qa-guard.mjs`, verify the launcher against the pinned
 release, and supply one identical set of `VAULT_QA_RELEASE_SHA`,
 `VAULT_QA_RELEASE_ID`, `VAULT_QA_IMAGE_DIGEST`, `VAULT_QA_WINDOW_ID`,
-`VAULT_QA_WINDOW_START`, `VAULT_QA_WINDOW_END`, and `VAULT_QA_ACTOR` values to
-all three modes. The launcher accepts only `capture`, `guard`, or `compare`;
-the database, private evidence paths, loopback port `4317`, and production API
-origin are fixed. There is no SQL, database, origin, table or tenant argument.
+`VAULT_QA_WINDOW_START`, `VAULT_QA_WINDOW_END`, and `VAULT_QA_ACTOR`. The
+launcher accepts only `run`; the database, private evidence paths, fixed
+`/usr/bin/sqlite3`, loopback port `4317`, and production API origin are fixed.
+There is no SQL, database, origin, table or tenant argument.
 
-1. Run `run-production-qa-guard.sh capture` after quiescence. It takes one
-   read-only SQLite transaction and exclusively creates the mode-`0600`
-   baseline bound to database device/inode and the release/image/window/QA
-   actor.
-2. Run `run-production-qa-guard.sh guard`, and make the SRE-driven journey use
-   only `http://127.0.0.1:4317`. The guard forwards to the fixed production
-   origin, records only counters, rejects every matching import-session
-   confirmation-challenge/confirm/execute `POST`, rejects CONFIRMED/APPLIED or
-   malformed READY responses, and stops import-session traffic after the first
-   valid READY response. Authorization headers, response bodies, routes and
-   session IDs are never written to evidence or stdout.
-3. Stop the guard immediately after READY and require its zero exit. Then run
-   `run-production-qa-guard.sh compare`. Compare requires a zero-forbidden,
-   zero-state-violation READY trace and exact before/after counts plus hashes
-   for `bank_accounts`, `bank_statement_imports`, `budget_allocations`,
-   `cash_flow_entries`, `credit_cards`, `credit_card_imports`,
-   `cross_project_settlements`, `expenses`, `imported_invoice_liquidations`,
-   `invoice_adjustments`, `rateio_allocations`, and `receipts`, plus exact
-   count/hash equality for
-   `user_activity_logs.action = 'importSessions.execute'`. It exclusively
-   creates the consumed receipt. A changed identity/fingerprint, metadata
-   mismatch, missing READY, forbidden attempt, existing receipt, or reused
-   trace is a STOP; start a newly authorized window rather than overwrite.
+Run `run-production-qa-guard.sh run` once after quiescence and keep that exact
+process attached for the entire journey. It generates a fresh nonce, hashes its
+own verified artifact, opens one long-lived read-only SQLite process, verifies
+`query_only`, and takes each complete before/after fingerprint in one
+transaction. On Linux it proves the child descriptor's device/inode through
+`/proc`, while path, parent-directory and `data_version` checks reject
+replacement or concurrent writes. The process exclusively creates and keeps
+open the mode-`0600` manifest before admitting loopback traffic. There is no
+separate capture or compare invocation and no operator-authored trace.
 
-4. **Freeze and pin.** Enter the exclusive window. Record `EXPECTED_SHA` from
+Make the SRE-driven journey use only `http://127.0.0.1:4317`. The guard
+forwards to the fixed production origin, rejects every matching import-session
+confirmation-challenge/confirm/execute `POST`, rejects CONFIRMED/APPLIED or
+malformed READY responses, and stops import-session traffic after the first
+valid READY response. Authorization headers, response bodies, routes and
+session IDs are never written to evidence or stdout. The same supervisor then
+closes admission, creates the trace from its in-memory counters and
+request-summary digest, and compares exact before/after counts plus hashes for
+`bank_accounts`, `bank_statement_imports`, `budget_allocations`,
+`cash_flow_entries`, `credit_cards`, `credit_card_imports`,
+`cross_project_settlements`, `expenses`, `imported_invoice_liquidations`,
+`invoice_adjustments`, `rateio_allocations`, and `receipts`, plus exact
+count/hash equality for
+`user_activity_logs.action = 'importSessions.execute'`.
+
+Manifest, trace and receipt paths must all be absent at startup. Their parent
+components may not be symlinks; files are exclusive, single-link regular
+`0600` nodes held and reread through `O_NOFOLLOW` descriptors, fsynced and
+revalidated against their paths. Only after all checks pass does the same
+process create a receipt hashing the already validated manifest/trace bytes.
+Any path/descriptor swap, changed identity/fingerprint, missing READY,
+forbidden attempt, existing evidence file, interruption or window mismatch is
+a STOP with no receipt; start a newly authorized window rather than overwrite.
+
+1. **Freeze and pin.** Enter the exclusive window. Record `EXPECTED_SHA` from
    current `origin/main`; do not copy a SHA from this page. Re-read current main
    immediately before the change and stop if it moved. Record the green
    workflow URL/run ID, sole machine ID, volume ID, current release/image digest
    and pre-change health.
-5. **Finish read-only preflight.** Reconfirm machine/volume uniqueness,
+2. **Finish read-only preflight.** Reconfirm machine/volume uniqueness,
    attachment, ext4/rw/device identity, encryption evidence, free space,
    ownership/modes/aliases, backup restorability, migrations/FK, retention
    approval, explicit SIGTERM plus the 10-second shutdown margin, and the v749
    disposable-restore boot test. Do not create or repair vault nodes manually;
    the fail-closed launcher provisions only missing allowed nodes.
-6. **Apply the whole profile once.** The authorized `platform-sre`, from the
+3. **Apply the whole profile once.** The authorized `platform-sre`, from the
    reviewed transcript, runs:
 
    ```bash
@@ -363,15 +373,15 @@ origin are fixed. There is no SQL, database, origin, table or tenant argument.
    with a source deploy, scale change, migration repair or any
    `IMPORT_SESSION_WRITES_ENABLED` setting.
 
-7. **Observe replacement to completion.** Use bounded polling rather than a
+4. **Observe replacement to completion.** Use bounded polling rather than a
    single machine-state read. Stop and execute flag-off rollback if there is
    more than one machine, the old process overlaps, the machine does not settle
    `started`, the sole check does not pass, the release/image/SHA differs, the
    volume attachment changes, or any `vault_startup:*`/`vault_boot` failure is
    reported.
-8. **Collect the exact ON evidence below.** Do not ask the PO to upload or test
+5. **Collect the exact ON evidence below.** Do not ask the PO to upload or test
    a real document until every item is attached to the activation record.
-9. **Hand off, then unfreeze.** Only after ON evidence is complete may the PO
+6. **Hand off, then unfreeze.** Only after ON evidence is complete may the PO
    perform the separately approved real journey. Keep the rollback owner
    present through that test. End the exclusive window only after the decision
    to retain ON or roll back is recorded.
