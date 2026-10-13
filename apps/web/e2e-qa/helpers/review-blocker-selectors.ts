@@ -1,10 +1,18 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { ImportSessionDraftLineV1 } from "@reformaflow/domain";
+import {
+  ImportSessionAmountMeaning,
+  type ImportSessionDraftLineV1,
+} from "@reformaflow/domain";
 
 export type ReviewBlockerAction = "include" | "remove";
 export type ReviewBlockerPurchaseContext = Pick<
   ImportSessionDraftLineV1,
-  "titulo" | "fornecedor" | "dataCompra" | "amountCents" | "installmentCount"
+  | "titulo"
+  | "fornecedor"
+  | "dataCompra"
+  | "amountCents"
+  | "amountMeaning"
+  | "installmentCount"
 >;
 
 function escapeRegExp(value: string) {
@@ -37,6 +45,20 @@ function amountToken(cents: number) {
   return `${sign}R\\$\\s*${groupedWhole}[,.]${fraction}`;
 }
 
+function amountMeaningToken(
+  meaning: ReviewBlockerPurchaseContext["amountMeaning"],
+) {
+  switch (meaning) {
+    case ImportSessionAmountMeaning.TOTAL_PURCHASE:
+      return "Total";
+    case ImportSessionAmountMeaning.INSTALLMENT_CHARGE:
+      return "Parcela";
+    case ImportSessionAmountMeaning.UNKNOWN:
+    default:
+      return "Valor";
+  }
+}
+
 function installmentToken(count: number) {
   if (!Number.isSafeInteger(count)) {
     throw new Error("Review blocker installment count must be an integer");
@@ -56,6 +78,7 @@ function humanContextAssertions(context: ReviewBlockerPurchaseContext) {
   }
   if (context.amountCents !== null) {
     tokens.push(amountToken(context.amountCents));
+    tokens.push(escapeRegExp(amountMeaningToken(context.amountMeaning)));
   }
   if (context.installmentCount !== null) {
     tokens.push(installmentToken(context.installmentCount));

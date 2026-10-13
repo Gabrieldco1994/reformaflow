@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ImportSessionAmountMeaning } from "@reformaflow/domain";
 import {
   reviewBlockerArticleName,
   reviewBlockerButtonName,
@@ -11,6 +12,7 @@ const firstPurchase = {
   fornecedor: "Casa Norte",
   dataCompra: "2026-10-10",
   amountCents: 12_345,
+  amountMeaning: ImportSessionAmountMeaning.TOTAL_PURCHASE,
   installmentCount: 1,
 } satisfies ReviewBlockerPurchaseContext;
 
@@ -42,6 +44,15 @@ test("duplicate titles resolve to the right row and action from full human conte
       purchase: { ...firstPurchase, installmentCount: 2 },
       visibleName:
         "Casa Norte — Liquidificador (inox) · 10/10/2026 · R$ 123,45 · Total · 2 parcelas",
+    },
+    {
+      field: "amount meaning",
+      purchase: {
+        ...firstPurchase,
+        amountMeaning: ImportSessionAmountMeaning.INSTALLMENT_CHARGE,
+      },
+      visibleName:
+        "Casa Norte — Liquidificador (inox) · 10/10/2026 · R$ 123,45 · Parcela · 1 parcela",
     },
   ] satisfies {
     field: string;
@@ -80,4 +91,21 @@ test("duplicate titles resolve to the right row and action from full human conte
       duplicate.field,
     );
   }
+
+  const unknownMeaningPurchase = {
+    ...firstPurchase,
+    amountMeaning: ImportSessionAmountMeaning.UNKNOWN,
+  };
+  const neutralValueName =
+    "Casa Norte — Liquidificador (inox) · 10/10/2026 · R$ 123,45 · Valor · 1 parcela";
+  assert.equal(
+    reviewBlockerArticleName(unknownMeaningPurchase).test(neutralValueName),
+    true,
+  );
+  assert.equal(
+    reviewBlockerArticleName(unknownMeaningPurchase).test(
+      neutralValueName.replace("Valor", "UNKNOWN"),
+    ),
+    false,
+  );
 });
