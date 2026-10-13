@@ -32,6 +32,12 @@ this file keeps the invariants only.
     audited `legacy-fk-32-2026-10` operator authorization for issue #722 and
     exact counts `2/28/4/32`, with zero deletions and zero monetary changes. It
     expires after this recovery and authorizes no other operation.
+12. The legacy-FK executable validates the SQLite `file:` URL and forces the
+    effective Prisma datasource to `connection_limit=1`. Operators must not
+    alter Fly's/global `DATABASE_URL` or append the parameter manually.
+13. Any patched repair artifact invalidates the previous checksum and dry-run
+    manifest. Checksum the new artifact and perform a fresh dry-run through
+    `op-wrap` before apply.
 
 See `DEPLOY.md` for the arm/apply/disarm/cleanup commands and evidence checks.
 The one-off legacy-FK operation is documented separately in

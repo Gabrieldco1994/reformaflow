@@ -23,6 +23,11 @@ const TOMBSTONE_DESCRIPTION = "Technical tombstone created by #722";
 const TOMBSTONE_TIMESTAMP = new Date(0);
 const OP_WRAP_MARKER = "legacy-fk-integrity-v1";
 const REQUIRED_REVIEWERS = 2;
+const SQLITE_FILE_URL_PREFIX = "file:";
+const CONNECTION_LIMIT_KEY = "connection_limit";
+const PINNED_CONNECTION_LIMIT_SEGMENT = `${CONNECTION_LIMIT_KEY}=1`;
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
+const MALFORMED_PERCENT_ESCAPE = /%(?![0-9a-fA-F]{2})/;
 const REVIEWED_ROOM_BACKLINKS = new Map([
   ["expenses.room_id", "direct"],
   ["floor_plan_rooms.room_id", "floor-plan"],
@@ -68,6 +73,90 @@ function hasExactKeys(value, expected) {
 
 function nonEmptyString(value) {
   return typeof value === "string" && value.length > 0;
+}
+
+function decodeSafeUrlPart(value) {
+  if (CONTROL_CHARACTER.test(value) || MALFORMED_PERCENT_ESCAPE.test(value)) {
+    fail();
+  }
+
+  let decoded;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    fail();
+  }
+  if (CONTROL_CHARACTER.test(decoded)) fail();
+  return decoded;
+}
+
+function assertPinnedConnectionLimit(databaseUrl) {
+  const queryStart = databaseUrl.indexOf("?");
+  if (queryStart < 0) fail();
+  const pinnedSegments = databaseUrl
+    .slice(queryStart + 1)
+    .split("&")
+    .filter((segment) => {
+      const equals = segment.indexOf("=");
+      return (
+        decodeSafeUrlPart(segment.slice(0, equals)) === CONNECTION_LIMIT_KEY
+      );
+    });
+  if (
+    pinnedSegments.length !== 1 ||
+    pinnedSegments[0] !== PINNED_CONNECTION_LIMIT_SEGMENT
+  ) {
+    fail();
+  }
+}
+
+function normalizeDatabaseUrl(rawDatabaseUrl) {
+  if (
+    !nonEmptyString(rawDatabaseUrl) ||
+    !rawDatabaseUrl.startsWith(SQLITE_FILE_URL_PREFIX) ||
+    rawDatabaseUrl.includes("#")
+  ) {
+    fail();
+  }
+
+  const remainder = rawDatabaseUrl.slice(SQLITE_FILE_URL_PREFIX.length);
+  const queryStart = remainder.indexOf("?");
+  const rawPath = queryStart < 0 ? remainder : remainder.slice(0, queryStart);
+  if (!nonEmptyString(rawPath)) fail();
+  decodeSafeUrlPart(rawPath);
+
+  const preservedSegments = [];
+  const decodedKeys = new Set();
+  if (queryStart >= 0) {
+    const rawQuery = remainder.slice(queryStart + 1);
+    if (!nonEmptyString(rawQuery)) fail();
+
+    for (const segment of rawQuery.split("&")) {
+      if (!nonEmptyString(segment)) fail();
+      const equals = segment.indexOf("=");
+      if (equals <= 0) fail();
+
+      const rawKey = segment.slice(0, equals);
+      const decodedKey = decodeSafeUrlPart(rawKey);
+      decodeSafeUrlPart(segment.slice(equals + 1));
+      if (!nonEmptyString(decodedKey)) fail();
+
+      if (decodedKey.toLowerCase() === CONNECTION_LIMIT_KEY) {
+        if (decodedKey !== CONNECTION_LIMIT_KEY) fail();
+        continue;
+      }
+      if (decodedKeys.has(decodedKey)) fail();
+      decodedKeys.add(decodedKey);
+      preservedSegments.push(segment);
+    }
+  }
+
+  const normalizedDatabaseUrl = `${SQLITE_FILE_URL_PREFIX}${rawPath}?${[
+    ...preservedSegments,
+    PINNED_CONNECTION_LIMIT_SEGMENT,
+  ].join("&")}`;
+  assertPinnedConnectionLimit(normalizedDatabaseUrl);
+  return normalizedDatabaseUrl;
 }
 
 async function assertInheritedWatchdogLock() {
@@ -300,7 +389,7 @@ function validateScopeProof(proof) {
   }
 }
 
-async function readPrivateCanonicalJson(path, expectedHash) {
+async function loadPrivateJson(path, expectedHash) {
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const metadata = await handle.stat();
@@ -1144,12 +1233,12 @@ async function applyManifest(prisma, proof, manifest) {
 }
 
 async function main(argv) {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = normalizeDatabaseUrl(rawDatabaseUrl);
   await assertInheritedWatchdogLock();
   const options = parseArguments(argv);
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!nonEmptyString(databaseUrl) || !databaseUrl.startsWith("file:")) fail();
 
-  const scope = await readPrivateCanonicalJson(
+  const scope = await loadPrivateJson(
     options["scope-proof"],
     options["scope-proof-hash"],
   );
@@ -1193,10 +1282,7 @@ async function main(argv) {
       return;
     }
 
-    const manifestFile = await readPrivateCanonicalJson(
-      options.manifest,
-      options.hash,
-    );
+    const manifestFile = await loadPrivateJson(options.manifest, options.hash);
     validateManifest(
       manifestFile.value,
       scope.value,

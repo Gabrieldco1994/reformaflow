@@ -320,16 +320,29 @@ function createFixture() {
 }
 
 function runRepair(database, args, env = {}) {
-  const lock = inheritedTestLock(dirname(database));
+  return runRepairWithDatabaseUrl(
+    dirname(database),
+    recoveryDatabaseUrl(database),
+    args,
+    env,
+  );
+}
+
+function recoveryDatabaseUrl(database) {
+  return `file:${database}?socket_timeout=13&connection_limit=8`;
+}
+
+function runRepairWithDatabaseUrl(directory, databaseUrl, args, env = {}) {
+  const lock = inheritedTestLock(directory);
   const command = repairCommand(args);
   try {
     return spawnSync(command.executable, command.args, {
-      cwd: repairWorkingDirectory(database),
+      cwd: directory,
       encoding: "utf8",
       stdio: lock.stdio,
       env: {
         ...process.env,
-        DATABASE_URL: `file:${database}`,
+        DATABASE_URL: databaseUrl,
         LEGACY_FK_RECOVERY_OP_WRAP: "legacy-fk-integrity-v1",
         ...lock.env,
         ...env,
@@ -338,6 +351,69 @@ function runRepair(database, args, env = {}) {
   } finally {
     lock.close();
   }
+}
+
+function launchRepair(database, args) {
+  return new Promise((resolve) => {
+    const lock = inheritedTestLock(dirname(database));
+    const command = repairCommand(args);
+    const child = spawn(command.executable, command.args, {
+      cwd: repairWorkingDirectory(database),
+      stdio: lock.stdio,
+      env: {
+        ...process.env,
+        DATABASE_URL: recoveryDatabaseUrl(database),
+        LEGACY_FK_RECOVERY_OP_WRAP: "legacy-fk-integrity-v1",
+        ...lock.env,
+      },
+    });
+    lock.close();
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+function prismaConstructorProbe(directory) {
+  const capture = join(directory, "prisma-constructor-url.json");
+  const preload = join(directory, "capture-prisma-constructor.cjs");
+  writeFileSync(
+    preload,
+    `"use strict";
+const fs = require("node:fs");
+const Module = require("node:module");
+const originalLoad = Module._load;
+Module._load = function (request, parent, isMain) {
+  if (request === "@prisma/client") {
+    return {
+      PrismaClient: class {
+        constructor(options) {
+          fs.writeFileSync(
+            process.env.RECOVERY_TEST_PRISMA_CAPTURE,
+            JSON.stringify(options.datasources.db.url),
+            { flag: "wx", mode: 0o600 },
+          );
+          throw new Error("test-only constructor probe");
+        }
+      }
+    };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+`,
+    { mode: 0o600, flag: "wx" },
+  );
+  return {
+    capture,
+    env: {
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preload}`]
+        .filter(Boolean)
+        .join(" "),
+      RECOVERY_TEST_PRISMA_CAPTURE: capture,
+    },
+  };
 }
 
 function repairCommand(args, platform = process.platform, scriptPath = SCRIPT) {
@@ -684,11 +760,193 @@ test("trusted-operator exception is exact, one-time, bounded, and unexpired", ()
   }
 });
 
-test("runbooks describe the trusted-root exception as an expiring audit gate, not authentication", () => {
+test("DATABASE_URL normalization precedes filesystem and Prisma access, and only the normalized URL reaches Prisma", () => {
+  const mainStart = SCRIPT_SOURCE.indexOf("async function main(argv)");
+  const entrypointStart = SCRIPT_SOURCE.indexOf(
+    "\nif (\n  process.argv[1]",
+    mainStart,
+  );
+  assert.notEqual(mainStart, -1, "main is missing");
+  assert.notEqual(entrypointStart, -1, "entrypoint boundary is missing");
+  const mainSource = SCRIPT_SOURCE.slice(mainStart, entrypointStart);
+  const normalization = mainSource.match(
+    /const (?<normalized>[A-Za-z_$][\w$]*) = normalizeDatabaseUrl\((?<raw>[A-Za-z_$][\w$]*)\);/,
+  );
+  assert.ok(
+    normalization,
+    "main must normalize DATABASE_URL into a distinct value",
+  );
+  const normalizationIndex = normalization.index;
+  const inheritedLockIndex = mainSource.indexOf(
+    "await assertInheritedWatchdogLock()",
+  );
+  const proofReadIndex = mainSource.indexOf("loadPrivateJson(");
+  const prismaIndex = mainSource.indexOf("new PrismaClient(");
+  assert.ok(
+    normalizationIndex < inheritedLockIndex,
+    "DATABASE_URL must normalize before lock-path filesystem access",
+  );
+  assert.ok(
+    normalizationIndex < proofReadIndex,
+    "DATABASE_URL must normalize before scope-proof filesystem access",
+  );
+  assert.ok(
+    normalizationIndex < prismaIndex,
+    "DATABASE_URL must normalize before Prisma construction",
+  );
+  const prismaConstructor = mainSource.slice(
+    prismaIndex,
+    mainSource.indexOf("await prisma.$connect()", prismaIndex),
+  );
+  assert.match(
+    prismaConstructor,
+    new RegExp(
+      `datasources:\\s*\\{\\s*db:\\s*\\{\\s*url:\\s*${normalization.groups.normalized}\\s*\\}`,
+    ),
+  );
+  assert.doesNotMatch(
+    prismaConstructor,
+    new RegExp(`url:\\s*${normalization.groups.raw}\\b`),
+  );
+});
+
+test("DATABASE_URL normalization preserves safe raw bytes and canonicalizes connection_limit", () => {
+  const cases = [
+    {
+      name: "appends the canonical parameter",
+      raw: (path) => `file:${path}`,
+      expected: (path) => `file:${path}?connection_limit=1`,
+    },
+    {
+      name: "preserves unrelated segments and their order",
+      raw: (path) =>
+        `file:${path}?socket_timeout=13&connection_limit=8&mode=rwc%2Fsafe`,
+      expected: (path) =>
+        `file:${path}?socket_timeout=13&mode=rwc%2Fsafe&connection_limit=1`,
+    },
+    {
+      name: "collapses literal and percent-decoded target entries",
+      raw: (path) =>
+        `file:${path}?connection_limit=9&cache=shared&connection%5Flimit=4`,
+      expected: (path) => `file:${path}?cache=shared&connection_limit=1`,
+    },
+    {
+      name: "does not decode or rewrite path and safe query bytes",
+      raw: (path) => `file:${path}%2Fraw%20name.db?label=keep%2Fraw%20bytes`,
+      expected: (path) =>
+        `file:${path}%2Fraw%20name.db?label=keep%2Fraw%20bytes&connection_limit=1`,
+    },
+  ];
+
+  for (const scenario of cases) {
+    const directory = temporaryDirectory();
+    const proof = join(directory, "valid-proof.json");
+    const manifest = join(directory, "must-not-exist.json");
+    writePrivateJson(proof, scopeProof());
+    const probe = prismaConstructorProbe(directory);
+    const args = [
+      "--dry-run",
+      "--scope-proof",
+      proof,
+      "--scope-proof-hash",
+      sha256(proof),
+      "--manifest",
+      manifest,
+    ];
+    const rawPath = join(directory, "fixture.db");
+
+    const result = runRepairWithDatabaseUrl(
+      directory,
+      scenario.raw(rawPath),
+      args,
+      probe.env,
+    );
+
+    requireFailure(result);
+    assert.equal(
+      result.stderr,
+      "legacy FK recovery failed: safety check failed\n",
+      scenario.name,
+    );
+    assert.equal(
+      JSON.parse(readFileSync(probe.capture, "utf8")),
+      scenario.expected(rawPath),
+      scenario.name,
+    );
+    assert.equal(existsSync(manifest), false, scenario.name);
+  }
+});
+
+test("invalid DATABASE_URL values fail before Prisma, database, or manifest access", () => {
+  const cases = [
+    ["empty", () => ""],
+    ["non-file", (path) => `sqlite:${path}`],
+    ["empty path", () => "file:"],
+    ["empty path with query", () => "file:?mode=ro"],
+    ["fragment", (path) => `file:${path}#fragment`],
+    ["malformed path escape", (path) => `file:${path}%`],
+    ["malformed query escape", (path) => `file:${path}?mode=%GG`],
+    ["raw path control", (path) => `file:${path}\n`],
+    ["decoded path control", (path) => `file:${path}%00`],
+    ["raw query control", (path) => `file:${path}?mode=ro\tunsafe`],
+    ["decoded query control", (path) => `file:${path}?mode=%0A`],
+    ["decoded key control", (path) => `file:${path}?mo%0Ade=ro`],
+    ["decoded DEL control", (path) => `file:${path}?mode=%7F`],
+    ["empty query", (path) => `file:${path}?`],
+    ["leading empty segment", (path) => `file:${path}?&mode=ro`],
+    ["middle empty segment", (path) => `file:${path}?mode=ro&&cache=x`],
+    ["trailing empty segment", (path) => `file:${path}?mode=ro&`],
+    ["empty key", (path) => `file:${path}?=value`],
+    ["missing equals", (path) => `file:${path}?mode`],
+    ["duplicate key", (path) => `file:${path}?mode=ro&mode=rw`],
+    ["duplicate decoded key", (path) => `file:${path}?mode=ro&mo%64e=rw`],
+    ["case-variant target", (path) => `file:${path}?Connection_Limit=8`],
+    [
+      "encoded case-variant target",
+      (path) => `file:${path}?Connection%5FLimit=8`,
+    ],
+  ];
+
+  for (const [name, databaseUrl] of cases) {
+    const directory = temporaryDirectory();
+    const database = join(directory, "must-not-open.db");
+    const proof = join(directory, "valid-proof.json");
+    const manifest = join(directory, "must-not-create.json");
+    writePrivateJson(proof, scopeProof());
+    const probe = prismaConstructorProbe(directory);
+    const result = runRepairWithDatabaseUrl(
+      directory,
+      databaseUrl(database),
+      [
+        "--dry-run",
+        "--scope-proof",
+        proof,
+        "--scope-proof-hash",
+        sha256(proof),
+        "--manifest",
+        manifest,
+      ],
+      probe.env,
+    );
+
+    requireFailure(result);
+    assert.equal(
+      result.stderr,
+      "legacy FK recovery failed: safety check failed\n",
+      name,
+    );
+    assert.equal(existsSync(probe.capture), false, `${name}: Prisma opened`);
+    assert.equal(existsSync(database), false, `${name}: database opened`);
+    assert.equal(existsSync(manifest), false, `${name}: manifest created`);
+  }
+});
+
+test("runbooks pin the trusted-root gate and single-connection URL requirement", () => {
   for (const source of [LEGACY_RUNBOOK_SOURCE, QUIESCE_README_SOURCE]) {
     assert.match(source, /legacy-fk-32-2026-10/);
     assert.match(source, /2\/28\/4\/32/);
     assert.match(source, /trusted root|trusted-root/i);
+    assert.match(source, /connection_limit=1/);
   }
   assert.match(
     LEGACY_RUNBOOK_SOURCE,
@@ -702,6 +960,16 @@ test("runbooks describe the trusted-root exception as an expiring audit gate, no
 test("Linux harness and production probe require the inherited fd9 lock", () => {
   const args = ["--dry-run", "--manifest", "synthetic"];
   const isolatedDatabase = join(ROOT, "isolated-fixture", "fixture.db");
+  const adversarialUrl = recoveryDatabaseUrl(isolatedDatabase);
+  assert.equal(
+    adversarialUrl,
+    `file:${isolatedDatabase}?socket_timeout=13&connection_limit=8`,
+  );
+  assert.doesNotMatch(
+    adversarialUrl,
+    /connection_limit=1(?:&|$)/,
+    "the test harness must not perform production normalization",
+  );
   assert.match(
     SCRIPT_SOURCE,
     /const inherited = spawnSync\("flock", \["-n", "9"\], \{ stdio \}\);/,
@@ -1438,32 +1706,17 @@ test("concurrent applies serialize; exactly one repairs and the other observes t
   const fixture = createFixture();
   dryRun(fixture);
   const args = applyArgs(fixture);
-  const launch = () =>
-    new Promise((resolve) => {
-      const lock = inheritedTestLock(fixture.directory);
-      const command = repairCommand(args);
-      const child = spawn(command.executable, command.args, {
-        cwd: repairWorkingDirectory(fixture.database),
-        stdio: lock.stdio,
-        env: {
-          ...process.env,
-          DATABASE_URL: `file:${fixture.database}`,
-          LEGACY_FK_RECOVERY_OP_WRAP: "legacy-fk-integrity-v1",
-          ...lock.env,
-        },
-      });
-      lock.close();
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", (chunk) => (stdout += chunk));
-      child.stderr.on("data", (chunk) => (stderr += chunk));
-      child.on("close", (status) => resolve({ status, stdout, stderr }));
-    });
 
   const results =
     process.platform === "linux"
-      ? await Promise.all([launch(), launch()])
-      : [await launch(), await launch()];
+      ? await Promise.all([
+          launchRepair(fixture.database, args),
+          launchRepair(fixture.database, args),
+        ])
+      : [
+          await launchRepair(fixture.database, args),
+          await launchRepair(fixture.database, args),
+        ];
 
   for (const result of results) requireSuccess(result);
   assert.deepEqual(
@@ -1480,3 +1733,33 @@ test("concurrent applies serialize; exactly one repairs and the other observes t
   );
   assert.equal(foreignKeyViolations(fixture.database).length, 0);
 });
+
+test(
+  "Linux repeatedly pins internal Prisma work while two recovery processes serialize",
+  { skip: process.platform !== "linux" },
+  async () => {
+    for (let round = 0; round < 2; round += 1) {
+      const fixture = createFixture();
+      dryRun(fixture);
+      const results = await Promise.all([
+        launchRepair(fixture.database, applyArgs(fixture)),
+        launchRepair(fixture.database, applyArgs(fixture)),
+      ]);
+
+      for (const result of results) requireSuccess(result);
+      assert.deepEqual(
+        results
+          .map((result) => JSON.parse(result.stdout).insertedProjects)
+          .sort((left, right) => left - right),
+        [0, 2],
+      );
+      assert.deepEqual(
+        results
+          .map((result) => JSON.parse(result.stdout).updatedCashFlowEntries)
+          .sort((left, right) => left - right),
+        [0, 4],
+      );
+      assert.equal(foreignKeyViolations(fixture.database).length, 0);
+    }
+  },
+);
