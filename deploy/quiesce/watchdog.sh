@@ -128,6 +128,7 @@ supervise(){
     log "supervisor: could not acquire lock in ${LOCK_WAIT}s - not launching chain"
     return 4
   fi
+  export LEGACY_FK_RECOVERY_LOCK_FD=9
   log "supervisor: lock held; launching known group via setsid+timeout(--foreground -k $KILL_AFTER -s TERM $OP_TIMEOUT)"
   raw="$Q/op.pgid.raw"; rm -f "$raw"
   # setsid makes the exec'd sh a session (=> process-group) leader, so its $$ IS
@@ -203,7 +204,7 @@ while :; do
   fi
   if [ -n "$SUP_PID" ]; then
     log "supervisor $SUP_PID exited -> clearing RUN.active"
-    rm -f "$Q/RUN.active"
+    rm -f "$Q/RUN.active" "$Q/REQUEST.active"
     SUP_PID=""
   fi
 
@@ -213,11 +214,19 @@ while :; do
       chain="$(cat "$Q/RUN.active")"
       if [ $(( now + OP_TIMEOUT + KILL_AFTER + MARGIN )) -ge "$D" ]; then
         log "REFUSED chain: now+op_timeout+kill_after+margin >= deadline"
-        rm -f "$Q/RUN.active"
+        rm -f "$Q/RUN.active" "$Q/REQUEST"
       elif ! ( exec 9>"$LOCK"; flock -n -x 9 ) 2>/dev/null; then
         log "chain deferred: op lock busy"
         mv "$Q/RUN.active" "$Q/RUN" 2>/dev/null || true
       else
+        if [ -e "$Q/REQUEST" ]; then
+          if ! mv "$Q/REQUEST" "$Q/REQUEST.active" 2>/dev/null; then
+            log "REFUSED chain: request could not be claimed atomically"
+            rm -f "$Q/RUN.active"
+            sleep "$POLL"
+            continue
+          fi
+        fi
         log "claimed chain -> starting supervisor (RUN.active held until supervisor exits)"
         supervise "$chain" &
         SUP_PID=$!

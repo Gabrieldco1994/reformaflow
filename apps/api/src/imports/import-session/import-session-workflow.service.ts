@@ -26,6 +26,7 @@ import {
   ImportSessionAttachmentState,
   ImportSessionErrorCode as Code,
   ImportSessionState as State,
+  hasFeature,
   ProjectType,
   parseImportFocusedLiteral,
   type ImportSessionChallengeRequestV1,
@@ -515,12 +516,15 @@ export class ImportSessionWorkflowService {
                   where: {
                     id: answer.value.projectId,
                     tenantId: row.tenantId,
-                    type: ProjectType.REFORMA,
                     deletedAt: null,
                   },
-                  select: { id: true },
+                  select: { id: true, type: true },
                 });
-                if (!project || project.id === row.ownerProjectId)
+                if (
+                  !project ||
+                  !hasFeature(project.type as ProjectType, "rooms") ||
+                  project.id === row.ownerProjectId
+                )
                   throw invalid();
                 await assertReceiptParticipantAccess(tx, actor, [project.id]);
                 if (answer.value.roomId !== null) {
@@ -529,6 +533,7 @@ export class ImportSessionWorkflowService {
                       id: answer.value.roomId,
                       projectId: project.id,
                       deletedAt: null,
+                      project: { deletedAt: null },
                     },
                     select: { id: true },
                   });

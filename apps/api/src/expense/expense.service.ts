@@ -47,6 +47,18 @@ type PlannedCardSourceInput = Pick<
 > & { cardId: string; evidence: ScheduleEvidenceInput; reason: string };
 type RateioParticipation = 'source' | 'target' | null;
 
+function scopedRoom(projectId: string, tenantId: string): Prisma.Expense$roomArgs {
+  return {
+    where: { projectId, deletedAt: null, project: { id: projectId, tenantId, deletedAt: null } },
+  };
+}
+
+function redactInvalidRoom<T extends { roomId: string | null; room: unknown | null }>(expense: T): T {
+  return expense.roomId && !expense.room
+    ? { ...expense, roomId: null }
+    : expense;
+}
+
 const RATEIO_PARTICIPANT_MUTATION_MESSAGE =
   'Esta despesa participa de um rateio. Altere valores, status, cronograma, recorrência ou vínculos pelo fluxo dedicado do rateio.';
 const RATEIO_TARGET_DELETE_MESSAGE =
@@ -260,7 +272,7 @@ export class ExpenseService {
     const roomDelegate = (db as { room?: { findFirst?: unknown } }).room;
     if (!roomDelegate || typeof roomDelegate.findFirst !== 'function') return;
     const room = await db.room.findFirst({
-      where: { id: roomId, projectId, deletedAt: null },
+      where: { id: roomId, projectId, deletedAt: null, project: { deletedAt: null } },
     });
     if (!room) throw new NotFoundException('Sala não encontrada neste projeto');
   }
@@ -446,7 +458,7 @@ export class ExpenseService {
         linkedExpenseId: links.linkedExpenseId ?? undefined,
         settlesInvoiceKey: links.settlesInvoiceKey ?? undefined,
       },
-      include: { room: true },
+      include: { room: scopedRoom(projectId, tenantId) },
     });
 
     try {
@@ -462,7 +474,7 @@ export class ExpenseService {
         ) {
           return tx.expense.findUniqueOrThrow({
             where: { id: expense.id },
-            include: { room: true },
+            include: { room: scopedRoom(projectId, tenantId) },
           });
         }
       }
@@ -671,7 +683,7 @@ export class ExpenseService {
     const [items, total] = await Promise.all([
       this.prisma.expense.findMany({
         where,
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
         orderBy: { createdAt: 'desc' },
         take: pageSize,
         skip,
@@ -680,7 +692,7 @@ export class ExpenseService {
     ]);
 
     return {
-      items: await enrichFunding(this.prisma, tenantId, items, requester),
+      items: await enrichFunding(this.prisma, tenantId, items.map(redactInvalidRoom), requester),
       total,
       page,
       pageSize,
@@ -699,10 +711,10 @@ export class ExpenseService {
         status: 'PLANEJADO',
         settledByExpenseId: null,
       },
-      include: { room: true },
+      include: { room: scopedRoom(projectId, tenantId) },
       orderBy: { createdAt: 'desc' },
     });
-    return enrichFunding(this.prisma, tenantId, items, requester);
+    return enrichFunding(this.prisma, tenantId, items.map(redactInvalidRoom), requester);
   }
 
   /**
@@ -769,13 +781,18 @@ export class ExpenseService {
     const items = await this.prisma.expense.findMany({
       where,
       include: {
-        room: true,
+        room: { where: { deletedAt: null, project: { tenantId, deletedAt: null } } },
         project: { select: { id: true, name: true, type: true } },
       },
       orderBy: [{ createdAt: 'desc' }],
       take: limit,
     });
-    return enrichFunding(this.prisma, tenantId, items, requester);
+    const safeItems = items.map((item) =>
+      !item.room || item.room.projectId === item.projectId
+        ? item
+        : { ...item, roomId: null, room: null },
+    );
+    return enrichFunding(this.prisma, tenantId, safeItems, requester);
   }
 
   /**
@@ -815,7 +832,7 @@ export class ExpenseService {
       return tx.expense.update({
         where: { id, projectId, tenantId, deletedAt: null },
         data: { linkedExpenseId: targetExpenseId },
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
       });
     });
   }
@@ -876,7 +893,7 @@ export class ExpenseService {
       return tx.expense.update({
         where: { id, projectId, tenantId, deletedAt: null },
         data: { linkedExpenseId: null },
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
       });
     });
   }
@@ -1811,11 +1828,11 @@ export class ExpenseService {
 
     const expense = await this.prisma.expense.findFirst({
       where: { id, projectId, tenantId, deletedAt: null },
-      include: { room: true },
+      include: { room: scopedRoom(projectId, tenantId) },
     });
     if (!expense) throw new NotFoundException('Despesa não encontrada');
 
-    return (await enrichFunding(this.prisma, tenantId, [expense], requester))[0];
+    return (await enrichFunding(this.prisma, tenantId, [redactInvalidRoom(expense)], requester))[0];
   }
 
   /**
@@ -2123,7 +2140,7 @@ export class ExpenseService {
         linkedExpenseId: links.linkedExpenseId,
         settlesInvoiceKey: links.settlesInvoiceKey,
       },
-      include: { room: true },
+      include: { room: scopedRoom(projectId, tenantId) },
     });
 
     // #569 (degrau, §2b/#1) — `regenerateCashFlow` soft-deleta+recria as
@@ -2175,7 +2192,7 @@ export class ExpenseService {
       await this.validateProject(tenantId, projectId, tx);
       const expense = await tx.expense.findFirst({
         where: { id, projectId, tenantId, deletedAt: null },
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
       // #569 (degrau, §2c) — mover a data de uma parcela regenera o caixa; se a
@@ -2380,7 +2397,7 @@ export class ExpenseService {
       await tx.expense.update({
         where: { id: expense.id },
         data: { installmentDateOverrides: nextOverrides },
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
       });
       const affectedProjectIds = new Set<string>([expense.projectId]);
       const result = (): UpdateInstallmentDateResult => ({
@@ -2596,7 +2613,11 @@ export class ExpenseService {
       if (resetPaidParcelas) data.paidParcelas = null;
       if (Object.keys(data).length === 0) continue;
 
-      const counterpart = await db.expense.update({ where: { id: cid }, data, include: { room: true } });
+      const counterpart = await db.expense.update({
+        where: { id: cid },
+        data,
+        include: { room: scopedRoom(cp.projectId, cp.tenantId) },
+      });
       if (changedCounterpartCashFlow) {
         await this.regenerateCashFlow(cid, tx);
       } else {
@@ -2666,7 +2687,7 @@ export class ExpenseService {
           status: 'PAGO',
           plannedExpenseId: planned.id,
         },
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
       });
 
       // Mark original as settled
@@ -2685,7 +2706,7 @@ export class ExpenseService {
       // We need to do it after transaction completes, so we'll inline it here
       const expense = await tx.expense.findUnique({
         where: { id: paidExpense.id },
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
       });
 
       if (expense) {
@@ -2744,7 +2765,7 @@ export class ExpenseService {
     return this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.findFirst({
         where: { id, projectId, tenantId, deletedAt: null },
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
       await this.guardRateioParticipation(tenantId, id, false, false, tx);
@@ -2790,7 +2811,7 @@ export class ExpenseService {
       const updated = await tx.expense.update({
         where: { id: expense.id },
         data: { status: nextStatus, paidParcelas: nextPaidParcelas },
-        include: { room: true },
+        include: { room: scopedRoom(projectId, tenantId) },
       });
 
       // Regenera o fluxo de caixa com o status por parcela atualizado.
@@ -2973,11 +2994,19 @@ export class ExpenseService {
     tx?: Prisma.TransactionClient,
   ) {
     const db = tx ?? this.prisma;
-    const expense = await db.expense.findUnique({
-      where: { id: expenseId },
-      include: { room: true },
-    });
-    if (!expense) return;
+    const expenseRow = await db.expense.findUnique({ where: { id: expenseId } });
+    if (!expenseRow) return;
+    const room = expenseRow.roomId
+      ? await db.room.findFirst({
+          where: {
+            id: expenseRow.roomId,
+            projectId: expenseRow.projectId,
+            deletedAt: null,
+            project: { id: expenseRow.projectId, tenantId: expenseRow.tenantId, deletedAt: null },
+          },
+        })
+      : null;
+    const expense: ExpenseWithRoom = { ...expenseRow, room };
 
     const regenerate = async (transaction: Prisma.TransactionClient) => {
       // Alvo RATEADO: o caixa é derivado do cronograma da fonte, não do planejado

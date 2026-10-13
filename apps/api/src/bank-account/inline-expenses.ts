@@ -207,10 +207,15 @@ export async function preflightInlineUndo(
       where: { tenantId, id: { in: [...relatedIds] }, deletedAt: { not: undefined } },
       select: { projectId: true },
     });
+    const roomIds = [...new Set(state.expenses.flatMap(e => e.roomId ? [e.roomId] : []))];
     const rooms = await tx.room.findMany({
-      where: { id: { in: state.expenses.flatMap(e => e.roomId ? [e.roomId] : []) }, deletedAt: { not: undefined } },
+      where: {
+        id: { in: roomIds }, deletedAt: { not: undefined },
+        project: { deletedAt: null },
+      },
       select: { projectId: true },
     });
+    if (rooms.length !== roomIds.length) throw new NotFoundException(ACL_NOT_FOUND_MESSAGE);
     for (const id of new Set([
       ...state.expenses, ...state.dependents, ...related, ...rooms, ...state.expenses.flatMap(e => e.cashFlow),
     ].map(e => e.projectId))) {

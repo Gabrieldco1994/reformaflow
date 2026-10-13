@@ -14,6 +14,7 @@ import {
   caixaDateForCardPurchase,
   ExpenseType,
   ExpenseStatus,
+  hasFeature,
   IMPORT_SESSION_KIND,
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PROTOCOL_VERSION,
@@ -290,13 +291,15 @@ export class CardPurchaseBatchAdapter implements CardPurchaseBatchPort {
     for (const line of selected) {
       for (const target of line.targets ?? []) {
         const project = await projectAccess(target.projectId, EXPENSE_MODULE);
-        if (project.type !== ProjectType.REFORMA) ask(line, "targets");
+        if (!hasFeature(project.type as ProjectType, "rooms"))
+          ask(line, "targets");
         if (target.roomId) {
           const rooms = await budget.pages((after, take) =>
             tx.room.findMany({
               where: {
                 projectId: project.id,
                 deletedAt: null,
+                project: { deletedAt: null },
                 AND: [{ id: target.roomId! }, cursor(after)],
               },
               orderBy: { id: "asc" },

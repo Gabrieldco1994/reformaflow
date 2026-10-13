@@ -143,6 +143,51 @@ describe('inline bank expense ownership (#690)', () => {
     expect(await setup.expense.count({ where: { tenantId } })).toBe(0);
   });
 
+  it('rejects an inline import room when its destination project is a tombstone', async () => {
+    const room = await setup.room.create({ data: { projectId: targetProjectId, name: 'Recovered orphan room' } });
+    await setup.project.update({
+      where: { id: targetProjectId },
+      data: { deletedAt: new Date('2026-10-12T00:00:00.000Z') },
+    });
+
+    await expect(commit({
+      newTarget: { targetProjectId, tipoDespesa: 'MATERIAL_CONSTRUCAO', roomId: room.id },
+    })).rejects.toMatchObject({ status: 404 });
+
+    expect(await setup.expense.count({ where: { tenantId } })).toBe(0);
+    expect(await setup.bankStatementImport.count({ where: { tenantId } })).toBe(0);
+  });
+
+  it('blocks inline undo through a tombstone-parent room without partial writes, then works after reactivation', async () => {
+    const room = await setup.room.create({ data: { projectId: targetProjectId, name: 'Undo room' } });
+    const result = await commit({
+      newTarget: { targetProjectId, tipoDespesa: 'MATERIAL_CONSTRUCAO', roomId: room.id },
+    });
+    const before = {
+      expenses: await setup.expense.findMany({ where: { tenantId }, orderBy: { id: 'asc' } }),
+      cash: await setup.cashFlowEntry.findMany({ where: { tenantId }, orderBy: { id: 'asc' } }),
+      allocations: await setup.rateioAllocation.findMany({ where: { tenantId }, orderBy: { id: 'asc' } }),
+    };
+    await setup.project.update({
+      where: { id: targetProjectId },
+      data: { deletedAt: new Date('2026-10-12T00:00:00.000Z') },
+    });
+
+    await expect(service.undoImport(tenantId, projectId, accountId, result.importId, actor))
+      .rejects.toMatchObject({ status: 404 });
+    expect({
+      expenses: await setup.expense.findMany({ where: { tenantId }, orderBy: { id: 'asc' } }),
+      cash: await setup.cashFlowEntry.findMany({ where: { tenantId }, orderBy: { id: 'asc' } }),
+      allocations: await setup.rateioAllocation.findMany({ where: { tenantId }, orderBy: { id: 'asc' } }),
+    }).toEqual(before);
+
+    await setup.project.update({ where: { id: targetProjectId }, data: { deletedAt: null } });
+    await expect(
+      service.undoImport(tenantId, projectId, accountId, result.importId, actor),
+    ).resolves.toMatchObject({ alreadyUndone: false });
+    expect(await setup.expense.count({ where: { tenantId, deletedAt: null } })).toBe(0);
+  });
+
   it('skip and strong dedupe never create another destination', async () => {
     expect(await commit({ action: 'skip' })).toMatchObject({ inlineExpenses: [] });
     expect(await setup.expense.count({ where: { tenantId } })).toBe(0);

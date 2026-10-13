@@ -1,21 +1,30 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import {
   ExpenseType,
   type InstallmentSettlementSummary,
-} from '@reformaflow/domain';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/pendencia.dto';
-import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
-import { BankAccountService } from '../bank-account/bank-account.service';
+} from "@reformaflow/domain";
+import { PrismaService } from "../prisma/prisma.service";
+import {
+  CreatePendenciaDto,
+  UpdatePendenciaDto,
+  MovePendenciaDto,
+} from "./dto/pendencia.dto";
+import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.service";
+import { BankAccountService } from "../bank-account/bank-account.service";
 import {
   rankCardCandidates,
   type CardInvoiceCandidate,
-} from '../bank-account/card-invoice-match';
-import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+} from "../bank-account/card-invoice-match";
+import { MerchantClassifierService } from "../merchant-classifier/merchant-classifier.service";
 import {
   assertRateioRequester,
   type RateioRequester,
-} from '../expense/rateio.types';
+} from "../expense/rateio.types";
 
 /** Denormalized chip-label shape returned to the client. */
 export interface PendenciaDto {
@@ -37,13 +46,13 @@ export interface PendenciaDto {
 }
 
 type FinancialQueueType =
-  | 'SEM_CONTA'
-  | 'SEM_CATEGORIA'
-  | 'PAGAMENTO_FATURA_SEM_CARTAO'
-  | 'FATURA_NAO_PAGA'
-  | 'PARCELA_FOREIGN_PENDENTE'
-  | 'RECEBIMENTO_PREVISTO_ATRASADO'
-  | 'RECEBIMENTO_SEM_CONTA';
+  | "SEM_CONTA"
+  | "SEM_CATEGORIA"
+  | "PAGAMENTO_FATURA_SEM_CARTAO"
+  | "FATURA_NAO_PAGA"
+  | "PARCELA_FOREIGN_PENDENTE"
+  | "RECEBIMENTO_PREVISTO_ATRASADO"
+  | "RECEBIMENTO_SEM_CONTA";
 
 export interface FinancialQueueItem {
   id: string;
@@ -62,7 +71,7 @@ export interface FinancialQueueItem {
   cardCandidates?: CardInvoiceCandidate[];
   installmentSettlement?: Pick<
     InstallmentSettlementSummary,
-    'contractedCents' | 'paidCents' | 'remainingCents' | 'settlementStatus'
+    "contractedCents" | "paidCents" | "remainingCents" | "settlementStatus"
   >;
   /** A summary requires explicit true to offer the existing queue action. */
   canExecuteAction?: boolean;
@@ -81,17 +90,31 @@ export interface FinancialQueueResponse {
   grupos: FinancialQueueGroup[];
 }
 
-const INCLUDE = {
-  room: { select: { name: true } },
-  scheduleTask: { select: { nome: true, numero: true } },
-} as const;
+type PendenciaDb = PrismaService | Prisma.TransactionClient;
+
+function includeForOwner(projectId: string, tenantId: string) {
+  return {
+    room: {
+      where: {
+        projectId,
+        deletedAt: null,
+        project: { id: projectId, tenantId, deletedAt: null },
+      },
+      select: { name: true },
+    },
+    scheduleTask: { select: { nome: true, numero: true } },
+  };
+}
 
 /** Janela de compras considerada ao ranquear faturas candidatas (±120 dias). */
 const CARD_WINDOW_MS = 120 * 24 * 60 * 60 * 1000;
 
 function monthRangeUtc(monthKey: string): [Date, Date] {
-  const [year, month] = monthKey.split('-').map((value) => parseInt(value, 10));
-  return [new Date(Date.UTC(year, month - 1, 1)), new Date(Date.UTC(year, month, 1))];
+  const [year, month] = monthKey.split("-").map((value) => parseInt(value, 10));
+  return [
+    new Date(Date.UTC(year, month - 1, 1)),
+    new Date(Date.UTC(year, month, 1)),
+  ];
 }
 
 @Injectable()
@@ -104,6 +127,7 @@ export class PendenciaService {
   ) {}
 
   private toDto(p: any): PendenciaDto {
+    const roomIsVisible = !p.roomId || Boolean(p.room);
     return {
       id: p.id,
       projectId: p.projectId,
@@ -112,8 +136,8 @@ export class PendenciaService {
       status: p.status,
       dueDate: p.dueDate ?? null,
       owner: p.owner ?? null,
-      roomId: p.roomId ?? null,
-      roomName: p.room?.name ?? null,
+      roomId: roomIsVisible ? (p.roomId ?? null) : null,
+      roomName: roomIsVisible ? (p.room?.name ?? null) : null,
       scheduleTaskId: p.scheduleTaskId ?? null,
       scheduleTaskNome: p.scheduleTask?.nome ?? null,
       scheduleTaskNumero: p.scheduleTask?.numero ?? null,
@@ -129,42 +153,58 @@ export class PendenciaService {
    * does not belong to (tenant, project) is rejected as a bad request.
    */
   private async assertRefsBelong(
+    db: PendenciaDb,
     tenantId: string,
     projectId: string,
     roomId?: string | null,
     scheduleTaskId?: string | null,
   ): Promise<void> {
     if (roomId) {
-      const room = await this.prisma.room.findFirst({
-        where: { id: roomId, projectId },
+      const room = await db.room.findFirst({
+        where: {
+          id: roomId,
+          projectId,
+          deletedAt: null,
+          project: { id: projectId, tenantId, deletedAt: null },
+        },
       });
-      if (!room) throw new BadRequestException('Ambiente inválido para este projeto');
+      if (!room)
+        throw new BadRequestException("Ambiente inválido para este projeto");
     }
     if (scheduleTaskId) {
-      const task = await this.prisma.scheduleTask.findFirst({
+      const task = await db.scheduleTask.findFirst({
         where: { id: scheduleTaskId, projectId, tenantId },
       });
-      if (!task) throw new BadRequestException('Tarefa de cronograma inválida para este projeto');
+      if (!task)
+        throw new BadRequestException(
+          "Tarefa de cronograma inválida para este projeto",
+        );
     }
   }
 
   async findAll(tenantId: string, projectId: string): Promise<PendenciaDto[]> {
     const rows = await this.prisma.pendencia.findMany({
-      where: { tenantId, projectId },
-      include: INCLUDE,
-      orderBy: [{ status: 'asc' }, { order: 'asc' }, { id: 'asc' }],
+      where: {
+        tenantId,
+        projectId,
+        project: { deletedAt: null },
+      },
+      include: includeForOwner(projectId, tenantId),
+      orderBy: [{ status: "asc" }, { order: "asc" }, { id: "asc" }],
     });
     return rows.map((r) => this.toDto(r));
   }
 
   private static groupLabel(tipo: FinancialQueueType): string {
-    if (tipo === 'SEM_CONTA') return 'Sem conta';
-    if (tipo === 'SEM_CATEGORIA') return 'Sem categoria';
-    if (tipo === 'PAGAMENTO_FATURA_SEM_CARTAO') return 'Pagamento de fatura sem cartão';
-    if (tipo === 'FATURA_NAO_PAGA') return 'Fatura a vencer ou vencida';
-    if (tipo === 'PARCELA_FOREIGN_PENDENTE') return 'Parcela cross-project pendente';
-    if (tipo === 'RECEBIMENTO_SEM_CONTA') return 'Recebimento sem conta';
-    return 'Recebimento previsto atrasado';
+    if (tipo === "SEM_CONTA") return "Sem conta";
+    if (tipo === "SEM_CATEGORIA") return "Sem categoria";
+    if (tipo === "PAGAMENTO_FATURA_SEM_CARTAO")
+      return "Pagamento de fatura sem cartão";
+    if (tipo === "FATURA_NAO_PAGA") return "Fatura a vencer ou vencida";
+    if (tipo === "PARCELA_FOREIGN_PENDENTE")
+      return "Parcela cross-project pendente";
+    if (tipo === "RECEBIMENTO_SEM_CONTA") return "Recebimento sem conta";
+    return "Recebimento previsto atrasado";
   }
 
   async findFinancialQueue(
@@ -182,8 +222,16 @@ export class PendenciaService {
     );
 
     const now = new Date();
-    const sevenDays = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
-    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const sevenDays = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 7,
+    );
+    const startToday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
 
     const semConta: FinancialQueueItem[] = accountView.saidas
       .filter(
@@ -192,19 +240,19 @@ export class PendenciaService {
           !s.realizado &&
           !s.cardLast4 &&
           !s.bankLast4 &&
-          s.origem?.tipo !== 'carteira' &&
+          s.origem?.tipo !== "carteira" &&
           !!s.id,
       )
       .sort((a, b) => b.valor - a.valor)
       .map((s) => ({
         id: `sem-conta-${s.id}`,
-        tipo: 'SEM_CONTA',
+        tipo: "SEM_CONTA",
         label:
-          s.installmentSettlement?.settlementStatus === 'PARTIAL'
-            ? 'Parcela parcialmente paga'
+          s.installmentSettlement?.settlementStatus === "PARTIAL"
+            ? "Parcela parcialmente paga"
             : s.foreignExpenseId && s.parcelaIndex != null
-              ? 'Quitar parcela'
-              : 'Vincular origem',
+              ? "Quitar parcela"
+              : "Vincular origem",
         descricao: s.descricao,
         valor: s.installmentSettlement?.remainingCents ?? s.valor,
         data: s.data,
@@ -227,28 +275,30 @@ export class PendenciaService {
     const semCategoriaBase = accountView.saidas.filter(
       (s) => !s.isInvoice && !!s.id && s.tipoDespesa === ExpenseType.OUTROS,
     );
-    const semCategoriaWithSuggestion: Array<FinancialQueueItem | null> = await Promise.all(
-      semCategoriaBase.map(async (s) => {
-        // #582 PR-2: precedência de regra aprendida com limiar (MANUAL tenant >
-        // AI tenant >= τ > MANUAL global; AI global nunca). Só vira pendência
-        // quando resolve um ExpenseType concreto (≠ OUTROS).
-        const learned = await this.merchantClassifierService.resolveLearnedExpenseType(
-          s.descricao,
-          tenantId,
-        );
-        if (!learned.expenseType) return null;
-        return {
-          id: `sem-categoria-${s.id}`,
-          tipo: 'SEM_CATEGORIA' as const,
-          label: 'Confirmar categoria',
-          descricao: s.descricao,
-          valor: s.valor,
-          data: s.data,
-          expenseId: s.id ?? undefined,
-          suggestionTipoDespesa: learned.expenseType,
-        } satisfies FinancialQueueItem;
-      }),
-    );
+    const semCategoriaWithSuggestion: Array<FinancialQueueItem | null> =
+      await Promise.all(
+        semCategoriaBase.map(async (s) => {
+          // #582 PR-2: precedência de regra aprendida com limiar (MANUAL tenant >
+          // AI tenant >= τ > MANUAL global; AI global nunca). Só vira pendência
+          // quando resolve um ExpenseType concreto (≠ OUTROS).
+          const learned =
+            await this.merchantClassifierService.resolveLearnedExpenseType(
+              s.descricao,
+              tenantId,
+            );
+          if (!learned.expenseType) return null;
+          return {
+            id: `sem-categoria-${s.id}`,
+            tipo: "SEM_CATEGORIA" as const,
+            label: "Confirmar categoria",
+            descricao: s.descricao,
+            valor: s.valor,
+            data: s.data,
+            expenseId: s.id ?? undefined,
+            suggestionTipoDespesa: learned.expenseType,
+          } satisfies FinancialQueueItem;
+        }),
+      );
     const semCategoria = semCategoriaWithSuggestion
       .filter((item): item is FinancialQueueItem => item !== null)
       .sort((a, b) => b.valor - a.valor);
@@ -264,12 +314,18 @@ export class PendenciaService {
         tenantId,
         projectId,
         deletedAt: null,
-        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
         cardLast4: null,
         dataPagamento: { gte: monthStart, lt: monthEnd },
       },
-      select: { id: true, titulo: true, fornecedor: true, valor: true, dataPagamento: true },
-      orderBy: { valor: 'desc' },
+      select: {
+        id: true,
+        titulo: true,
+        fornecedor: true,
+        valor: true,
+        dataPagamento: true,
+      },
+      orderBy: { valor: "desc" },
     });
 
     let pagamentoSemCartao: FinancialQueueItem[] = [];
@@ -283,9 +339,9 @@ export class PendenciaService {
       );
       pagamentoSemCartao = pagamentosOrfaos.map((p) => ({
         id: `fatura-sem-cartao-${p.id}`,
-        tipo: 'PAGAMENTO_FATURA_SEM_CARTAO' as const,
-        label: 'Escolher cartão',
-        descricao: p.titulo ?? p.fornecedor ?? 'Pagamento de fatura',
+        tipo: "PAGAMENTO_FATURA_SEM_CARTAO" as const,
+        label: "Escolher cartão",
+        descricao: p.titulo ?? p.fornecedor ?? "Pagamento de fatura",
         valor: p.valor,
         data: p.dataPagamento!.toISOString(),
         expenseId: p.id,
@@ -293,7 +349,8 @@ export class PendenciaService {
       }));
     }
 
-    const faturasNaoPagas: FinancialQueueItem[] = accountView.cartoes      .filter((c) => c.status !== 'paga' && c.faturaPendente > 0)
+    const faturasNaoPagas: FinancialQueueItem[] = accountView.cartoes
+      .filter((c) => c.status !== "paga" && c.faturaPendente > 0)
       .filter((c) => {
         const dueDate = new Date(c.vencimento);
         return dueDate >= startToday && dueDate <= sevenDays;
@@ -301,8 +358,8 @@ export class PendenciaService {
       .sort((a, b) => b.faturaPendente - a.faturaPendente)
       .map((c) => ({
         id: `fatura-${c.last4}-${c.dueMonth}`,
-        tipo: 'FATURA_NAO_PAGA',
-        label: 'Pagar fatura',
+        tipo: "FATURA_NAO_PAGA",
+        label: "Pagar fatura",
         descricao: `${c.nickname} ••${c.last4}`,
         valor: c.faturaPendente,
         data: c.vencimento,
@@ -322,11 +379,11 @@ export class PendenciaService {
       .sort((a, b) => b.valor - a.valor)
       .map((s) => ({
         id: `foreign-${s.id}`,
-        tipo: 'PARCELA_FOREIGN_PENDENTE',
+        tipo: "PARCELA_FOREIGN_PENDENTE",
         label:
-          s.installmentSettlement?.settlementStatus === 'PARTIAL'
-            ? 'Parcela parcialmente paga'
-            : 'Quitar parcela',
+          s.installmentSettlement?.settlementStatus === "PARTIAL"
+            ? "Parcela parcialmente paga"
+            : "Quitar parcela",
         descricao: s.descricao,
         valor: s.installmentSettlement?.remainingCents ?? s.valor,
         data: s.data,
@@ -347,13 +404,13 @@ export class PendenciaService {
       }));
 
     const recebimentosAtrasados: FinancialQueueItem[] = accountView.entradas
-      .filter((r) => r.status === 'PREVISTO' && !!r.id)
+      .filter((r) => r.status === "PREVISTO" && !!r.id)
       .filter((r) => new Date(r.data) < startToday)
       .sort((a, b) => b.valor - a.valor)
       .map((r) => ({
         id: `recebimento-${r.id}`,
-        tipo: 'RECEBIMENTO_PREVISTO_ATRASADO',
-        label: 'Atualizar recebimento',
+        tipo: "RECEBIMENTO_PREVISTO_ATRASADO",
+        label: "Atualizar recebimento",
         descricao: r.descricao,
         valor: r.valor,
         data: r.data,
@@ -363,12 +420,12 @@ export class PendenciaService {
     // Recebimento sem conta corrente associada. Carteira é uma origem resolvida e não
     // deve aparecer como "Associar conta"; só entradas bancárias sem conta chegam aqui.
     const recebimentosSemConta: FinancialQueueItem[] = accountView.entradas
-      .filter((r) => !!r.id && !r.bankLast4 && r.origem?.tipo !== 'carteira')
+      .filter((r) => !!r.id && !r.bankLast4 && r.origem?.tipo !== "carteira")
       .sort((a, b) => b.valor - a.valor)
       .map((r) => ({
         id: `recebimento-sem-conta-${r.id}`,
-        tipo: 'RECEBIMENTO_SEM_CONTA',
-        label: 'Associar conta',
+        tipo: "RECEBIMENTO_SEM_CONTA",
+        label: "Associar conta",
         descricao: r.descricao,
         valor: r.valor,
         data: r.data,
@@ -378,13 +435,13 @@ export class PendenciaService {
     const groups: Array<[FinancialQueueType, FinancialQueueItem[]]> = [
       // Primeiro grupo de propósito: é o único erro da fila em que o dinheiro
       // está contado 2× no consolidado — os demais são só falta de detalhe.
-      ['PAGAMENTO_FATURA_SEM_CARTAO', pagamentoSemCartao],
-      ['SEM_CONTA', semConta],
-      ['SEM_CATEGORIA', semCategoria],
-      ['FATURA_NAO_PAGA', faturasNaoPagas],
-      ['PARCELA_FOREIGN_PENDENTE', foreignPendentes],
-      ['RECEBIMENTO_SEM_CONTA', recebimentosSemConta],
-      ['RECEBIMENTO_PREVISTO_ATRASADO', recebimentosAtrasados],
+      ["PAGAMENTO_FATURA_SEM_CARTAO", pagamentoSemCartao],
+      ["SEM_CONTA", semConta],
+      ["SEM_CATEGORIA", semCategoria],
+      ["FATURA_NAO_PAGA", faturasNaoPagas],
+      ["PARCELA_FOREIGN_PENDENTE", foreignPendentes],
+      ["RECEBIMENTO_SEM_CONTA", recebimentosSemConta],
+      ["RECEBIMENTO_PREVISTO_ATRASADO", recebimentosAtrasados],
     ];
 
     const grupos = groups
@@ -403,77 +460,131 @@ export class PendenciaService {
     };
   }
 
-  async create(tenantId: string, projectId: string, dto: CreatePendenciaDto): Promise<PendenciaDto> {
-    await this.assertRefsBelong(tenantId, projectId, dto.roomId, dto.scheduleTaskId);
-
-    const last = await this.prisma.pendencia.findFirst({
-      where: { tenantId, projectId },
-      orderBy: { order: 'desc' },
-      select: { order: true },
-    });
-    const nextOrder = (last?.order ?? -1) + 1;
-
-    const created = await this.prisma.pendencia.create({
-      data: {
+  async create(
+    tenantId: string,
+    projectId: string,
+    dto: CreatePendenciaDto,
+  ): Promise<PendenciaDto> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE projects SET id = id WHERE id = ${projectId} AND tenant_id = ${tenantId} AND deleted_at IS NULL`;
+      await this.assertRefsBelong(
+        tx,
         tenantId,
         projectId,
-        title: dto.title,
-        description: dto.description ?? null,
-        status: dto.status ?? 'PENDENTE',
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-        owner: dto.owner ?? null,
-        roomId: dto.roomId ?? null,
-        scheduleTaskId: dto.scheduleTaskId ?? null,
-        order: nextOrder,
-      },
-      include: INCLUDE,
+        dto.roomId,
+        dto.scheduleTaskId,
+      );
+
+      const last = await tx.pendencia.findFirst({
+        where: { tenantId, projectId, project: { deletedAt: null } },
+        orderBy: { order: "desc" },
+        select: { order: true },
+      });
+      const nextOrder = (last?.order ?? -1) + 1;
+
+      const created = await tx.pendencia.create({
+        data: {
+          tenantId,
+          projectId,
+          title: dto.title,
+          description: dto.description ?? null,
+          status: dto.status ?? "PENDENTE",
+          dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+          owner: dto.owner ?? null,
+          roomId: dto.roomId ?? null,
+          scheduleTaskId: dto.scheduleTaskId ?? null,
+          order: nextOrder,
+        },
+        include: includeForOwner(projectId, tenantId),
+      });
+      return this.toDto(created);
     });
-    return this.toDto(created);
   }
 
-  private async findGuard(tenantId: string, projectId: string, id: string) {
-    const found = await this.prisma.pendencia.findFirst({
-      where: { id, tenantId, projectId },
+  private async findGuard(
+    db: PendenciaDb,
+    tenantId: string,
+    projectId: string,
+    id: string,
+  ) {
+    const found = await db.pendencia.findFirst({
+      where: {
+        id,
+        tenantId,
+        projectId,
+        project: { deletedAt: null },
+      },
     });
-    if (!found) throw new NotFoundException('Pendência não encontrada');
+    if (!found) throw new NotFoundException("Pendência não encontrada");
     return found;
   }
 
-  async update(tenantId: string, projectId: string, id: string, dto: UpdatePendenciaDto): Promise<PendenciaDto> {
-    await this.findGuard(tenantId, projectId, id);
-    await this.assertRefsBelong(tenantId, projectId, dto.roomId, dto.scheduleTaskId);
+  async update(
+    tenantId: string,
+    projectId: string,
+    id: string,
+    dto: UpdatePendenciaDto,
+  ): Promise<PendenciaDto> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE pendencias SET "order" = "order" WHERE id = ${id} AND tenant_id = ${tenantId} AND project_id = ${projectId} AND deleted_at IS NULL`;
+      await this.findGuard(tx, tenantId, projectId, id);
+      await this.assertRefsBelong(
+        tx,
+        tenantId,
+        projectId,
+        dto.roomId,
+        dto.scheduleTaskId,
+      );
 
-    const data: Record<string, unknown> = {};
-    if (dto.title !== undefined) data.title = dto.title;
-    if (dto.description !== undefined) data.description = dto.description;
-    if (dto.status !== undefined) data.status = dto.status;
-    if (dto.dueDate !== undefined) data.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
-    if (dto.owner !== undefined) data.owner = dto.owner;
-    if (dto.roomId !== undefined) data.roomId = dto.roomId;
-    if (dto.scheduleTaskId !== undefined) data.scheduleTaskId = dto.scheduleTaskId;
-    if (dto.order !== undefined) data.order = dto.order;
+      const data: Record<string, unknown> = {};
+      if (dto.title !== undefined) data.title = dto.title;
+      if (dto.description !== undefined) data.description = dto.description;
+      if (dto.status !== undefined) data.status = dto.status;
+      if (dto.dueDate !== undefined)
+        data.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+      if (dto.owner !== undefined) data.owner = dto.owner;
+      if (dto.roomId !== undefined) data.roomId = dto.roomId;
+      if (dto.scheduleTaskId !== undefined)
+        data.scheduleTaskId = dto.scheduleTaskId;
+      if (dto.order !== undefined) data.order = dto.order;
 
-    const updated = await this.prisma.pendencia.update({
-      where: { id },
-      data,
-      include: INCLUDE,
+      const updated = await tx.pendencia.update({
+        where: { id },
+        data,
+        include: includeForOwner(projectId, tenantId),
+      });
+      return this.toDto(updated);
     });
-    return this.toDto(updated);
   }
 
-  async move(tenantId: string, projectId: string, id: string, dto: MovePendenciaDto): Promise<PendenciaDto> {
-    await this.findGuard(tenantId, projectId, id);
-    const updated = await this.prisma.pendencia.update({
-      where: { id },
-      data: { status: dto.status, order: dto.order },
-      include: INCLUDE,
+  async move(
+    tenantId: string,
+    projectId: string,
+    id: string,
+    dto: MovePendenciaDto,
+  ): Promise<PendenciaDto> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE pendencias SET "order" = "order" WHERE id = ${id} AND tenant_id = ${tenantId} AND project_id = ${projectId} AND deleted_at IS NULL`;
+      await this.findGuard(tx, tenantId, projectId, id);
+      const updated = await tx.pendencia.update({
+        where: { id },
+        data: { status: dto.status, order: dto.order },
+        include: includeForOwner(projectId, tenantId),
+      });
+      return this.toDto(updated);
     });
-    return this.toDto(updated);
   }
 
-  async remove(tenantId: string, projectId: string, id: string): Promise<{ deleted: boolean }> {
-    await this.findGuard(tenantId, projectId, id);
-    await this.prisma.pendencia.delete({ where: { id } });
-    return { deleted: true };
+  async remove(
+    tenantId: string,
+    projectId: string,
+    id: string,
+  ): Promise<{ deleted: boolean }> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE pendencias SET "order" = "order" WHERE id = ${id} AND tenant_id = ${tenantId} AND project_id = ${projectId} AND deleted_at IS NULL`;
+      await this.findGuard(tx, tenantId, projectId, id);
+      await tx.pendencia.delete({ where: { id } });
+      return { deleted: true };
+    });
   }
 }

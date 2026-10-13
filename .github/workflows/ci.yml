@@ -64,12 +64,12 @@ jobs:
         run: npm --workspace @reformaflow/domain run build
       - name: Generate Prisma Client
         run: npx prisma@5 generate --schema=prisma/schema.prisma
-      - name: Migration recovery operational tests
-        run: npm run test:migration-recovery
-      - name: Prepare disposable test database (63 committed migrations)
+      - name: Prepare disposable test database (72 committed migrations)
         run: npm run test:db:prepare
       - name: FK integrity check (#628)
         run: DATABASE_URL="file:$PWD/prisma/test.db" npm run db:check
+      - name: Migration recovery operational tests
+        run: npm run test:migration-recovery
       - name: Synthetic finance-center fixture contract (UTC)
         run: cd apps/api && TZ=UTC npx jest src/monthly-overview/finance-center.fixture.integration.spec.ts --runInBand
       - name: Synthetic finance-center fixture contract (America/Sao_Paulo)
