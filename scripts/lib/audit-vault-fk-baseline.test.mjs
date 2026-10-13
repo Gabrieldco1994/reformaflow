@@ -969,22 +969,34 @@ test("schema columns and complete FK definitions are exact baseline evidence", (
 test("compare rejects every relevant child and parent schema object drift", () => {
   const source = createFixture();
   const metadata = capture(source);
+  const relevantTables = [
+    ["rooms", "project_id"],
+    ["projects", "id"],
+    ["cash_flow_entries", "expense_id"],
+    ["expenses", "id"],
+  ];
   const mutations = [
-    ["ordinary index", "CREATE INDEX schema_drift_probe ON rooms(project_id);"],
+    ...relevantTables.map(([table]) => [
+      `${table} table definition`,
+      `ALTER TABLE "${table}" ADD COLUMN full_schema_drift TEXT;`,
+    ]),
+    ...relevantTables.map(([table, column]) => [
+      `${table} ordinary index`,
+      `CREATE INDEX "${table}_schema_index_probe" ON "${table}"("${column}");`,
+    ]),
+    ...relevantTables.map(([table]) => [
+      `${table} trigger`,
+      `CREATE TRIGGER "${table}_schema_trigger_probe"
+         AFTER INSERT ON "${table}"
+         BEGIN
+           SELECT 1;
+         END;`,
+    ]),
     ["unique index", "CREATE UNIQUE INDEX schema_unique_probe ON rooms(name);"],
     [
       "partial index",
       "CREATE INDEX schema_partial_probe ON rooms(name) WHERE deleted_at IS NULL;",
     ],
-    [
-      "trigger",
-      `CREATE TRIGGER schema_trigger_probe
-         AFTER INSERT ON rooms
-         BEGIN
-           SELECT 1;
-         END;`,
-    ],
-    ["parent table", "ALTER TABLE projects ADD COLUMN parent_drift TEXT;"],
     [
       "generated column",
       "ALTER TABLE rooms ADD COLUMN generated_drift TEXT GENERATED ALWAYS AS (name || '!') VIRTUAL;",
@@ -1031,6 +1043,9 @@ test("compare rejects every relevant child and parent schema object drift", () =
 
 test("capture fails closed for negative-zero and special SQLite REAL storage", () => {
   for (const [label, value] of [
+    ["finite positive", "1.25"],
+    ["finite negative", "-1.25"],
+    ["small finite positive", "1e-300"],
     ["negative zero", "CAST('-0.0' AS REAL)"],
     ["positive zero", "CAST('+0.0' AS REAL)"],
     ["positive infinity", "1e999"],

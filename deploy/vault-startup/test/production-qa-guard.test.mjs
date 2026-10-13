@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import {
+  lstatSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -12,13 +13,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import {
+const guardModule = await import(
+  process.env.VAULT_PRODUCTION_QA_GUARD_UNDER_TEST
+    ? pathToFileURL(process.env.VAULT_PRODUCTION_QA_GUARD_UNDER_TEST).href
+    : new URL("../production-qa-guard.mjs", import.meta.url).href
+);
+const {
   ProductionQaGuard,
   captureProductionQaBaseline,
   compareProductionQaBaseline,
-} from "../production-qa-guard.mjs";
+} = guardModule;
 
 const temporaryDirectories = [];
 const GUARD_SOURCE = fileURLToPath(
@@ -151,18 +157,23 @@ test("guard records and rejects all forbidden POST routes without forwarding", a
   const guard = new ProductionQaGuard({ upstreamOrigin: remote.origin });
   await guard.listen();
   try {
-    for (const action of ["confirmation-challenge", "confirm", "execute"]) {
-      const response = await request(
-        guard.origin,
-        `/import-sessions/sensitive-session-id/${action}`,
-        "POST",
-      );
+    for (const path of [
+      "/import-sessions/sensitive-session-id/confirmation-challenge",
+      "/api/import-sessions/sensitive-session-id/confirm/",
+      "/IMPORT-SESSIONS/sensitive-session-id/EXECUTE?source=qa",
+      "/import-sessions/sensitive-session-id/%63onfirm",
+    ]) {
+      const response = await request(guard.origin, path, "POST");
       assert.equal(response.status, 403);
+      assert.equal(
+        await response.text(),
+        "production QA guard forbids financial action\n",
+      );
     }
     assert.equal(remote.requests.length, 0);
     assert.deepEqual(guard.summary(), {
       allowedRequests: 0,
-      forbiddenRequests: 3,
+      forbiddenRequests: 4,
       readyObserved: false,
       stateViolations: 0,
     });
@@ -201,24 +212,53 @@ test("guard forwards unrelated methods/routes and makes READY terminal", async (
 });
 
 test("guard fails closed when an upstream session is beyond READY", async () => {
-  const remote = await upstream({
-    state: "APPLIED",
-    proposal: { lines: [] },
-    confirmation: {},
-    receipt: {},
-  });
-  const guard = new ProductionQaGuard({ upstreamOrigin: remote.origin });
-  await guard.listen();
-  try {
-    const response = await request(
-      guard.origin,
-      "/import-sessions/sensitive-session-id",
-    );
-    assert.equal(response.status, 502);
-    assert.equal(guard.summary().stateViolations, 1);
-  } finally {
-    await guard.close();
-    await remote.close();
+  for (const session of [
+    {
+      state: "CONFIRMED",
+      proposal: { lines: [] },
+      confirmation: {},
+      receipt: null,
+    },
+    {
+      state: "APPLIED",
+      proposal: { lines: [] },
+      confirmation: {},
+      receipt: {},
+    },
+    {
+      state: "READY",
+      proposal: null,
+      confirmation: null,
+      receipt: null,
+    },
+    {
+      state: "READY",
+      proposal: { lines: [] },
+      confirmation: {},
+      receipt: null,
+    },
+    {
+      state: "READY",
+      proposal: { lines: [] },
+      confirmation: null,
+      receipt: {},
+    },
+  ]) {
+    const remote = await upstream(session);
+    const guard = new ProductionQaGuard({ upstreamOrigin: remote.origin });
+    await guard.listen();
+    try {
+      const response = await request(
+        guard.origin,
+        "/import-sessions/sensitive-session-id",
+      );
+      assert.equal(response.status, 502, JSON.stringify(session));
+      assert.equal(guard.summary().stateViolations, 1);
+      assert.equal(guard.summary().readyObserved, false);
+    } finally {
+      await guard.close();
+      await remote.close();
+    }
   }
 });
 
@@ -287,6 +327,107 @@ test("before/after evidence rejects financial mutation and execute audit events"
   }
 });
 
+test("financial fingerprint binds every protected table independently", () => {
+  for (const table of [
+    "bank_accounts",
+    "bank_statement_imports",
+    "budget_allocations",
+    "cash_flow_entries",
+    "credit_cards",
+    "credit_card_imports",
+    "cross_project_settlements",
+    "expenses",
+    "imported_invoice_liquidations",
+    "invoice_adjustments",
+    "rateio_allocations",
+    "receipts",
+  ]) {
+    const value = fixture();
+    captureProductionQaBaseline({
+      database: value.database,
+      manifest: value.manifest,
+      metadata: RELEASE,
+    });
+    writeFileSync(
+      value.trace,
+      `${JSON.stringify({
+        version: 1,
+        metadata: RELEASE,
+        summary: {
+          allowedRequests: 1,
+          forbiddenRequests: 0,
+          readyObserved: true,
+          stateViolations: 0,
+        },
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const mutation = spawnSync("sqlite3", [value.database], {
+      encoding: "utf8",
+      input: `INSERT INTO "${table}" VALUES ('mutation-${table}', 999);`,
+    });
+    assert.equal(mutation.status, 0, mutation.stderr);
+    assert.throws(
+      () =>
+        compareProductionQaBaseline({
+          database: value.database,
+          manifest: value.manifest,
+          trace: value.trace,
+          receipt: value.receipt,
+          metadata: RELEASE,
+        }),
+      /QA_DATABASE_DRIFT/,
+      table,
+    );
+  }
+});
+
+test("execute audit fingerprint rejects same-count row drift", () => {
+  const value = fixture();
+  const seeded = spawnSync("sqlite3", [value.database], {
+    encoding: "utf8",
+    input:
+      "INSERT INTO user_activity_logs VALUES ('audit-id', 'user-before', 'tenant-before', 'importSessions.execute', '2026-10-13T12:00:00.000Z');",
+  });
+  assert.equal(seeded.status, 0, seeded.stderr);
+  captureProductionQaBaseline({
+    database: value.database,
+    manifest: value.manifest,
+    metadata: RELEASE,
+  });
+  writeFileSync(
+    value.trace,
+    `${JSON.stringify({
+      version: 1,
+      metadata: RELEASE,
+      summary: {
+        allowedRequests: 1,
+        forbiddenRequests: 0,
+        readyObserved: true,
+        stateViolations: 0,
+      },
+    })}\n`,
+    { mode: 0o600 },
+  );
+  const mutation = spawnSync("sqlite3", [value.database], {
+    encoding: "utf8",
+    input:
+      "UPDATE user_activity_logs SET user_id = 'user-after' WHERE id = 'audit-id';",
+  });
+  assert.equal(mutation.status, 0, mutation.stderr);
+  assert.throws(
+    () =>
+      compareProductionQaBaseline({
+        database: value.database,
+        manifest: value.manifest,
+        trace: value.trace,
+        receipt: value.receipt,
+        metadata: RELEASE,
+      }),
+    /QA_DATABASE_DRIFT/,
+  );
+});
+
 test("evidence rejects replay/window mismatch and emits no sensitive values", () => {
   const value = fixture();
   const captureOutput = captureProductionQaBaseline({
@@ -309,6 +450,50 @@ test("evidence rejects replay/window mismatch and emits no sensitive values", ()
     })}\n`,
     { mode: 0o600 },
   );
+  for (const metadata of [
+    { ...RELEASE, releaseSha: "c".repeat(40) },
+    { ...RELEASE, releaseId: "different-release" },
+    { ...RELEASE, imageDigest: `sha256:${"d".repeat(64)}` },
+    { ...RELEASE, windowId: "different-window" },
+    {
+      ...RELEASE,
+      windowStart: new Date(
+        Date.parse(RELEASE.windowStart) - 1_000,
+      ).toISOString(),
+    },
+    {
+      ...RELEASE,
+      windowEnd: new Date(Date.parse(RELEASE.windowEnd) + 1_000).toISOString(),
+    },
+    { ...RELEASE, qaActor: "different-qa-actor" },
+  ]) {
+    assert.throws(
+      () =>
+        compareProductionQaBaseline({
+          database: value.database,
+          manifest: value.manifest,
+          trace: value.trace,
+          receipt: value.receipt,
+          metadata,
+        }),
+      /QA_METADATA_MISMATCH/,
+    );
+  }
+
+  writeFileSync(
+    value.trace,
+    `${JSON.stringify({
+      version: 1,
+      metadata: { ...RELEASE, releaseSha: "c".repeat(40) },
+      summary: {
+        allowedRequests: 1,
+        forbiddenRequests: 0,
+        readyObserved: true,
+        stateViolations: 0,
+      },
+    })}\n`,
+    { mode: 0o600 },
+  );
   assert.throws(
     () =>
       compareProductionQaBaseline({
@@ -316,9 +501,23 @@ test("evidence rejects replay/window mismatch and emits no sensitive values", ()
         manifest: value.manifest,
         trace: value.trace,
         receipt: value.receipt,
-        metadata: { ...RELEASE, windowId: "different-window" },
+        metadata: RELEASE,
       }),
-    /QA_METADATA_MISMATCH/,
+    /QA_TRACE_REJECTED/,
+  );
+  writeFileSync(
+    value.trace,
+    `${JSON.stringify({
+      version: 1,
+      metadata: RELEASE,
+      summary: {
+        allowedRequests: 1,
+        forbiddenRequests: 0,
+        readyObserved: true,
+        stateViolations: 0,
+      },
+    })}\n`,
+    { mode: 0o600 },
   );
   const compareOutput = compareProductionQaBaseline({
     database: value.database,
@@ -328,6 +527,12 @@ test("evidence rejects replay/window mismatch and emits no sensitive values", ()
     metadata: RELEASE,
   });
   assert.doesNotMatch(compareOutput, /sensitive|expense-id|user-id/i);
+  const receipt = JSON.parse(readFileSync(value.receipt, "utf8"));
+  assert.equal(lstatSync(value.receipt).mode & 0o777, 0o600);
+  assert.deepEqual(receipt.metadata, RELEASE);
+  assert.match(receipt.manifestSha256, /^[0-9a-f]{64}$/);
+  assert.match(receipt.traceSha256, /^[0-9a-f]{64}$/);
+  assert.match(receipt.comparisonSha256, /^[0-9a-f]{64}$/);
   assert.throws(
     () =>
       compareProductionQaBaseline({
