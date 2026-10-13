@@ -309,13 +309,18 @@ export function cgroupLevelStage(depth, evidence) {
   const statuses = new Set(["readable", "missing", "denied", "unreadable"]);
   for (const key of [
     "memoryMax",
+    "parentControllers",
     "parentSubtreeControl",
     "controllers",
     "subtreeControl",
+    "typeStatus",
   ])
     assert.ok(statuses.has(evidence[key]), `invalid cgroup ${key} status`);
   for (const key of [
     "directory",
+    "directoryDeviceMatch",
+    "parentChildRelation",
+    "parentMemoryAvailable",
     "memoryEnabledByParent",
     "memoryAvailable",
     "memoryEnabledForChildren",
@@ -326,19 +331,30 @@ export function cgroupLevelStage(depth, evidence) {
       `invalid cgroup ${key} evidence`,
     );
   assert.ok(
-    ["domain", "threaded", "domain-threaded", "other"].includes(evidence.type),
+    [
+      "domain",
+      "threaded",
+      "domain-threaded",
+      "domain-invalid",
+      "unrecognized",
+    ].includes(evidence.type),
     "invalid cgroup type diagnostic",
   );
   return [
     `host-cgroup-level-${depth}`,
     `dir-${Number(evidence.directory)}`,
+    `device-${Number(evidence.directoryDeviceMatch)}`,
+    `parent-relation-${Number(evidence.parentChildRelation)}`,
     `max-${evidence.memoryMax}`,
+    `parent-controllers-${evidence.parentControllers}`,
+    `parent-available-${Number(evidence.parentMemoryAvailable)}`,
     `parent-sc-${evidence.parentSubtreeControl}`,
     `parent-mem-${Number(evidence.memoryEnabledByParent)}`,
     `controllers-${evidence.controllers}`,
     `available-${Number(evidence.memoryAvailable)}`,
     `subtree-${evidence.subtreeControl}`,
     `child-mem-${Number(evidence.memoryEnabledForChildren)}`,
+    `type-status-${evidence.typeStatus}`,
     `type-${evidence.type}`,
   ].join("-");
 }
@@ -874,41 +890,82 @@ function cgroupFile(path) {
   }
 }
 
-function cgroupType(path) {
-  const sample = cgroupFile(join(path, "cgroup.type"));
-  if (sample.status !== "readable") return "other";
-  if (sample.value === "domain") return "domain";
-  if (sample.value === "threaded") return "threaded";
-  if (sample.value === "domain threaded") return "domain-threaded";
-  return "other";
-}
-
-function inspectCgroup2Mount() {
-  markStage("host-cgroup-mountinfo-read");
-  const mountInfo = cgroupFile("/proc/self/mountinfo");
-  if (mountInfo.status !== "readable") {
-    markStage(`host-cgroup-mountinfo-${mountInfo.status}`);
-    throw new Error("host cgroup mount metadata is unavailable");
-  }
-  const mount = mountInfo.value.split("\n").find((line) => {
+function cgroupMountInfo(procPath) {
+  const sample = cgroupFile(procPath);
+  if (sample.status !== "readable") return { status: sample.status };
+  const mount = sample.value.split("\n").find((line) => {
     const separator = line.indexOf(" - ");
     if (separator < 0) return false;
     const before = line.slice(0, separator).split(" ");
     const after = line.slice(separator + 3).split(" ");
     return after[0] === "cgroup2" && before[4] === "/sys/fs/cgroup";
   });
-  if (!mount) {
-    markStage("host-cgroup2-mount-not-found");
-    throw new Error("host cgroup2 mount could not be mapped");
+  if (!mount) return { status: "missing" };
+  const separator = mount.indexOf(" - ");
+  const before = mount.slice(0, separator).split(" ");
+  return {
+    status:
+      /^[0-9]+$/.test(before[0]) && /^[0-9]+:[0-9]+$/.test(before[2])
+        ? "readable"
+        : "unreadable",
+    mountRootIsHierarchyRoot: before[3] === "/",
+    mountIdPresent: /^[0-9]+$/.test(before[0]),
+    majorMinor: before[2],
+  };
+}
+
+function sameCgroupNamespace(left, right) {
+  try {
+    const leftStat = statSync(left, { bigint: true });
+    const rightStat = statSync(right, { bigint: true });
+    return {
+      status: "readable",
+      same: leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino,
+    };
+  } catch {
+    return { status: "unreadable", same: false };
   }
-  const before = mount.slice(0, mount.indexOf(" - ")).split(" ");
-  const mountRootIsHierarchyRoot = before[3] === "/";
-  markStage(`host-cgroup2-mount-root-${Number(mountRootIsHierarchyRoot)}`);
-  assert.equal(
-    mountRootIsHierarchyRoot,
-    true,
-    "cgroup2 mount does not expose the hierarchy root",
+}
+
+function inspectCgroup2Mount(containerPid) {
+  markStage("host-cgroup-mountinfo-read");
+  const hostMount = cgroupMountInfo("/proc/self/mountinfo");
+  const containerMount = cgroupMountInfo(`/proc/${containerPid}/mountinfo`);
+  const runnerInitNamespace = sameCgroupNamespace(
+    "/proc/self/ns/cgroup",
+    "/proc/1/ns/cgroup",
   );
+  const targetNamespace = sameCgroupNamespace(
+    `/proc/${containerPid}/ns/cgroup`,
+    "/proc/self/ns/cgroup",
+  );
+  const diagnostic = [
+    `host-${hostMount.status}`,
+    `target-${containerMount.status}`,
+    `host-root-${Number(hostMount.mountRootIsHierarchyRoot === true)}`,
+    `target-root-${Number(containerMount.mountRootIsHierarchyRoot === true)}`,
+    `mount-device-${Number(
+      hostMount.status === "readable" &&
+        containerMount.status === "readable" &&
+        hostMount.majorMinor === containerMount.majorMinor,
+    )}`,
+    `runner-init-ns-${Number(
+      runnerInitNamespace.status === "readable" && runnerInitNamespace.same,
+    )}`,
+    `target-private-ns-${Number(
+      targetNamespace.status === "readable" && !targetNamespace.same,
+    )}`,
+  ].join("-");
+  markStage(`host-cgroup-mount-${diagnostic}`);
+  assert.equal(hostMount.status, "readable");
+  assert.equal(containerMount.status, "readable");
+  assert.equal(hostMount.mountRootIsHierarchyRoot, true);
+  assert.equal(containerMount.mountRootIsHierarchyRoot, true);
+  assert.equal(hostMount.majorMinor, containerMount.majorMinor);
+  assert.equal(runnerInitNamespace.status, "readable");
+  assert.equal(runnerInitNamespace.same, true);
+  assert.equal(targetNamespace.status, "readable");
+  assert.equal(targetNamespace.same, false);
 }
 
 function readHostCgroupLimits(containerPid) {
@@ -918,13 +975,14 @@ function readHostCgroupLimits(containerPid) {
     existsSync("/sys/fs/cgroup/cgroup.controllers"),
     "host is not cgroup v2",
   );
-  inspectCgroup2Mount();
+  inspectCgroup2Mount(containerPid);
   markStage("host-cgroup-path-read");
   const cgroups = readFileSync(`/proc/${containerPid}/cgroup`, "utf8");
   const match = /^0::(.+)$/m.exec(cgroups);
   assert.ok(match, "container host cgroup path is missing");
   markStage("host-cgroup-leaf-resolve");
   const root = realpathSync("/sys/fs/cgroup");
+  const rootStat = statSync(root, { bigint: true });
   const cgroupRelative = match[1].replace(/^\/+/, "");
   const leaf = realpathSync(resolve(root, cgroupRelative));
   assert.ok(
@@ -940,8 +998,35 @@ function readHostCgroupLimits(containerPid) {
       throw new Error("host cgroup hierarchy exceeds the diagnostic bound");
     }
     markStage(`host-cgroup-memory-limit-read-level-${hierarchyLevel}`);
+    let currentStat;
+    let currentRealPath;
+    let parentRealPath;
+    let directory = false;
+    let directoryDeviceMatch = false;
+    let parentChildRelation = false;
+    try {
+      currentStat = statSync(current, { bigint: true });
+      currentRealPath = realpathSync(current);
+      parentRealPath = realpathSync(dirname(current));
+      directory = currentStat.isDirectory();
+      directoryDeviceMatch = currentStat.dev === rootStat.dev;
+      parentChildRelation =
+        current === root || dirname(currentRealPath) === parentRealPath;
+    } catch {
+      markStage(`host-cgroup-level-${hierarchyLevel}-identity-unreadable`);
+      throw new Error("host cgroup directory identity could not be verified");
+    }
+    markStage(
+      `host-cgroup-level-${hierarchyLevel}-identity-dir-${Number(directory)}-device-${Number(directoryDeviceMatch)}-parent-${Number(parentChildRelation)}`,
+    );
+    assert.equal(directory, true);
+    assert.equal(directoryDeviceMatch, true);
+    assert.equal(parentChildRelation, true);
     const max = cgroupFile(join(current, "memory.max"));
     if (max.status !== "readable") {
+      const parentControllers = cgroupFile(
+        join(dirname(current), "cgroup.controllers"),
+      );
       const parentSubtree = cgroupFile(
         join(dirname(current), "cgroup.subtree_control"),
       );
@@ -949,16 +1034,29 @@ function readHostCgroupLimits(containerPid) {
       const subtreeControl = cgroupFile(
         join(current, "cgroup.subtree_control"),
       );
-      let directory = false;
-      try {
-        directory = statSync(current).isDirectory();
-      } catch {
-        directory = false;
-      }
+      const typeFile = cgroupFile(join(current, "cgroup.type"));
+      const type =
+        typeFile.status !== "readable"
+          ? "unrecognized"
+          : typeFile.value === "domain"
+            ? "domain"
+            : typeFile.value === "threaded"
+              ? "threaded"
+              : typeFile.value === "domain threaded"
+                ? "domain-threaded"
+                : typeFile.value === "domain invalid"
+                  ? "domain-invalid"
+                  : "unrecognized";
       markStage(
         cgroupLevelStage(hierarchyLevel, {
           directory,
+          directoryDeviceMatch,
+          parentChildRelation,
           memoryMax: max.status,
+          parentControllers: parentControllers.status,
+          parentMemoryAvailable:
+            parentControllers.status === "readable" &&
+            parentControllers.value.split(/\s+/).includes("memory"),
           parentSubtreeControl: parentSubtree.status,
           memoryEnabledByParent:
             parentSubtree.status === "readable" &&
@@ -971,7 +1069,8 @@ function readHostCgroupLimits(containerPid) {
           memoryEnabledForChildren:
             subtreeControl.status === "readable" &&
             subtreeControl.value.split(/\s+/).includes("memory"),
-          type: cgroupType(current),
+          typeStatus: typeFile.status,
+          type,
         }),
       );
       throw new Error("host cgroup memory limit could not be read");

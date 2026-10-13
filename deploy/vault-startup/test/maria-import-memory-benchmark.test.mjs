@@ -130,18 +130,23 @@ test("cgroup proof requires the exact private 512 MiB v2 leaf with zero swap", (
 test("host cgroup diagnostics expose only bounded booleans and numeric depth", () => {
   const stage = cgroupLevelStage(2, {
     directory: true,
+    directoryDeviceMatch: true,
+    parentChildRelation: true,
     memoryMax: "missing",
+    parentControllers: "readable",
+    parentMemoryAvailable: false,
     parentSubtreeControl: "readable",
     memoryEnabledByParent: true,
     controllers: "readable",
     memoryAvailable: true,
     subtreeControl: "readable",
     memoryEnabledForChildren: false,
+    typeStatus: "readable",
     type: "domain",
   });
   assert.equal(
     stage,
-    "host-cgroup-level-2-dir-1-max-missing-parent-sc-readable-parent-mem-1-controllers-readable-available-1-subtree-readable-child-mem-0-type-domain",
+    "host-cgroup-level-2-dir-1-device-1-parent-relation-1-max-missing-parent-controllers-readable-parent-available-0-parent-sc-readable-parent-mem-1-controllers-readable-available-1-subtree-readable-child-mem-0-type-status-readable-type-domain",
   );
   assert.doesNotMatch(stage, /[/\\]|secret|path|token/);
   assert.throws(() => cgroupLevelStage(33, {}));
