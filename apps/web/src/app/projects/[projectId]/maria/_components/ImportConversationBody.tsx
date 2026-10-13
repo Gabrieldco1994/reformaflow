@@ -41,6 +41,7 @@ import {
   withImportObservationContext,
 } from "./ImportFocusedDraftQuestion";
 import { questionIntersectsSelectedLines } from "../_lib/import-question-selection";
+import { ImportOcrFoundation } from "./ImportOcrFoundation";
 type AgentChannel = "TEXT" | "VOICE";
 
 function Conversation({
@@ -77,6 +78,12 @@ function Conversation({
   const [cancelError, setCancelError] = useState<string | null>(null);
   const busy = conversation.busy || documents.busy;
   const documentBlocked = isPdfDocumentErrorCode(documents.error?.code);
+  const ocrAttachment =
+    documents.error?.code === "OCR_REQUIRED"
+      ? view?.attachments.find(
+          (attachment) => attachment.id === documents.error?.attachmentId,
+        )
+      : undefined;
   const privateContextLost =
     error?.privateContextLost || documents.error?.privateContextLost;
   const guided =
@@ -347,6 +354,21 @@ function Conversation({
                 fatura. Eles são informativos e não podem ser importados como
                 compras.
               </p>
+            )}
+            {view && ocrAttachment && (
+              <ImportOcrFoundation
+                triggerCode={documents.error?.code}
+                scope={{
+                  key: JSON.stringify([
+                    conversation.userId,
+                    projectId,
+                    sessionId,
+                    ocrAttachment.id,
+                  ]),
+                  fileName: ocrAttachment.fileName,
+                }}
+                availability={{ state: "DISABLED", reason: "FEATURE_OFF" }}
+              />
             )}
             {view?.actions.includes("CANCEL") ? (
               <button

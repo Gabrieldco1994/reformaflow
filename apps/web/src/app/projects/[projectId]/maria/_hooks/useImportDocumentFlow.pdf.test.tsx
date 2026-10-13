@@ -165,6 +165,7 @@ describe("textual PDF documentary coordinator", () => {
       await result.current.analyze("a1");
     });
     expect(result.current.error?.code).toBe("OCR_REQUIRED");
+    expect(result.current.error?.attachmentId).toBe("a1");
     await act(async () => {
       await result.current.recover();
     });
