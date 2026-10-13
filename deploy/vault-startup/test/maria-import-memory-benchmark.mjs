@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
+  constants,
+  closeSync,
   chmodSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -13,7 +16,15 @@ import {
 import { spawnSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  dirname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   buildBenchmarkFixtures,
@@ -57,6 +68,12 @@ const METRIC_FIELDS = [
   "financial_liquidation_count",
   "cgroup_version",
   "private_cgroup_namespace",
+  "host_hierarchy_root_verified",
+  "target_mount_root_mapped",
+  "target_leaf_mapped",
+  "mount_identity_verified",
+  "pid_identity_verified",
+  "ancestor_walk_complete",
   "host_ancestor_count",
   "memory_limit_bytes",
   "swap_limit_bytes",
@@ -303,7 +320,7 @@ export function parseVmHwmBytes(statusText) {
 
 export function cgroupLevelStage(depth, evidence) {
   assert.ok(
-    Number.isInteger(depth) && depth >= 0 && depth < 32,
+    Number.isInteger(depth) && depth >= 0 && depth < 256,
     "cgroup hierarchy depth is outside the diagnostic bound",
   );
   const statuses = new Set(["readable", "missing", "denied", "unreadable"]);
@@ -359,6 +376,25 @@ export function cgroupLevelStage(depth, evidence) {
   ].join("-");
 }
 
+export function mapCgroupNamespacePath(mountRoot, processPath) {
+  for (const value of [mountRoot, processPath]) {
+    assert.equal(typeof value, "string");
+    assert.ok(value.startsWith("/"), "cgroup namespace paths must be absolute");
+    assert.ok(
+      !/[\u0000-\u001f\u007f-\u009f]/.test(value),
+      "cgroup namespace path contains control characters",
+    );
+    assert.ok(
+      !value
+        .split("/")
+        .some((component) => component === "." || component === ".."),
+      "cgroup namespace path has an invalid component",
+    );
+  }
+  const mapped = posix.normalize(posix.join(mountRoot, processPath));
+  return mapped.length > 1 ? mapped.replace(/\/+$/, "") : mapped;
+}
+
 export function verifyCgroupV2Proof(evidence) {
   assert.equal(evidence?.cgroupVersion, 2, "cgroup v2 is required");
   assert.equal(
@@ -371,6 +407,15 @@ export function verifyCgroupV2Proof(evidence) {
     "/",
     "PID 1 must be at the cgroup namespace root",
   );
+  for (const field of [
+    "hostHierarchyRootVerified",
+    "targetMountRootMapped",
+    "targetLeafMapped",
+    "mountIdentityVerified",
+    "pidIdentityVerified",
+    "ancestorWalkComplete",
+  ])
+    assert.equal(evidence?.[field], true, `${field} was not proven`);
   assert.equal(
     evidence?.dockerMemoryBytes,
     MEMORY_CAP_BYTES,
@@ -421,6 +466,12 @@ export function verifyCgroupV2Proof(evidence) {
   return {
     cgroupVersion: 2,
     privateCgroupNamespace: 1,
+    hostHierarchyRootVerified: true,
+    targetMountRootMapped: true,
+    targetLeafMapped: true,
+    mountIdentityVerified: true,
+    pidIdentityVerified: true,
+    ancestorWalkComplete: true,
     memoryLimitBytes: MEMORY_CAP_BYTES,
     swapLimitBytes: 0,
     swapCurrentBytes,
@@ -455,6 +506,12 @@ export function serializeMetrics(rows, registrationCalls = REGISTRATION_CALLS) {
     assert.equal(safe.swap_limit_bytes, 0);
     assert.equal(safe.cgroup_version, 2);
     assert.equal(safe.private_cgroup_namespace, 1);
+    assert.equal(safe.host_hierarchy_root_verified, 1);
+    assert.equal(safe.target_mount_root_mapped, 1);
+    assert.equal(safe.target_leaf_mapped, 1);
+    assert.equal(safe.mount_identity_verified, 1);
+    assert.equal(safe.pid_identity_verified, 1);
+    assert.equal(safe.ancestor_walk_complete, 1);
     assert.ok(safe.host_ancestor_count > 0);
     assert.equal(safe.baseline_swap_current_bytes, 0);
     assert.equal(safe.final_swap_current_bytes, 0);
@@ -903,18 +960,44 @@ function cgroupMountInfo(procPath) {
   if (!mount) return { status: "missing" };
   const separator = mount.indexOf(" - ");
   const before = mount.slice(0, separator).split(" ");
+  const mountRoot = decodeMountInfoField(before[3]);
   return {
     status:
-      /^[0-9]+$/.test(before[0]) && /^[0-9]+:[0-9]+$/.test(before[2])
+      /^[0-9]+$/.test(before[0]) &&
+      /^[0-9]+:[0-9]+$/.test(before[2]) &&
+      mountRoot.startsWith("/") &&
+      before[4].startsWith("/")
         ? "readable"
         : "unreadable",
-    mountRootIsHierarchyRoot: before[3] === "/",
+    mountRoot,
+    mountRootIsHierarchyRoot: mountRoot === "/",
+    mountRootDepth: mountRoot.split("/").filter(Boolean).length,
     mountIdPresent: /^[0-9]+$/.test(before[0]),
+    mountId: Number(before[0]),
     majorMinor: before[2],
   };
 }
 
-function sameCgroupNamespace(left, right) {
+function decodeMountInfoField(value) {
+  return value.replace(/\\([0-7]{3})/g, (_, octal) =>
+    String.fromCharCode(Number.parseInt(octal, 8)),
+  );
+}
+
+function directoryMountId(path) {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY);
+  try {
+    const info = cgroupFile(`/proc/self/fdinfo/${fd}`);
+    assert.equal(info.status, "readable");
+    const match = /^mnt_id:\s*([0-9]+)$/m.exec(info.value);
+    assert.ok(match, "directory mount identity is unavailable");
+    return Number(match[1]);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function sameNamespace(left, right) {
   try {
     const leftStat = statSync(left, { bigint: true });
     const rightStat = statSync(right, { bigint: true });
@@ -931,60 +1014,198 @@ function inspectCgroup2Mount(containerPid) {
   markStage("host-cgroup-mountinfo-read");
   const hostMount = cgroupMountInfo("/proc/self/mountinfo");
   const containerMount = cgroupMountInfo(`/proc/${containerPid}/mountinfo`);
-  const runnerInitNamespace = sameCgroupNamespace(
+  const runnerInitCgroupNamespace = sameNamespace(
     "/proc/self/ns/cgroup",
     "/proc/1/ns/cgroup",
   );
-  const targetNamespace = sameCgroupNamespace(
+  const targetCgroupNamespace = sameNamespace(
     `/proc/${containerPid}/ns/cgroup`,
     "/proc/self/ns/cgroup",
+  );
+  const runnerInitMountNamespace = sameNamespace(
+    "/proc/self/ns/mnt",
+    "/proc/1/ns/mnt",
+  );
+  const targetMountNamespace = sameNamespace(
+    `/proc/${containerPid}/ns/mnt`,
+    "/proc/self/ns/mnt",
   );
   const diagnostic = [
     `host-${hostMount.status}`,
     `target-${containerMount.status}`,
     `host-root-${Number(hostMount.mountRootIsHierarchyRoot === true)}`,
-    `target-root-${Number(containerMount.mountRootIsHierarchyRoot === true)}`,
+    `target-root-depth-${containerMount.mountRootDepth ?? 0}`,
+    `mount-id-present-${Number(
+      hostMount.mountIdPresent && containerMount.mountIdPresent,
+    )}`,
     `mount-device-${Number(
       hostMount.status === "readable" &&
         containerMount.status === "readable" &&
         hostMount.majorMinor === containerMount.majorMinor,
     )}`,
     `runner-init-ns-${Number(
-      runnerInitNamespace.status === "readable" && runnerInitNamespace.same,
+      runnerInitCgroupNamespace.status === "readable" &&
+        runnerInitCgroupNamespace.same,
     )}`,
     `target-private-ns-${Number(
-      targetNamespace.status === "readable" && !targetNamespace.same,
+      targetCgroupNamespace.status === "readable" &&
+        !targetCgroupNamespace.same,
+    )}`,
+    `runner-init-mntns-${Number(
+      runnerInitMountNamespace.status === "readable" &&
+        runnerInitMountNamespace.same,
+    )}`,
+    `target-private-mntns-${Number(
+      targetMountNamespace.status === "readable" && !targetMountNamespace.same,
     )}`,
   ].join("-");
   markStage(`host-cgroup-mount-${diagnostic}`);
   assert.equal(hostMount.status, "readable");
   assert.equal(containerMount.status, "readable");
   assert.equal(hostMount.mountRootIsHierarchyRoot, true);
-  assert.equal(containerMount.mountRootIsHierarchyRoot, true);
-  assert.equal(hostMount.majorMinor, containerMount.majorMinor);
-  assert.equal(runnerInitNamespace.status, "readable");
-  assert.equal(runnerInitNamespace.same, true);
-  assert.equal(targetNamespace.status, "readable");
-  assert.equal(targetNamespace.same, false);
+  const mountDeviceMatches = hostMount.majorMinor === containerMount.majorMinor;
+  markStage(`host-cgroup-mount-device-match-${Number(mountDeviceMatches)}`);
+  assert.equal(mountDeviceMatches, true);
+  assert.equal(hostMount.mountIdPresent, true);
+  assert.equal(containerMount.mountIdPresent, true);
+  assert.equal(runnerInitCgroupNamespace.status, "readable");
+  assert.equal(runnerInitCgroupNamespace.same, true);
+  assert.equal(targetCgroupNamespace.status, "readable");
+  assert.equal(targetCgroupNamespace.same, false);
+  assert.equal(runnerInitMountNamespace.status, "readable");
+  assert.equal(runnerInitMountNamespace.same, true);
+  assert.equal(targetMountNamespace.status, "readable");
+  assert.equal(targetMountNamespace.same, false);
+  return {
+    targetMountRoot: containerMount.mountRoot,
+    hostMountId: hostMount.mountId,
+  };
 }
 
-function readHostCgroupLimits(containerPid) {
+function readUnifiedCgroupPath(procPath) {
+  const sample = cgroupFile(procPath);
+  assert.equal(sample.status, "readable");
+  const match = /^0::(.+)$/m.exec(sample.value);
+  assert.ok(match, "unified cgroup path is missing");
+  return mapCgroupNamespacePath("/", match[1]);
+}
+
+function processStartTime(pid) {
+  const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+  const close = raw.lastIndexOf(")");
+  assert.ok(close > 0, "process identity sample is malformed");
+  const fields = raw
+    .slice(close + 1)
+    .trim()
+    .split(/\s+/);
+  assert.ok(fields.length > 19, "process start time sample is missing");
+  return fields[19];
+}
+
+function readHostCgroupLimits(
+  containerPid,
+  targetProcessCgroupPath,
+  verifyOnly = false,
+  proofDeadlineNs = process.hrtime.bigint() + 15_000_000_000n,
+) {
   markStage("host-cgroup-controller-check");
   assert.ok(Number.isSafeInteger(containerPid) && containerPid > 0);
   assert.ok(
     existsSync("/sys/fs/cgroup/cgroup.controllers"),
     "host is not cgroup v2",
   );
-  inspectCgroup2Mount(containerPid);
+  const mountProof = inspectCgroup2Mount(containerPid);
+  const processStart = processStartTime(containerPid);
+  const processStatus = cgroupFile(`/proc/${containerPid}/status`);
+  assert.equal(processStatus.status, "readable");
+  const namespacePids = /^NSpid:\s*([0-9 ]+)$/m.exec(processStatus.value);
+  assert.ok(namespacePids, "process PID namespace mapping is unavailable");
+  const pidMap = namespacePids[1].trim().split(/\s+/).map(Number);
+  const containerInitMatches =
+    pidMap[0] === containerPid && pidMap.at(-1) === 1;
+  markStage(`host-cgroup-pid-namespace-map-${Number(containerInitMatches)}`);
+  assert.ok(
+    containerInitMatches,
+    "container PID namespace mapping is inconsistent",
+  );
   markStage("host-cgroup-path-read");
-  const cgroups = readFileSync(`/proc/${containerPid}/cgroup`, "utf8");
-  const match = /^0::(.+)$/m.exec(cgroups);
-  assert.ok(match, "container host cgroup path is missing");
+  const hostPath = readUnifiedCgroupPath(`/proc/${containerPid}/cgroup`);
+  const targetPath = mapCgroupNamespacePath("/", targetProcessCgroupPath);
+  const mappedHostPath = mapCgroupNamespacePath(
+    mountProof.targetMountRoot,
+    targetPath,
+  );
+  const hostPathMappingMatches = hostPath === mappedHostPath;
+  markStage(
+    `host-cgroup-path-map-match-${Number(hostPathMappingMatches)}-target-root-depth-${mountProof.targetMountRoot.split("/").filter(Boolean).length}`,
+  );
+  assert.ok(
+    hostPathMappingMatches,
+    "target namespace path does not map to the host cgroup path",
+  );
   markStage("host-cgroup-leaf-resolve");
   const root = realpathSync("/sys/fs/cgroup");
   const rootStat = statSync(root, { bigint: true });
-  const cgroupRelative = match[1].replace(/^\/+/, "");
+  const rootMountId = directoryMountId(root);
+  const rootMountIdMatches = rootMountId === mountProof.hostMountId;
+  markStage(`host-cgroup-root-mount-id-match-${Number(rootMountIdMatches)}`);
+  assert.ok(
+    rootMountIdMatches,
+    "host cgroup root mount identity is inconsistent",
+  );
+  const targetMountRootPath = realpathSync(
+    resolve(root, mountProof.targetMountRoot.slice(1)),
+  );
+  const targetMountViewPath = realpathSync(
+    `/proc/${containerPid}/root/sys/fs/cgroup`,
+  );
+  const hostTargetRootStat = statSync(targetMountRootPath, { bigint: true });
+  const targetMountViewStat = statSync(targetMountViewPath, { bigint: true });
+  const targetMountRootMountId = directoryMountId(targetMountRootPath);
+  const targetMountRootMountMatches =
+    targetMountRootMountId === mountProof.hostMountId;
+  const targetRootInodeMatches =
+    hostTargetRootStat.dev === targetMountViewStat.dev &&
+    hostTargetRootStat.ino === targetMountViewStat.ino;
+  markStage(
+    `host-cgroup-target-root-inode-match-${Number(targetRootInodeMatches)}-device-match-${Number(hostTargetRootStat.dev === rootStat.dev)}-mount-match-${Number(targetMountRootMountMatches)}`,
+  );
+  const targetRootDeviceMatches = hostTargetRootStat.dev === rootStat.dev;
+  assert.ok(
+    targetRootInodeMatches,
+    "target cgroup mount root identity differs",
+  );
+  assert.ok(targetRootDeviceMatches, "target cgroup mount root device differs");
+  assert.ok(
+    targetMountRootMountMatches,
+    "target cgroup root mount identity differs",
+  );
+  const cgroupRelative = hostPath.replace(/^\/+/, "");
   const leaf = realpathSync(resolve(root, cgroupRelative));
+  const targetLeafPath = realpathSync(
+    `/proc/${containerPid}/root/sys/fs/cgroup/${targetPath.replace(/^\/+/, "")}`,
+  );
+  const hostLeafStat = statSync(leaf, { bigint: true });
+  const targetLeafStat = statSync(targetLeafPath, { bigint: true });
+  const targetLeafInodeMatches =
+    hostLeafStat.dev === targetLeafStat.dev &&
+    hostLeafStat.ino === targetLeafStat.ino;
+  markStage(
+    `host-cgroup-target-leaf-inode-match-${Number(targetLeafInodeMatches)}`,
+  );
+  assert.equal(targetLeafInodeMatches, true);
+  const hostLeafMountId = directoryMountId(leaf);
+  const hostLeafMountMatches = hostLeafMountId === mountProof.hostMountId;
+  markStage(
+    `host-cgroup-target-leaf-mount-match-${Number(hostLeafMountMatches)}`,
+  );
+  assert.equal(hostLeafMountMatches, true);
+  const processMembership = cgroupFile(join(leaf, "cgroup.procs"));
+  assert.equal(processMembership.status, "readable");
+  assert.ok(
+    processMembership.value.split(/\s+/).includes(String(containerPid)),
+    "host cgroup leaf does not contain the benchmark API process",
+  );
   assert.ok(
     leaf === root || leaf.startsWith(`${root}${sep}`),
     "container cgroup escaped host root",
@@ -993,7 +1214,7 @@ function readHostCgroupLimits(containerPid) {
   let current = leaf;
   let hierarchyLevel = 0;
   while (current === root || current.startsWith(`${root}${sep}`)) {
-    if (hierarchyLevel >= 32) {
+    if (hierarchyLevel >= 256 || process.hrtime.bigint() > proofDeadlineNs) {
       markStage("host-cgroup-hierarchy-depth-truncated");
       throw new Error("host cgroup hierarchy exceeds the diagnostic bound");
     }
@@ -1022,6 +1243,12 @@ function readHostCgroupLimits(containerPid) {
     assert.equal(directory, true);
     assert.equal(directoryDeviceMatch, true);
     assert.equal(parentChildRelation, true);
+    const levelMountIdMatches =
+      directoryMountId(current) === mountProof.hostMountId;
+    markStage(
+      `host-cgroup-level-${hierarchyLevel}-mount-id-match-${Number(levelMountIdMatches)}`,
+    );
+    assert.equal(levelMountIdMatches, true);
     const max = cgroupFile(join(current, "memory.max"));
     if (max.status !== "readable") {
       const parentControllers = cgroupFile(
@@ -1089,16 +1316,65 @@ function readHostCgroupLimits(containerPid) {
     limits.length > 0 && current === root,
     "host cgroup ancestors are incomplete",
   );
+  markStage("host-cgroup-identity-recheck");
+  const processIdentityStable = processStartTime(containerPid) === processStart;
+  const hostPathStillMatches =
+    readUnifiedCgroupPath(`/proc/${containerPid}/cgroup`) === hostPath;
+  const recheckedHostPath = mapCgroupNamespacePath(
+    mountProof.targetMountRoot,
+    targetPath,
+  );
+  const targetPathMappingStillMatches =
+    recheckedHostPath === hostPath && hostPathStillMatches;
+  markStage(
+    `host-cgroup-process-identity-stable-${Number(processIdentityStable)}-path-mapping-stable-${Number(targetPathMappingStillMatches)}`,
+  );
+  assert.ok(
+    processIdentityStable,
+    "benchmark API process identity changed during the cgroup walk",
+  );
+  assert.ok(
+    targetPathMappingStillMatches,
+    "cgroup path mapping changed during the host walk",
+  );
+  const finalMembership = cgroupFile(join(leaf, "cgroup.procs"));
+  assert.equal(finalMembership.status, "readable");
+  assert.ok(
+    finalMembership.value.split(/\s+/).includes(String(containerPid)),
+    "benchmark API process moved away from its proven cgroup",
+  );
   markStage("host-cgroup-leaf-limit-verify");
   assert.equal(
     limits[0],
     MEMORY_CAP_BYTES,
     "host cgroup leaf is not the exact memory cap",
   );
-  return {
+  const proof = {
     leafLimitBytes: limits[0],
     ancestorMemoryMaxBytes: limits.slice(1),
+    hostHierarchyRootVerified: true,
+    targetMountRootMapped: true,
+    targetLeafMapped: true,
+    mountIdentityVerified: true,
+    pidIdentityVerified: true,
+    ancestorWalkComplete: true,
   };
+  if (!verifyOnly) {
+    markStage("host-cgroup-stability-second-walk");
+    const secondPass = readHostCgroupLimits(
+      containerPid,
+      targetPath,
+      true,
+      proofDeadlineNs,
+    );
+    const stable =
+      secondPass.leafLimitBytes === proof.leafLimitBytes &&
+      JSON.stringify(secondPass.ancestorMemoryMaxBytes) ===
+        JSON.stringify(proof.ancestorMemoryMaxBytes);
+    markStage(`host-cgroup-limit-stability-${Number(stable)}`);
+    assert.ok(stable, "host cgroup identity or limits changed during proof");
+  }
+  return proof;
 }
 
 function parseProbeOutput(text) {
@@ -1158,12 +1434,21 @@ function sampleMemory(api, sampleKind) {
   markStage(`${sampleKind}-parse-memory-probe`);
   const probe = parseProbeOutput(inner);
   markStage(`${sampleKind}-host-cgroup-hierarchy`);
-  const hostCgroupLimits = readHostCgroupLimits(inspect.State.Pid);
+  const hostCgroupLimits = readHostCgroupLimits(
+    inspect.State.Pid,
+    probe.pid1CgroupPath,
+  );
   markStage(`${sampleKind}-verify-cgroup-proof`);
   const proof = verifyCgroupV2Proof({
     cgroupVersion: 2,
     cgroupNamespaceMode: inspect.HostConfig.CgroupnsMode,
     pid1CgroupPath: probe.pid1CgroupPath,
+    hostHierarchyRootVerified: hostCgroupLimits.hostHierarchyRootVerified,
+    targetMountRootMapped: hostCgroupLimits.targetMountRootMapped,
+    targetLeafMapped: hostCgroupLimits.targetLeafMapped,
+    mountIdentityVerified: hostCgroupLimits.mountIdentityVerified,
+    pidIdentityVerified: hostCgroupLimits.pidIdentityVerified,
+    ancestorWalkComplete: hostCgroupLimits.ancestorWalkComplete,
     dockerMemoryBytes: inspect.HostConfig.Memory,
     dockerMemorySwapBytes: inspect.HostConfig.MemorySwap,
     memoryMaxBytes: probe.memoryMaxBytes,
@@ -1174,11 +1459,41 @@ function sampleMemory(api, sampleKind) {
     hostCgroupLeafMemoryMaxBytes: hostCgroupLimits.leafLimitBytes,
     ancestorMemoryMaxBytes: hostCgroupLimits.ancestorMemoryMaxBytes,
   });
+  markStage(`${sampleKind}-target-namespace-recheck`);
+  const confirmedInspect = dockerInspect(api);
+  assert.equal(confirmedInspect.State.Running, true);
+  const processIdStable = confirmedInspect.State.Pid === inspect.State.Pid;
+  markStage(`${sampleKind}-container-pid-stable-${Number(processIdStable)}`);
+  assert.ok(
+    processIdStable,
+    "benchmark API container process changed during sampling",
+  );
+  assert.equal(confirmedInspect.State.OOMKilled, false);
+  assert.equal(confirmedInspect.HostConfig.Memory, MEMORY_CAP_BYTES);
+  assert.equal(confirmedInspect.HostConfig.MemorySwap, MEMORY_CAP_BYTES);
+  const confirmedProbe = parseProbeOutput(
+    runDocker(["exec", api.name, "sh", "-c", LIVE_MEMORY_PROBE]),
+  );
+  const targetPathStable =
+    confirmedProbe.pid1CgroupPath === probe.pid1CgroupPath;
+  markStage(
+    `${sampleKind}-target-cgroup-path-stable-${Number(targetPathStable)}`,
+  );
+  assert.ok(
+    targetPathStable,
+    "target cgroup namespace path changed during host ancestry proof",
+  );
+  assert.equal(confirmedProbe.memoryMaxBytes, probe.memoryMaxBytes);
+  assert.equal(confirmedProbe.memorySwapMaxBytes, probe.memorySwapMaxBytes);
+  assert.equal(confirmedProbe.memorySwapCurrentBytes, 0);
   return {
     ...proof,
-    vmHwmBytes: probe.vmHwmBytes,
-    oomEvents: probe.oomEvents,
-    oomKillEvents: probe.oomKillEvents,
+    vmHwmBytes: confirmedProbe.vmHwmBytes,
+    currentBytes: confirmedProbe.memoryCurrentBytes,
+    peakBytes: confirmedProbe.memoryPeakBytes,
+    swapCurrentBytes: confirmedProbe.memorySwapCurrentBytes,
+    oomEvents: confirmedProbe.oomEvents,
+    oomKillEvents: confirmedProbe.oomKillEvents,
   };
 }
 
@@ -1447,6 +1762,12 @@ function createMetricRow(
     financial_liquidation_count: financialCounts[5],
     cgroup_version: baseline.cgroupVersion,
     private_cgroup_namespace: baseline.privateCgroupNamespace,
+    host_hierarchy_root_verified: Number(baseline.hostHierarchyRootVerified),
+    target_mount_root_mapped: Number(baseline.targetMountRootMapped),
+    target_leaf_mapped: Number(baseline.targetLeafMapped),
+    mount_identity_verified: Number(baseline.mountIdentityVerified),
+    pid_identity_verified: Number(baseline.pidIdentityVerified),
+    ancestor_walk_complete: Number(baseline.ancestorWalkComplete),
     host_ancestor_count: baseline.ancestorCount,
     memory_limit_bytes: MEMORY_CAP_BYTES,
     swap_limit_bytes: 0,

@@ -58,6 +58,7 @@ jobs:
             echo "- Scope: synthetic private uploads and PDF analysis only"
             echo "- Memory samples are raw high-water values (startup and sampling included)"
             echo "- Upload overlap is within one API process; no deployment-wide slot cap is inferred"
+            echo "- Host cgroup proof covers the runner VM's visible hierarchy, not the GitHub hypervisor"
             echo "- Measurements do not change product limits or enable production vault/OCR"
           } >> "$GITHUB_STEP_SUMMARY"
 

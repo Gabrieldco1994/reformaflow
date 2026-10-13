@@ -10,6 +10,7 @@ import test from "node:test";
 import {
   PDF_WORKER_PROBE_SOURCE,
   cgroupLevelStage,
+  mapCgroupNamespacePath,
   observeDatabase,
   parsePdfWorkerEvents,
   parseVmHwmBytes,
@@ -39,6 +40,12 @@ function cgroupEvidence(overrides = {}) {
     pid1CgroupPath: "/",
     dockerMemoryBytes: MEMORY_CAP_BYTES,
     dockerMemorySwapBytes: MEMORY_CAP_BYTES,
+    hostHierarchyRootVerified: true,
+    targetMountRootMapped: true,
+    targetLeafMapped: true,
+    mountIdentityVerified: true,
+    pidIdentityVerified: true,
+    ancestorWalkComplete: true,
     memoryMaxBytes: MEMORY_CAP_BYTES,
     memorySwapMaxBytes: 0,
     memorySwapCurrentBytes: 0,
@@ -71,6 +78,12 @@ function metricRow(label = "pdf-max-c1") {
     financial_liquidation_count: 0,
     cgroup_version: 2,
     private_cgroup_namespace: 1,
+    host_hierarchy_root_verified: 1,
+    target_mount_root_mapped: 1,
+    target_leaf_mapped: 1,
+    mount_identity_verified: 1,
+    pid_identity_verified: 1,
+    ancestor_walk_complete: 1,
     host_ancestor_count: 2,
     memory_limit_bytes: MEMORY_CAP_BYTES,
     swap_limit_bytes: 0,
@@ -100,6 +113,12 @@ test("cgroup proof requires the exact private 512 MiB v2 leaf with zero swap", (
   assert.deepEqual(verifyCgroupV2Proof(cgroupEvidence()), {
     cgroupVersion: 2,
     privateCgroupNamespace: 1,
+    hostHierarchyRootVerified: true,
+    targetMountRootMapped: true,
+    targetLeafMapped: true,
+    mountIdentityVerified: true,
+    pidIdentityVerified: true,
+    ancestorWalkComplete: true,
     memoryLimitBytes: MEMORY_CAP_BYTES,
     swapLimitBytes: 0,
     swapCurrentBytes: 0,
@@ -122,6 +141,12 @@ test("cgroup proof requires the exact private 512 MiB v2 leaf with zero swap", (
     { memoryCurrentBytes: 0 },
     { memoryPeakBytes: undefined },
     { ancestorMemoryMaxBytes: [null, MEMORY_CAP_BYTES - 1] },
+    { hostHierarchyRootVerified: false },
+    { targetMountRootMapped: false },
+    { targetLeafMapped: false },
+    { mountIdentityVerified: false },
+    { pidIdentityVerified: false },
+    { ancestorWalkComplete: false },
   ]) {
     assert.throws(() => verifyCgroupV2Proof(cgroupEvidence(invalid)));
   }
@@ -149,7 +174,25 @@ test("host cgroup diagnostics expose only bounded booleans and numeric depth", (
     "host-cgroup-level-2-dir-1-device-1-parent-relation-1-max-missing-parent-controllers-readable-parent-available-0-parent-sc-readable-parent-mem-1-controllers-readable-available-1-subtree-readable-child-mem-0-type-status-readable-type-domain",
   );
   assert.doesNotMatch(stage, /[/\\]|secret|path|token/);
-  assert.throws(() => cgroupLevelStage(33, {}));
+  assert.throws(() => cgroupLevelStage(256, {}));
+});
+
+test("private cgroup mount root maps the container-relative path to its host path", () => {
+  assert.equal(
+    mapCgroupNamespacePath("/system.slice/docker/example.scope", "/"),
+    "/system.slice/docker/example.scope",
+  );
+  assert.equal(
+    mapCgroupNamespacePath("/system.slice/docker/example.scope", "/child"),
+    "/system.slice/docker/example.scope/child",
+  );
+  assert.throws(() =>
+    mapCgroupNamespacePath("/system.slice/docker/example.scope", "/../other"),
+  );
+  assert.throws(() => mapCgroupNamespacePath("relative/root", "/"));
+  assert.throws(() =>
+    mapCgroupNamespacePath("/system.slice", "/bad\u0000path"),
+  );
 });
 
 test("PDF worker probe counts overlapping started workers without identifiers", () => {
@@ -314,6 +357,12 @@ test(
       assert.equal(row.memory_limit_bytes, MEMORY_CAP_BYTES, row.label);
       assert.equal(row.cgroup_version, 2, row.label);
       assert.equal(row.private_cgroup_namespace, 1, row.label);
+      assert.equal(row.host_hierarchy_root_verified, 1, row.label);
+      assert.equal(row.target_mount_root_mapped, 1, row.label);
+      assert.equal(row.target_leaf_mapped, 1, row.label);
+      assert.equal(row.mount_identity_verified, 1, row.label);
+      assert.equal(row.pid_identity_verified, 1, row.label);
+      assert.equal(row.ancestor_walk_complete, 1, row.label);
       assert.equal(row.swap_limit_bytes, 0, row.label);
       assert.equal(row.baseline_swap_current_bytes, 0, row.label);
       assert.equal(row.final_swap_current_bytes, 0, row.label);
