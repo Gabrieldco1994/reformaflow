@@ -324,7 +324,7 @@ function runRepair(database, args, env = {}) {
   const command = repairCommand(args);
   try {
     return spawnSync(command.executable, command.args, {
-      cwd: ROOT,
+      cwd: repairWorkingDirectory(database),
       encoding: "utf8",
       stdio: lock.stdio,
       env: {
@@ -340,7 +340,7 @@ function runRepair(database, args, env = {}) {
   }
 }
 
-function repairCommand(args, platform = process.platform) {
+function repairCommand(args, platform = process.platform, scriptPath = SCRIPT) {
   if (platform === "linux") {
     return {
       executable: "sh",
@@ -349,12 +349,16 @@ function repairCommand(args, platform = process.platform) {
         'flock -x 9 || exit $?; exec "$@"',
         "repair-test-lock",
         process.execPath,
-        SCRIPT,
+        scriptPath,
         ...args,
       ],
     };
   }
-  return { executable: process.execPath, args: [SCRIPT, ...args] };
+  return { executable: process.execPath, args: [scriptPath, ...args] };
+}
+
+function repairWorkingDirectory(database) {
+  return dirname(database);
 }
 
 function inheritedTestLock(directory) {
@@ -695,8 +699,9 @@ test("runbooks describe the trusted-root exception as an expiring audit gate, no
   assert.match(LEGACY_RUNBOOK_SOURCE, /not\s+cryptographically authenticated/);
 });
 
-test("Linux harness holds fd9 for the recovery process lifetime", () => {
+test("Linux harness holds fd9 and isolates relative lock probes per fixture", () => {
   const args = ["--dry-run", "--manifest", "synthetic"];
+  const isolatedDatabase = join(ROOT, "isolated-fixture", "fixture.db");
   assert.deepEqual(repairCommand(args, "linux"), {
     executable: "sh",
     args: [
@@ -708,10 +713,60 @@ test("Linux harness holds fd9 for the recovery process lifetime", () => {
       ...args,
     ],
   });
+  assert.equal(
+    repairWorkingDirectory(isolatedDatabase),
+    join(ROOT, "isolated-fixture"),
+  );
+  assert.notEqual(repairWorkingDirectory(isolatedDatabase), ROOT);
   assert.deepEqual(repairCommand(args, "darwin"), {
     executable: process.execPath,
     args: [SCRIPT, ...args],
   });
+
+  if (process.platform === "linux") {
+    const directory = temporaryDirectory();
+    const database = join(directory, "fixture.db");
+    const lockPath = join(directory, ".test-quiesce", "lock");
+    const probe = join(directory, "lock-probe.mjs");
+    writeFileSync(
+      probe,
+      `import { fstatSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+const inherited = fstatSync(9);
+const expected = statSync(process.env.EXPECTED_LOCK_PATH);
+const capability = fstatSync(7);
+const competing = spawnSync("flock", ["-n", process.env.EXPECTED_LOCK_PATH, "true"]);
+if (process.cwd() !== process.env.EXPECTED_CWD ||
+    inherited.dev !== expected.dev || inherited.ino !== expected.ino ||
+    capability.nlink !== 0 || competing.status === 0) process.exit(1);
+process.stdout.write("inherited lock held\\n");
+`,
+      { mode: 0o600 },
+    );
+    const lock = inheritedTestLock(directory);
+    const command = repairCommand([], "linux", probe);
+    try {
+      const result = spawnSync(command.executable, command.args, {
+        cwd: repairWorkingDirectory(database),
+        encoding: "utf8",
+        stdio: lock.stdio,
+        env: {
+          ...process.env,
+          ...lock.env,
+          EXPECTED_CWD: directory,
+          EXPECTED_LOCK_PATH: lockPath,
+        },
+      });
+      assert.equal(
+        result.status,
+        0,
+        `Linux lock probe failed\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
+      );
+      assert.equal(result.stdout, "inherited lock held\n");
+    } finally {
+      lock.close();
+    }
+  }
 });
 
 test("the executable keeps exact topology and an explicit preimage-hash gate without embedded row IDs", () => {
@@ -1285,7 +1340,7 @@ test("concurrent applies serialize; exactly one repairs and the other observes t
       const lock = inheritedTestLock(fixture.directory);
       const command = repairCommand(args);
       const child = spawn(command.executable, command.args, {
-        cwd: ROOT,
+        cwd: repairWorkingDirectory(fixture.database),
         stdio: lock.stdio,
         env: {
           ...process.env,
@@ -1302,7 +1357,10 @@ test("concurrent applies serialize; exactly one repairs and the other observes t
       child.on("close", (status) => resolve({ status, stdout, stderr }));
     });
 
-  const results = await Promise.all([launch(), launch()]);
+  const results =
+    process.platform === "linux"
+      ? await Promise.all([launch(), launch()])
+      : [await launch(), await launch()];
 
   for (const result of results) requireSuccess(result);
   assert.deepEqual(
