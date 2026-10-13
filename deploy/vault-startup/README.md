@@ -161,9 +161,10 @@ These facts are a prospective baseline, not completed gates:
   backup/restore owner exists yet, so it is not a qualified restorable backup;
 - explicit Fly `SIGTERM` and a shutdown grace at least 10 seconds longer than
   the 5000 ms vault drain have not yet been evidenced; and
-- rollback target v749 / `ee5e4fea338499b89a22d9701c66441401b06288`
-  has not yet been boot-tested against a disposable restore of the current
-  post-migration production database.
+- the 2026-10-13 v749 restore boot with synthetic admin bootstrap variables
+  inserted one isolated `users` row and failed the no-mutation gate. It is not
+  qualifying evidence. A replacement test must use the fail-closed procedure
+  below against a newly authorized current restore.
 
 Each missing item is a STOP. A later evidence record may close it; this page
 does not claim that it has.
@@ -234,6 +235,108 @@ secret unless the record contains all of the following:
     Never point this test at production and never make the restore by copying
     private data into an unapproved environment. Until that evidence exists,
     activation is blocked even if every ON check passes.
+
+#### Exact v749 no-mutation compatibility procedure
+
+The 2026-10-13 attempt proved that synthetic `ADMIN_USERNAME` and
+`ADMIN_PASSWORD` are unsafe here: v749 runs `ensureBootstrapAdmin` on every
+boot and inserted a synthetic administrator into the isolated restore. This is
+an application-row mutation, not harmless SQLite container drift. The
+compatibility machine must omit `ADMIN_USERNAME`, `ADMIN_PASSWORD` and legacy
+`ADMIN_EMAIL`; an empty value is still present and is rejected. Do not change
+the application bootstrap globally and do not use a production credential.
+
+Use only a fresh encrypted restore already authorized for the activation
+window. The restore app must have no app secret with any of those three names.
+Transfer the reviewed launcher and manifest tool from the pinned release. The
+launcher checks the three names before `boot`, `capture` or `compare`, pins the
+tool checksum, and `boot` can exec only the image `/entrypoint.sh`. Any failure
+is a STOP; do not unset a discovered app secret or retry under the same window.
+
+The exact reviewed command shape is below. Values in angle brackets are bound
+in the activation record before execution; they are not free-form runtime
+arguments.
+
+```bash
+set -eu
+APP=<approved-isolated-restore-app>
+RESTORE_VOLUME=<fresh-encrypted-restore-volume-id>
+RUN_ID=<unique-window-run-id>
+V749_SHA=ee5e4fea338499b89a22d9701c66441401b06288
+V749_IMAGE=registry.fly.io/reformaflow-api:deployment-01M4M68X7NJQ20JKB29DBFTRVV@sha256:f6213e52d18ce69ac3ad8adf29853c76763fcfed3c5c1401197ee40bed8a0204
+LAUNCHER=$PWD/deploy/vault-startup/run-v749-compatibility.sh
+MANIFEST_TOOL=$PWD/deploy/vault-startup/v749-db-manifest.mjs
+
+# A restore app secret is inherited even when no --env flag names it.
+flyctl secrets list --app "$APP" --json | jq -e \
+  "[.[] | select(.name == \"ADMIN_USERNAME\" or .name == \"ADMIN_PASSWORD\" or .name == \"ADMIN_EMAIL\")] | length == 0"
+
+# PRE: command-overridden inspector; no application entrypoint runs.
+PRE_NAME="v749-pre-$RUN_ID"
+env -u ADMIN_USERNAME -u ADMIN_PASSWORD -u ADMIN_EMAIL \
+  flyctl machine run "$V749_IMAGE" 3600 --app "$APP" --name "$PRE_NAME" \
+    --region gru --volume "$RESTORE_VOLUME:/data" --entrypoint /bin/sleep \
+    --file-local "/app/run-v749-compatibility.sh=$LAUNCHER" \
+    --file-local "/app/v749-db-manifest.mjs=$MANIFEST_TOOL" \
+    --restart no --skip-dns-registration --vm-memory 512 --detach
+PRE_MACHINE_ID=$(flyctl machines list --app "$APP" --json | \
+  jq -er --arg name "$PRE_NAME" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("machine cardinality") end')
+flyctl ssh console --app "$APP" --machine "$PRE_MACHINE_ID" \
+  --command "/app/run-v749-compatibility.sh capture"
+flyctl machine stop "$PRE_MACHINE_ID" --app "$APP"
+flyctl machine destroy "$PRE_MACHINE_ID" --app "$APP" --force
+
+# BOOT: no ADMIN_* flag; the wrapper rejects inherited or empty values.
+BOOT_NAME="v749-boot-$RUN_ID"
+env -u ADMIN_USERNAME -u ADMIN_PASSWORD -u ADMIN_EMAIL \
+  flyctl machine run "$V749_IMAGE" boot --app "$APP" --name "$BOOT_NAME" \
+    --region gru --volume "$RESTORE_VOLUME:/data" \
+    --entrypoint /app/run-v749-compatibility.sh \
+    --file-local "/app/run-v749-compatibility.sh=$LAUNCHER" \
+    --env NODE_ENV=production --env DATABASE_URL=file:/data/dev.db \
+    --env IMPORT_VAULT_ENABLED=false --env PORT=3001 \
+    --env UPLOADS_DIR=/data/uploads \
+    --env JWT_SECRET=restore-drill-synthetic-not-production \
+    --env CORS_ORIGIN=https://invalid.example \
+    --restart no --skip-dns-registration --vm-memory 512 \
+    --metadata "expected_sha=$V749_SHA" --detach
+BOOT_MACHINE_ID=$(flyctl machines list --app "$APP" --json | \
+  jq -er --arg name "$BOOT_NAME" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("machine cardinality") end')
+flyctl machines list --app "$APP" --json | \
+  jq -e --arg id "$BOOT_MACHINE_ID" '.[] | select(.id == $id) | (.config.env | has("ADMIN_USERNAME") or has("ADMIN_PASSWORD") or has("ADMIN_EMAIL")) | not'
+flyctl ssh console --app "$APP" --machine "$BOOT_MACHINE_ID" \
+  --command "curl -sS -o /dev/null -w docs=%{http_code} http://127.0.0.1:3001/api/docs-json"
+flyctl ssh console --app "$APP" --machine "$BOOT_MACHINE_ID" \
+  --command "curl -sS -o /dev/null -w me=%{http_code} http://127.0.0.1:3001/auth/me"
+flyctl machine stop "$BOOT_MACHINE_ID" --app "$APP"
+flyctl machine destroy "$BOOT_MACHINE_ID" --app "$APP" --force
+
+# POST: a new command-overridden inspector compares the same detached volume.
+POST_NAME="v749-post-$RUN_ID"
+env -u ADMIN_USERNAME -u ADMIN_PASSWORD -u ADMIN_EMAIL \
+  flyctl machine run "$V749_IMAGE" 3600 --app "$APP" --name "$POST_NAME" \
+    --region gru --volume "$RESTORE_VOLUME:/data" --entrypoint /bin/sleep \
+    --file-local "/app/run-v749-compatibility.sh=$LAUNCHER" \
+    --file-local "/app/v749-db-manifest.mjs=$MANIFEST_TOOL" \
+    --restart no --skip-dns-registration --vm-memory 512 --detach
+POST_MACHINE_ID=$(flyctl machines list --app "$APP" --json | \
+  jq -er --arg name "$POST_NAME" '[.[] | select(.name == $name)] | if length == 1 then .[0].id else error("machine cardinality") end')
+flyctl ssh console --app "$APP" --machine "$POST_MACHINE_ID" \
+  --command "/app/run-v749-compatibility.sh compare"
+flyctl machine stop "$POST_MACHINE_ID" --app "$APP"
+flyctl machine destroy "$POST_MACHINE_ID" --app "$APP" --force
+```
+
+`capture` and `compare` open `/data/dev.db` only with SQLite `-readonly` and
+`query_only=ON`. They require no WAL/journal/SHM sidecar and compare exact table
+row counts, a data-only logical dump hash, complete logical dump hash,
+`sqlite_schema` hash, parsed 100-byte SQLite header plus its hash, relevant
+PRAGMAs, file size and whole-file SHA-256. The fixed mode-`0600` evidence files
+are `/data/v749-compatibility.pre.private.json`,
+`/data/v749-compatibility.post.private.json` and, only after exact equality,
+`/data/v749-compatibility.consumed.private.json`. Keep them private. A post
+manifest without a consumed receipt is a failed gate. Preserve it and stop;
+never edit the restore database to make the comparison pass.
 
 Do not publish credentials, tokens, document names/content, database rows or
 raw private paths beyond the canonical paths already in this contract. Store

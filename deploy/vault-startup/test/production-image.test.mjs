@@ -1,4 +1,5 @@
 import test from "node:test";
+import "./v749-compatibility.test.mjs";
 import assert from "node:assert/strict";
 import {
   mkdirSync,

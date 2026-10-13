@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./v749-compatibility.test.mjs";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import {
