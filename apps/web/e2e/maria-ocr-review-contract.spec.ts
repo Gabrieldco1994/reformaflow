@@ -10,6 +10,10 @@ const component = path.join(
   root,
   "src/app/projects/[projectId]/maria/_components/ImportOcrFoundation.tsx",
 );
+const evidenceComponent = path.join(
+  root,
+  "src/app/projects/[projectId]/maria/_components/OcrCandidateEvidence.tsx",
+);
 let script: string;
 let css: string;
 
@@ -20,6 +24,7 @@ test.beforeAll(async () => {
         import React, { useState } from "react";
         import { createRoot } from "react-dom/client";
         import { ImportOcrFoundation } from ${JSON.stringify(component)};
+        import { OcrCandidateEvidence } from ${JSON.stringify(evidenceComponent)};
 
         function Contract() {
           const [attempted, setAttempted] = useState(false);
@@ -27,15 +32,14 @@ test.beforeAll(async () => {
             <main className="mx-auto min-h-screen w-full min-w-0 max-w-3xl p-3">
               <button id="before" className="min-h-11">Antes</button>
               <ImportOcrFoundation
-                triggerCode="OCR_REQUIRED"
+                state={attempted ? { kind: "ATTEMPT_UNKNOWN" } : { kind: "CONSENT_REQUIRED" }}
                 scope={{
                   key: "private-session:private-attachment",
                   fileName: "fatura digitalizada.pdf",
                 }}
-                attempted={attempted}
-                errorMessage={attempted ? "A resposta da leitura externa não foi confirmada." : null}
                 onConsent={() => setAttempted(true)}
               />
+              {attempted && <OcrCandidateEvidence text="Mercado Central" />}
             </main>
           );
         }
@@ -53,11 +57,13 @@ test.beforeAll(async () => {
     alias: { "@": path.join(root, "src") },
   });
   script = bundle.outputFiles.find((file) => file.path.endsWith(".js"))!.text;
-  const source = await readFile(component, "utf8");
+  const sources = await Promise.all(
+    [component, evidenceComponent].map((file) => readFile(file, "utf8")),
+  );
   const compiled = await postcss([
     tailwindcss({
       ...require("../tailwind.config.js"),
-      content: [{ raw: source, extension: "tsx" }],
+      content: sources.map((raw) => ({ raw, extension: "tsx" })),
     }),
   ]).process("@tailwind base; @tailwind components; @tailwind utilities;", {
     from: undefined,
@@ -86,13 +92,24 @@ for (const width of [375, 390, 1280]) {
     await page.addScriptTag({ content: script });
 
     const consent = page.getByRole("checkbox", {
-      name: /autorizo o envio deste documento/i,
+      name: /autorizo o envio do PDF original completo/i,
     });
     const submit = page.getByRole("button", {
       name: "Autorizar leitura externa",
     });
     await expect(consent).not.toBeChecked();
     await expect(submit).toBeDisabled();
+    await expect(
+      page.getByText(/somente PDFs totalmente digitalizados/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/PDFs mistos ou pesquisáveis não são enviados/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        /Google Cloud Vertex AI.*Gemini 2\.5 Flash.*southamerica-east1/i,
+      ),
+    ).toBeVisible();
     await expect(page.locator("body")).not.toContainText("private-session");
     await assertNoHorizontalOverflow(page);
 
@@ -105,8 +122,16 @@ for (const width of [375, 390, 1280]) {
     await consent.check();
     await submit.click();
     await expect(page.getByRole("alert")).toContainText(
-      "A resposta da leitura externa não foi confirmada.",
+      "resultado é desconhecido",
     );
+    await expect(
+      page.getByRole("note", { name: "Evidência da extração externa" }),
+    ).toContainText(
+      "PDF original · Google Cloud Vertex AI · Gemini 2.5 Flash · southamerica-east1",
+    );
+    await expect(page.getByText(/Entrada manual:/i)).toBeVisible();
+    await expect(page.getByText(/Substituir o arquivo:/i)).toBeVisible();
+    await expect(page.getByText(/Cancelar:/i)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /autorizar|tentar|retry/i }),
     ).toHaveCount(0);

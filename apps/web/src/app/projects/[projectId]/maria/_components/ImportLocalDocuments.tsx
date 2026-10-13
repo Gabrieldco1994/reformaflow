@@ -211,10 +211,12 @@ export function ImportLocalDocuments({
       </p>
       {supportedFormats.includes("PDF") && (
         <p className="text-sm text-gray-600">
-          A análise começa localmente. Se o servidor concluir que o PDF precisa
-          de leitura externa, você decidirá separadamente se autoriza o envio
-          para esse processamento. Sem autorização ou disponibilidade, use um
-          PDF textual ou CSV; nenhum lançamento será confirmado.
+          A análise começa localmente. PDFs textuais permanecem locais. Nesta
+          primeira versão, PDFs mistos ou pesquisáveis não são enviados para
+          leitura externa; somente um PDF totalmente digitalizado pode oferecer
+          uma autorização separada para envio. Sem autorização ou
+          disponibilidade, use um PDF textual ou CSV; nenhum lançamento será
+          confirmado.
         </p>
       )}
       {files.length > 0 && (

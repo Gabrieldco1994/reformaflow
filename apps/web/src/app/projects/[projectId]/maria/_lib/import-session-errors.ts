@@ -43,7 +43,7 @@ export type ImportFailure =
 /** Fixed copy per wire code. The server never sends a message and none is ever rendered. */
 export const IMPORT_ERROR_COPY: Record<ImportWireErrorCode, string> = {
   OCR_REQUIRED:
-    "Este PDF precisa de leitura externa para continuar. Você pode autorizar esse processamento somente para este documento. Sem autorização ou disponibilidade, use um PDF textual ou CSV, conforme os formatos oferecidos, ou cancele a importação.",
+    "Este PDF totalmente digitalizado precisa de leitura externa para continuar. PDFs textuais permanecem locais; PDFs mistos ou pesquisáveis não são enviados nesta versão. Você pode autorizar o envio somente para este documento. Sem autorização ou disponibilidade, use um PDF textual ou CSV, conforme os formatos oferecidos, ou cancele a importação.",
   DOCUMENT_UNREADABLE:
     "Não foi possível ler este documento. Substitua por um arquivo legível ou cancele a importação.",
   PDF_PASSWORD_REQUIRED:

@@ -247,7 +247,9 @@ for (const width of [375, 390, 1280]) {
     expect(bounds?.height).toBeGreaterThanOrEqual(44);
     await consent.click();
     await expect(
-      page.getByText(/Este PDF precisa de leitura externa para continuar/),
+      page.getByText(
+        /Este PDF totalmente digitalizado precisa de leitura externa/,
+      ),
     ).toBeVisible();
     const reserved = writes.find((write) =>
       write.path.endsWith("/attachments"),
@@ -265,7 +267,7 @@ for (const width of [375, 390, 1280]) {
     ).toBeDisabled();
     await page
       .getByRole("checkbox", {
-        name: /Autorizo o envio deste documento para processamento externo/,
+        name: /Autorizo o envio do PDF original completo/,
       })
       .check();
     await page
@@ -382,7 +384,9 @@ test("PDF-capable upload reload requires a new local selection and consent", asy
     .getByRole("button", { name: "Analisar e guardar rascunho" })
     .click();
   await expect(
-    page.getByText(/Este PDF precisa de leitura externa para continuar/),
+    page.getByText(
+      /Este PDF totalmente digitalizado precisa de leitura externa/,
+    ),
   ).toBeVisible();
   expect(writes.some((write) => write.path === "/import-sessions")).toBe(false);
   expect(

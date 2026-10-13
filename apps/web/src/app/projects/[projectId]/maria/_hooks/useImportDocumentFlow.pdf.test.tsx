@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportSessionViewV1 } from "@reformaflow/domain";
-import { ApiResponseError } from "@/lib/api";
+import { ApiResponseError, ApiTimeoutError } from "@/lib/api";
 import { useImportDocumentFlow } from "./useImportDocumentFlow";
 import { importRoot } from "../_lib/import-session-keys";
 
@@ -167,6 +167,10 @@ describe("textual PDF documentary coordinator", () => {
     });
     expect(result.current.error?.code).toBe("OCR_REQUIRED");
     expect(result.current.error?.attachmentId).toBe("a1");
+    expect(result.current.ocrUiState).toEqual({
+      attachmentId: "a1",
+      kind: "CONSENT_REQUIRED",
+    });
     await act(async () => {
       await result.current.recover();
     });
@@ -211,6 +215,23 @@ describe("textual PDF documentary coordinator", () => {
         },
       ],
       selectedLineIds: [],
+      lines: [
+        {
+          id: "ocr-line",
+          observationIds: ["ocr-observation"],
+          titulo: "MERCADO OCR",
+          fornecedor: null,
+          tipoDespesa: null,
+          categoriaMaoDeObra: null,
+          amountMeaning: "TOTAL_PURCHASE",
+          amountCents: 12_345,
+          installmentCount: 1,
+          dataCompra: "2026-10-10",
+          firstDueDate: null,
+          targets: [],
+          decision: { kind: "UNRESOLVED" },
+        },
+      ],
       reviewBlockers: [
         {
           lineId: "ocr-line",
@@ -270,51 +291,79 @@ describe("textual PDF documentary coordinator", () => {
       expect.objectContaining({ resolution: "NEEDS_DECLARATION" }),
     ]);
     expect(result.current.view?.actions).not.toContain("PREPARE");
+    expect(result.current.ocrCandidateEvidence).toEqual({
+      "ocr-line": "MERCADO OCR",
+    });
     expect(result.current.error).toBeNull();
   });
 
-  it("locks an ambiguous v2 call terminally, including after a state read", async () => {
-    const attached = view({
-      actions: ["ANALYZE", "CANCEL"],
-      attachments: [
-        {
-          id: "a1",
-          fileName: "scan.pdf",
-          declaredBytes: 9,
-          state: "ATTACHED",
-          canAnalyze: true,
-          materializedInSession: false,
-        },
-      ],
-    });
-    api.getFullImportSession.mockResolvedValue(attached);
-    api.analyzeImportAttachment
-      .mockRejectedValueOnce(
-        new ApiResponseError("OCR", 422, {
-          code: "OCR_REQUIRED",
-          retryable: false,
-          sessionId: "s1",
-          currentRevision: 1,
-          reason: null,
-        }),
-      )
-      .mockRejectedValueOnce(new TypeError("response lost"));
-    const { result } = setup();
-    await waitFor(() => expect(result.current.view).not.toBeNull());
-    await act(async () => {
-      await result.current.analyze("a1");
-      await result.current.consentExternalProcessing("a1");
-      await result.current.consentExternalProcessing("a1");
-    });
-    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
-    expect(result.current.ocrConsentAttempted).toBe(true);
+  it.each([
+    [new ApiTimeoutError(), "ATTEMPT_UNKNOWN"],
+    [
+      Object.assign(new Error("bad response"), {
+        name: "ImportMalformedResponseError",
+      }),
+      "SAFETY_OR_MALFORMED",
+    ],
+    [
+      new ApiResponseError("Unexpected repeated OCR gate", 422, {
+        code: "OCR_REQUIRED",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 1,
+        reason: null,
+      }),
+      "ATTEMPT_UNKNOWN",
+    ],
+  ] as const)(
+    "locks a terminal v2 %s outcome as %s, including after a state read",
+    async (terminalFailure, expectedKind) => {
+      const attached = view({
+        actions: ["ANALYZE", "CANCEL"],
+        attachments: [
+          {
+            id: "a1",
+            fileName: "scan.pdf",
+            declaredBytes: 9,
+            state: "ATTACHED",
+            canAnalyze: true,
+            materializedInSession: false,
+          },
+        ],
+      });
+      api.getFullImportSession.mockResolvedValue(attached);
+      api.analyzeImportAttachment
+        .mockRejectedValueOnce(
+          new ApiResponseError("OCR", 422, {
+            code: "OCR_REQUIRED",
+            retryable: false,
+            sessionId: "s1",
+            currentRevision: 1,
+            reason: null,
+          }),
+        )
+        .mockRejectedValueOnce(terminalFailure);
+      const { result } = setup();
+      await waitFor(() => expect(result.current.view).not.toBeNull());
+      await act(async () => {
+        await result.current.analyze("a1");
+        await result.current.consentExternalProcessing("a1");
+        await result.current.consentExternalProcessing("a1");
+      });
+      expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
+      expect(result.current.ocrConsentAttempted).toBe(true);
+      expect(result.current.ocrUiState).toEqual({
+        attachmentId: "a1",
+        kind: expectedKind,
+      });
 
-    await act(async () => {
-      await result.current.recover();
-      await result.current.consentExternalProcessing("a1");
-    });
-    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
-  });
+      await act(async () => {
+        await result.current.recover();
+        await result.current.consentExternalProcessing("a1");
+      });
+      expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("keeps textual analysis local and never admits external consent without OCR_REQUIRED", async () => {
     const attached = view({
@@ -356,7 +405,72 @@ describe("textual PDF documentary coordinator", () => {
       expectedRevision: 1,
     });
     expect(result.current.ocrConsentAttempted).toBe(false);
+    expect(result.current.ocrUiState).toBeNull();
   });
+
+  it.each([
+    [
+      new ApiResponseError("Unavailable", 503, {
+        code: "CAPABILITY_DISABLED",
+        retryable: true,
+        sessionId: "s1",
+        currentRevision: 1,
+        reason: null,
+      }),
+      "PRE_CALL_UNAVAILABLE",
+    ],
+    [
+      new ApiResponseError("Unsafe", 422, {
+        code: "DOCUMENT_UNREADABLE",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 1,
+        reason: null,
+      }),
+      "DOCUMENT_UNSAFE",
+    ],
+    [
+      new ApiResponseError("Budget", 422, {
+        code: "LIMIT_EXCEEDED",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 1,
+        reason: null,
+      }),
+      "BUDGET_OR_RATE_LIMIT",
+    ],
+  ] as const)(
+    "maps pre-call documentary failure to %s",
+    async (failure, kind) => {
+      api.getFullImportSession.mockResolvedValue(
+        view({
+          actions: ["ANALYZE", "CANCEL"],
+          attachments: [
+            {
+              id: "a1",
+              fileName: "scan.pdf",
+              declaredBytes: 9,
+              state: "ATTACHED",
+              canAnalyze: true,
+              materializedInSession: false,
+            },
+          ],
+        }),
+      );
+      api.analyzeImportAttachment.mockRejectedValue(failure);
+      const { result } = setup();
+      await waitFor(() => expect(result.current.view).not.toBeNull());
+      await act(async () => {
+        await result.current.analyze("a1");
+      });
+      expect(result.current.ocrUiState).toEqual({
+        attachmentId: "a1",
+        kind,
+      });
+      expect(result.current.ocrConsentAttempted).toBe(false);
+      expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("drops a consented local PDF attempt on account change and ignores its late create", async () => {
     let release: ((value: ImportSessionViewV1) => void) | undefined;

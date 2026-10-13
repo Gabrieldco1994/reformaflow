@@ -16,6 +16,7 @@ import {
   type ImportPurchaseContextLine,
 } from "./ImportFocusedDraftQuestion";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
+import { OcrCandidateEvidence } from "./OcrCandidateEvidence";
 
 const FACT_LABEL: Record<ImportDeclaredFactViewV1["status"], string> = {
   CURRENT: "Informado por você",
@@ -95,6 +96,7 @@ export function ImportReviewBlockerNotice({
   onRemove,
   pending = false,
   hasQuestion = false,
+  externalProviderEvidence,
 }: {
   line: ImportPurchaseContextLine;
   blockers: ImportSessionViewV1["reviewBlockers"];
@@ -104,6 +106,7 @@ export function ImportReviewBlockerNotice({
   onRemove?: (lineId: string) => void;
   pending?: boolean;
   hasQuestion?: boolean;
+  externalProviderEvidence?: string;
 }) {
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -138,6 +141,9 @@ export function ImportReviewBlockerNotice({
       <h4 id={`${id}-line`} className="font-semibold">
         {purchaseContext}
       </h4>
+      {externalProviderEvidence && (
+        <OcrCandidateEvidence text={externalProviderEvidence} />
+      )}
       {visible && (
         <>
           <h5

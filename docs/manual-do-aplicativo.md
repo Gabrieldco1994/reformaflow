@@ -394,17 +394,33 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   `IMPORT_OCR_ENABLED=false` permanece o padrão e este manual não declara
   ativação. Quando a capability da #719 é explicitamente habilitada, a tela explica
   a finalidade e pede autorização explícita, válida somente para aquele documento.
+  Ela informa que o PDF original completo vai ao Google Cloud Vertex AI, modelo
+  Gemini 2.5 Flash, na região `southamerica-east1`, exclusivamente para extrair
+  transações.
   Antes de chamar novamente o mesmo endpoint de análise, o fluxo persiste a
-  declaração afirmativa; somente então `analyze` pode enviar uma única vez o
-  arquivo original completo ao Vertex regional para transcrição. A declaração
-  informa que esse envio inclui metadados e conteúdo potencialmente não
-  visível/embutido, com retenção de conteúdo por sete dias. PDF textual fica local;
+  declaração afirmativa; somente então `analyze` pode enviar uma única vez, pelo
+  contrato v2 mínimo, o arquivo original completo ao Vertex regional para
+  transcrição. Ator, tenant, projeto, hash, provedor, modelo e região não vêm da
+  tela. A declaração informa que esse envio inclui metadados e conteúdo
+  potencialmente não visível/embutido, com retenção de conteúdo por sete dias.
+  Resultado e evidência ficam no rascunho privado por até sete dias sem edição;
+  o original privado segue a retenção da sessão pendente e é liberado ao
+  concluir ou cancelar quando não houver outra referência autorizada.
+  Consentimento e proveniência mínima seguem a auditoria. PDF textual fica local;
   somente raster integral observado em 1–10 páginas é elegível para esse envio.
-  Os candidatos retornam não selecionados e não verificados, exigem
-  conferência e declarações documentais atuais antes de preparar e não geram
-  dinheiro antes da confirmação/execução já existentes. Timeout ou queda depois
-  da tentativa tem resultado desconhecido e não oferece repetição automática ou
-  manual. PDFs protegidos por senha ou ilegíveis bloqueiam a análise, sem
+  Cada compra mostra o texto candidato e a origem Vertex; os candidatos retornam
+  não selecionados e não verificados, exigem conferência e declarações
+  documentais atuais antes de preparar e não geram dinheiro antes da
+  confirmação/execução já existentes. Uma correção invalida a atestação afetada.
+  Indisponibilidade antes da chamada, documento inseguro ou ilegível, bloqueio de
+  segurança ou resposta fora do formato seguro e limite de orçamento ou taxa
+  aparecem como estados distintos. Timeout ou queda depois da tentativa tem
+  resultado desconhecido e não oferece repetição automática ou manual. Fora do
+  estado de solicitação em andamento, os fallbacks oferecem entrada manual,
+  substituição por PDF textual/CSV ou cancelamento e informam que houve zero
+  escrita financeira. A qualificação e o rollout seguros da #719 não ampliam
+  retroativamente a entrega #718. PDFs protegidos por senha ou ilegíveis
+  bloqueiam a análise, sem
   confirmação financeira.
   Nas compras, datas `D/M/AAAA` ou `AAAA-MM-DD` são aceitas; `D/M` sem ano exige
   declaração, sem ano inferido. Datas numéricas não suportadas, como `02/02/26`

@@ -97,11 +97,13 @@ export function ImportProposalCard({
   onRemoveSelected,
   onOpenContinuation,
   selectionPending = false,
+  externalCandidateEvidence = {},
 }: {
   sessionId: string;
   onRemoveSelected?: (lineId: string) => void;
   onOpenContinuation?: (sessionId: string) => void;
   selectionPending?: boolean;
+  externalCandidateEvidence?: Readonly<Record<string, string>>;
 }) {
   const workflow = useImportExecution(sessionId);
   const { view, catalog, pending, error, notice, financialAction } = workflow;
@@ -162,6 +164,7 @@ export function ImportProposalCard({
             line={line}
             blockers={view.reviewBlockers}
             selected={view.selectedLineIds.includes(line.id)}
+            externalProviderEvidence={externalCandidateEvidence[line.id]}
             hasQuestion={view.questions.some(
               (q) =>
                 !("subject" in q) &&

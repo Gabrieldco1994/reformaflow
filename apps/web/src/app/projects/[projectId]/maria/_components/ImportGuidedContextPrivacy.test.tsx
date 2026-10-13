@@ -642,6 +642,29 @@ it("shows a corrected field attestation as invalidated and outside the current s
   expect(screen.getByText("Fora da seleção.")).toBeVisible();
 });
 
+it("shows provider evidence text and origin on an externally extracted candidate", () => {
+  render(
+    <ImportReviewBlockerNotice
+      line={draftLine()}
+      blockers={[]}
+      selected={false}
+      showLine
+      externalProviderEvidence="MERCADO ORIGINAL"
+    />,
+  );
+
+  const evidence = screen.getByRole("note", {
+    name: "Evidência da extração externa",
+  });
+  expect(evidence).toHaveTextContent(
+    /Texto extraído para conferência: MERCADO ORIGINAL/i,
+  );
+  expect(evidence).toHaveTextContent(
+    /PDF original.*Google Cloud Vertex AI.*Gemini 2\.5 Flash.*southamerica-east1/i,
+  );
+  expect(evidence).toHaveTextContent(/revise no documento original/i);
+});
+
 it("keeps blocker focus management and answer-field focus when pending settles", async () => {
   const onInclude = vi.fn();
   const blockers: ImportSessionViewV1["reviewBlockers"] = [

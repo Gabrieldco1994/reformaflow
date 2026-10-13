@@ -26,6 +26,7 @@ import {
 import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-read";
 import { useImportUserId } from "./useImportSessions";
 import type { ImportEntryCard } from "../_lib/import-session-read";
+import type { OcrTerminalUiState, OcrUiPresentation } from "../_types";
 import {
   isSupportedImportFormats,
   type SupportedImportFormat,
@@ -56,6 +57,7 @@ interface DocumentFailure {
   code?: ImportWireErrorCode | null;
   /** Local routing reference only; never rendered as document context. */
   attachmentId?: string;
+  ocrKind: OcrTerminalUiState | "CONSENT_REQUIRED";
 }
 interface Generation {
   userId: string | null;
@@ -71,6 +73,8 @@ interface Generation {
   adoption: { attempt: Attempt; id: string; key: string } | null;
   documentBlocker: DocumentFailure | null;
   externalProcessingAttempts: Set<string>;
+  ocrPresentation: OcrUiPresentation | null;
+  ocrCandidateEvidence: Map<string, string>;
 }
 interface Feedback {
   pending: boolean;
@@ -96,6 +100,8 @@ const newGeneration = (
   adoption: null,
   documentBlocker: null,
   externalProcessingAttempts: new Set(),
+  ocrPresentation: null,
+  ocrCandidateEvidence: new Map(),
 });
 
 /** Documentary coordinator only; server actions still own analysis eligibility. */
@@ -200,16 +206,46 @@ export function useImportDocumentFlow(
       return fresh;
     },
   });
+  const ocrFailureKind = (
+    failure: ReturnType<typeof classifyImportFailure>,
+    attempted: boolean,
+  ): DocumentFailure["ocrKind"] => {
+    if (failure.kind === "api") {
+      switch (failure.error.code) {
+        case "OCR_REQUIRED":
+          return attempted ? "ATTEMPT_UNKNOWN" : "CONSENT_REQUIRED";
+        case "CAPABILITY_DISABLED":
+          return "PRE_CALL_UNAVAILABLE";
+        case "DOCUMENT_UNREADABLE":
+        case "PDF_PASSWORD_REQUIRED":
+        case "UNSUPPORTED_DOCUMENT":
+          return "DOCUMENT_UNSAFE";
+        case "LIMIT_EXCEEDED":
+        case "SEARCH_TOO_BROAD":
+          return "BUDGET_OR_RATE_LIMIT";
+        case "INVALID_INPUT":
+          return "SAFETY_OR_MALFORMED";
+        default:
+          return attempted ? "ATTEMPT_UNKNOWN" : "PRE_CALL_UNAVAILABLE";
+      }
+    }
+    if (failure.kind === "malformed") return "SAFETY_OR_MALFORMED";
+    if (failure.kind === "http") {
+      if (failure.status === 429) return "BUDGET_OR_RATE_LIMIT";
+      if (failure.status === 400 || failure.status === 422)
+        return "SAFETY_OR_MALFORMED";
+    }
+    return attempted ? "ATTEMPT_UNKNOWN" : "PRE_CALL_UNAVAILABLE";
+  };
   const describe = (error: unknown): DocumentFailure => {
     const context = importWorkflowFailure(error);
-    const info = describeImportFailure(
-      classifyImportFailure(error),
-      "document",
-    );
+    const classified = classifyImportFailure(error);
+    const info = describeImportFailure(classified, "document");
     return {
       privateContextLost: context.privateContextLost,
       code: info.code,
       message: context.privateContextLost ? context.message : info.message,
+      ocrKind: ocrFailureKind(classified, false),
     };
   };
   const error =
@@ -224,9 +260,28 @@ export function useImportDocumentFlow(
     userId && sessionId && !generation.revoked ? (query.data ?? null) : null;
   const fail = (error: unknown, attachmentId?: string) => {
     generation.mustRead = true;
-    const failure = { ...describe(error), attachmentId };
+    const attempted = Boolean(
+      attachmentId && generation.externalProcessingAttempts.has(attachmentId),
+    );
+    const classified = classifyImportFailure(error);
+    const described = describe(error);
+    const failure = {
+      ...described,
+      attachmentId,
+      ocrKind: ocrFailureKind(classified, attempted),
+    };
     if (isPdfDocumentErrorCode(failure.code))
       generation.documentBlocker = failure;
+    const attachment = attachmentId
+      ? client
+          .getQueryData<ImportSessionViewV1>(key)
+          ?.attachments.find((candidate) => candidate.id === attachmentId)
+      : null;
+    if (attachment?.fileName.toLocaleLowerCase("en-US").endsWith(".pdf"))
+      generation.ocrPresentation = {
+        attachmentId: attachment.id,
+        kind: failure.ocrKind,
+      };
     generation.revoked = failure.privateContextLost;
     update({ pending: false, error: failure });
   };
@@ -673,8 +728,17 @@ export function useImportDocumentFlow(
       if (!active()) return;
       controller.signal.throwIfAborted();
       publish(fresh, latest.revision);
+      generation.ocrCandidateEvidence = new Map(
+        fresh.lines
+          .filter(
+            (line) =>
+              !latest.lines.some((previousLine) => previousLine.id === line.id),
+          )
+          .map((line) => [line.id, line.titulo] as const),
+      );
       if (generation.documentBlocker?.attachmentId === attachmentId)
         generation.documentBlocker = null;
+      generation.ocrPresentation = null;
       generation.mustRead = false;
       update({ pending: false, error: null });
     } catch (error) {
@@ -689,6 +753,18 @@ export function useImportDocumentFlow(
     generation.documentBlocker?.code === "OCR_REQUIRED"
       ? (generation.documentBlocker.attachmentId ?? null)
       : null;
+  const ocrUiState = generation.ocrPresentation
+    ? {
+        ...generation.ocrPresentation,
+        kind:
+          feedback.pending &&
+          generation.externalProcessingAttempts.has(
+            generation.ocrPresentation.attachmentId,
+          )
+            ? ("REQUESTING" as const)
+            : generation.ocrPresentation.kind,
+      }
+    : null;
 
   return {
     sessionId,
@@ -707,6 +783,10 @@ export function useImportDocumentFlow(
     analyze,
     consentExternalProcessing,
     ocrRequiredAttachmentId,
+    ocrUiState,
+    ocrCandidateEvidence: Object.fromEntries(
+      generation.ocrCandidateEvidence.entries(),
+    ) as Readonly<Record<string, string>>,
     ocrConsentAttempted: Boolean(
       ocrRequiredAttachmentId &&
       generation.externalProcessingAttempts.has(ocrRequiredAttachmentId),

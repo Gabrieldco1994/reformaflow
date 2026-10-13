@@ -79,10 +79,10 @@ function Conversation({
   const busy = conversation.busy || documents.busy;
   const documentBlocked =
     isPdfDocumentErrorCode(documents.error?.code) ||
-    Boolean(documents.ocrRequiredAttachmentId);
-  const ocrAttachment = documents.ocrRequiredAttachmentId
+    Boolean(documents.ocrUiState);
+  const ocrAttachment = documents.ocrUiState
     ? view?.attachments.find(
-        (attachment) => attachment.id === documents.ocrRequiredAttachmentId,
+        (attachment) => attachment.id === documents.ocrUiState?.attachmentId,
       )
     : undefined;
   const privateContextLost =
@@ -348,7 +348,11 @@ function Conversation({
             {documentBlocked ? (
               <p>
                 {ocrAttachment
-                  ? "A leitura externa deste documento só pode ser solicitada uma vez. Se você não autorizar ou ela não terminar, cancele esta importação e peça outra à Maria com um PDF textual ou CSV."
+                  ? documents.ocrUiState?.kind === "CONSENT_REQUIRED"
+                    ? "A leitura externa só ocorrerá após sua autorização e poderá ser solicitada uma única vez para este documento."
+                    : documents.ocrUiState?.kind === "REQUESTING"
+                      ? "Uma chamada externa está em andamento. Esta tela não iniciará outra para o documento."
+                      : "A leitura externa não pode continuar neste estado e não será repetida. Use uma das alternativas abaixo."
                   : "Para substituir o documento, cancele esta importação e peça outra à Maria com um arquivo legível. Não há confirmação financeira nesta etapa."}
               </p>
             ) : (
@@ -360,7 +364,7 @@ function Conversation({
             )}
             {view && ocrAttachment && (
               <ImportOcrFoundation
-                triggerCode="OCR_REQUIRED"
+                state={documents.ocrUiState}
                 scope={{
                   key: JSON.stringify([
                     conversation.userId,
@@ -370,13 +374,6 @@ function Conversation({
                   ]),
                   fileName: ocrAttachment.fileName,
                 }}
-                pending={documents.busy}
-                attempted={documents.ocrConsentAttempted}
-                errorMessage={
-                  documents.ocrConsentAttempted
-                    ? documents.error?.message
-                    : null
-                }
                 onConsent={() =>
                   void documents.consentExternalProcessing(ocrAttachment.id)
                 }
@@ -422,6 +419,9 @@ function Conversation({
                   isPendingImportQuestion(q) &&
                   q.lineIds.includes(line.id),
               )}
+              externalProviderEvidence={
+                documents.ocrCandidateEvidence?.[line.id]
+              }
               pending={busy || Boolean(error) || Boolean(documents.error)}
               onInclude={
                 view.actions.includes("RESOLVE")
@@ -495,6 +495,7 @@ function Conversation({
           <ImportProposalCard
             sessionId={sessionId}
             onOpenContinuation={openContinuation}
+            externalCandidateEvidence={documents.ocrCandidateEvidence ?? {}}
             selectionPending={
               busy || Boolean(error) || Boolean(documents.error)
             }
