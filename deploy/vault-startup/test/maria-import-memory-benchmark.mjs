@@ -73,6 +73,7 @@ const METRIC_FIELDS = [
   "status_code",
 ];
 const ACTIVE_CONTAINERS = new Set();
+let diagnosticStage = "initialization";
 const POSITIVE_METRIC_FIELDS = [
   "concurrency",
   "input_bytes",
@@ -84,6 +85,10 @@ const POSITIVE_METRIC_FIELDS = [
   "final_memory_current_bytes",
   "final_memory_peak_bytes",
 ];
+
+function markStage(stage) {
+  diagnosticStage = stage;
+}
 
 const SQLITE_CLONE_SCRIPT = String.raw`
 import json, sqlite3, sys
@@ -480,6 +485,7 @@ function createDataDirectory(root, label) {
 }
 
 function runContainer(label, dataDirectory, image, secret, registerEnabled) {
+  markStage(`container-start-${label}`);
   const name = `rfm-${process.env.GITHUB_RUN_ID ?? "local"}-${process.env.GITHUB_RUN_ATTEMPT ?? "1"}-${label}-${randomBytes(3).toString("hex")}`;
   ACTIVE_CONTAINERS.add(name);
   const env = {
@@ -571,6 +577,7 @@ function requireHttp(result, expectedStatus, label) {
 }
 
 async function waitReady(api, timeoutMs = 180_000) {
+  markStage("api-readiness");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const inspect = JSON.parse(runDocker(["inspect", api.name]))[0];
@@ -595,6 +602,7 @@ async function createSeedUsers(api, secret) {
   const users = [];
   const suffix = randomBytes(6).toString("hex");
   for (let index = 0; index < REGISTRATION_CALLS; index += 1) {
+    markStage("synthetic-registration");
     const registration = readJson(api, "/auth/register", {
       method: "POST",
       body: {
@@ -611,6 +619,7 @@ async function createSeedUsers(api, secret) {
     assert.ok(registered.token.length > 20);
     const user = registered.user;
     const headers = { token: registered.token };
+    markStage("synthetic-project-creation");
     const project = requireHttp(
       await readJson(api, "/projects", {
         method: "POST",
@@ -623,6 +632,7 @@ async function createSeedUsers(api, secret) {
       201,
       "synthetic PESSOAL project creation",
     );
+    markStage("synthetic-card-creation");
     const card = requireHttp(
       await readJson(api, `/projects/${project.id}/credit-cards`, {
         method: "POST",
@@ -640,6 +650,7 @@ async function createSeedUsers(api, secret) {
       201,
       "synthetic credit-card creation",
     );
+    markStage("synthetic-session-creation");
     const session = requireHttp(
       await readJson(api, "/import-sessions", {
         method: "POST",
@@ -684,6 +695,7 @@ function cloneDatabase(source, destination) {
 
 async function verifyClonedUsers(api, users) {
   for (const user of users) {
+    markStage("cloned-user-authentication");
     const response = requireHttp(
       await readJson(api, "/auth/me", { token: user.token }),
       200,
@@ -784,6 +796,7 @@ function parseProbeOutput(text) {
 }
 
 function sampleMemory(api) {
+  markStage("live-cgroup-memory-sample");
   const inspect = dockerInspect(api);
   assert.equal(
     inspect.State.Running,
@@ -885,6 +898,7 @@ function createAttachmentRequest(
 }
 
 async function reserveAttachment(api, user, attachment) {
+  markStage("private-attachment-reservation");
   const view = requireHttp(
     await readJson(api, `/import-sessions/${user.sessionId}/attachments`, {
       method: "POST",
@@ -903,6 +917,7 @@ async function reserveAttachment(api, user, attachment) {
 }
 
 function beginRawUpload(api, user, attachment, bytes) {
+  markStage("private-content-put");
   const port = Number(new URL(api.origin).port);
   const requestPath = `/import-sessions/${user.sessionId}/attachments/${attachment.id}/content`;
   let settled = false;
@@ -1087,11 +1102,15 @@ async function withMeasuredContainer(
   const scenarioUsers = users.map((user) => ({ ...user }));
   let api;
   try {
+    markStage("sqlite-backup-clone");
     cloneDatabase(seedDatabase, database);
+    markStage("measured-container-start");
     api = runContainer(label, dataDirectory, image, secret, false);
     await waitReady(api);
     await verifyClonedUsers(api, scenarioUsers);
+    markStage("memory-baseline");
     const baseline = sampleMemory(api);
+    markStage("measured-workload");
     const result = await work({
       api,
       dataDirectory,
@@ -1099,6 +1118,7 @@ async function withMeasuredContainer(
       baseline,
       users: scenarioUsers,
     });
+    markStage("memory-final-sample");
     const final = sampleMemory(api);
     assert.equal(
       dockerInspect(api).State.Running,
@@ -1140,6 +1160,7 @@ async function runUploadRung({
     async ({ api, dataDirectory, database, users: selectedUsers }) => {
       selectedUsers = selectedUsers.slice(0, concurrency);
       const attachments = [];
+      markStage("upload-reservation");
       for (const user of selectedUsers) {
         const attachment = createAttachmentRequest(user, fixture.bytes);
         await reserveAttachment(api, user, attachment);
@@ -1149,6 +1170,7 @@ async function runUploadRung({
         beginRawUpload(api, user, attachments[index], fixture.bytes),
       );
       try {
+        markStage("upload-overlap-first-chunk");
         const firstChunks = await Promise.all(
           uploads.map((upload) => upload.writeFirstChunk()),
         );
@@ -1170,6 +1192,7 @@ async function runUploadRung({
                 "g2",
                 "blob",
               );
+              markStage("upload-overlap-verified");
               return temporaryBlobHasBytes(blob) && !uploads[index].settled;
             }),
           "real server-side upload overlap was not observed",
@@ -1182,6 +1205,7 @@ async function runUploadRung({
           concurrency,
         );
         for (const upload of uploads) upload.finishAfterFirstChunk();
+        markStage("upload-stream-completion");
         const responses = await Promise.all(
           uploads.map((upload) => upload.responsePromise),
         );
@@ -1250,6 +1274,7 @@ async function runPdfRung({
     async ({ api, database, users: selectedUsers }) => {
       selectedUsers = selectedUsers.slice(0, concurrency);
       const attachments = [];
+      markStage("pdf-reservation-and-upload");
       for (const user of selectedUsers) {
         const attachment = createAttachmentRequest(user, fixture.bytes);
         await reserveAttachment(api, user, attachment);
@@ -1267,6 +1292,7 @@ async function runPdfRung({
       }
 
       const analyses = selectedUsers.map((user, index) => {
+        markStage("pdf-analysis-request");
         const pending = readJson(
           api,
           `/import-sessions/${user.sessionId}/attachments/${attachments[index].id}/analyze`,
@@ -1283,6 +1309,7 @@ async function runPdfRung({
         );
         return pending;
       });
+      markStage("pdf-parser-overlap-proof");
       const overlap = await waitForState(
         api,
         database,
@@ -1294,6 +1321,7 @@ async function runPdfRung({
         "real server-side PDF parser overlap was not observed",
         30_000,
       );
+      markStage("pdf-analysis-results");
       assert.equal(overlap.analyzingCount, concurrency);
       assert.equal(overlap.analyzingUserCount, concurrency);
       const settled = await Promise.all(analyses);
@@ -1352,6 +1380,7 @@ async function runBoundaryChecks({
   await withMeasuredContainer(
     { root, image, secret, label, users, seedDatabase },
     async ({ api, database, users: scenarioUsers }) => {
+      markStage("near-file-limit-success");
       const nearView = await uploadAndAnalyze(
         api,
         scenarioUsers[0],
@@ -1365,6 +1394,7 @@ async function runBoundaryChecks({
         PDF_LIMITS.fileBytes + 1,
         "synthetic-file-over.pdf",
       );
+      markStage("file-size-limit-rejection");
       const fileResult = await readJson(
         api,
         `/import-sessions/${scenarioUsers[1].sessionId}/attachments`,
@@ -1380,6 +1410,7 @@ async function runBoundaryChecks({
       );
       assert.equal(fileResult.payload?.code, "LIMIT_EXCEEDED");
 
+      markStage("page-limit-rejection");
       const pageResult = await uploadAndExpectLimit(
         api,
         scenarioUsers[1],
@@ -1392,6 +1423,11 @@ async function runBoundaryChecks({
         [scenarioUsers[2], fixtures.operatorsOver],
         [scenarioUsers[3], fixtures.textOver],
       ]) {
+        markStage(
+          fixture === fixtures.operatorsOver
+            ? "operator-limit-rejection"
+            : "text-limit-rejection",
+        );
         const response = await uploadAndExpectLimit(api, user, fixture.bytes);
         assert.equal(response.problemCode, "LIMIT_EXCEEDED");
       }
@@ -1456,6 +1492,7 @@ function cleanupContainers(containers) {
 }
 
 export async function runBenchmark() {
+  diagnosticStage = "initialization";
   let paths;
   try {
     paths = assertRunnerPaths();
@@ -1472,9 +1509,11 @@ export async function runBenchmark() {
   const temporaryDirectories = [];
   removeFile(output);
   let stage = "pdf-fixture-validation";
+  diagnosticStage = "fixture-parser-boundary-validation";
   try {
     const fixtures = await buildBenchmarkFixtures();
     stage = "seed-api";
+    markStage("seed-api-setup");
     const seedData = createDataDirectory(root, "data-seed");
     temporaryDirectories.push(seedData);
     const seedApi = runContainer("seed", seedData, image, secret, true);
@@ -1486,6 +1525,7 @@ export async function runBenchmark() {
 
     const rows = [];
     stage = "pdf-max-c1";
+    markStage(stage);
     rows.push(
       await runPdfRung({
         root,
@@ -1498,6 +1538,7 @@ export async function runBenchmark() {
       }),
     );
     stage = "pdf-boundary-contracts";
+    markStage(stage);
     await runBoundaryChecks({
       root,
       image,
@@ -1507,6 +1548,7 @@ export async function runBenchmark() {
       fixtures,
     });
     stage = "pdf-max-c2";
+    markStage(stage);
     rows.push(
       await runPdfRung({
         root,
@@ -1520,6 +1562,7 @@ export async function runBenchmark() {
     );
     for (const concurrency of [1, 2, 4]) {
       stage = `upload-max-c${concurrency}`;
+      markStage(stage);
       const row = await runUploadRung({
         root,
         image,
@@ -1533,6 +1576,7 @@ export async function runBenchmark() {
     }
 
     stage = "metrics-validation";
+    markStage(stage);
     const report = serializeMetrics(rows);
     assert.deepEqual(
       report.rows.map(({ label }) => label),
@@ -1545,6 +1589,7 @@ export async function runBenchmark() {
       ],
     );
     stage = "benchmark-cleanup";
+    markStage(stage);
     cleanupContainers([...ACTIVE_CONTAINERS]);
     for (const directory of temporaryDirectories) removeTree(directory);
     temporaryDirectories.length = 0;
@@ -1558,7 +1603,7 @@ export async function runBenchmark() {
   } catch {
     removeFile(output);
     throw new Error(
-      `benchmark failed during ${stage}; no complete metrics artifact was emitted`,
+      `benchmark failed during ${stage}/${diagnosticStage}; no complete metrics artifact was emitted`,
     );
   } finally {
     if (ACTIVE_CONTAINERS.size > 0) cleanupContainers([...ACTIVE_CONTAINERS]);
