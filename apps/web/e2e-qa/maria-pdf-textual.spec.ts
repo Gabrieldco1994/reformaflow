@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { expect, test, type Page, type Response } from "@playwright/test";
+import { expect, test, type Response } from "@playwright/test";
 import {
   isPendingImportQuestion,
   type ImportSessionViewV1,
@@ -40,8 +40,6 @@ test.afterAll(async () => {
   if (fixtures) await fs.rm(fixtures, { recursive: true, force: true });
 });
 
-const sessionFromUrl = (page: Page) =>
-  new URL(page.url()).searchParams.get("importSessionId") ?? "";
 const sessionResponse =
   (sessionId: string, suffix = "", method = "GET") =>
   (response: Response) =>
@@ -82,7 +80,7 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
     await expect(files.getByRole("listitem")).toHaveCount(2);
     await expect(files).toContainText("textual-invoice.pdf");
     await expect(files).toContainText("renamed-textual-invoice.pdf");
-    expect(sessionFromUrl(page)).toBe("");
+    expect(new URL(page.url()).searchParams.has("importSessionId")).toBe(false);
     await journey.noFinance();
     await evidence.capture("local-files-before-documentary-consent");
     const consent = page.getByRole("button", {
@@ -126,7 +124,10 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
     await expect(
       page.getByRole("region", { name: "Conversa da importação", exact: true }),
     ).toBeVisible();
-    expect(sessionFromUrl(page)).toBe(sessionId);
+    expect(
+      new URL(page.url()).searchParams.has("importSessionId"),
+      "Reload must preserve the private session without restoring its ID to the URL",
+    ).toBe(false);
     await expect(journey.filePicker).toHaveCount(0);
     assertPurchases(await view());
     await journey.noFinance();
@@ -445,7 +446,9 @@ for (const fixture of [
       await journey.filePicker.setInputFiles(
         path.join(fixtures, `${fixture.name}-invoice.pdf`),
       );
-      expect(sessionFromUrl(page)).toBe("");
+      expect(new URL(page.url()).searchParams.has("importSessionId")).toBe(
+        false,
+      );
       await journey.noFinance();
       await evidence.capture("local-document-before-consent");
       // Learn the exact attachment URL from the real reservation response BEFORE analysis.
@@ -535,6 +538,10 @@ for (const fixture of [
           exact: true,
         }),
       ).toBeVisible();
+      expect(
+        new URL(page.url()).searchParams.has("importSessionId"),
+        "Reload must preserve the private session without restoring its ID to the URL",
+      ).toBe(false);
       await assertUnpublished();
       await evidence.capture("reloaded-unpublished-no-financial-effects");
     } catch (error) {

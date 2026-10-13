@@ -39,6 +39,7 @@ import {
   gotoValidatedMariaHref,
   waitForMariaEntryButton,
 } from "./helpers/maria-entry-navigation";
+import { sessionIdFromAnalyzeResponseUrl } from "./helpers/pdf-live-journey";
 
 const apiURL = process.env.API_URL!;
 const fixtures = path.resolve(__dirname, "fixtures");
@@ -458,13 +459,25 @@ for (const phase of ["upload", "confirmation"] as const) {
           exact: true,
         });
         await assertTouchable(consent, evidence);
+        const analyzed = page.waitForResponse(
+          (response) =>
+            response.request().method() === "POST" &&
+            /\/import-sessions\/[^/]+\/attachments\/[^/]+\/analyze$/.test(
+              new URL(response.url()).pathname,
+            ),
+          { timeout: 120_000 },
+        );
         await consent.click();
+        const analyzedResponse = await analyzed;
+        await evidence.checkApi(analyzedResponse);
         await expect(
           page.getByText(identicalImportNotice, { exact: true }),
         ).toBeVisible();
-        sessionId =
-          new URL(page.url()).searchParams.get("importSessionId") ?? "";
-        expect(sessionId).not.toBe("");
+        sessionId = sessionIdFromAnalyzeResponseUrl(analyzedResponse.url());
+        expect(
+          new URL(page.url()).searchParams.has("importSessionId"),
+          "The stable import URL must not expose the internal session ID",
+        ).toBe(false);
         const activeAgentChatRequests: string[] = [];
         page.on("request", (request) => {
           if (isAgentChatPost(request))
@@ -497,9 +510,10 @@ for (const phase of ["upload", "confirmation"] as const) {
             exact: true,
           }),
         ).toBeVisible();
-        expect(new URL(page.url()).searchParams.get("importSessionId")).toBe(
-          sessionId,
-        );
+        expect(
+          new URL(page.url()).searchParams.has("importSessionId"),
+          "Reload must preserve the private session without restoring its ID to the URL",
+        ).toBe(false);
         await expect(picker).toHaveCount(0);
         await expect(
           page.getByRole("button", {
@@ -1062,18 +1076,24 @@ for (const phase of ["upload", "confirmation"] as const) {
         await assertReadableMoney(receipt, true);
         await expect(continuationAction).toBeVisible();
         await evidence.capture("terminal-receipt-persists-no-reupload");
-        await continuationAction.click();
-        await expect(page).toHaveURL(
-          new RegExp(
-            `/projects/${projectId}/maria\\?importSessionId=${continuationSessionId}$`,
-          ),
+        const continuationRead = page.waitForResponse(
+          (response) =>
+            response.request().method() === "GET" &&
+            new URL(response.url()).pathname ===
+              `/import-sessions/${continuationSessionId}`,
+          { timeout: 120_000 },
         );
+        await continuationAction.click();
+        await evidence.checkApi(await continuationRead);
         const continuationConversation = page.getByRole("region", {
           name: "Conversa da importação",
           exact: true,
         });
         await expect(continuationConversation).toBeVisible();
         await expect(continuationConversation).toBeFocused();
+        await expect
+          .poll(() => new URL(page.url()).searchParams.has("importSessionId"))
+          .toBe(false);
         await expect
           .poll(async () => {
             const current = (await get(
