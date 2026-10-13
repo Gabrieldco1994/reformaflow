@@ -85,6 +85,9 @@ function Conversation({
         (attachment) => attachment.id === documents.ocrUiState?.attachmentId,
       )
     : undefined;
+  const ocrActivationAvailable =
+    documents.ocrUiState?.kind === "CONSENT_REQUIRED" ||
+    documents.ocrUiState?.kind === "REQUESTING";
   const privateContextLost =
     error?.privateContextLost || documents.error?.privateContextLost;
   const guided =
@@ -341,7 +344,9 @@ function Conversation({
             <h3 className="font-semibold">
               {documentBlocked
                 ? ocrAttachment
-                  ? "Este documento precisa de leitura externa"
+                  ? ocrActivationAvailable
+                    ? "Este documento pode usar leitura externa"
+                    : "A leitura externa não está disponível"
                   : "Este documento não pode ser analisado"
                 : "Nenhuma compra para revisar"}
             </h3>
@@ -419,9 +424,6 @@ function Conversation({
                   isPendingImportQuestion(q) &&
                   q.lineIds.includes(line.id),
               )}
-              externalProviderEvidence={
-                documents.ocrCandidateEvidence?.[line.id]
-              }
               pending={busy || Boolean(error) || Boolean(documents.error)}
               onInclude={
                 view.actions.includes("RESOLVE")
@@ -495,7 +497,6 @@ function Conversation({
           <ImportProposalCard
             sessionId={sessionId}
             onOpenContinuation={openContinuation}
-            externalCandidateEvidence={documents.ocrCandidateEvidence ?? {}}
             selectionPending={
               busy || Boolean(error) || Boolean(documents.error)
             }

@@ -17,6 +17,7 @@ import {
 } from "./ImportFocusedDraftQuestion";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
 import { OcrCandidateEvidence } from "./OcrCandidateEvidence";
+import { lineOcrEvidence } from "../_types";
 
 const FACT_LABEL: Record<ImportDeclaredFactViewV1["status"], string> = {
   CURRENT: "Informado por você",
@@ -96,7 +97,6 @@ export function ImportReviewBlockerNotice({
   onRemove,
   pending = false,
   hasQuestion = false,
-  externalProviderEvidence,
 }: {
   line: ImportPurchaseContextLine;
   blockers: ImportSessionViewV1["reviewBlockers"];
@@ -106,7 +106,6 @@ export function ImportReviewBlockerNotice({
   onRemove?: (lineId: string) => void;
   pending?: boolean;
   hasQuestion?: boolean;
-  externalProviderEvidence?: string;
 }) {
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -133,6 +132,7 @@ export function ImportReviewBlockerNotice({
   const purchaseContext = formatImportPurchaseContext(line);
   const purchaseIdentity = formatImportPurchaseIdentity(line);
   const purchaseAmount = formatImportPurchaseAmountContext(line);
+  const externalProviderEvidence = lineOcrEvidence(line);
   return (
     <article
       aria-labelledby={`${id}-line`}
@@ -142,7 +142,7 @@ export function ImportReviewBlockerNotice({
         {purchaseContext}
       </h4>
       {externalProviderEvidence && (
-        <OcrCandidateEvidence text={externalProviderEvidence} />
+        <OcrCandidateEvidence text={externalProviderEvidence.text} />
       )}
       {visible && (
         <>

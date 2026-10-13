@@ -36,6 +36,9 @@ describe("ImportOcrFoundation", () => {
       /PDFs textuais continuam locais.*mistos ou pesquisáveis não são enviados/i,
     );
     expect(disclosure).toHaveTextContent(/PDF original completo/i);
+    expect(disclosure).toHaveTextContent(
+      /metadados.*conteúdo.*não visível ou incorporado/i,
+    );
     expect(disclosure).toHaveTextContent(/Google Cloud Vertex AI/i);
     expect(disclosure).toHaveTextContent(/Gemini 2\.5 Flash/i);
     expect(disclosure).toHaveTextContent(/southamerica-east1/i);
@@ -82,14 +85,29 @@ describe("ImportOcrFoundation", () => {
   });
 
   it.each([
-    ["PRE_CALL_UNAVAILABLE", /leitura externa indisponível antes do envio/i],
-    ["DOCUMENT_UNSAFE", /documento não é seguro ou legível/i],
-    ["SAFETY_OR_MALFORMED", /bloqueada por segurança.*fora do formato seguro/i],
-    ["BUDGET_OR_RATE_LIMIT", /limite de uso ou orçamento/i],
     [
-      "ATTEMPT_UNKNOWN",
-      /resultado é desconhecido.*não faremos outra chamada externa/i,
+      "OCR_UNAVAILABLE",
+      /OCR externo está indisponível antes do envio.*entrada manual/i,
     ],
+    [
+      "OCR_SAFETY_BLOCKED",
+      /provedor bloqueou a leitura.*Nenhum lançamento foi criado/i,
+    ],
+    [
+      "OCR_MALFORMED_RESPONSE",
+      /provedor devolveu uma leitura inválida.*Nenhum lançamento foi criado/i,
+    ],
+    [
+      "OCR_BUDGET_EXHAUSTED",
+      /limite diário de OCR foi atingido antes do envio/i,
+    ],
+    [
+      "OCR_ATTEMPT_UNKNOWN",
+      /não foi possível confirmar o resultado.*não pode ser repetida/i,
+    ],
+    ["DOCUMENT_UNREADABLE", /não foi possível ler este documento/i],
+    ["PDF_PASSWORD_REQUIRED", /protegido por senha.*não envie sua senha/i],
+    ["UNSUPPORTED_DOCUMENT", /documento.*não é suportado/i],
   ] satisfies ReadonlyArray<[OcrUiState["kind"], RegExp]>)(
     "renders terminal typed state %s with fallback choices and no retry CTA",
     (kind, copy) => {

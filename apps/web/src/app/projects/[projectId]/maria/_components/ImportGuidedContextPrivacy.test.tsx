@@ -645,11 +645,24 @@ it("shows a corrected field attestation as invalidated and outside the current s
 it("shows provider evidence text and origin on an externally extracted candidate", () => {
   render(
     <ImportReviewBlockerNotice
-      line={draftLine()}
+      line={
+        {
+          ...draftLine(),
+          ocrEvidence: {
+            origin: "GOOGLE_VERTEX_AI",
+            model: "gemini-2.5-flash",
+            region: "southamerica-east1",
+            attachmentId: "attachment",
+            artifactFingerprint: "a".repeat(64),
+            candidateFingerprint: "b".repeat(64),
+            pageNumber: 1,
+            text: "MERCADO ORIGINAL",
+          },
+        } as ImportSessionDraftLineV1
+      }
       blockers={[]}
       selected={false}
       showLine
-      externalProviderEvidence="MERCADO ORIGINAL"
     />,
   );
 

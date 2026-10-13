@@ -4,16 +4,21 @@ import { useId, useRef, useState } from "react";
 import type { OcrTerminalUiState, OcrUiScope, OcrUiState } from "../_types";
 
 const TERMINAL_COPY: Record<OcrTerminalUiState, string> = {
-  PRE_CALL_UNAVAILABLE:
-    "Leitura externa indisponível antes do envio. O PDF não foi enviado ao provedor.",
-  DOCUMENT_UNSAFE:
-    "Este documento não é seguro ou legível para a leitura externa desta versão.",
-  SAFETY_OR_MALFORMED:
-    "A resposta foi bloqueada por segurança ou veio fora do formato seguro. Nenhum candidato foi aceito.",
-  BUDGET_OR_RATE_LIMIT:
-    "A leitura externa parou por limite de uso ou orçamento. Nenhum candidato foi aceito.",
-  ATTEMPT_UNKNOWN:
-    "A chamada externa foi iniciada, mas o resultado é desconhecido. Para evitar processamento duplicado, não faremos outra chamada externa para este documento.",
+  OCR_UNAVAILABLE:
+    "O OCR externo está indisponível antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
+  OCR_SAFETY_BLOCKED:
+    "O provedor bloqueou a leitura deste documento por segurança. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+  OCR_MALFORMED_RESPONSE:
+    "O provedor devolveu uma leitura inválida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+  OCR_ATTEMPT_UNKNOWN:
+    "Não foi possível confirmar o resultado do OCR e esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+  OCR_BUDGET_EXHAUSTED:
+    "O limite diário de OCR foi atingido antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
+  DOCUMENT_UNREADABLE:
+    "Não foi possível ler este documento. Substitua por um arquivo legível ou cancele a importação.",
+  PDF_PASSWORD_REQUIRED:
+    "Este PDF está protegido por senha. Substitua por uma cópia sem senha ou cancele a importação. Não envie sua senha à Maria.",
+  UNSUPPORTED_DOCUMENT: "Um dos documentos desta importação não é suportado.",
 };
 
 function FallbackChoices() {
@@ -68,17 +73,20 @@ function ConsentDisclosure({
         </p>
         <p>
           Se você autorizar, o <strong>PDF original completo</strong> será
-          enviado ao <strong>Google Cloud Vertex AI</strong>, modelo{" "}
+          enviado externamente, incluindo seus <strong>metadados</strong> e
+          qualquer conteúdo potencialmente não visível ou incorporado, ao{" "}
+          <strong>Google Cloud Vertex AI</strong>, modelo{" "}
           <strong>Gemini 2.5 Flash</strong>, na região{" "}
           <strong>southamerica-east1</strong>, exclusivamente para extrair
-          transações para este rascunho.
+          transações para este rascunho. Esta versão não cria uma derivada
+          raster local para substituir esse envio.
         </p>
         <p>
-          O resultado e sua evidência ficam no rascunho privado por até sete
-          dias sem edição. O original privado segue a mesma retenção enquanto a
-          sessão estiver pendente e é liberado ao concluir ou cancelar quando
-          não houver outra referência autorizada. O registro mínimo de
-          consentimento e provedor segue a política de auditoria.
+          O conteúdo enviado — original completo, resultado e evidência — fica
+          no rascunho privado por no máximo sete dias sem edição. Ele é liberado
+          antes ao concluir ou cancelar quando não houver outra referência
+          autorizada. O registro mínimo de consentimento e provedor segue a
+          política de auditoria.
         </p>
         <p>
           Todo candidato exige revisão humana. A leitura e a correção do
@@ -108,8 +116,9 @@ function ConsentDisclosure({
             className="h-5 w-5 shrink-0"
           />
           <span className="min-w-0 break-words">
-            Autorizo o envio do PDF original completo para o processamento
-            externo descrito acima
+            Autorizo o envio do PDF original completo, incluindo metadados e
+            conteúdo potencialmente não visível ou incorporado, para o
+            processamento externo descrito acima
           </span>
         </label>
         <button

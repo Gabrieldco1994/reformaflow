@@ -8,6 +8,7 @@ import { useImportDocumentFlow } from "./useImportDocumentFlow";
 import { importRoot } from "../_lib/import-session-keys";
 
 const api = vi.hoisted(() => ({
+  answerImportDocumentaryQuestion: vi.fn(),
   getFullImportSession: vi.fn(),
   reserveImportSessionAttachments: vi.fn(),
   uploadImportSessionAttachment: vi.fn(),
@@ -22,28 +23,60 @@ vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ user: auth.user }),
 }));
 
-const view = (
-  over: Partial<ImportSessionViewV1> = {},
-): ImportSessionViewV1 => ({
-  id: "s1",
-  ownerProjectId: "p1",
-  cardId: "c1",
-  state: "DRAFT",
-  revision: 1,
-  expiresAt: null,
-  attachments: [],
-  questions: [],
-  declaredFacts: [],
-  reviewBlockers: [],
-  searchComplete: false,
-  proposal: null,
-  confirmation: null,
-  receipt: null,
-  version: 1,
-  lines: [],
-  selectedLineIds: [],
-  actions: ["UPLOAD", "CANCEL"],
-  ...over,
+const view = (over: Record<string, unknown> = {}): ImportSessionViewV1 =>
+  ({
+    id: "s1",
+    ownerProjectId: "p1",
+    cardId: "c1",
+    state: "DRAFT",
+    revision: 1,
+    expiresAt: null,
+    attachments: [],
+    questions: [],
+    declaredFacts: [],
+    reviewBlockers: [],
+    ocrCapability: {
+      status: "DISABLED",
+      consentPolicyVersion: 1,
+      provider: "GOOGLE_VERTEX_AI",
+      purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+      region: "southamerica-east1",
+      retentionDays: 7,
+      sendsFullOriginal: true,
+      includesMetadataAndEmbeddedContent: true,
+      attachments: [],
+    },
+    searchComplete: false,
+    proposal: null,
+    confirmation: null,
+    receipt: null,
+    version: 1,
+    lines: [],
+    selectedLineIds: [],
+    actions: ["UPLOAD", "CANCEL"],
+    ...over,
+  }) as ImportSessionViewV1;
+const availableOcr = (
+  attachmentId = "a1",
+  consentedRequestId: string | null = null,
+  consentedRevision: number | null = null,
+) => ({
+  status: "AVAILABLE",
+  consentPolicyVersion: 1,
+  provider: "GOOGLE_VERTEX_AI",
+  purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+  region: "southamerica-east1",
+  retentionDays: 7,
+  sendsFullOriginal: true,
+  includesMetadataAndEmbeddedContent: true,
+  attachments: [
+    {
+      attachmentId,
+      questionId: `ocrq_${"a".repeat(64)}`,
+      consentedRequestId,
+      consentedRevision,
+    },
+  ],
 });
 const pdf = () => new File(["%PDF-text"], "fatura.pdf", { type: "" });
 function setup(sessionId: string | null = "s1") {
@@ -139,6 +172,7 @@ describe("textual PDF documentary coordinator", () => {
     api.getFullImportSession.mockResolvedValue(
       view({
         actions: ["ANALYZE", "CANCEL"],
+        ocrCapability: availableOcr(),
         attachments: [
           {
             id: "a1",
@@ -193,6 +227,7 @@ describe("textual PDF documentary coordinator", () => {
   it("calls the same analyze endpoint once with the exact v2 consent body and adopts unselected pending review", async () => {
     const attached = view({
       actions: ["ANALYZE", "CANCEL"],
+      ocrCapability: availableOcr(),
       attachments: [
         {
           id: "a1",
@@ -204,9 +239,21 @@ describe("textual PDF documentary coordinator", () => {
         },
       ],
     });
-    const materialized = view({
+    const consentRequestId = "12345678-1234-4123-8123-123456789abc";
+    const answerRequestId = "22345678-1234-4123-8123-123456789abc";
+    const consented = view({
       revision: 2,
+      actions: ["ANALYZE", "CANCEL"],
+      attachments: attached.attachments,
+      ocrCapability: availableOcr("a1", consentRequestId, 2),
+    });
+    const materialized = view({
+      revision: 3,
       actions: ["RESOLVE", "CANCEL"],
+      ocrCapability: {
+        ...availableOcr(),
+        attachments: [],
+      },
       attachments: [
         {
           ...attached.attachments[0],
@@ -223,13 +270,23 @@ describe("textual PDF documentary coordinator", () => {
           fornecedor: null,
           tipoDespesa: null,
           categoriaMaoDeObra: null,
-          amountMeaning: "TOTAL_PURCHASE",
-          amountCents: 12_345,
+          amountMeaning: "UNKNOWN",
+          amountCents: -12_345,
           installmentCount: 1,
           dataCompra: "2026-10-10",
           firstDueDate: null,
           targets: [],
           decision: { kind: "UNRESOLVED" },
+          ocrEvidence: {
+            origin: "GOOGLE_VERTEX_AI",
+            model: "gemini-2.5-flash",
+            region: "southamerica-east1",
+            attachmentId: "a1",
+            artifactFingerprint: "b".repeat(64),
+            candidateFingerprint: "c".repeat(64),
+            pageNumber: 1,
+            text: "MERCADO OCR - R$ 123,45",
+          },
         },
       ],
       reviewBlockers: [
@@ -241,6 +298,7 @@ describe("textual PDF documentary coordinator", () => {
       ],
     });
     api.getFullImportSession.mockResolvedValue(attached);
+    api.answerImportDocumentaryQuestion.mockResolvedValue(consented);
     api.analyzeImportAttachment
       .mockRejectedValueOnce(
         new ApiResponseError("OCR", 422, {
@@ -252,9 +310,9 @@ describe("textual PDF documentary coordinator", () => {
         }),
       )
       .mockResolvedValueOnce(materialized);
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(
-      "12345678-1234-4123-8123-123456789abc",
-    );
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce(consentRequestId)
+      .mockReturnValueOnce(answerRequestId);
     const { result } = setup();
     await waitFor(() => expect(result.current.view).not.toBeNull());
 
@@ -267,14 +325,39 @@ describe("textual PDF documentary coordinator", () => {
       await result.current.consentExternalProcessing("a1");
     });
 
+    expect(api.answerImportDocumentaryQuestion).toHaveBeenCalledWith(
+      "s1",
+      {
+        version: 1,
+        answerRequestId,
+        expectedRevision: 1,
+        questionId: `ocrq_${"a".repeat(64)}`,
+        channel: "TEXT",
+        input: { kind: "VALUE", text: "ALLOW_EXTERNAL_PROCESSING" },
+        answer: {
+          field: "externalOcrConsent",
+          value: "ALLOW_EXTERNAL_PROCESSING",
+          attachmentId: "a1",
+          requestId: consentRequestId,
+          consentPolicyVersion: 1,
+          provider: "GOOGLE_VERTEX_AI",
+          purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+          region: "southamerica-east1",
+          retentionDays: 7,
+          sendsFullOriginal: true,
+          includesMetadataAndEmbeddedContent: true,
+        },
+      },
+      expect.any(AbortSignal),
+    );
     expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
     expect(api.analyzeImportAttachment.mock.calls[1].slice(0, 3)).toEqual([
       "s1",
       "a1",
       {
         version: 2,
-        expectedRevision: 1,
-        requestId: "12345678-1234-4123-8123-123456789abc",
+        expectedRevision: 2,
+        requestId: consentRequestId,
         consentExternalProcessing: true,
       },
     ]);
@@ -291,19 +374,48 @@ describe("textual PDF documentary coordinator", () => {
       expect.objectContaining({ resolution: "NEEDS_DECLARATION" }),
     ]);
     expect(result.current.view?.actions).not.toContain("PREPARE");
-    expect(result.current.ocrCandidateEvidence).toEqual({
-      "ocr-line": "MERCADO OCR",
+    expect(result.current.view?.lines[0]).toMatchObject({
+      amountMeaning: "UNKNOWN",
+      amountCents: -12_345,
+      ocrEvidence: { text: "MERCADO OCR - R$ 123,45" },
     });
+    expect(
+      api.answerImportDocumentaryQuestion.mock.invocationCallOrder[0],
+    ).toBeLessThan(api.analyzeImportAttachment.mock.invocationCallOrder[1]);
     expect(result.current.error).toBeNull();
   });
 
   it.each([
-    [new ApiTimeoutError(), "ATTEMPT_UNKNOWN"],
+    [new ApiTimeoutError(), "OCR_ATTEMPT_UNKNOWN"],
     [
-      Object.assign(new Error("bad response"), {
-        name: "ImportMalformedResponseError",
+      new ApiResponseError("Malformed", 422, {
+        code: "OCR_MALFORMED_RESPONSE",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 2,
+        reason: null,
       }),
-      "SAFETY_OR_MALFORMED",
+      "OCR_MALFORMED_RESPONSE",
+    ],
+    [
+      new ApiResponseError("Safety", 422, {
+        code: "OCR_SAFETY_BLOCKED",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 2,
+        reason: null,
+      }),
+      "OCR_SAFETY_BLOCKED",
+    ],
+    [
+      new ApiResponseError("Budget", 429, {
+        code: "OCR_BUDGET_EXHAUSTED",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 2,
+        reason: null,
+      }),
+      "OCR_BUDGET_EXHAUSTED",
     ],
     [
       new ApiResponseError("Unexpected repeated OCR gate", 422, {
@@ -313,13 +425,14 @@ describe("textual PDF documentary coordinator", () => {
         currentRevision: 1,
         reason: null,
       }),
-      "ATTEMPT_UNKNOWN",
+      "OCR_ATTEMPT_UNKNOWN",
     ],
   ] as const)(
     "locks a terminal v2 %s outcome as %s, including after a state read",
     async (terminalFailure, expectedKind) => {
       const attached = view({
         actions: ["ANALYZE", "CANCEL"],
+        ocrCapability: availableOcr(),
         attachments: [
           {
             id: "a1",
@@ -332,6 +445,17 @@ describe("textual PDF documentary coordinator", () => {
         ],
       });
       api.getFullImportSession.mockResolvedValue(attached);
+      api.answerImportDocumentaryQuestion.mockImplementation(
+        async (
+          _id,
+          request: { answer: { requestId: string } },
+        ): Promise<ImportSessionViewV1> =>
+          view({
+            ...attached,
+            revision: 2,
+            ocrCapability: availableOcr("a1", request.answer.requestId, 2),
+          }),
+      );
       api.analyzeImportAttachment
         .mockRejectedValueOnce(
           new ApiResponseError("OCR", 422, {
@@ -411,13 +535,13 @@ describe("textual PDF documentary coordinator", () => {
   it.each([
     [
       new ApiResponseError("Unavailable", 503, {
-        code: "CAPABILITY_DISABLED",
-        retryable: true,
+        code: "OCR_UNAVAILABLE",
+        retryable: false,
         sessionId: "s1",
         currentRevision: 1,
         reason: null,
       }),
-      "PRE_CALL_UNAVAILABLE",
+      "OCR_UNAVAILABLE",
     ],
     [
       new ApiResponseError("Unsafe", 422, {
@@ -427,17 +551,17 @@ describe("textual PDF documentary coordinator", () => {
         currentRevision: 1,
         reason: null,
       }),
-      "DOCUMENT_UNSAFE",
+      "DOCUMENT_UNREADABLE",
     ],
     [
       new ApiResponseError("Budget", 422, {
-        code: "LIMIT_EXCEEDED",
+        code: "OCR_BUDGET_EXHAUSTED",
         retryable: false,
         sessionId: "s1",
         currentRevision: 1,
         reason: null,
       }),
-      "BUDGET_OR_RATE_LIMIT",
+      "OCR_BUDGET_EXHAUSTED",
     ],
   ] as const)(
     "maps pre-call documentary failure to %s",
@@ -457,6 +581,7 @@ describe("textual PDF documentary coordinator", () => {
           ],
         }),
       );
+
       api.analyzeImportAttachment.mockRejectedValue(failure);
       const { result } = setup();
       await waitFor(() => expect(result.current.view).not.toBeNull());
@@ -471,6 +596,103 @@ describe("textual PDF documentary coordinator", () => {
       expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("keeps OCR off after OCR_REQUIRED when the session capability is disabled", async () => {
+    api.getFullImportSession.mockResolvedValue(
+      view({
+        actions: ["ANALYZE", "CANCEL"],
+        attachments: [
+          {
+            id: "a1",
+            fileName: "scan.pdf",
+            declaredBytes: 9,
+            state: "ATTACHED",
+            canAnalyze: true,
+            materializedInSession: false,
+          },
+        ],
+      }),
+    );
+    api.analyzeImportAttachment.mockRejectedValue(
+      new ApiResponseError("OCR", 422, {
+        code: "OCR_REQUIRED",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 1,
+        reason: null,
+      }),
+    );
+    const { result } = setup();
+    await waitFor(() => expect(result.current.view).not.toBeNull());
+    await act(async () => {
+      await result.current.analyze("a1");
+      await result.current.consentExternalProcessing("a1");
+    });
+    expect(result.current.ocrUiState).toEqual({
+      attachmentId: "a1",
+      kind: "OCR_UNAVAILABLE",
+    });
+    expect(api.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
+    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores eligible consent and provider evidence from a cold session view", async () => {
+    api.getFullImportSession.mockResolvedValue(
+      view({
+        actions: ["ANALYZE", "CANCEL"],
+        ocrCapability: availableOcr(),
+        attachments: [
+          {
+            id: "a1",
+            fileName: "scan.pdf",
+            declaredBytes: 9,
+            state: "ATTACHED",
+            canAnalyze: true,
+            materializedInSession: false,
+          },
+        ],
+        lines: [
+          {
+            id: "negative",
+            observationIds: ["observation-negative"],
+            titulo: "Estorno",
+            fornecedor: null,
+            tipoDespesa: null,
+            categoriaMaoDeObra: null,
+            amountMeaning: "UNKNOWN",
+            amountCents: -1001,
+            installmentCount: null,
+            dataCompra: null,
+            firstDueDate: null,
+            targets: null,
+            decision: { kind: "UNRESOLVED" },
+            ocrEvidence: {
+              origin: "GOOGLE_VERTEX_AI",
+              model: "gemini-2.5-flash",
+              region: "southamerica-east1",
+              attachmentId: "a1",
+              artifactFingerprint: "b".repeat(64),
+              candidateFingerprint: "c".repeat(64),
+              pageNumber: 2,
+              text: "ESTORNO -10,01",
+            },
+          },
+        ],
+      }),
+    );
+    const { result } = setup();
+    await waitFor(() => expect(result.current.view).not.toBeNull());
+    expect(result.current.ocrUiState).toEqual({
+      attachmentId: "a1",
+      kind: "CONSENT_REQUIRED",
+    });
+    expect(result.current.view?.lines[0]).toMatchObject({
+      amountCents: -1001,
+      amountMeaning: "UNKNOWN",
+      ocrEvidence: { text: "ESTORNO -10,01" },
+    });
+    expect(api.analyzeImportAttachment).not.toHaveBeenCalled();
+  });
 
   it("drops a consented local PDF attempt on account change and ignores its late create", async () => {
     let release: ((value: ImportSessionViewV1) => void) | undefined;

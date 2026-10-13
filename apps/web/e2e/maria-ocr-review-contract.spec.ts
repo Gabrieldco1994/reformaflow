@@ -32,7 +32,7 @@ test.beforeAll(async () => {
             <main className="mx-auto min-h-screen w-full min-w-0 max-w-3xl p-3">
               <button id="before" className="min-h-11">Antes</button>
               <ImportOcrFoundation
-                state={attempted ? { kind: "ATTEMPT_UNKNOWN" } : { kind: "CONSENT_REQUIRED" }}
+                state={attempted ? { kind: "OCR_ATTEMPT_UNKNOWN" } : { kind: "CONSENT_REQUIRED" }}
                 scope={{
                   key: "private-session:private-attachment",
                   fileName: "fatura digitalizada.pdf",
@@ -110,6 +110,11 @@ for (const width of [375, 390, 1280]) {
         /Google Cloud Vertex AI.*Gemini 2\.5 Flash.*southamerica-east1/i,
       ),
     ).toBeVisible();
+    await expect(
+      page.getByText(
+        /Se você autorizar.*metadados.*conteúdo.*não visível ou incorporado/i,
+      ),
+    ).toBeVisible();
     await expect(page.locator("body")).not.toContainText("private-session");
     await assertNoHorizontalOverflow(page);
 
@@ -122,7 +127,7 @@ for (const width of [375, 390, 1280]) {
     await consent.check();
     await submit.click();
     await expect(page.getByRole("alert")).toContainText(
-      "resultado é desconhecido",
+      "Não foi possível confirmar o resultado do OCR",
     );
     await expect(
       page.getByRole("note", { name: "Evidência da extração externa" }),

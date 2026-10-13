@@ -108,27 +108,34 @@ describe("textual PDF capability contract", () => {
     ).toBeNull();
   });
 
-  it.each(["OCR_REQUIRED", "DOCUMENT_UNREADABLE", "PDF_PASSWORD_REQUIRED"])(
-    "recognizes %s as a documentary blocker, never a retry",
-    (code) => {
-      const body = {
-        code,
-        retryable: false,
-        sessionId: null,
-        currentRevision: null,
-        reason: null,
-      };
-      const failure = classifyImportFailure(
-        new ApiResponseError("document", 422, body),
-      );
-      expect(failure.kind).toBe("api");
-      const info = describeImportFailure(failure, "document");
-      expect(info.code).toBe(code);
-      expect(info.retryable).toBe(false);
-      expect(info.outcomeUnknown).toBe(false);
-      expect(info.message).not.toMatch(/tentar a análise novamente/);
-    },
-  );
+  it.each([
+    "OCR_REQUIRED",
+    "OCR_UNAVAILABLE",
+    "OCR_SAFETY_BLOCKED",
+    "OCR_MALFORMED_RESPONSE",
+    "OCR_ATTEMPT_UNKNOWN",
+    "OCR_BUDGET_EXHAUSTED",
+    "DOCUMENT_UNREADABLE",
+    "PDF_PASSWORD_REQUIRED",
+    "UNSUPPORTED_DOCUMENT",
+  ])("recognizes %s as a documentary blocker, never a retry", (code) => {
+    const body = {
+      code,
+      retryable: false,
+      sessionId: null,
+      currentRevision: null,
+      reason: null,
+    };
+    const failure = classifyImportFailure(
+      new ApiResponseError("document", 422, body),
+    );
+    expect(failure.kind).toBe("api");
+    const info = describeImportFailure(failure, "document");
+    expect(info.code).toBe(code);
+    expect(info.retryable).toBe(false);
+    expect(info.outcomeUnknown).toBe(false);
+    expect(info.message).not.toMatch(/tentar a análise novamente/);
+  });
 
   it("rejects extra-key and invalid future PDF error bodies", () => {
     const body = {

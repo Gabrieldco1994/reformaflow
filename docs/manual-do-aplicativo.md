@@ -388,40 +388,45 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   e do servidor processam o documento; nenhum documento é enviado a LLM ou OCR.
   Se o vault estiver OFF ou falhar nas verificações privadas de inicialização, a
   entrada permanece indisponível; este fluxo não liga o vault nem altera sua política.
-  Um PDF integralmente escaneado continua recebendo `OCR_REQUIRED`; PDFs
-  pesquisáveis completos permanecem locais mesmo com logotipo, enquanto conteúdo
-  misto/ambíguo falha sem envio externo. Isso ocorre porque
-  `IMPORT_OCR_ENABLED=false` permanece o padrão e este manual não declara
-  ativação. Quando a capability da #719 é explicitamente habilitada, a tela explica
-  a finalidade e pede autorização explícita, válida somente para aquele documento.
-  Ela informa que o PDF original completo vai ao Google Cloud Vertex AI, modelo
-  Gemini 2.5 Flash, na região `southamerica-east1`, exclusivamente para extrair
-  transações.
-  Antes de chamar novamente o mesmo endpoint de análise, o fluxo persiste a
-  declaração afirmativa; somente então `analyze` pode enviar uma única vez, pelo
-  contrato v2 mínimo, o arquivo original completo ao Vertex regional para
-  transcrição. Ator, tenant, projeto, hash, provedor, modelo e região não vêm da
-  tela. A declaração informa que esse envio inclui metadados e conteúdo
-  potencialmente não visível/embutido, com retenção de conteúdo por sete dias.
-  Resultado e evidência ficam no rascunho privado por até sete dias sem edição;
-  o original privado segue a retenção da sessão pendente e é liberado ao
-  concluir ou cancelar quando não houver outra referência autorizada.
-  Consentimento e proveniência mínima seguem a auditoria. PDF textual fica local;
-  somente raster integral observado em 1–10 páginas é elegível para esse envio.
-  Cada compra mostra o texto candidato e a origem Vertex; os candidatos retornam
-  não selecionados e não verificados, exigem conferência e declarações
-  documentais atuais antes de preparar e não geram dinheiro antes da
-  confirmação/execução já existentes. Uma correção invalida a atestação afetada.
-  Indisponibilidade antes da chamada, documento inseguro ou ilegível, bloqueio de
-  segurança ou resposta fora do formato seguro e limite de orçamento ou taxa
-  aparecem como estados distintos. Timeout ou queda depois da tentativa tem
-  resultado desconhecido e não oferece repetição automática ou manual. Fora do
-  estado de solicitação em andamento, os fallbacks oferecem entrada manual,
-  substituição por PDF textual/CSV ou cancelamento e informam que houve zero
-  escrita financeira. A qualificação e o rollout seguros da #719 não ampliam
-  retroativamente a entrega #718. PDFs protegidos por senha ou ilegíveis
-  bloqueiam a análise, sem
-  confirmação financeira.
+  Na primeira versão, somente um PDF totalmente digitalizado, composto apenas
+  por imagens e sem texto pesquisável, pode receber `OCR_REQUIRED` e oferecer
+  leitura externa. PDFs textuais continuam locais; PDFs mistos ou pesquisáveis
+  não são enviados. A tela explica que o PDF original completo, incluindo
+  metadados e conteúdo potencialmente não visível ou incorporado, vai
+  diretamente ao Google Cloud Vertex AI, modelo Gemini 2.5 Flash, na região
+  `southamerica-east1`, exclusivamente para extrair transações, e pede
+  autorização explícita válida somente para aquele documento. A decisão do
+  data owner aceita expressamente o risco residual desse envio e não autoriza
+  criar silenciosamente uma derivada raster local. Resultado e
+  evidência ficam no rascunho privado por até sete dias sem edição; o original
+  privado segue a retenção da sessão pendente e é liberado ao concluir/cancelar
+  quando não houver outra referência autorizada. Consentimento e proveniência
+  mínima seguem a auditoria. A tela só oferece consentimento quando a capability
+  explícita da sessão está `AVAILABLE` e lista aquele anexo como elegível. Ao
+  autorizar, ela primeiro persiste a declaração no endpoint documental já
+  existente e, somente após a resposta confirmar a revisão e o `requestId`,
+  chama uma única vez o mesmo endpoint de análise com o contrato v2 mínimo.
+  Esse segundo corpo não contém ator, tenant, projeto, hash, provedor, modelo,
+  região ou outros campos de autoridade. O resultado volta como o rascunho
+  normal: cada compra mostra `line.ocrEvidence.text` e a origem Vertex fornecidos
+  pela própria visão da sessão, inclusive após recarregar, começa fora da
+  seleção e com verificação pendente, e exige revisão humana nos controles já
+  existentes antes de preparar, confirmar e executar. Valores OCR brutos podem
+  ser negativos, zero ou desconhecidos; `LINE_AMOUNT` não classifica o valor
+  como compra e a visão de revisão não converte o sinal. Uma correção invalida a
+  atestação afetada. `OCR_UNAVAILABLE`, `OCR_SAFETY_BLOCKED`,
+  `OCR_MALFORMED_RESPONSE`, `OCR_BUDGET_EXHAUSTED`,
+  `OCR_ATTEMPT_UNKNOWN` e os bloqueios documentais têm mensagens distintas.
+  Resposta ambígua ou timeout após a chamada encerra a leitura externa daquele
+  anexo, sem botão para repetir. Em todos os fallbacks, a tela oferece entrada
+  manual, substituição ou cancelamento e informa que houve zero escrita
+  financeira. Se `IMPORT_OCR_ENABLED` estiver desligada, indisponível ou sem
+  anexo elegível na capability, não há falsa ativação; permanece o fallback para
+  PDF textual/CSV ou cancelamento. O OCR fica OFF até os gates de runtime e as
+  revisões finais. A qualificação e o rollout seguros seguem acompanhados
+  separadamente pela #719 e não ampliam retroativamente a entrega #718. PDFs
+  protegidos por senha ou ilegíveis bloqueiam a análise, sem confirmação
+  financeira.
   Nas compras, datas `D/M/AAAA` ou `AAAA-MM-DD` são aceitas; `D/M` sem ano exige
   declaração, sem ano inferido. Datas numéricas não suportadas, como `02/02/26`
   ou `02.02.2026`, em linhas com descrição podem tornar o documento ilegível

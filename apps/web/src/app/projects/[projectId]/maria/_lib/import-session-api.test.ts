@@ -52,12 +52,94 @@ const view = {
   questions: [],
   declaredFacts: [],
   reviewBlockers: [],
+  ocrCapability: {
+    status: "DISABLED",
+    consentPolicyVersion: 1,
+    provider: "GOOGLE_VERTEX_AI",
+    purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+    region: "southamerica-east1",
+    retentionDays: 7,
+    sendsFullOriginal: true,
+    includesMetadataAndEmbeddedContent: true,
+    attachments: [],
+  },
   searchComplete: false,
   proposal: null,
   confirmation: null,
   receipt: null,
   actions: ["UPLOAD", "CANCEL"],
 };
+
+describe("readImportWorkflowView OCR reload contract", () => {
+  it.each([
+    [-1001, "ESTORNO -10,01"],
+    [0, "AJUSTE 0,00"],
+    [null, "VALOR NÃO IDENTIFICADO"],
+  ] as const)(
+    "keeps signed, zero, and unknown amount %s with server evidence",
+    (amountCents, evidenceText) => {
+      const response = {
+        ...view,
+        attachments: [
+          {
+            id: "scan",
+            fileName: "digitalizado.pdf",
+            declaredBytes: 123,
+            state: "ATTACHED",
+            materializedInSession: true,
+            canAnalyze: false,
+          },
+        ],
+        lines: [
+          {
+            id: "ocr-line",
+            observationIds: ["ocr-observation"],
+            titulo: "Linha OCR",
+            fornecedor: null,
+            tipoDespesa: null,
+            categoriaMaoDeObra: null,
+            amountMeaning: "UNKNOWN",
+            amountCents,
+            installmentCount: null,
+            dataCompra: null,
+            firstDueDate: null,
+            targets: null,
+            decision: { kind: "UNRESOLVED" },
+            ocrEvidence: {
+              origin: "GOOGLE_VERTEX_AI",
+              model: "gemini-2.5-flash",
+              region: "southamerica-east1",
+              attachmentId: "scan",
+              artifactFingerprint: "a".repeat(64),
+              candidateFingerprint: "b".repeat(64),
+              pageNumber: 1,
+              text: evidenceText,
+            },
+          },
+        ],
+        ocrCapability: {
+          status: "AVAILABLE",
+          consentPolicyVersion: 1,
+          provider: "GOOGLE_VERTEX_AI",
+          purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+          region: "southamerica-east1",
+          retentionDays: 7,
+          sendsFullOriginal: true,
+          includesMetadataAndEmbeddedContent: true,
+          attachments: [],
+        },
+      };
+
+      const parsed = readImportWorkflowView(response);
+      expect(parsed.lines[0]).toMatchObject({
+        amountMeaning: "UNKNOWN",
+        amountCents,
+        ocrEvidence: { text: evidenceText },
+      });
+      expect(parsed.lines[0]?.amountCents).toBe(amountCents);
+    },
+  );
+});
 
 const appliedReceipt = {
   version: 1,

@@ -29,7 +29,11 @@ import {
 } from "./import-session-workflow-read";
 import type { ImportListScope } from "./import-session-keys";
 import type { FocusedDraftAnswer } from "./import-focused-draft-types";
-import type { OcrAnalyzeRequestV2 } from "../_types";
+import type {
+  ImportOcrSessionViewV1,
+  OcrAnalyzeRequestV2,
+  OcrConsentAnswerRequestV1,
+} from "../_types";
 import {
   isResultRead,
   isRecord,
@@ -86,9 +90,11 @@ export async function answerImportFocusedDraftQuestion(
 
 export async function answerImportDocumentaryQuestion(
   id: string,
-  request: ImportSessionDocumentaryAnswerRequestV1 & {
-    channel: ImportChatChannel;
-  },
+  request:
+    | (ImportSessionDocumentaryAnswerRequestV1 & {
+        channel: ImportChatChannel;
+      })
+    | OcrConsentAnswerRequestV1,
   signal?: AbortSignal,
 ): Promise<ImportSessionViewV1> {
   const view = readImportWorkflowView(
@@ -179,7 +185,7 @@ export async function analyzeImportAttachment(
   attachmentId: string,
   request: ImportSessionRevisionRequestV1 | OcrAnalyzeRequestV2,
   signal?: AbortSignal,
-): Promise<ImportSessionViewV1> {
+): Promise<ImportOcrSessionViewV1> {
   const view = readImportWorkflowView(
     await api.post<unknown>(
       `/import-sessions/${enc(sessionId)}/attachments/${enc(attachmentId)}/analyze`,
