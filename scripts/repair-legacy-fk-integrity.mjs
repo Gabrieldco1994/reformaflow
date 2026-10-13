@@ -108,7 +108,7 @@ async function assertInheritedWatchdogLock() {
     });
     const stdio = Array.from({ length: 10 }, () => "ignore");
     stdio[9] = 9;
-    const inherited = spawnSync("flock", ["-n", "9", "true"], { stdio });
+    const inherited = spawnSync("flock", ["-n", "9"], { stdio });
     if (competing.status === 0 || inherited.status !== 0) fail();
   }
 }

@@ -699,9 +699,19 @@ test("runbooks describe the trusted-root exception as an expiring audit gate, no
   assert.match(LEGACY_RUNBOOK_SOURCE, /not\s+cryptographically authenticated/);
 });
 
-test("Linux harness holds fd9 and isolates relative lock probes per fixture", () => {
+test("Linux harness and production probe require the inherited fd9 lock", () => {
   const args = ["--dry-run", "--manifest", "synthetic"];
   const isolatedDatabase = join(ROOT, "isolated-fixture", "fixture.db");
+  assert.match(
+    SCRIPT_SOURCE,
+    /const inherited = spawnSync\("flock", \["-n", "9"\], \{ stdio \}\);/,
+    "the production continuity probe must use util-linux inherited-fd mode",
+  );
+  assert.doesNotMatch(
+    SCRIPT_SOURCE,
+    /spawnSync\("flock", \["-n", "9",/,
+    "a command after fd 9 changes util-linux flock to pathname mode",
+  );
   assert.deepEqual(repairCommand(args, "linux"), {
     executable: "sh",
     args: [
@@ -765,6 +775,99 @@ process.stdout.write("inherited lock held\\n");
       assert.equal(result.stdout, "inherited lock held\n");
     } finally {
       lock.close();
+    }
+
+    for (const scenario of [
+      { name: "unlocked", fd9: "lock" },
+      { name: "wrong", fd9: "wrong-lock" },
+      { name: "missing", fd9: null },
+      { name: "contended-unlocked", fd9: "lock", contend: true },
+    ]) {
+      const scenarioDirectory = temporaryDirectory();
+      const quiesceDirectory = join(scenarioDirectory, ".test-quiesce");
+      const lockPath = join(quiesceDirectory, "lock");
+      const proof = join(scenarioDirectory, "scope-proof.json");
+      const manifest = join(scenarioDirectory, "manifest.json");
+      const database = join(scenarioDirectory, "must-not-open.db");
+      mkdirSync(quiesceDirectory, { recursive: true, mode: 0o700 });
+      writeFileSync(lockPath, "", { mode: 0o600 });
+      writePrivateJson(proof, scopeProof());
+
+      const capabilityPath = join(quiesceDirectory, "capability");
+      writeFileSync(capabilityPath, "test-only inherited capability\n", {
+        mode: 0o600,
+      });
+      const capabilityFd = openSync(capabilityPath, "r");
+      unlinkSync(capabilityPath);
+      const lockFd =
+        scenario.fd9 === null
+          ? null
+          : openSync(join(quiesceDirectory, scenario.fd9), "a", 0o600);
+      const stdio = Array.from(
+        { length: scenario.fd9 === null ? 8 : 10 },
+        () => "ignore",
+      );
+      stdio[1] = "pipe";
+      stdio[2] = "pipe";
+      stdio[7] = capabilityFd;
+      if (lockFd !== null) stdio[9] = lockFd;
+
+      const repairArgs = [
+        SCRIPT,
+        "--dry-run",
+        "--scope-proof",
+        proof,
+        "--scope-proof-hash",
+        sha256(proof),
+        "--manifest",
+        manifest,
+      ];
+      const executable = scenario.contend ? "sh" : process.execPath;
+      const executableArgs = scenario.contend
+        ? [
+            "-c",
+            'exec 8>"$QUIESCE_DIR/lock"; flock -x 8 || exit $?; exec 9>"$QUIESCE_DIR/lock"; exec "$@"',
+            "repair-contended-lock",
+            process.execPath,
+            ...repairArgs,
+          ]
+        : repairArgs;
+
+      try {
+        const result = spawnSync(executable, executableArgs, {
+          cwd: scenarioDirectory,
+          encoding: "utf8",
+          stdio,
+          env: {
+            ...process.env,
+            DATABASE_URL: `file:${database}`,
+            LEGACY_FK_RECOVERY_OP_WRAP: "legacy-fk-integrity-v1",
+            LEGACY_FK_RECOVERY_LOCK_FD: "9",
+            LEGACY_FK_RECOVERY_CAP_FD: "7",
+            QUIESCE_DIR: quiesceDirectory,
+          },
+        });
+        requireFailure(result);
+        assert.equal(
+          result.stderr,
+          "legacy FK recovery failed: safety check failed\n",
+          `${scenario.name} fd must retain the generic public error`,
+        );
+        assert.equal(
+          existsSync(database),
+          false,
+          `${scenario.name} fd opened SQLite`,
+        );
+        assert.equal(existsSync(manifest), false);
+        assert.equal(
+          existsSync(join(scenarioDirectory, "9")),
+          false,
+          `${scenario.name} fd fell back to pathname mode`,
+        );
+      } finally {
+        if (lockFd !== null) closeSync(lockFd);
+        closeSync(capabilityFd);
+      }
     }
   }
 });
