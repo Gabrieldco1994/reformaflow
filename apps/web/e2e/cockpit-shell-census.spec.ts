@@ -645,9 +645,24 @@ test.describe("issue #564 — cockpit shell census", () => {
     for (const viewport of DESKTOP_VIEWPORTS) {
       await page.setViewportSize(viewport);
 
-      await page.goto(`/projects/${PROJECT_ID}/maria`);
-      expect(await readMainPaddingRight(page)).toBe(24);
+      await page.goto(`/projects/${PROJECT_ID}/planning`);
       await ensureWidgetOpen(page);
+      const mariaEntry = page.getByRole("link", {
+        name: "Importar fatura CSV com Maria",
+        exact: true,
+      });
+      await expect(mariaEntry).toBeVisible();
+      await expect(mariaEntry).toHaveAttribute(
+        "href",
+        `/projects/${PROJECT_ID}/maria`,
+      );
+      await mariaEntry.click();
+      await expect(page).toHaveURL(
+        (url) => url.pathname === `/projects/${PROJECT_ID}/maria`,
+      );
+      await expect(
+        page.getByRole("button", { name: "Fechar", exact: true }),
+      ).toBeVisible();
       const paddingRight = await readMainPaddingRight(page);
       expect(paddingRight).toBe(408);
       const main = page.locator("main.minimal-main");
