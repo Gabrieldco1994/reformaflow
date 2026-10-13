@@ -343,8 +343,15 @@ function runRepair(database, args, env = {}) {
 function repairCommand(args, platform = process.platform) {
   if (platform === "linux") {
     return {
-      executable: "flock",
-      args: ["-x", "9", process.execPath, SCRIPT, ...args],
+      executable: "sh",
+      args: [
+        "-c",
+        'flock -x 9 || exit $?; exec "$@"',
+        "repair-test-lock",
+        process.execPath,
+        SCRIPT,
+        ...args,
+      ],
     };
   }
   return { executable: process.execPath, args: [SCRIPT, ...args] };
@@ -691,8 +698,15 @@ test("runbooks describe the trusted-root exception as an expiring audit gate, no
 test("Linux harness holds fd9 for the recovery process lifetime", () => {
   const args = ["--dry-run", "--manifest", "synthetic"];
   assert.deepEqual(repairCommand(args, "linux"), {
-    executable: "flock",
-    args: ["-x", "9", process.execPath, SCRIPT, ...args],
+    executable: "sh",
+    args: [
+      "-c",
+      'flock -x 9 || exit $?; exec "$@"',
+      "repair-test-lock",
+      process.execPath,
+      SCRIPT,
+      ...args,
+    ],
   });
   assert.deepEqual(repairCommand(args, "darwin"), {
     executable: process.execPath,
