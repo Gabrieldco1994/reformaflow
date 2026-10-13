@@ -382,6 +382,10 @@ test("one supervisor owns capture, guard trace, compare, and receipt", async () 
   const runner = supervisor(value, remote);
   try {
     await runner.start(RELEASE);
+    assert.equal(existsSync(value.manifest), true);
+    assert.equal(existsSync(value.trace), false);
+    assert.equal(existsSync(value.receipt), false);
+    await assert.rejects(() => runner.start(RELEASE), /QA_WINDOW_REUSED/);
     await reachReady(runner);
     assert.equal(await runner.waitForTerminal(), "ready");
     const output = await runner.finish();
@@ -423,6 +427,31 @@ test("one supervisor owns capture, guard trace, compare, and receipt", async () 
     const replay = supervisor(value, remote);
     await assert.rejects(() => replay.start(RELEASE), /QA_WINDOW_REUSED/);
     await replay.close();
+    await assert.rejects(() => runner.finish(), /QA_WINDOW_REUSED/);
+    assert.throws(() => runner.waitForTerminal(), /QA_GUARD_NOT_LISTENING/);
+  } finally {
+    await runner.close();
+    await remote.close();
+  }
+});
+
+test("supervisor emits no receipt after a forbidden financial request", async () => {
+  const value = fixture();
+  const remote = await upstream();
+  const runner = supervisor(value, remote);
+  try {
+    await runner.start(RELEASE);
+    const response = await request(
+      runner.origin,
+      "/import-sessions/sensitive-session-id/execute",
+      "POST",
+    );
+    assert.equal(response.status, 403);
+    assert.equal(await runner.waitForTerminal(), "violation");
+    await assert.rejects(() => runner.finish(), /QA_TRACE_REJECTED/);
+    assert.equal(existsSync(value.manifest), true);
+    assert.equal(existsSync(value.trace), true);
+    assert.equal(existsSync(value.receipt), false);
   } finally {
     await runner.close();
     await remote.close();
