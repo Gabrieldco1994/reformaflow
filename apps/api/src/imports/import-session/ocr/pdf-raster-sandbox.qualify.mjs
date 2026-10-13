@@ -154,6 +154,9 @@ async function main() {
     peakRssBytes = Math.max(peakRssBytes, await rssBytes());
   }, 10);
 
+  await qualifyProfile();
+  console.log("qualification phase: network, secrets and descriptors");
+
   const sandbox = new PdfRasterSandbox(undefined, runRoot);
   const scanned = await sandbox.rasterize({
     mimeType: MIME,
@@ -240,9 +243,6 @@ async function main() {
   );
   await rm(fixtureDirectory, { recursive: true, force: true });
   console.log("qualification phase: encryption and attachment rejection");
-
-  await qualifyProfile();
-  console.log("qualification phase: network, secrets and descriptors");
 
   let started;
   const childStarted = new Promise((resolve) => {
