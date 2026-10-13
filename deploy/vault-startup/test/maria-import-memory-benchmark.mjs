@@ -318,6 +318,15 @@ export function parseVmHwmBytes(statusText) {
   return bytes;
 }
 
+export function parseNamespacePidMap(statusText) {
+  assert.equal(typeof statusText, "string");
+  const match = /^NSpid:[ \t]*([0-9]+(?:[ \t]+[0-9]+)*)[ \t]*$/m.exec(
+    statusText,
+  );
+  assert.ok(match, "process PID namespace mapping is unavailable");
+  return match[1].split(/[ \t]+/).map(Number);
+}
+
 export function cgroupLevelStage(depth, evidence) {
   assert.ok(
     Number.isInteger(depth) && depth >= 0 && depth < 256,
@@ -1141,10 +1150,9 @@ function readHostCgroupLimits(
   markStage("host-cgroup-process-status-read");
   const processStatus = cgroupFile(`/proc/${containerPid}/status`);
   assert.equal(processStatus.status, "readable");
-  const namespacePids = /^NSpid:\s*([0-9 ]+)$/m.exec(processStatus.value);
-  markStage(`host-cgroup-nspid-present-${Number(namespacePids !== null)}`);
-  assert.ok(namespacePids, "process PID namespace mapping is unavailable");
-  const pidMap = namespacePids[1].trim().split(/\s+/).map(Number);
+  const nspidLinePresent = /^NSpid:/m.test(processStatus.value);
+  markStage(`host-cgroup-nspid-line-present-${Number(nspidLinePresent)}`);
+  const pidMap = parseNamespacePidMap(processStatus.value);
   const containerInitMatches =
     pidMap[0] === containerPid && pidMap.at(-1) === 1;
   markStage(`host-cgroup-pid-namespace-map-${Number(containerInitMatches)}`);

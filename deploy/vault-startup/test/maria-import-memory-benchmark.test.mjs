@@ -13,6 +13,7 @@ import {
   mapCgroupNamespacePath,
   observeDatabase,
   parsePdfWorkerEvents,
+  parseNamespacePidMap,
   parseVmHwmBytes,
   serializeMetrics,
   verifyCgroupV2Proof,
@@ -107,6 +108,16 @@ test("VmHWM is converted to bytes and missing or invalid samples fail closed", (
   assert.throws(() => parseVmHwmBytes("VmHWM: unknown\n"));
   assert.throws(() => parseVmHwmBytes("VmHWM: 0 kB\n"));
   assert.throws(() => parseVmHwmBytes("VmHWM: -1 kB\n"));
+});
+
+test("namespace PID map accepts Linux tab-delimited values and rejects malformed status", () => {
+  assert.deepEqual(
+    parseNamespacePidMap("Name:\tnode\nNSpid:\t4321\t1\n"),
+    [4321, 1],
+  );
+  assert.deepEqual(parseNamespacePidMap("NSpid: 4321 1\n"), [4321, 1]);
+  assert.throws(() => parseNamespacePidMap("Name:\tnode\nUid:\t4321\n"));
+  assert.throws(() => parseNamespacePidMap("NSpid:\t4321\tx\n"));
 });
 
 test("cgroup proof requires the exact private 512 MiB v2 leaf with zero swap", () => {
