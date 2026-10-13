@@ -1366,6 +1366,7 @@ model ImportSession {
   confirmedAt             DateTime? @map("confirmed_at")
   receiptJson             String?   @map("receipt_json")
   closedAt                DateTime? @map("closed_at")
+  ocrJson                 String?   @map("ocr_json")
 
   ownerUser           User                    @relation(fields: [tenantId, ownerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   ownerProject        Project                 @relation(fields: [tenantId, ownerProjectId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -1379,6 +1380,39 @@ model ImportSession {
   @@unique([tenantId, ownerProjectId, id])
   @@index([state, expiresAt])
   @@map("import_sessions")
+}
+
+model ImportOcrUsage {
+  id                String   @id @default(uuid())
+  day               String
+  tenantId          String   @map("tenant_id")
+  ownerProjectId    String   @map("owner_project_id")
+  actorId           String   @map("actor_id")
+  sessionId         String   @map("session_id")
+  attachmentId      String   @map("attachment_id")
+  artifactId        String   @map("artifact_id")
+  artifactSha256    String   @map("artifact_sha256")
+  requestId         String   @map("request_id")
+  provider          String
+  model             String
+  reservedCalls     Int      @map("reserved_calls")
+  reservedPages     Int      @map("reserved_pages")
+  reservedBytes     Int      @map("reserved_bytes")
+  reservedCostUnits Int      @map("reserved_cost_units")
+  inputTokens       Int?     @map("input_tokens")
+  outputTokens      Int?     @map("output_tokens")
+  totalTokens       Int?     @map("total_tokens")
+  responseId        String?  @map("response_id")
+  outcome           String
+  contentPurgedAt   DateTime? @map("content_purged_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, sessionId, attachmentId])
+  @@index([day])
+  @@index([day, tenantId])
+  @@index([day, tenantId, actorId])
+  @@map("import_ocr_usage")
 }
 
 model ImportArtifact {

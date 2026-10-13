@@ -2,6 +2,7 @@ import { isUtf8 } from "node:buffer";
 import {
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PRIMITIVES as PRIMITIVES,
+  PDF_OCR_PARSER_VERSION,
   isInvoiceDueMonth,
   parseInstallmentDateOnlyUtc,
 } from "@reformaflow/domain";
@@ -190,8 +191,11 @@ function binaryPosition(
   pages: number,
   cycle = false,
 ): [number, number] | null {
-  if (version === "card-local-pdf-v1") {
-    const match = /^pdf:page:([1-9]\d*):line:([1-9]\d*)$/.exec(reference);
+  if (version === "card-local-pdf-v1" || version === PDF_OCR_PARSER_VERSION) {
+    const match =
+      version === "card-local-pdf-v1"
+        ? /^pdf:page:([1-9]\d*):line:([1-9]\d*)$/.exec(reference)
+        : /^ocr:page:([1-9]\d*):candidate:([1-9]\d*)$/.exec(reference);
     if (
       !match ||
       !integer(Number(match[1]), 1, pages) ||
@@ -225,6 +229,7 @@ function document(value: unknown): value is DocumentExtractionV1 {
     !oneOf(value.parserVersion, [
       "card-local-text-v1",
       "card-local-pdf-v1",
+      PDF_OCR_PARSER_VERSION,
       "card-local-xls-v1",
       "card-local-xlsx-v1",
     ]) ||
@@ -255,7 +260,8 @@ function document(value: unknown): value is DocumentExtractionV1 {
     (metrics.rows === 0 ||
       metrics.imagePixels !== 0 ||
       metrics.frames !== 0 ||
-      (value.parserVersion === "card-local-pdf-v1"
+      (value.parserVersion === "card-local-pdf-v1" ||
+      value.parserVersion === PDF_OCR_PARSER_VERSION
         ? !integer(metrics.pages, 1) ||
           metrics.archiveEntries !== 0 ||
           metrics.expandedBytes !== 0

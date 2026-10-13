@@ -91,8 +91,9 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
   próprio e também não passa por `/agent/chat`.
 - A arquitetura contextual de importação foi removida: não há contrato público de turno/outcome,
   resposta livre, aprovação de escopo nem tool contextual durante a sessão. O PATCH legado
-  aceita somente `questionId: null`, `replaceLines: []` e a lista explícita
-  `selectedLineIds`; ele não é uma porta alternativa para editar linhas ou responder perguntas.
+  exige `questionId: null` e mantém a lista explícita `selectedLineIds`; substituições ficam
+  limitadas a campos documentais de linhas OCR, sem trocar IDs de observação. Ele não é uma
+  porta alternativa para responder perguntas documentais.
 - Literais de dinheiro, quantidade, data e significado precisam ser aceitos pelo parser estrito
   e corresponder ao valor exibido. Tipo, categoria e decisão usam opções tipadas/autorizadas.
   Finalidade é explicitamente `NO_TARGETS` ou um único `TARGET` autorizado, integral e com
@@ -113,7 +114,14 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
   Detectar deterministicamente o pedido inicial pode devolver a ação de entrada CSV/PDF sem
   chamar o provider, mas não devolve o controle da sessão ao modelo.
 - CSV e PDF textual usam a mesma seleção local e o mesmo consentimento explícito antes do upload
-  privado; PDF com raster continua exigindo OCR fora deste recorte. Este caminho não altera
+  privado; somente PDF integralmente raster e sem texto pesquisável pode ser elegível ao OCR
+  externo inerte de #719. Conteúdo detectado como misto/texto oculto nunca é enviado;
+  ficam no caminho local quando a extração textual é completa ou falham de forma tipada.
+  Quando o OCR for explicitamente habilitado, a declaração persistida informa que o arquivo
+  original completo — incluindo metadados e conteúdo potencialmente não visível/embutido — será
+  enviado ao Vertex regional para transcrição, com retenção de conteúdo por sete dias. Essa é uma
+  aceitação explícita de risco residual pelo data owner; este release não cria raster derivado local.
+  Este caminho não altera
   habilitação do vault nem retenção: vault OFF por padrão continua fail-closed; rascunho pendente
   continua expirando após sete dias sem edição, sem renovação por consulta.
 

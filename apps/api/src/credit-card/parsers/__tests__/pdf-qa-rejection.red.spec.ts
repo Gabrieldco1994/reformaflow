@@ -21,17 +21,17 @@ import {
  * These yearless source dates must remain unknown, not inferred from the clock.
  */
 describe("PDF QA: safe purchase-document acceptance", () => {
-  it.each([
-    ["scanned-only", generateScannedOnlyPdf],
-    ["mixed text/image pages", generateMixedInvoicePdf],
-  ])(
-    "rejects %s explicitly as OCR_REQUIRED, never empty/partial success",
-    async (_label, generate) => {
-      await expect(extractPdfDocument(generate())).rejects.toMatchObject({
-        code: "OCR_REQUIRED",
-      });
-    },
-  );
+  it("marks only scanned-only PDFs OCR_REQUIRED", async () => {
+    await expect(
+      extractPdfDocument(generateScannedOnlyPdf()),
+    ).rejects.toMatchObject({ code: "OCR_REQUIRED" });
+  });
+
+  it("fails mixed searchable/raster PDFs without external OCR eligibility", async () => {
+    await expect(
+      extractPdfDocument(generateMixedInvoicePdf()),
+    ).rejects.toMatchObject({ code: "DOCUMENT_UNREADABLE" });
+  });
 
   it("materializes five editable purchases and retains ignored payment evidence", async () => {
     const bytes = generateTextInvoicePdf();

@@ -5,6 +5,7 @@ import {
   ImportSessionState,
 } from "@reformaflow/domain";
 import type { ImportRawClaim } from "../import-session.raw-executions";
+import { PDF_OCR_USAGE_OUTCOME } from "../ocr/pdf-ocr-budget";
 
 const RELEASED_ATTACHMENT_FILE_NAME = "document";
 const TERMINAL_SESSION_STATES = [
@@ -195,6 +196,20 @@ export async function releaseCompletedSessionAttachments(
   scope: CompletedAttachmentScope,
   now: Date,
 ): Promise<void> {
+  // Consent/provenance/cost survive; provider candidates/evidence do not.
+  await tx.importOcrUsage.updateMany({
+    where: {
+      tenantId: scope.tenantId,
+      ownerProjectId: scope.ownerProjectId,
+      sessionId: scope.sessionId,
+      outcome: PDF_OCR_USAGE_OUTCOME.SUCCEEDED,
+      contentPurgedAt: null,
+    },
+    data: {
+      contentPurgedAt: now,
+      updatedAt: now,
+    },
+  });
   const live = {
     ...scope,
     state: { not: ImportSessionAttachmentState.RELEASED },

@@ -49,6 +49,13 @@ export interface StoredImportObservationEvidenceV1 {
     ordinal: number | null;
     fileContentHash: string | null;
   };
+  /** Server-derived binding for direct Vertex candidates; absent on local/legacy rows. */
+  ocr?: {
+    attachmentId: string;
+    artifactSha256: string;
+    candidateFingerprint: string;
+    pageNumber: number;
+  };
 }
 
 const EVIDENCE_KEYS = [
@@ -68,6 +75,12 @@ const IDENTITY_KEYS = [
   "fitId",
   "ordinal",
   "fileContentHash",
+];
+const OCR_KEYS = [
+  "attachmentId",
+  "artifactSha256",
+  "candidateFingerprint",
+  "pageNumber",
 ];
 const FILE_CONTENT_HASH = /^[0-9a-f]{32}$/;
 const ID = new RegExp(IMPORT_SESSION_PRIMITIVES.idPattern);
@@ -127,7 +140,9 @@ export function parseStoredImportObservationEvidence(
     !record(value) ||
     !(
       exact(value, EVIDENCE_KEYS) ||
-      exact(value, [...EVIDENCE_KEYS, "sourceDescription"])
+      exact(value, [...EVIDENCE_KEYS, "sourceDescription"]) ||
+      exact(value, [...EVIDENCE_KEYS, "ocr"]) ||
+      exact(value, [...EVIDENCE_KEYS, "sourceDescription", "ocr"])
     ) ||
     ("sourceDescription" in value &&
       // Documentary raw fields are intentionally neither NFC nor display-length
@@ -150,6 +165,25 @@ export function parseStoredImportObservationEvidence(
   )
     throw corrupt();
   const identity = value.identity;
+  const ocr = "ocr" in value && record(value.ocr) ? value.ocr : null;
+  if (
+    "ocr" in value &&
+    (!ocr ||
+      !exact(ocr, OCR_KEYS) ||
+      typeof ocr.attachmentId !== "string" ||
+      !ID.test(ocr.attachmentId) ||
+      typeof ocr.artifactSha256 !== "string" ||
+      !new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern).test(
+        ocr.artifactSha256,
+      ) ||
+      typeof ocr.candidateFingerprint !== "string" ||
+      !new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern).test(
+        ocr.candidateFingerprint,
+      ) ||
+      !Number.isSafeInteger(ocr.pageNumber) ||
+      (ocr.pageNumber as number) < 1)
+  )
+    throw corrupt();
   if (
     !nullableText(
       identity.merchant,
@@ -191,6 +225,16 @@ export function parseStoredImportObservationEvidence(
       ordinal: identity.ordinal,
       fileContentHash: identity.fileContentHash,
     }),
+    ...(ocr
+      ? {
+          ocr: Object.freeze({
+            attachmentId: ocr.attachmentId as string,
+            artifactSha256: ocr.artifactSha256 as string,
+            candidateFingerprint: ocr.candidateFingerprint as string,
+            pageNumber: ocr.pageNumber as number,
+          }),
+        }
+      : {}),
   });
 }
 

@@ -383,17 +383,27 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   Quando o vault privado está disponível, peça a importação e escolha explicitamente
   o cartão e o arquivo. O projeto proprietário vem do cartão; um eventual destino
   em outra reforma é escolhido depois, na revisão. Os formatos habilitados vêm do
-  servidor: CSV e PDF textual sem imagens no recorte qualificado. O envio exige
+  servidor: CSV e PDF textual no recorte qualificado. O envio exige
   seleção dos arquivos e consentimento. Nesse fluxo, parsers determinísticos locais
   e do servidor processam o documento; nenhum documento é enviado a LLM ou OCR.
   Se o vault estiver OFF ou falhar nas verificações privadas de inicialização, a
   entrada permanece indisponível; este fluxo não liga o vault nem altera sua política.
-  Um PDF escaneado, misto ou com qualquer imagem raster, inclusive um simples
-  logotipo, recebe `OCR_REQUIRED`: OCR ainda não está disponível nesta importação.
-  O suporte seguro a scans, fotos e PDFs com raster é trabalho futuro,
-  acompanhado separadamente pela #719; ela não amplia a entrega #718. PDFs
-  protegidos por senha ou ilegíveis bloqueiam a análise, sem confirmação
-  financeira.
+  Um PDF integralmente escaneado continua recebendo `OCR_REQUIRED`; PDFs
+  pesquisáveis completos permanecem locais mesmo com logotipo, enquanto conteúdo
+  misto/ambíguo falha sem envio externo. Isso ocorre porque
+  `IMPORT_OCR_ENABLED=false` permanece o padrão e este manual não declara
+  ativação. O slice de servidor da #719, quando explicitamente ativado, reutiliza
+  o mesmo botão de análise após uma declaração afirmativa persistida pelo fluxo
+  documental. Ela informa que o arquivo original completo, inclusive metadados e
+  conteúdo potencialmente não visível/embutido, será enviado ao Vertex regional
+  para transcrição, com retenção de conteúdo por sete dias. PDF textual fica local;
+  somente raster integral observado em 1–10 páginas pode enviar o original uma vez.
+  Os candidatos retornam não selecionados e não verificados, exigem
+  conferência e declarações documentais atuais antes de preparar e não geram
+  dinheiro antes da confirmação/execução já existentes. Timeout ou queda depois
+  da tentativa tem resultado desconhecido e não oferece repetição automática ou
+  manual. PDFs protegidos por senha ou ilegíveis bloqueiam a análise, sem
+  confirmação financeira.
   Nas compras, datas `D/M/AAAA` ou `AAAA-MM-DD` são aceitas; `D/M` sem ano exige
   declaração, sem ano inferido. Datas numéricas não suportadas, como `02/02/26`
   ou `02.02.2026`, em linhas com descrição podem tornar o documento ilegível
@@ -411,8 +421,11 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   categoria e decisão vêm de opções explícitas e autorizadas. A finalidade é
   **sem destino** ou um único projeto autorizado pelo valor integral da compra;
   não existe destino presumido, parcial ou múltiplo nesse caminho.
-  Marcar ou desmarcar compras usa o PATCH legado somente para a lista de seleção;
-  ele não substitui linhas nem funciona como resposta alternativa às perguntas.
+  Marcar ou desmarcar uma compra usa o PATCH autenticado. Documentos locais
+  continuam selection-only; somente candidatos OCR aceitam correções validadas
+  campo a campo, sem trocar a observação de origem. Uma correção OCR invalida
+  suas declarações anteriores. O PATCH não funciona como resposta alternativa
+  às perguntas documentais.
 - Na voz, a transcrição apenas preenche o controle e produz uma prévia
   determinística. A pessoa ainda confere e toca em **Guardar informação**; não há
   envio automático nem fallback para LLM quando a fala é inválida ou ambígua.

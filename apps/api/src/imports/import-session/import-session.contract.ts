@@ -67,6 +67,18 @@ export type UiImportGrantScope =
       expectedRevision: number;
     }
   | {
+      operation: "ANALYZE_ATTACHMENT_V2";
+      sessionId: ImportSessionId;
+      attachmentId: ImportSessionId;
+      expectedRevision: number;
+      actorId: ImportSessionId;
+      artifactSha256: ImportSessionHash;
+      consentPolicyVersion: number;
+      requestId: ImportSessionRequestId;
+      requestPayloadHash: ImportSessionHash;
+      decision: "ALLOW_EXTERNAL_PROCESSING";
+    }
+  | {
       operation: "UPLOAD_CONTENT" | "FINALIZE_UPLOAD";
       sessionId: ImportSessionId;
       attachmentId: ImportSessionId;

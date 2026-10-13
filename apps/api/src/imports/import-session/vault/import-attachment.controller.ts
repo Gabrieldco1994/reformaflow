@@ -28,11 +28,11 @@ import {
 } from "../import-session.errors";
 import { ImportUiGrantIssuer } from "../import-session-ui-grant";
 import { ImportUiGuard } from "../import-session-ui.guard";
+import { assertSessionId } from "../import-session.service";
 import {
-  assertSessionId,
-  parseRevisionRequest,
-} from "../import-session.service";
-import { ImportSessionExtractionService } from "../import-session.extraction.service";
+  ImportSessionExtractionService,
+  parseAnalyzeAttachmentRequest,
+} from "../import-session.extraction.service";
 import {
   ImportUploadService,
   parseReserveRequest,
@@ -78,13 +78,7 @@ export class ImportAttachmentController {
     noQuery(query);
     assertSessionId(id);
     assertSessionId(attachmentId);
-    const parsed = parseRevisionRequest(body);
-    const grant = this.issuer.issue(request, auth, {
-      operation: "ANALYZE_ATTACHMENT",
-      sessionId: id,
-      attachmentId,
-      expectedRevision: parsed.expectedRevision,
-    });
+    const parsed = parseAnalyzeAttachmentRequest(body);
     const abort = new AbortController();
     const disconnected = () => {
       if (!response.writableFinished) abort.abort();
@@ -93,6 +87,16 @@ export class ImportAttachmentController {
     request.once("aborted", abandoned);
     response.once("close", disconnected);
     try {
+      const scope = await this.extraction.analyzeGrantScope(
+        auth,
+        id,
+        attachmentId,
+        parsed,
+        abort.signal,
+      );
+      if (abort.signal.aborted)
+        throw new ImportSessionError(ImportSessionErrorCode.OCR_UNAVAILABLE);
+      const grant = this.issuer.issue(request, auth, scope);
       return await this.extraction.analyzeAttached(
         auth,
         id,

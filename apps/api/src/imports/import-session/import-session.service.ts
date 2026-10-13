@@ -12,6 +12,12 @@ import {
   IMPORT_SESSION_LIMITS,
   IMPORT_SESSION_PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
+  PDF_OCR_MODEL_ID,
+  PDF_OCR_PROVIDER_ID,
+  PDF_OCR_REGION,
+  PDF_OCR_CONSENT_POLICY_VERSION,
+  PDF_OCR_CONSENT_PURPOSE,
+  PDF_OCR_RETENTION_DAYS,
   ImportSessionDocumentFormat,
   ImportSessionErrorCode,
   ImportSessionState,
@@ -41,7 +47,15 @@ import {
   type CardImportFacts,
 } from "./card-import-identity";
 import { parseStoredExpenseSchedule } from "../../expense/documented-schedule";
-import { projectImportObservation } from "./import-session.observation";
+import {
+  parseStoredImportObservationEvidence,
+  projectImportObservation,
+} from "./import-session.observation";
+import {
+  pdfOcrConsentQuestionId,
+  parseStoredPdfOcrState,
+} from "./ocr/pdf-ocr-state";
+import { isPdfOcrProjectConfigured } from "./ocr/pdf-ocr-capability";
 import { parseStoredImportSearch } from "./import-session.search";
 import type { ImportCandidateRef } from "./card-purchase-batch.port";
 import {
@@ -1313,6 +1327,11 @@ export class ImportSessionService {
         importIntakeEnabled(this.capability) &&
         !this.gate.boot.stopped.aborted &&
         this.gate.boot.runtime() !== null,
+      ocrReleaseEnabled: process.env.IMPORT_OCR_ENABLED === "true",
+      ocrPrerequisitesReady:
+        isPdfOcrProjectConfigured(process.env) &&
+        !this.gate.boot.stopped.aborted &&
+        this.gate.boot.runtime() !== null,
     });
   }
 
@@ -1441,6 +1460,7 @@ async function renderImportSessionUnchecked(
             tenantId: true,
             ownerProjectId: true,
             documentSha256: true,
+            detectedFormat: true,
           },
           take: IMPORT_SESSION_LIMITS.filesPerSession + 1,
         });
@@ -1454,6 +1474,34 @@ async function renderImportSessionUnchecked(
         metadata.find((artifact) => artifact.id === ref.artifactId) ?? null,
     })),
   });
+  const observationById = new Map(
+    observations.map((observation) => [observation.id, observation]),
+  );
+  const ocrEvidenceByLine = new Map<
+    string,
+    NonNullable<ImportSessionViewV1["lines"][number]["ocrEvidence"]>
+  >();
+  for (const line of draft.lines) {
+    if (line.observationIds.length !== 1) continue;
+    const observation = observationById.get(line.observationIds[0]);
+    if (!observation) continue;
+    const evidence = parseStoredImportObservationEvidence(
+      observation.evidenceJson,
+    );
+    if (!evidence.ocr) continue;
+    ocrEvidenceByLine.set(line.id, {
+      origin: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      region: PDF_OCR_REGION,
+      attachmentId: evidence.ocr.attachmentId,
+      artifactFingerprint: createHash("sha256")
+        .update(`ocr-artifact-view-v1|${evidence.ocr.artifactSha256}`)
+        .digest("hex"),
+      candidateFingerprint: evidence.ocr.candidateFingerprint,
+      pageNumber: evidence.ocr.pageNumber,
+      text: evidence.text,
+    });
+  }
   const eligible =
     options.analysisEnabled === true &&
     row.closedAt === null &&
@@ -1510,8 +1558,66 @@ async function renderImportSessionUnchecked(
             state: true,
             storageKey: true,
             verifiedBytes: true,
+            documentSha256: true,
           },
         });
+  const ocrState = parseStoredPdfOcrState(row.ocrJson);
+  const ocrStatus =
+    options.ocrReleaseEnabled !== true
+      ? "DISABLED"
+      : options.ocrPrerequisitesReady === true
+        ? "AVAILABLE"
+        : "UNAVAILABLE";
+  const ocrCapability: ImportSessionViewV1["ocrCapability"] = {
+    status: ocrStatus,
+    consentPolicyVersion: PDF_OCR_CONSENT_POLICY_VERSION,
+    provider: PDF_OCR_PROVIDER_ID,
+    purpose: PDF_OCR_CONSENT_PURPOSE,
+    region: PDF_OCR_REGION,
+    retentionDays: PDF_OCR_RETENTION_DAYS,
+    sendsFullOriginal: true,
+    includesMetadataAndEmbeddedContent: true,
+    includesPotentiallyNonVisibleContent: true,
+    attachments:
+      ocrStatus !== "AVAILABLE"
+        ? []
+        : attachments.flatMap((ref) => {
+            if (
+              ref.state !== "ATTACHED" ||
+              !draft.scope.pendingAttachmentIds.includes(ref.id) ||
+              ref.artifactId === null
+            )
+              return [];
+            const artifact = artifacts.find(
+              (item) =>
+                item.id === ref.artifactId &&
+                item.detectedFormat === "PDF" &&
+                item.documentSha256 !== null,
+            );
+            if (!artifact?.documentSha256) return [];
+            const consent = ocrState.consents.find(
+              (item) =>
+                item.attachmentId === ref.id &&
+                item.artifactSha256 === artifact.documentSha256 &&
+                item.actorId === row.ownerUserId &&
+                item.expectedRevision === row.revision,
+            );
+            return [
+              {
+                attachmentId: ref.id,
+                questionId: pdfOcrConsentQuestionId({
+                  tenantId: row.tenantId,
+                  sessionId: row.id,
+                  revision: row.revision,
+                  attachmentId: ref.id,
+                  artifactSha256: artifact.documentSha256,
+                }),
+                consentedRequestId: consent?.requestId ?? null,
+                consentedRevision: consent?.expectedRevision ?? null,
+              },
+            ];
+          }),
+  };
   return projectSession(row, attachments, now, {
     ...options,
     documentary: {
@@ -1522,6 +1628,7 @@ async function renderImportSessionUnchecked(
       ),
       declaredFacts: declarations.declaredFacts,
       reviewBlockers: declarations.reviewBlockers,
+      ocrEvidenceByLine,
       executableAttachmentIds: attachments
         .filter((ref) =>
           artifacts.some(
@@ -1544,6 +1651,7 @@ async function renderImportSessionUnchecked(
         )
         .map((ref) => ref.id),
     },
+    ocrCapability,
   });
 }
 import {

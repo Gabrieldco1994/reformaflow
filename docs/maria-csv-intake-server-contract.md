@@ -28,7 +28,8 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
   no mesmo vault e workflow; CSV qualificado isoladamente permanece compatível.
   Não habilita OFX, planilhas, imagens, OCR ou o kill switch financeiro amplo.
   Worker local terminável audita todas as páginas por operadores públicos PDF.js:
-  qualquer raster pintado, inclusive logotipo, exige `OCR_REQUIRED` no arquivo inteiro.
+  PDF textual completo permanece local mesmo com logotipo; somente raster integral sem
+  texto pesquisável pode exigir `OCR_REQUIRED`, e conteúdo misto/ambíguo falha sem OCR.
   Diagnóstico de warning/error retido apenas como booleano, até o cleanup, rejeita
   `DOCUMENT_UNREADABLE`; senha exige `PDF_PASSWORD_REQUIRED`. Nenhum texto diagnóstico
   é persistido/emitido. A cerca de diagnósticos é conservadora, não prova matemática
@@ -315,9 +316,10 @@ múltiplo ou presumido. O projeto-alvo precisa ser REFORMA ativa do mesmo tenant
 projeto proprietário e autorizada; eventual cômodo precisa estar ativo e pertencer a ela.
 Retorna `ImportSessionViewV1`.
 
-O envelope legado do mesmo PATCH é **selection-only**: exige `questionId: null`,
-`replaceLines: []` e apenas a lista `selectedLineIds` com IDs únicos e dentro do limite.
-Qualquer tentativa de responder pergunta ou substituir linha por esse formato é rejeitada.
+O envelope legado do mesmo PATCH exige `questionId: null` e `selectedLineIds` com IDs
+únicos dentro do limite. CSV e PDF local permanecem `replaceLines: []`; somente linhas
+OCR aceitam correções documentais estritamente validadas. A substituição não pode trocar
+IDs das observações nem responder perguntas; correções invalidam declarações anteriores.
 
 Dinheiro aceita um único token monetário não negativo; quantidade, um único inteiro positivo
 dentro do limite; datas, somente `AAAA-MM-DD` ou `DD/MM/AAAA` completas e válidas;

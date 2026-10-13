@@ -8,6 +8,7 @@ import type {
 import {
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PRIMITIVES as P,
+  PDF_OCR_PARSER_VERSION,
   ImportSessionErrorCode as Code,
   isInvoiceDueMonth,
   type ExpenseScheduleV1,
@@ -117,7 +118,10 @@ export function supportsImportExtraction(
     case "OFX":
       return artifact.parserVersion === "card-local-text-v1";
     case "PDF":
-      return artifact.parserVersion === "card-local-pdf-v1";
+      return (
+        artifact.parserVersion === "card-local-pdf-v1" ||
+        artifact.parserVersion === PDF_OCR_PARSER_VERSION
+      );
     case "XLS":
       return artifact.parserVersion === "card-local-xls-v1";
     case "XLSX":
@@ -300,18 +304,36 @@ export function buildImportMaterialization(
       continue;
     const ids = newIds.get(occurrence.reference);
     if (!ids) throw new ImportSessionCorruptStateError("extraction_ids");
-    const text = [
-      occurrence.dateOnly,
-      occurrence.merchant,
-      occurrence.amountCents === null
-        ? null
-        : `${occurrence.amountCents} centavos`,
-      occurrence.installmentIndex === null
-        ? null
-        : `${occurrence.installmentIndex}/${occurrence.installmentCount}`,
-    ]
-      .filter((part) => part !== null)
-      .join(" · ");
+    if (
+      extraction.parserVersion === PDF_OCR_PARSER_VERSION &&
+      (typeof occurrence.raw.description !== "string" ||
+        occurrence.raw.description.length === 0)
+    )
+      throw new ImportSessionCorruptStateError("ocr_evidence");
+    const ocrPage =
+      extraction.parserVersion === PDF_OCR_PARSER_VERSION
+        ? /^ocr:page:(\d+):candidate:\d+$/.exec(occurrence.reference)
+        : null;
+    if (
+      extraction.parserVersion === PDF_OCR_PARSER_VERSION &&
+      (!ocrPage || !Number.isSafeInteger(Number(ocrPage[1])))
+    )
+      throw new ImportSessionCorruptStateError("ocr_reference");
+    const text =
+      extraction.parserVersion === PDF_OCR_PARSER_VERSION
+        ? occurrence.raw.description!
+        : [
+            occurrence.dateOnly,
+            occurrence.merchant,
+            occurrence.amountCents === null
+              ? null
+              : `${occurrence.amountCents} centavos`,
+            occurrence.installmentIndex === null
+              ? null
+              : `${occurrence.installmentIndex}/${occurrence.installmentCount}`,
+          ]
+            .filter((part): part is string => part !== null)
+            .join(" · ");
     const evidence: Evidence = {
       sourceDescription: occurrence.raw.description,
       version: 1,
@@ -329,6 +351,30 @@ export function buildImportMaterialization(
         fitId: occurrence.fitId,
         fileContentHash: importFileContentHash(artifact.documentSha256),
       },
+      ...(extraction.parserVersion === PDF_OCR_PARSER_VERSION
+        ? {
+            ocr: {
+              attachmentId: attachment.id,
+              artifactSha256: artifact.documentSha256,
+              candidateFingerprint: createHash("sha256")
+                .update(
+                  canonical({
+                    artifactSha256: artifact.documentSha256,
+                    reference: occurrence.reference,
+                    evidenceText: occurrence.raw.description,
+                    dataCompra: occurrence.dateOnly,
+                    merchant: occurrence.merchant,
+                    amountCents: occurrence.amountCents,
+                    amountMeaning: occurrence.amountMeaning,
+                    installmentCount: occurrence.installmentCount,
+                    installmentIndex: occurrence.installmentIndex,
+                  }),
+                )
+                .digest("hex"),
+              pageNumber: Number(ocrPage![1]),
+            },
+          }
+        : {}),
     };
     const evidenceJson = canonical(evidence);
     // A valid extraction may contain raw descriptions larger than this storage

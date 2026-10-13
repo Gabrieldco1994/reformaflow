@@ -23,6 +23,10 @@ describe("private document retention behavior", () => {
         findFirst: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      importOcrUsage: {
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       importSessionArtifact: {
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(attached),
@@ -131,6 +135,7 @@ describe("private document retention behavior", () => {
       revision: 1,
       expiresAt: new Date(now.getTime() - 1),
       financialRequestId: null,
+      ocrJson: null,
     });
     await reaper.runCycle({ ...scope, limit: 4 });
     expect(tx.importSession.updateMany).toHaveBeenCalledWith(
@@ -161,6 +166,38 @@ describe("private document retention behavior", () => {
     await reaper.runCycle({ ...scope, limit: 4 });
     expect(storage.eraseCaptured).toHaveBeenCalledTimes(1);
     expect(tx.importSession.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("repairs a terminal OCR ledger row so it cannot starve active retention", async () => {
+    const { tx, reaper } = make();
+    tx.importOcrUsage.findMany.mockResolvedValue([
+      {
+        id: "usage-retention",
+        sessionId: "terminal-session",
+        attachmentId: "attachment-retention",
+        artifactId: "artifact-retention",
+        artifactSha256: "a".repeat(64),
+      },
+    ] as never);
+    tx.importSession.findFirst.mockResolvedValue({
+      id: "terminal-session",
+      state: "CANCELLED",
+      revision: 2,
+      ocrJson: null,
+    });
+
+    await reaper.runCycle({ ...scope, limit: 1 });
+
+    expect(tx.importOcrUsage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sessionId: "terminal-session",
+          outcome: "SUCCEEDED",
+          contentPurgedAt: null,
+        }),
+        data: { contentPurgedAt: now, updatedAt: now },
+      }),
+    );
   });
 
   it.each(["APPLIED", "CANCELLED", "EXPIRED"])(

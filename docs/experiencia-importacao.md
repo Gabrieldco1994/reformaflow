@@ -145,13 +145,51 @@ daquela entrega.
    outra referência/retenção autorizada. Comprovantes e proveniência financeira mínima ficam
    preservados conforme seu contrato, sem guardar a imagem por omissão.
 
+> **OCR #719 continua desabilitado.** `IMPORT_OCR_ENABLED` permanece falso por
+> omissão, portanto scans continuam exigindo entrada manual e PDFs
+> mistos/pesquisáveis nunca são enviados ao provedor. O slice inerte não cria endpoint: a versão 2
+> estrita do mesmo `POST .../attachments/:attachmentId/analyze` aceita somente
+> revisão, request id e a referência ao consentimento explícito. Antes disso, a
+> pessoa precisa registrar pelo `documentary-answer` uma declaração afirmativa
+> persistida e vinculada ao ator, sessão, revisão, anexo, artefato e payload.
+> A declaração informa provedor, finalidade, região e retenção de sete dias e
+> afirma que o **arquivo original completo**, inclusive metadados e conteúdo
+> potencialmente não visível/embutido, será enviado externamente. O servidor inspeciona primeiro o
+> PDF original; PDF textual termina localmente e faz zero chamadas externas.
+> Apenas PDF integralmente raster, sem qualquer texto pesquisável e com 1–10
+> páginas observadas, pode, depois da ativação, enviar uma
+> única vez os bytes imutáveis de `application/pdf` ao Vertex regional
+> `southamerica-east1`, modelo fixo `gemini-2.5-flash`, via ADC. Não há API key,
+> Developer API, região global, renderização local, File API, cache, tools,
+> grounding ou fallback. Resultado ambíguo após a cerca `attemptedAt` nunca é
+> repetido. Candidatos entram não selecionados e `UNVERIFIED`; preparar uma linha
+> escolhida exige declarações documentais atuais. Evidência mínima e origem
+> permanecem visíveis ao retomar a sessão, vinculadas ao anexo, artefato e
+> candidato; conteúdo OCR é eliminado após sete dias mesmo se a expiração da
+> sessão for prorrogada. Reservas diárias duráveis limitam chamadas, páginas,
+> bytes e unidades de tokens por pessoa, tenant e globalmente. Indisponibilidade
+> antes da chamada, bloqueio de segurança/resposta inválida e resultado
+> desconhecido sem repetição são erros distintos e orientam entrada manual,
+> substituição ou cancelamento; nenhum deles grava finanças. O modelo apenas
+> transcreve todas as ocorrências visíveis, em ordem, preservando duplicatas,
+> sinal e zero, sem classificar crédito, pagamento, tarifa, juros ou total. O
+> migration `20261013180000_import_pdf_ocr_runtime` permanece byte a byte igual
+> ao commit original de uma coluna; o ledger entra por migration aditiva nova,
+> com fixture de upgrade, checksums Prisma e FKs. A decisão do data owner aceita
+> explicitamente o risco residual do transporte do original completo e rejeita
+> rasterização local silenciosa neste release. A ativação ainda exige avaliação
+> ao vivo de documento denso com 24 linhas, `STOP`, envelope de 8k tokens,
+> aprovação do provedor e revisões finais. O código não comprova rollout,
+> aprovação do fornecedor nem disponibilidade em produção.
+
 Durante uma sessão ativa, as pendências são resolvidas por controles manuais e determinísticos:
 
 - perguntas focadas do rascunho usam `PATCH /import-sessions/:id/draft`, sem modelo ou tool;
   atestações documentais continuam no writer nativo separado, também sem `/agent/chat`;
 - a arquitetura contextual de sessão não existe mais: sem turno/outcome de importação, texto
-  livre, aprovação de escopo ou tool contextual. O PATCH legado só altera `selectedLineIds`,
-  com `questionId: null` e `replaceLines: []`;
+  livre, aprovação de escopo ou tool contextual. O PATCH legado continua
+  selection-only para documentos locais; apenas linhas OCR aceitam correções
+  estritamente validadas, sem permitir trocar os IDs das observações;
 - dinheiro, datas, parcelas e significado aceitam somente literais estritos; enums e decisões
   vêm de opções tipadas e autorizadas; finalidade exige `NO_TARGETS` explícito ou um único
   `TARGET` integral em REFORMA ativa, acessível e diferente da proprietária, sem destino
@@ -208,8 +246,9 @@ Os controles e a serialização vivem em
 `apps/web/src/app/projects/[projectId]/maria/_components/ImportFocusedDraftQuestion.tsx` e
 `apps/web/src/app/projects/[projectId]/maria/_lib/import-focused-draft-transport.ts`.
 O módulo público de conversa contextual e seus adaptadores de UI foram removidos; o contrato
-público conserva somente a ação de entrada e a proveniência de canal. O PATCH legado é
-selection-only, enquanto respostas passam pelo envelope focado ou pelo endpoint documental.
+público conserva somente a ação de entrada e a proveniência de canal. O PATCH legado mantém
+seleção para documentos locais e aceita correções estritas somente em linhas OCR; respostas
+documentais continuam no envelope focado ou no endpoint documental.
 `POST /import-sessions/:id/prepare` e `GET /import-sessions/:id/result` permanecem caminhos
 diretos. Estes locatores descrevem o candidato, não atestam merge, Linux, release ou produção.
 
