@@ -185,10 +185,13 @@ secret unless the record contains all of the following:
    restore-test evidence nor an owner, so it does not satisfy this gate. A copy
    on the same volume is not a restorable disaster backup.
 6. **Migrations and FK integrity:** show all expected migrations applied on the
-   production database and a clean `PRAGMA foreign_key_check` result from an
-   approved read-only checker. Do not use raw `sqlite3`, `prisma db execute`,
-   reset, repair, migration bypass or any FK-OFF writer. Any unresolved FK row
-   or migration state is a STOP.
+   production database. The normal gate remains
+   `PRAGMA foreign_key_check = 0`. The sole exception is the one-window #722
+   vault activation baseline described below: exactly 28 active
+   `rooms` → `projects` plus 4 soft-deleted `cash_flow_entries` → `expenses`
+   (32 total), retained byte-identically between capture and compare. No other
+   unresolved FK row or migration state is accepted. Do not use raw SQLite,
+   `prisma db execute`, reset, repair, migration bypass or any FK-OFF writer.
 7. **Retention approval:** link PO/data-owner approval for original-document
    retention, seven-day inactivity expiry, trash, backup retention, restore and
    deletion responsibilities. Code defaults and QA evidence are not policy
@@ -226,6 +229,68 @@ the sanitized command transcript and identifiers with the operational record.
 ## Separate activation sequence
 
 The sequence starts only after the blocker record is complete.
+
+### One-window #722 FK preservation exception
+
+The PO intentionally chose preservation, not repair: the 32 known legacy child
+rows remain byte-identical. There is no quarantine, deletion, relink, tenant
+inference or parent synthesis. This exception authorizes neither a migration nor
+future debt and does not weaken `npm run db:check`, CI, pre-commit or any global
+FK gate. `IMPORT_SESSION_WRITES_ENABLED` remains the source constant `false`.
+It is prohibited to use repair, raw SQLite or migrations for this exception.
+
+For this vault activation window only, the approved read-only evidence is
+`scripts/audit-vault-fk-baseline.mjs`, invoked in production only through
+`deploy/vault-startup/run-fk-baseline-audit.sh`. The launcher fixes
+`/data/dev.db`, `/data`, `/data/vault-fk-baseline.private.json`,
+`/data/vault-fk-baseline.authorization.json` and
+`/app/audit-vault-fk-baseline.mjs`; it accepts only `capture` or `compare`,
+requires an explicit writable ext4 `/data` mount on the database device, and
+checks the exact auditor SHA-256 embedded in the tracked launcher. The auditor
+opens SQLite explicitly read-only, pins one connection and one read
+transaction, enables and verifies `query_only`, and rejects unstable
+path/descriptor identity. Transfer the two executables from the pinned release,
+verify the launcher itself against the reviewed release, and never substitute a
+path, statement, table, tenant selector, apply verb or migration command.
+
+Before capture, the approver creates the external authorization as canonical
+JSON at the fixed authorization path, regular single-link mode `0600`. It binds
+the exact full release SHA, release ID, image digest, auditor artifact SHA-256,
+authorization ID, random nonce, window ID/start/expiry and this exception's
+purpose. Its full SHA-256 is supplied separately to the launcher. The window is
+at most four hours. The authorization is not generated or self-approved by the
+auditor.
+
+The private manifest is exclusively created as a regular single-link `0600`
+file in state `captured`. It contains rowids, exact FK multiplicity and
+definitions, table column contracts, typed values and full hashes: keep it only
+in the restricted activation record, never stdout, an issue, PR, artifact or
+general log. Supply the exact release/image/authorization/window values through
+the required `VAULT_FK_*` variables. They must be identical for capture and
+compare, current, and unique to this window. Compare exclusively creates the
+fixed `0600` `.consumed` receipt before reporting success; an existing receipt,
+clock rollback, second compare or recapture is a replay and a STOP.
+
+1. Run launcher `capture` only after freeze/quiescence and all other preflight
+   gates. Existing manifest, unsafe path/mode/link, any count/type other than
+   28/4/32, or any additional violation is a STOP.
+2. Immediately before activation run launcher `compare`. Any changed typed
+   column bytes, row/FK identity, count, release, image, authorization, window,
+   manifest integrity or path identity is a STOP. Keep the database quiescent
+   through the activation decision.
+3. After ON evidence and the retain-ON/flag-OFF decision are recorded, preserve
+   the approved private authorization, manifest and consumed receipt, then
+   clean up only those three exact files and the exact transferred auditor and
+   launcher named by the record. No wildcard and no database/vault cleanup.
+
+Production QA is **review-only** for this release. A deny/flag network guard
+must fail the run if any `POST` reaches confirmation-challenge, confirm or
+execute. QA may navigate the typed import review only until state **READY** with
+`proposal` non-null, `confirmation` and `receipt` null, and state never
+`APPLIED`, then stops. Before/after evidence must show no financial-table
+change and no `UserActivityLog` execute event. It never calls `challenge`,
+`confirm` or `execute`, and never uploads a real document as part of activation
+proof.
 
 1. **Freeze and pin.** Enter the exclusive window. Record `EXPECTED_SHA` from
    current `origin/main`; do not copy a SHA from this page. Re-read current main
@@ -319,6 +384,11 @@ the vault. Do not unset the other five profile values, delete
 `/data/import-vault`, detach the volume, run cleanup, or roll schema back.
 Record bounded pre/post inode, size and content-integrity evidence for the vault
 bytes without exposing names or content. Preserve the backup and volume.
+
+Flag-OFF is also the rollback for any failure of the #722 preservation
+exception. Do not repair the 32 rows, open raw SQLite, run a migration, or
+recapture under a reused/extended window. Close the window and start a newly
+authorized process from the top.
 
 OFF is only vault-admission containment. As stated in the contract, already
 materialized qualified sessions can retain independent prepare/confirm/execute
