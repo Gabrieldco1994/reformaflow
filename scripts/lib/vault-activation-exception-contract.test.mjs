@@ -12,6 +12,12 @@ const LAUNCHER =
   process.env.VAULT_LAUNCHER_UNDER_TEST ??
   join(ROOT, "deploy", "vault-startup", "run-fk-baseline-audit.sh");
 const RUNBOOK = join(ROOT, "deploy", "vault-startup", "README.md");
+const LOCK_OWNER_VERIFIER = join(
+  ROOT,
+  "deploy",
+  "vault-startup",
+  "verify-api-lock-owner.mjs",
+);
 const PACKAGE = join(ROOT, "package.json");
 const AGENTS = join(ROOT, "AGENTS.md");
 const DB_CHECK = join(ROOT, "scripts", "db-check.mjs");
@@ -193,6 +199,70 @@ test("runbook documents only the exact one-window preservation exception and rev
   assert.match(runbook, /IMPORT_SESSION_WRITES_ENABLED[\s\S]{0,100}false/);
 });
 
+test("Fly API lock owner verifier is fixed-purpose, read-only, and fail-closed", () => {
+  const source = readFileSync(LOCK_OWNER_VERIFIER, "utf8");
+  for (const required of [
+    /const PROC_ROOT = "\/proc"/,
+    /const INIT_EXE = "\/fly\/init"/,
+    /const NODE_EXE = "\/usr\/local\/bin\/node"/,
+    /Buffer\.from\("node\\0apps\/api\/dist\/main\.js\\0"\)/,
+    /const API_CWD = "\/app"/,
+    /const LOCK_FD = 9/,
+    /const LOCK_PATH = "\/data\/import-vault\/\.lock"/,
+    /\/1\/task\/1\/children/,
+    /CANDIDATE_COUNT/,
+    /CHILD_SET_CHANGED/,
+    /CANDIDATE_CHANGED/,
+    /LOCK_CHANGED/,
+  ]) {
+    assert.match(source, required);
+  }
+  assert.doesNotMatch(source, /process\.env|\/environ\b|node:child_process/);
+  assert.doesNotMatch(
+    source,
+    /\bspawn(?:Sync)?\b|process\.kill|setTimeout|setInterval/,
+  );
+  assert.doesNotMatch(
+    source,
+    /\b(?:writeFile|appendFile|truncate|unlink|rename|mkdir|chmod|chown|open)\w*Sync\b/,
+  );
+
+  const unsupported = spawnSync(
+    process.execPath,
+    [LOCK_OWNER_VERIFIER, "--proc", "/tmp/proc"],
+    { cwd: ROOT, encoding: "utf8" },
+  );
+  assert.equal(unsupported.status, 1);
+  assert.equal(unsupported.stdout, "state=DENIED reason=UNSUPPORTED_ARGS\n");
+  assert.equal(unsupported.stderr, "");
+  assert.doesNotMatch(unsupported.stdout, /\/proc|\/data|cmdline|fdinfo/);
+});
+
+test("runbook distinguishes Fly init from the retained unwrapped Docker PID1 proof", () => {
+  const runbook = readFileSync(RUNBOOK, "utf8");
+  assert.match(
+    runbook,
+    /2026-10-13[\s\S]{0,500}PID1 was `\/fly\/init`[\s\S]{0,300}direct API child was PID 643/i,
+  );
+  assert.match(
+    runbook,
+    /restored the vault to \*\*OFF\*\*[\s\S]{0,200}no financial writes/i,
+  );
+  assert.match(
+    runbook,
+    /unwrapped Docker[\s\S]{0,200}API PID1[\s\S]{0,300}Fly[\s\S]{0,100}`\/fly\/init`[\s\S]{0,200}direct child/i,
+  );
+  assert.match(
+    runbook,
+    /unwrapped Docker API-as-PID1\/FD9 Linux proof[\s\S]{0,200}retains the Docker topology/i,
+  );
+  assert.match(
+    runbook,
+    /verify-api-lock-owner\.mjs[\s\S]{0,500}exactly one direct child[\s\S]{0,700}FD9[\s\S]{0,300}WRITE\s+flock/i,
+  );
+  assert.doesNotMatch(runbook, /PID1 is the API, `\/proc\/1\/fd\/9`/);
+});
+
 test("global scar keeps FK checks strict outside this vault activation", () => {
   const agents = readFileSync(AGENTS, "utf8");
   assert.match(
@@ -223,6 +293,10 @@ test("migration-recovery adds both exception suites without changing db:check or
   assert.match(
     pkg.scripts["test:migration-recovery"],
     /deploy\/vault-startup\/test\/production-qa-guard\.test\.mjs/,
+  );
+  assert.match(
+    pkg.scripts["test:migration-recovery"],
+    /deploy\/vault-startup\/test\/api-lock-owner-proof\.test\.mjs/,
   );
 });
 

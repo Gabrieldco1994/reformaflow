@@ -13,6 +13,15 @@ baseline are not activation evidence. A separate verifier correction may make
 state observation resilient; it cannot set vault configuration or satisfy this
 runbook's authorization and storage preflight.
 
+Status on 2026-10-13: an activation attempt failed closed because this runbook's
+stale production check required the API to be PID1. On the observed Fly machine,
+PID1 was `/fly/init`; its direct API child was PID 643 and held inherited FD9
+for `/data/import-vault/.lock` with matching device/inode and the exclusive
+advisory WRITE flock. The operator restored the vault to **OFF**. No guarded
+journey ran and there were no financial writes. That attempt is not activation
+evidence. Keep the vault OFF until this correction is merged, its `main` deploy
+is green, and a new separately authorized window completes all gates.
+
 ## Contract
 
 - The default is OFF. Only literal `IMPORT_VAULT_ENABLED=true` requests ON.
@@ -42,12 +51,14 @@ runbook's authorization and storage preflight.
   creation. Open `.lock` read-only without create/truncate; util-linux `flock`
   selects a single writer **nonblocking, before migration**. Canonical Linux
   `/proc` proof must verify inherited FD9, device/inode and exclusive WRITE flock.
-- Unchanged migrations run before Node. The API is PID1 (`exec`), independently
-  waits for its actual injected gate to settle ON before administration/listen,
-  and installs Nest shutdown hooks. Failure closes the app and exits nonzero.
-  SIGTERM fences admission and drains the existing registry; FD9 stays held until
-  process exit. Diagnostics are bounded event/reason tokens, not document/path
-  dumps.
+- Unchanged migrations run before Node. In the unwrapped Docker runtime the
+  entrypoint `exec` makes the API PID1. Fly instead keeps `/fly/init` as PID1 and
+  makes the same API process its direct child. In either topology the API
+  independently waits for its actual injected gate to settle ON before
+  administration/listen and installs Nest shutdown hooks. Failure closes the
+  app and exits nonzero. SIGTERM fences admission and drains the existing
+  registry; FD9 stays held until process exit. Diagnostics are bounded
+  event/reason tokens, not document/path dumps.
 
 Assumptions: one cooperating ON process on one machine/volume; no hostile
 same-EUID or privileged mount/path mutation. Node path APIs are not an `openat`
@@ -67,8 +78,10 @@ The separate `production-vault-startup` job in `maria-csv-vault-qa.yml` builds t
 **actual Dockerfile/runtime**, mounts a disposable loopback ext4 filesystem at
 `/data`, and runs the actual tracked entrypoint against `test.db`. It uses no
 production credentials, hosted models, or Maria QA launcher. It tests HTTP
-readiness, authentication/typed OFF response, real ON gate event, PID1/FD9 Linux
-proof, collision-before-migration, simultaneous creation barriers, private
+readiness, authentication/typed OFF response, real ON gate event, and the
+unwrapped Docker API-as-PID1/FD9 Linux proof. That existing test deliberately
+retains the Docker topology and is not evidence that Fly omits `/fly/init`. It
+also tests collision-before-migration, simultaneous creation barriers, private
 synthetic CSV/PDF upload/download/restart, migration failure, filesystem/config
 rejection, missing lock/flock, real gate faults, and real SIGTERM lease drains.
 Test-only preload instrumentation is bind-mounted, never shipped in the image.
@@ -398,10 +411,17 @@ All items are required; a green workflow or absence of errors alone is not ON:
 - the same authorized volume ID attached to that sole machine, with `/data`
   still writable ext4 on the recorded device and the independent encryption
   evidence unchanged;
-- PID1 is the API, `/proc/1/fd/9` resolves to
-  `/data/import-vault/.lock`, FD9's device/inode equals the lock path, and
-  `/proc/1/fdinfo/9` shows the exclusive advisory WRITE flock. Record only
-  bounded stat/fd evidence; never dump `/proc/1/environ`;
+- run the exact reviewed `deploy/vault-startup/verify-api-lock-owner.mjs`
+  artifact from the pinned corrected `main`. Its bounded result must prove PID1
+  is exactly `/fly/init`, exactly one direct child has PPID 1, executable
+  `/usr/local/bin/node`, exact cmdline bytes
+  `node\0apps/api/dist/main.js\0` with no extras, and cwd `/app`, and that this
+  child's FD9 resolves to `/data/import-vault/.lock` with matching
+  path/descriptor device and inode plus exactly one canonical advisory WRITE
+  flock. The verifier must repeat and match the child set, PID/start time,
+  complete process identity and complete lock facts. Record only its bounded
+  state/PID/PPID/start/device/inode result; never read or dump any
+  `/proc/*/environ`;
 - `/data/import-vault`, `t` and `trash` are API-EUID-owned directories mode
   `0700`; `.lock` is an API-EUID-owned, single-link regular file mode `0600`;
   all are on the `/data` device, with no nested mount or upload-root alias;
