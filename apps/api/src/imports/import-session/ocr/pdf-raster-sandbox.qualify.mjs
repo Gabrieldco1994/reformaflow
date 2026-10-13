@@ -140,11 +140,14 @@ async function qualifyProfile() {
   process.env.GEMINI_API_KEY = "qualification-secret";
   process.env.DATABASE_URL = "file:/private/qualification.db";
   const launch = buildLinuxSandboxSpawn(directory, probe);
-  await run(launch.command, [...launch.args], launch.options);
-  await promisify(server.close.bind(server))();
-  delete process.env.GEMINI_API_KEY;
-  delete process.env.DATABASE_URL;
-  await rm(directory, { recursive: true, force: true });
+  try {
+    await run(launch.command, [...launch.args], launch.options);
+  } finally {
+    await promisify(server.close.bind(server))();
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.DATABASE_URL;
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 async function main() {
