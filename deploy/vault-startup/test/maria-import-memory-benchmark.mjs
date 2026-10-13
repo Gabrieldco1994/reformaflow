@@ -231,6 +231,51 @@ case "$oom:$oom_kill" in *[!0-9:]*) exit 29 ;; esac
 printf 'pid1_node=1\npid1_cgroup_root=1\ncgroup2_mount=1\nvmhwm_kb=%s\nevent_oom=%s\nevent_oom_kill=%s\n' "$vmhwm_kb" "$oom" "$oom_kill"
 `;
 
+export const PDF_WORKER_PROBE_SOURCE = String.raw`
+"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const workerThreads = require("node:worker_threads");
+if (workerThreads.isMainThread) {
+  const { syncBuiltinESMExports } = require("node:module");
+  const { fileURLToPath } = require("node:url");
+  let active = 0;
+  const NativeWorker = workerThreads.Worker;
+  workerThreads.Worker = class PdfWorkerProbe extends NativeWorker {
+    constructor(filename, options) {
+      super(filename, options);
+      const workerPath =
+        typeof filename === "string"
+          ? filename
+          : filename instanceof URL
+            ? fileURLToPath(filename)
+            : "";
+      if (path.basename(workerPath) !== "pdf-document.worker.mjs") return;
+      let online = false;
+      this.once("online", () => {
+        online = true;
+        active += 1;
+        fs.appendFileSync(
+          process.env.RF_MEMORY_BENCHMARK_WORKER_EVENTS,
+          "start " + String(active) + "\n",
+          { mode: 0o600 },
+        );
+      });
+      this.once("exit", () => {
+        if (!online) return;
+        active -= 1;
+        fs.appendFileSync(
+          process.env.RF_MEMORY_BENCHMARK_WORKER_EVENTS,
+          "exit " + String(active) + "\n",
+          { mode: 0o600 },
+        );
+      });
+    }
+  };
+  syncBuiltinESMExports();
+}
+`;
+
 function safeInteger(value, label) {
   assert.ok(
     Number.isSafeInteger(value) && value >= 0,
@@ -380,6 +425,39 @@ export function serializeMetrics(rows, registrationCalls = REGISTRATION_CALLS) {
   };
 }
 
+export function parsePdfWorkerEvents(eventsText) {
+  assert.equal(typeof eventsText, "string");
+  let activeCount = 0;
+  let maxConcurrentWorkers = 0;
+  let startCount = 0;
+  let exitCount = 0;
+  for (const line of eventsText.split("\n").filter(Boolean)) {
+    const match = /^(start|exit) ([0-9]+)$/.exec(line);
+    assert.ok(match, "PDF worker probe returned malformed events");
+    const nextCount = Number(match[2]);
+    if (match[1] === "start") {
+      activeCount += 1;
+      startCount += 1;
+      assert.equal(
+        nextCount,
+        activeCount,
+        "PDF worker start count is inconsistent",
+      );
+      maxConcurrentWorkers = Math.max(maxConcurrentWorkers, activeCount);
+    } else {
+      activeCount -= 1;
+      exitCount += 1;
+      assert.ok(activeCount >= 0, "PDF worker exit count is inconsistent");
+      assert.equal(
+        nextCount,
+        activeCount,
+        "PDF worker exit count is inconsistent",
+      );
+    }
+  }
+  return { activeCount, maxConcurrentWorkers, startCount, exitCount };
+}
+
 function assertRunnerPaths() {
   assert.equal(process.platform, "linux", "benchmark requires a Linux runner");
   const runnerTemp = process.env.RUNNER_TEMP;
@@ -484,7 +562,14 @@ function createDataDirectory(root, label) {
   return directory;
 }
 
-function runContainer(label, dataDirectory, image, secret, registerEnabled) {
+function runContainer(
+  label,
+  dataDirectory,
+  image,
+  secret,
+  registerEnabled,
+  instrumentPdfWorkers = false,
+) {
   markStage(`container-start-${label}`);
   const name = `rfm-${process.env.GITHUB_RUN_ID ?? "local"}-${process.env.GITHUB_RUN_ATTEMPT ?? "1"}-${label}-${randomBytes(3).toString("hex")}`;
   ACTIVE_CONTAINERS.add(name);
@@ -502,6 +587,20 @@ function runContainer(label, dataDirectory, image, secret, registerEnabled) {
     IMPORT_VAULT_HEADROOM_BYTES: "1048576",
     IMPORT_VAULT_DRAIN_TIMEOUT_MS: "2000",
   };
+  if (instrumentPdfWorkers) {
+    env.NODE_OPTIONS = "--require=/data/benchmark-worker-probe.cjs";
+    env.RF_MEMORY_BENCHMARK_WORKER_EVENTS =
+      "/data/benchmark-worker-events.ndjson";
+    writeFileSync(
+      join(dataDirectory, "benchmark-worker-probe.cjs"),
+      PDF_WORKER_PROBE_SOURCE,
+      { mode: 0o600, flag: "wx" },
+    );
+    writeFileSync(join(dataDirectory, "benchmark-worker-events.ndjson"), "", {
+      mode: 0o600,
+      flag: "wx",
+    });
+  }
   const envFile = join(dataDirectory, "benchmark.env");
   writeFileSync(
     envFile,
@@ -842,6 +941,27 @@ export function observeDatabase(database, users) {
   );
 }
 
+function readPdfWorkerEvents(dataDirectory) {
+  const eventPath = join(dataDirectory, "benchmark-worker-events.ndjson");
+  try {
+    return parsePdfWorkerEvents(readFileSync(eventPath, "utf8"));
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    )
+      return {
+        activeCount: 0,
+        maxConcurrentWorkers: 0,
+        startCount: 0,
+        exitCount: 0,
+      };
+    throw new Error("PDF worker overlap evidence could not be read");
+  }
+}
+
 async function waitForState(
   api,
   database,
@@ -1094,7 +1214,15 @@ function createMetricRow(
 }
 
 async function withMeasuredContainer(
-  { root, image, secret, label, users, seedDatabase },
+  {
+    root,
+    image,
+    secret,
+    label,
+    users,
+    seedDatabase,
+    instrumentPdfWorkers = false,
+  },
   work,
 ) {
   const dataDirectory = createDataDirectory(root, `data-${label}`);
@@ -1105,7 +1233,14 @@ async function withMeasuredContainer(
     markStage("sqlite-backup-clone");
     cloneDatabase(seedDatabase, database);
     markStage("measured-container-start");
-    api = runContainer(label, dataDirectory, image, secret, false);
+    api = runContainer(
+      label,
+      dataDirectory,
+      image,
+      secret,
+      false,
+      instrumentPdfWorkers,
+    );
     await waitReady(api);
     await verifyClonedUsers(api, scenarioUsers);
     markStage("memory-baseline");
@@ -1270,8 +1405,9 @@ async function runPdfRung({
       label,
       users,
       seedDatabase,
+      instrumentPdfWorkers: true,
     },
-    async ({ api, database, users: selectedUsers }) => {
+    async ({ api, dataDirectory, database, users: selectedUsers }) => {
       selectedUsers = selectedUsers.slice(0, concurrency);
       const attachments = [];
       markStage("pdf-reservation-and-upload");
@@ -1314,16 +1450,27 @@ async function runPdfRung({
         api,
         database,
         selectedUsers,
-        (state) =>
-          state.analyzingCount === concurrency &&
-          state.analyzingTenantCount === concurrency &&
-          state.analyzingUserCount === concurrency,
+        (state) => {
+          const workers = readPdfWorkerEvents(dataDirectory);
+          return (
+            state.analyzingCount === concurrency &&
+            state.analyzingTenantCount === concurrency &&
+            state.analyzingUserCount === concurrency &&
+            workers.activeCount === concurrency &&
+            workers.maxConcurrentWorkers === concurrency
+          );
+        },
         "real server-side PDF parser overlap was not observed",
         30_000,
       );
       markStage("pdf-analysis-results");
+      const pdfWorkers = readPdfWorkerEvents(dataDirectory);
       assert.equal(overlap.analyzingCount, concurrency);
       assert.equal(overlap.analyzingUserCount, concurrency);
+      assert.equal(pdfWorkers.activeCount, concurrency);
+      assert.equal(pdfWorkers.startCount, concurrency);
+      assert.equal(pdfWorkers.exitCount, 0);
+      assert.equal(pdfWorkers.maxConcurrentWorkers, concurrency);
       const settled = await Promise.all(analyses);
       assert.equal(
         settled.every(({ ok }) => ok),
@@ -1343,7 +1490,7 @@ async function runPdfRung({
       const financialCounts = requireZeroFinancialCounts(state);
       assert.equal(state.observationCount, concurrency);
       return {
-        overlapCount: overlap.analyzingTenantCount,
+        overlapCount: pdfWorkers.maxConcurrentWorkers,
         distinctTenantCount: overlap.analyzingTenantCount,
         distinctUserCount: overlap.analyzingUserCount,
         financialCounts,

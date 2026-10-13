@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { basename } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 import {
+  PDF_WORKER_PROBE_SOURCE,
   observeDatabase,
+  parsePdfWorkerEvents,
   parseVmHwmBytes,
   serializeMetrics,
   verifyCgroupV2Proof,
@@ -118,6 +123,52 @@ test("cgroup proof requires the exact private 512 MiB v2 leaf with zero swap", (
     { ancestorMemoryMaxBytes: [null, MEMORY_CAP_BYTES - 1] },
   ]) {
     assert.throws(() => verifyCgroupV2Proof(cgroupEvidence(invalid)));
+  }
+});
+
+test("PDF worker probe counts overlapping started workers without identifiers", () => {
+  const directory = mkdtempSync(join(tmpdir(), "rf-pdf-worker-probe-"));
+  try {
+    const preload = join(directory, "probe.cjs");
+    const events = join(directory, "events.ndjson");
+    const worker = join(directory, "pdf-document.worker.mjs");
+    writeFileSync(preload, PDF_WORKER_PROBE_SOURCE, { mode: 0o600 });
+    writeFileSync(events, "", { mode: 0o600 });
+    writeFileSync(
+      worker,
+      'import { setTimeout as delay } from "node:timers/promises"; await delay(150);\n',
+      { mode: 0o600 },
+    );
+    const source = `
+      const { Worker } = require("node:worker_threads");
+      const workers = [1, 2].map(() => new Worker(process.env.WORKER_SCRIPT));
+      Promise.all(workers.map((worker) => new Promise((resolve, reject) => {
+        worker.once("error", reject);
+        worker.once("exit", (code) => code === 0 ? resolve() : reject(new Error()));
+      }))).catch(() => { process.exitCode = 1; });
+    `;
+    const result = spawnSync(
+      process.execPath,
+      ["--require", preload, "-e", source],
+      {
+        encoding: "utf8",
+        timeout: 5_000,
+        env: {
+          ...process.env,
+          WORKER_SCRIPT: worker,
+          RF_MEMORY_BENCHMARK_WORKER_EVENTS: events,
+        },
+      },
+    );
+    assert.equal(result.status, 0, "test-only worker probe child failed");
+    assert.deepEqual(parsePdfWorkerEvents(readFileSync(events, "utf8")), {
+      activeCount: 0,
+      maxConcurrentWorkers: 2,
+      startCount: 2,
+      exitCount: 2,
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
