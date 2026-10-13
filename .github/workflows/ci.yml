@@ -186,7 +186,11 @@ jobs:
         run: docker build --tag reformaflow-api:ocr-sandbox --file apps/api/Dockerfile .
       - name: Qualify isolation, admission, cleanup and peak RSS
         run: |
-          docker run --rm \
+          container="rf-ocr-pdf-sandbox-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() { docker rm --force "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          timeout --signal=TERM --kill-after=15s 180s docker run --rm \
+            --name "$container" \
             --memory=512m \
             --memory-swap=512m \
             --pids-limit=128 \

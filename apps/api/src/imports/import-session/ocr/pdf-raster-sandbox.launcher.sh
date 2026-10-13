@@ -15,7 +15,6 @@ fail() {
 exec /usr/bin/bwrap \
   --unshare-all \
   --die-with-parent \
-  --new-session \
   --cap-drop ALL \
   --clearenv \
   --ro-bind /usr /usr \

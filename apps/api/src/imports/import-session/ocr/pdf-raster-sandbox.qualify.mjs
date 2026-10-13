@@ -183,6 +183,7 @@ async function main() {
     ),
     "source metadata absent",
   );
+  console.log("qualification phase: raster admission");
 
   await expectCode(
     sandbox.rasterize({ mimeType: MIME, bytes: pdf({ pages: 11 }) }),
@@ -202,6 +203,7 @@ async function main() {
     }),
     "MALFORMED_PDF",
   );
+  console.log("qualification phase: structural rejection");
 
   const fixtureDirectory = join(runRoot, "fixtures");
   await mkdir(fixtureDirectory, { mode: 0o700 });
@@ -236,8 +238,10 @@ async function main() {
     "EMBEDDED_FILE",
   );
   await rm(fixtureDirectory, { recursive: true, force: true });
+  console.log("qualification phase: encryption and attachment rejection");
 
   await qualifyProfile();
+  console.log("qualification phase: network, secrets and descriptors");
 
   let started;
   const childStarted = new Promise((resolve) => {
@@ -264,6 +268,7 @@ async function main() {
   await new Promise((resolve) => setTimeout(resolve, 100));
   abort.abort();
   await expectCode(pending, "ABORTED");
+  console.log("qualification phase: process-group abort");
 
   clearInterval(monitor);
   peakRssBytes = Math.max(peakRssBytes, await rssBytes());

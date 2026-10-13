@@ -332,6 +332,7 @@ describe("local PDF raster admission sandbox", () => {
       PDF_SANDBOX_WORKER: "/app/worker.mjs",
     });
     expect(spawn.args).toContain("--no-network");
+    expect(spawn.args).not.toContain("--new-session");
     expect(spawn.args).toContain(
       String(PDF_RASTER_SANDBOX_LIMITS.maxAddressSpaceBytes),
     );
