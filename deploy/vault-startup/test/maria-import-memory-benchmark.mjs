@@ -1060,22 +1060,43 @@ function inspectCgroup2Mount(containerPid) {
     )}`,
   ].join("-");
   markStage(`host-cgroup-mount-${diagnostic}`);
+  markStage(`host-cgroup-mount-status-${hostMount.status}`);
   assert.equal(hostMount.status, "readable");
+  markStage(`target-cgroup-mount-status-${containerMount.status}`);
   assert.equal(containerMount.status, "readable");
+  markStage(
+    `host-cgroup-root-${Number(hostMount.mountRootIsHierarchyRoot === true)}`,
+  );
   assert.equal(hostMount.mountRootIsHierarchyRoot, true);
   const mountDeviceMatches = hostMount.majorMinor === containerMount.majorMinor;
   markStage(`host-cgroup-mount-device-match-${Number(mountDeviceMatches)}`);
   assert.equal(mountDeviceMatches, true);
+  markStage(
+    `host-cgroup-mount-ids-${Number(hostMount.mountIdPresent)}-${Number(containerMount.mountIdPresent)}`,
+  );
   assert.equal(hostMount.mountIdPresent, true);
   assert.equal(containerMount.mountIdPresent, true);
+  markStage(
+    `host-cgroup-runner-cgns-${runnerInitCgroupNamespace.status}-${Number(runnerInitCgroupNamespace.same)}`,
+  );
   assert.equal(runnerInitCgroupNamespace.status, "readable");
   assert.equal(runnerInitCgroupNamespace.same, true);
+  markStage(
+    `host-cgroup-target-cgns-${targetCgroupNamespace.status}-${Number(targetCgroupNamespace.same)}`,
+  );
   assert.equal(targetCgroupNamespace.status, "readable");
   assert.equal(targetCgroupNamespace.same, false);
+  markStage(
+    `host-cgroup-runner-mntns-${runnerInitMountNamespace.status}-${Number(runnerInitMountNamespace.same)}`,
+  );
   assert.equal(runnerInitMountNamespace.status, "readable");
   assert.equal(runnerInitMountNamespace.same, true);
+  markStage(
+    `host-cgroup-target-mntns-${targetMountNamespace.status}-${Number(targetMountNamespace.same)}`,
+  );
   assert.equal(targetMountNamespace.status, "readable");
   assert.equal(targetMountNamespace.same, false);
+  markStage("host-cgroup-mount-proof-verified");
   return {
     targetMountRoot: containerMount.mountRoot,
     hostMountId: hostMount.mountId,
@@ -1115,10 +1136,13 @@ function readHostCgroupLimits(
     "host is not cgroup v2",
   );
   const mountProof = inspectCgroup2Mount(containerPid);
+  markStage("host-cgroup-process-starttime-read");
   const processStart = processStartTime(containerPid);
+  markStage("host-cgroup-process-status-read");
   const processStatus = cgroupFile(`/proc/${containerPid}/status`);
   assert.equal(processStatus.status, "readable");
   const namespacePids = /^NSpid:\s*([0-9 ]+)$/m.exec(processStatus.value);
+  markStage(`host-cgroup-nspid-present-${Number(namespacePids !== null)}`);
   assert.ok(namespacePids, "process PID namespace mapping is unavailable");
   const pidMap = namespacePids[1].trim().split(/\s+/).map(Number);
   const containerInitMatches =
