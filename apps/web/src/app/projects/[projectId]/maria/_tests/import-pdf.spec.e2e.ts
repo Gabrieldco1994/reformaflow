@@ -325,9 +325,14 @@ test("terminal reload does not expose any upload picker", async ({
 }) => {
   const writes = await mockApi(page, baseURL!, ["CSV", "PDF"], true);
   await page.goto(`/projects/${PROJECT}/maria?importSessionId=${SESSION}`);
+  const conversation = page.getByRole("region", {
+    name: "Conversa da importação",
+  });
   await expect(
-    page.getByText(new RegExp(`Importação ${SESSION} · Revisão`)),
+    conversation.getByText("Importação · Revisão 1", { exact: true }),
   ).toBeVisible();
+  await expect(conversation).not.toContainText(SESSION);
+  await expect(conversation).not.toHaveAccessibleName(new RegExp(SESSION));
   await expect(page.locator('input[type="file"]')).toHaveCount(0);
   expect(writes).toHaveLength(0);
 });
