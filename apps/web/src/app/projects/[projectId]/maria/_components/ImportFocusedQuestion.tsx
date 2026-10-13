@@ -12,6 +12,7 @@ import {
   type ImportObservationQuestionV1,
   type ImportSessionCandidateV1,
   type ImportSessionQuestionV1,
+  type ImportSessionObservationViewV1,
 } from "@reformaflow/domain";
 import { moneyDetail } from "@/lib/money";
 import { formatDateOnly } from "../_lib/import-format";
@@ -22,6 +23,7 @@ import journeyStyles from "@/components/import/ImportJourney.module.css";
 import {
   formatImportPurchaseContext,
   ImportFocusedDraftQuestion,
+  withImportObservationContext,
 } from "./ImportFocusedDraftQuestion";
 import type { ImportPurchaseContextLine } from "./ImportFocusedDraftQuestion";
 import { isFocusedDraftQuestion } from "../_lib/import-focused-draft";
@@ -56,6 +58,7 @@ type ImportFocusedQuestionProps = {
   voiceCapture?: ImportVoiceCapture | null;
   revision?: number;
   onVoiceGuidance?: (message: string) => void;
+  observations?: readonly ImportSessionObservationViewV1[];
 };
 
 export const IMPORT_QUESTION_FIELD_LABEL: Record<
@@ -590,7 +593,26 @@ function FocusedQuestion({
 }
 
 export function ImportFocusedQuestion(props: ImportFocusedQuestionProps) {
+  const preferredObservationId =
+    "subject" in props.question
+      ? props.question.subject.observationId
+      : undefined;
+  const lines = props.lines.map((line) =>
+    withImportObservationContext(
+      line,
+      props.observations ?? [],
+      props.question.lineIds.includes(line.id)
+        ? preferredObservationId
+        : undefined,
+    ),
+  );
+  const contextualProps = { ...props, lines };
   if (isFocusedDraftQuestion(props.question))
-    return <ImportFocusedDraftQuestion key={props.question.id} {...props} />;
-  return <FocusedQuestion key={props.question.id} {...props} />;
+    return (
+      <ImportFocusedDraftQuestion
+        key={props.question.id}
+        {...contextualProps}
+      />
+    );
+  return <FocusedQuestion key={props.question.id} {...contextualProps} />;
 }

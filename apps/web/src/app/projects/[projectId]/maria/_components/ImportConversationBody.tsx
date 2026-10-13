@@ -15,8 +15,10 @@ import {
 } from "../_hooks/useImportDocumentFlow";
 import {
   useCancelImportSession,
+  useImportSessionList,
   useImportUserId,
 } from "../_hooks/useImportSessions";
+import { useImportObservations } from "../_hooks/useImportObservations";
 import { useImportCatalog } from "../_hooks/useImportCatalog";
 import { buildReceiptView } from "../_lib/import-receipt-view";
 import {
@@ -34,7 +36,10 @@ import {
   ImportDeclaredFacts,
 } from "./ImportReviewBlockerNotice";
 import { ImportReceipt } from "./ImportReceipt";
-import { formatImportPurchaseContext } from "./ImportFocusedDraftQuestion";
+import {
+  formatImportPurchaseContext,
+  withImportObservationContext,
+} from "./ImportFocusedDraftQuestion";
 import { questionIntersectsSelectedLines } from "../_lib/import-question-selection";
 type AgentChannel = "TEXT" | "VOICE";
 
@@ -59,6 +64,19 @@ function Conversation({
   const router = useRouter();
   const { cancel } = useCancelImportSession(conversation.userId);
   const { view, question, error } = conversation;
+  const observations = useImportObservations(
+    conversation.userId,
+    sessionId,
+    view?.revision ?? null,
+    Boolean(
+      view?.attachments.some((attachment) => attachment.state === "ATTACHED"),
+    ),
+  );
+  const appliedList = useImportSessionList(
+    conversation.userId,
+    "applied",
+    Boolean(conversation.result),
+  );
   const [ignoredCount, setIgnoredCount] = useState(0);
   const [cancelPending, setCancelPending] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -101,9 +119,21 @@ function Conversation({
     conversation.userId,
     conversation.result !== null,
   );
-  const receipt = conversation.result?.receipt
+  const receiptView = conversation.result?.receipt
     ? buildReceiptView(conversation.result.receipt, names)
     : null;
+  const persistedContinuationSessionId =
+    appliedList.items.find((summary) => summary.id === sessionId)
+      ?.continuationSessionId ?? null;
+  const receipt =
+    receiptView &&
+    !receiptView.continuationSessionId &&
+    persistedContinuationSessionId
+      ? {
+          ...receiptView,
+          continuationSessionId: persistedContinuationSessionId,
+        }
+      : receiptView;
   const openContinuation = useCallback(
     (continuationSessionId: string) => {
       onContinuationRequest?.(continuationSessionId);
@@ -351,7 +381,7 @@ function Conversation({
           view.lines.map((line) => (
             <ImportReviewBlockerNotice
               key={line.id}
-              line={line}
+              line={withImportObservationContext(line, observations.data ?? [])}
               blockers={view.reviewBlockers}
               selected={view.selectedLineIds.includes(line.id)}
               showLine
@@ -398,7 +428,15 @@ function Conversation({
                   (candidate) => candidate.id === question.lineIds[0],
                 );
                 const purchaseContext = line
-                  ? formatImportPurchaseContext(line)
+                  ? formatImportPurchaseContext(
+                      withImportObservationContext(
+                        line,
+                        observations.data ?? [],
+                        "subject" in question
+                          ? question.subject.observationId
+                          : undefined,
+                      ),
+                    )
                   : "Compra";
                 return (
                   <div key={question.id} className="space-y-2 text-sm">
@@ -477,6 +515,7 @@ function Conversation({
                 <ImportFocusedQuestion
                   question={question}
                   lines={view.lines}
+                  observations={observations.data ?? []}
                   value={conversation.literal}
                   onTextChange={conversation.setLiteral}
                   inputLabel="Sua resposta sobre esta compra"

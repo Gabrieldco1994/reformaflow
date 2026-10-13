@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IMPORT_SESSION_PRIMITIVES } from "@reformaflow/domain";
@@ -24,6 +24,10 @@ import { ImportLocalDocuments } from "./ImportLocalDocuments";
 import { ImportRecoveryEntry } from "./ImportRecoveryEntry";
 import { MariaChatBody } from "./MariaChatBody";
 
+const PRIVATE_IMPORT_HISTORY_KEY = "__reformaflowMariaImport";
+const validSessionId = (value: string | null): value is string =>
+  value !== null && new RegExp(IMPORT_SESSION_PRIMITIVES.idPattern).test(value);
+
 function Entry({
   projectId,
   userId,
@@ -39,10 +43,55 @@ function Entry({
   const cardSetupReturn = searchParams.get("cardSetup") === "return";
   const params = new URLSearchParams(search);
   const ids = params.getAll("importSessionId");
+  const importAddress = ids.join("\u0000");
   const invalid =
-    ids.length > 1 ||
-    (ids.length === 1 &&
-      !new RegExp(IMPORT_SESSION_PRIMITIVES.idPattern).test(ids[0]));
+    ids.length > 1 || (ids.length === 1 && !validSessionId(ids[0]));
+  const urlSessionId = !invalid && ids.length === 1 ? ids[0] : null;
+  const cleanParams = new URLSearchParams(search);
+  cleanParams.delete("importSessionId");
+  const cleanSearch = cleanParams.toString();
+  const cleanHref = cleanSearch ? `${pathname}?${cleanSearch}` : pathname;
+  const [privateSessionId, setPrivateSessionId] = useState<string | null>(null);
+  const rememberPrivateSession = useCallback(
+    (id: string) => {
+      if (!validSessionId(id) || typeof window === "undefined") return;
+      const previous =
+        window.history.state && typeof window.history.state === "object"
+          ? window.history.state
+          : {};
+      window.history.replaceState(
+        {
+          ...previous,
+          [PRIVATE_IMPORT_HISTORY_KEY]: { projectId, id },
+        },
+        "",
+        cleanHref,
+      );
+      setPrivateSessionId(id);
+    },
+    [cleanHref, projectId],
+  );
+  useEffect(() => {
+    if (urlSessionId) {
+      rememberPrivateSession(urlSessionId);
+      return;
+    }
+    if (ids.length !== 0 || typeof window === "undefined") return;
+    const privateImport = window.history.state?.[PRIVATE_IMPORT_HISTORY_KEY];
+    if (
+      privateImport &&
+      typeof privateImport === "object" &&
+      privateImport.projectId === projectId &&
+      validSessionId(privateImport.id)
+    )
+      setPrivateSessionId(privateImport.id);
+  }, [
+    importAddress,
+    ids.length,
+    projectId,
+    rememberPrivateSession,
+    urlSessionId,
+  ]);
   const location = JSON.stringify([projectId, pathname, search]);
   const [requested, setRequested] = useState<{
     id: string;
@@ -101,7 +150,8 @@ function Entry({
       ? list.entry.value.formats
       : [];
   const documents = useImportDocumentFlow(
-    selection?.id ?? (invalid ? null : (ids[0] ?? null)),
+    selection?.id ??
+      (invalid ? null : (urlSessionId ?? privateSessionId ?? null)),
     {
       key: contextKey,
       supportedFormats: capability?.formats ?? entryFormats,

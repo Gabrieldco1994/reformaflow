@@ -10,7 +10,9 @@ import {
   declarationValueLabel,
 } from "./ImportFocusedQuestion";
 import {
+  formatImportPurchaseAmountContext,
   formatImportPurchaseContext,
+  formatImportPurchaseIdentity,
   type ImportPurchaseContextLine,
 } from "./ImportFocusedDraftQuestion";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
@@ -126,6 +128,8 @@ export function ImportReviewBlockerNotice({
   }, [selected, visible]);
   if (!visible && !showLine && !onInclude && !onRemove) return null;
   const purchaseContext = formatImportPurchaseContext(line);
+  const purchaseIdentity = formatImportPurchaseIdentity(line);
+  const purchaseAmount = formatImportPurchaseAmountContext(line);
   return (
     <article
       aria-labelledby={`${id}-line`}
@@ -190,7 +194,19 @@ export function ImportReviewBlockerNotice({
           onClick={() => onInclude(line.id)}
           className="min-h-11 rounded-xl border px-3 focus-visible:outline focus-visible:outline-2"
         >
-          Incluir na revisão
+          Incluir {purchaseIdentity}
+          {purchaseAmount && (
+            <>
+              {" · "}
+              <span
+                data-workflow-money
+                className={`${journeyStyles.money} whitespace-nowrap`}
+              >
+                {purchaseAmount}
+              </span>
+            </>
+          )}{" "}
+          na revisão
         </button>
       )}
     </article>

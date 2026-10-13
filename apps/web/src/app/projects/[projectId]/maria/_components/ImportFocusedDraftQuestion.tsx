@@ -11,6 +11,7 @@ import {
   type LaborCategory,
   type ImportSessionCandidateV1,
   type ImportSessionDraftLineV1,
+  type ImportSessionObservationViewV1,
   type ImportSessionQuestionV1,
 } from "@reformaflow/domain";
 import { useProject } from "@/contexts/project-context";
@@ -78,40 +79,55 @@ export type ImportPurchaseContextLine = Pick<
   Partial<
     Pick<
       ImportSessionDraftLineV1,
+      | "observationIds"
       | "fornecedor"
       | "amountMeaning"
       | "amountCents"
       | "dataCompra"
       | "installmentCount"
     >
-  >;
+  > & {
+    availableAmountCents?: number | null;
+    availableAmountMeaning?: ImportSessionAmountMeaning;
+  };
 
 const AMOUNT_MEANING_LABELS: ReadonlyMap<ImportSessionAmountMeaning, string> =
   new Map([
     [ImportSessionAmountMeaning.TOTAL_PURCHASE, "Total"],
     [ImportSessionAmountMeaning.INSTALLMENT_CHARGE, "Parcela"],
-    [ImportSessionAmountMeaning.UNKNOWN, "Valor"],
+    [ImportSessionAmountMeaning.UNKNOWN, "Significado a confirmar"],
   ]);
+
+export function withImportObservationContext(
+  line: ImportPurchaseContextLine,
+  observations: readonly ImportSessionObservationViewV1[],
+  preferredObservationId?: string,
+): ImportPurchaseContextLine {
+  if (line.amountCents !== null && line.amountCents !== undefined) return line;
+  const observationId =
+    preferredObservationId ??
+    (line.observationIds?.length === 1 ? line.observationIds[0] : null);
+  if (!observationId) return line;
+  const observation = observations.find(
+    (candidate) => candidate.id === observationId,
+  );
+  if (!observation || observation.amountCents === null) return line;
+  return {
+    ...line,
+    availableAmountCents: observation.amountCents,
+    availableAmountMeaning: line.amountMeaning ?? observation.amountMeaning,
+  };
+}
 
 export function formatImportPurchaseContext(
   line: ImportPurchaseContextLine,
 ): string {
-  const merchant = line.fornecedor?.trim() ?? "";
-  const title = line.titulo.trim();
-  const identity = merchant
-    ? title && title !== merchant
-      ? `${merchant} — ${title}`
-      : merchant
-    : title || "Compra";
+  const identity = formatImportPurchaseIdentity(line);
   const details = [identity];
   const date = formatDateOnly(line.dataCompra);
   if (date) details.push(date);
-  if (line.amountCents !== null && line.amountCents !== undefined) {
-    const meaning = line.amountMeaning
-      ? (AMOUNT_MEANING_LABELS.get(line.amountMeaning) ?? "Valor")
-      : "Valor";
-    details.push(`${moneyDetail(line.amountCents)} · ${meaning}`);
-  }
+  const amount = formatImportPurchaseAmountContext(line);
+  if (amount) details.push(amount);
   if (line.installmentCount !== null && line.installmentCount !== undefined) {
     details.push(
       `${line.installmentCount} ${
@@ -120,6 +136,35 @@ export function formatImportPurchaseContext(
     );
   }
   return details.join(" · ");
+}
+
+export function formatImportPurchaseIdentity(
+  line: ImportPurchaseContextLine,
+): string {
+  const merchant = line.fornecedor?.trim() ?? "";
+  const title = line.titulo.trim();
+  return merchant
+    ? title && title !== merchant
+      ? `${merchant} — ${title}`
+      : merchant
+    : title || "Compra";
+}
+
+export function formatImportPurchaseAmountContext(
+  line: ImportPurchaseContextLine,
+): string | null {
+  const amountCents = line.amountCents ?? line.availableAmountCents;
+  if (amountCents !== null && amountCents !== undefined) {
+    const amountMeaning =
+      line.amountCents !== null && line.amountCents !== undefined
+        ? line.amountMeaning
+        : line.availableAmountMeaning;
+    const meaning = amountMeaning
+      ? (AMOUNT_MEANING_LABELS.get(amountMeaning) ?? "Significado a confirmar")
+      : "Significado a confirmar";
+    return `${moneyDetail(amountCents)} · ${meaning}`;
+  }
+  return null;
 }
 
 const MEANING_OPTIONS = [

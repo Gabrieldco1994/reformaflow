@@ -400,7 +400,10 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   mesmo sem valor legível, evitando uma revisão incompleta.
 - A revisão separa compras, declarações e lançamentos ignorados. Pagamento de
   fatura é evidência informativa: importar compras não quita a fatura. Controles
-  focados e manuais respondem cada pendência genérica do rascunho pelo `PATCH`
+  de inclusão identificam cada compra pelo estabelecimento/título e pelo valor
+  disponível com seu significado. Enquanto o significado não foi declarado, a
+  tela diz **Significado a confirmar** em vez de presumir total ou parcela.
+  Outros controles focados e manuais respondem cada pendência genérica do rascunho pelo `PATCH`
   autenticado da própria sessão. Não há chamada de modelo nem execução de tool
   da Maria para interpretar ou guardar essas respostas. Datas, valores, quantidade
   de parcelas e significado do valor aceitam apenas literais estritos; tipo,
@@ -421,7 +424,9 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   rascunho restante; repetir uma execução concluída devolve o mesmo recibo.
   Se a resposta da aplicação se perder, a tela consulta o estado guardado antes
   de permitir qualquer nova ação. O recibo de um lote parcial oferece **Ver
-  rascunho restante**, que abre as compras ainda não aplicadas já selecionadas.
+  rascunho restante**, que abre as compras ainda não aplicadas já selecionadas
+  e continua disponível após recarregar o comprovante. A sessão ativa é mantida
+  no histórico privado da aba; seu identificador interno é removido do endereço.
   Sessões podem ser retomadas após recarregar. Trocar de conta limpa a seleção e
   a sessão privada anterior. O prazo continua sendo sete dias sem edição do
   usuário; consulta/polling não o renova, e conclusão/cancelamento continuam

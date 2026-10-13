@@ -30,6 +30,10 @@ vi.mock("../_hooks/useImportConversation", () => ({
 vi.mock("../_hooks/useImportSessions", () => ({
   useImportUserId: () => "user-selection",
   useCancelImportSession: () => ({ cancel: vi.fn() }),
+  useImportSessionList: () => ({ items: [] }),
+}));
+vi.mock("../_hooks/useImportObservations", () => ({
+  useImportObservations: () => ({ data: [] }),
 }));
 vi.mock("../_hooks/useImportManualOptions", () => ({
   useImportManualOptions: () => ({

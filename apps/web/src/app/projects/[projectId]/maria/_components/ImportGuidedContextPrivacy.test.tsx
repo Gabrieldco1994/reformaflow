@@ -12,6 +12,7 @@ import {
   ProjectType,
   type ImportDeclaredFactViewV1,
   type ImportObservationQuestionV1,
+  type ImportSessionObservationViewV1,
   type ImportSessionDraftLineV1,
   type ImportSessionQuestionV1,
   type ImportSessionViewV1,
@@ -258,6 +259,51 @@ it("maps known amount meaning to a human label while keeping its canonical answe
   expectNoInternalPresentationText();
 });
 
+it("shows the exact observation amount and unresolved meaning before the user answers", () => {
+  const observation: ImportSessionObservationViewV1 = {
+    id: OBSERVATION_ID,
+    attachmentId: "36b8f84d-df4e-4d49-b662-bcde71a8764f",
+    reference: "linha-1",
+    text: "Loja Aurora",
+    amountMeaning: ImportSessionAmountMeaning.UNKNOWN,
+    amountCents: 12_345,
+    installmentCount: null,
+    installmentIndex: null,
+    dataCompra: "2026-09-07",
+  };
+  const question: ImportSessionQuestionV1 = {
+    id: DRAFT_QUESTION_ID,
+    lineIds: [LINE_ID],
+    field: "amountMeaning",
+    text: "Informe o significado do valor.",
+  };
+
+  render(
+    withProject(
+      <ImportFocusedQuestion
+        question={question}
+        lines={[
+          draftLine({
+            amountMeaning: ImportSessionAmountMeaning.UNKNOWN,
+            amountCents: null,
+          }),
+        ]}
+        observations={[observation]}
+        inputLabel="Sua resposta"
+        inputHint="Confira antes de guardar."
+        onAnswer={vi.fn()}
+      />,
+    ),
+  );
+
+  const purchaseList = screen.getByRole("list", {
+    name: "Compras desta pergunta",
+  });
+  expect(purchaseList).toHaveTextContent("R$ 123,45");
+  expect(purchaseList).toHaveTextContent("Significado a confirmar");
+  expect(purchaseList).not.toHaveTextContent("Total");
+});
+
 it.each([
   {
     meaning: ImportSessionAmountMeaning.UNKNOWN,
@@ -269,7 +315,7 @@ it.each([
     rawValue: "FUTURE_INTERNAL_MEANING",
   },
 ])(
-  "uses neutral Valor for $rawValue without inferring missing source details",
+  "marks $rawValue as unresolved without inferring missing source details",
   ({ meaning, rawValue }) => {
     render(
       <ImportFocusedQuestion
@@ -291,7 +337,7 @@ it.each([
     const purchaseList = screen.getByRole("list", {
       name: "Compras desta pergunta",
     });
-    expect(purchaseList).toHaveTextContent("Valor");
+    expect(purchaseList).toHaveTextContent("Significado a confirmar");
     expect(purchaseList).toHaveTextContent("R$ 123,45");
     expect(purchaseList).not.toHaveTextContent("07/09/2026");
     expect(purchaseList).not.toHaveTextContent("parcela");
@@ -300,7 +346,7 @@ it.each([
 );
 
 it.each(["constructor", "toString", "__proto__"])(
-  "maps malformed amount meaning key %s to neutral Valor",
+  "maps malformed amount meaning key %s to unresolved",
   (meaning) => {
     render(
       <ImportFocusedQuestion
@@ -320,7 +366,9 @@ it.each(["constructor", "toString", "__proto__"])(
     const purchaseList = screen.getByRole("list", {
       name: "Compras desta pergunta",
     });
-    expect(purchaseList).toHaveTextContent("R$ 123,45 · Valor");
+    expect(purchaseList).toHaveTextContent(
+      "R$ 123,45 · Significado a confirmar",
+    );
     expect(purchaseList).not.toHaveTextContent(
       /function|native code|\[object Object\]/i,
     );
@@ -441,12 +489,49 @@ it("uses safe blocker and declaration context while retaining the internal inclu
   const includeButton = screen.getByRole("button", {
     name: /Incluir compra Loja Aurora.*Liquidificador 900 W.*na revisão/,
   });
+
   expect(includeButton.className).toContain("min-h-11");
   expect(includeButton.className).toContain("focus-visible:outline");
   expectNoInternalPresentationText();
   fireEvent.click(includeButton);
   expect(onInclude).toHaveBeenCalledOnce();
   expect(onInclude).toHaveBeenCalledWith(LINE_ID);
+});
+
+it("gives duplicate purchases unique visible include labels with their amount context", () => {
+  const secondLineId = "550e8400-e29b-41d4-a716-446655440001";
+  render(
+    <>
+      <ImportReviewBlockerNotice
+        line={draftLine()}
+        blockers={[]}
+        selected={false}
+        showLine
+        onInclude={vi.fn()}
+      />
+      <ImportReviewBlockerNotice
+        line={draftLine({
+          id: secondLineId,
+          amountCents: 67_890,
+          amountMeaning: ImportSessionAmountMeaning.INSTALLMENT_CHARGE,
+        })}
+        blockers={[]}
+        selected={false}
+        showLine
+        onInclude={vi.fn()}
+      />
+    </>,
+  );
+
+  const buttons = screen.getAllByRole("button");
+  const visibleLabels = buttons.map((button) => button.textContent?.trim());
+  expect(new Set(visibleLabels).size).toBe(buttons.length);
+  expect(visibleLabels[0]).toMatch(
+    /Incluir.*Loja Aurora.*R\$ 123,45.*Total.*revisão/,
+  );
+  expect(visibleLabels[1]).toMatch(
+    /Incluir.*Loja Aurora.*R\$ 678,90.*Parcela.*revisão/,
+  );
 });
 
 it("uses neutral Compra for legacy declarations with only an internal line key", () => {
