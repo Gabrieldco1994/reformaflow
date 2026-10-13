@@ -11,7 +11,7 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:agent-contracts": "node --test scripts/lib/validate-agent-contracts.test.mjs && node scripts/validate-agent-contracts.mjs",
-    "test:migration-recovery": "node --test scripts/lib/normalize-external-id-duplicates.test.mjs scripts/lib/repair-legacy-fk-integrity.test.mjs scripts/lib/external-id-migration-recovery.test.mjs scripts/lib/release-migration-recovery-contract.test.mjs scripts/lib/wait-for-fly-machine.test.mjs scripts/lib/db-check.test.mjs scripts/lib/audit-vault-fk-baseline.test.mjs scripts/lib/vault-activation-exception-contract.test.mjs",
+    "test:migration-recovery": "node --test scripts/lib/normalize-external-id-duplicates.test.mjs scripts/lib/repair-legacy-fk-integrity.test.mjs scripts/lib/external-id-migration-recovery.test.mjs scripts/lib/release-migration-recovery-contract.test.mjs scripts/lib/wait-for-fly-machine.test.mjs scripts/lib/db-check.test.mjs scripts/lib/audit-vault-fk-baseline.test.mjs scripts/lib/vault-activation-exception-contract.test.mjs deploy/vault-startup/test/production-qa-guard.test.mjs",
     "test:db:prepare": "node scripts/prepare-test-db.mjs",
     "test:quiesce-failsafe": "sh deploy/quiesce/test/run-linux.sh",
     "db:check": "node scripts/db-check.mjs",

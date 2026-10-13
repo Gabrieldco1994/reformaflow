@@ -2,7 +2,7 @@
 set -eu
 
 readonly AUDITOR='/app/audit-vault-fk-baseline.mjs'
-readonly AUDITOR_SHA256='eb8cb62c7d8023d4935e4eea9656a69314fce6af43cb971938c235efe0cff036'
+readonly AUDITOR_SHA256='cbe10b80dec7cf1a2600987551253ac64aee3973e31c167f84b5e5fdcf23170b'
 readonly DATABASE='/data/dev.db'
 readonly MANIFEST='/data/vault-fk-baseline.private.json'
 readonly AUTHORIZATION='/data/vault-fk-baseline.authorization.json'

@@ -220,6 +220,10 @@ test("migration-recovery adds both exception suites without changing db:check or
     pkg.scripts["test:migration-recovery"],
     /scripts\/lib\/vault-activation-exception-contract\.test\.mjs/,
   );
+  assert.match(
+    pkg.scripts["test:migration-recovery"],
+    /deploy\/vault-startup\/test\/production-qa-guard\.test\.mjs/,
+  );
 });
 
 test("all out-of-scope application, data, recovery, and global checks are byte-unchanged", () => {

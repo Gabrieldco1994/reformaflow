@@ -69,6 +69,7 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const RELEASE_SHA = /^[0-9a-f]{40}$/;
 const IMAGE_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const DECIMAL_INTEGER = /^(?:0|[1-9][0-9]*)$/;
+const SIGNED_DECIMAL_INTEGER = /^(?:0|-?[1-9][0-9]*)$/;
 
 class AuditError extends Error {
   constructor(code) {
@@ -276,9 +277,22 @@ function integer(value, code = "UNEXPECTED_SCHEMA") {
   return parsed;
 }
 
+function signedInteger(value, code = "UNEXPECTED_SCHEMA") {
+  if (typeof value !== "string" || !SIGNED_DECIMAL_INTEGER.test(value))
+    fail(code);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) fail(code);
+  return parsed;
+}
+
 function quoteIdentifier(identifier) {
   if (!SAFE_IDENTIFIER.test(identifier)) fail("UNEXPECTED_SCHEMA");
   return `"${identifier}"`;
+}
+
+function quoteSqlText(value) {
+  if (typeof value !== "string") fail("UNEXPECTED_SCHEMA");
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 class ReadonlySqlite {
@@ -520,9 +534,213 @@ async function tableContract(database, table) {
   };
 }
 
+async function relevantSchemaContract(database) {
+  const tableNames = [
+    ...new Set([
+      ...Object.keys(TARGETS),
+      ...Object.values(TARGETS).map((target) => target.parentTable),
+    ]),
+  ].sort();
+  const tables = [];
+
+  for (const table of tableNames) {
+    const tableLiteral = quoteSqlText(table);
+    const columns = await database.request(
+      `SELECT CAST(cid AS TEXT) AS cid,
+              name,
+              type,
+              CAST("notnull" AS TEXT) AS not_null,
+              dflt_value AS default_value,
+              CAST(pk AS TEXT) AS primary_key,
+              CAST(hidden AS TEXT) AS hidden
+         FROM pragma_table_xinfo(${tableLiteral})
+        ORDER BY cid`,
+    );
+    if (columns.length === 0) fail("UNEXPECTED_SCHEMA");
+    const normalizedColumns = columns.map((column) => {
+      if (
+        !hasExactKeys(column, [
+          "cid",
+          "name",
+          "type",
+          "not_null",
+          "default_value",
+          "primary_key",
+          "hidden",
+        ]) ||
+        typeof column.name !== "string" ||
+        typeof column.type !== "string" ||
+        (column.default_value !== null &&
+          typeof column.default_value !== "string")
+      ) {
+        fail("UNEXPECTED_SCHEMA");
+      }
+      return {
+        cid: signedInteger(column.cid),
+        name: column.name,
+        declaredType: column.type,
+        notNull: integer(column.not_null),
+        defaultValue: column.default_value,
+        primaryKey: integer(column.primary_key),
+        hidden: integer(column.hidden),
+      };
+    });
+
+    const foreignKeys = await database.request(
+      `SELECT CAST(id AS TEXT) AS id,
+              CAST(seq AS TEXT) AS sequence,
+              "table" AS parent_table,
+              "from" AS child_column,
+              "to" AS parent_column,
+              on_update,
+              on_delete,
+              match
+         FROM pragma_foreign_key_list(${tableLiteral})
+        ORDER BY id, seq`,
+    );
+    const normalizedForeignKeys = foreignKeys.map((foreignKey) => {
+      if (
+        !hasExactKeys(foreignKey, [
+          "id",
+          "sequence",
+          "parent_table",
+          "child_column",
+          "parent_column",
+          "on_update",
+          "on_delete",
+          "match",
+        ]) ||
+        ![
+          "parent_table",
+          "child_column",
+          "parent_column",
+          "on_update",
+          "on_delete",
+          "match",
+        ].every((field) => typeof foreignKey[field] === "string")
+      ) {
+        fail("UNEXPECTED_SCHEMA");
+      }
+      return {
+        id: integer(foreignKey.id),
+        sequence: integer(foreignKey.sequence),
+        parentTable: foreignKey.parent_table,
+        childColumn: foreignKey.child_column,
+        parentColumn: foreignKey.parent_column,
+        onUpdate: foreignKey.on_update,
+        onDelete: foreignKey.on_delete,
+        match: foreignKey.match,
+      };
+    });
+
+    const indexes = await database.request(
+      `SELECT CAST(seq AS TEXT) AS sequence,
+              name,
+              CAST("unique" AS TEXT) AS is_unique,
+              origin,
+              CAST(partial AS TEXT) AS partial
+         FROM pragma_index_list(${tableLiteral})
+        ORDER BY seq, name`,
+    );
+    const normalizedIndexes = [];
+    for (const index of indexes) {
+      if (
+        !hasExactKeys(index, [
+          "sequence",
+          "name",
+          "is_unique",
+          "origin",
+          "partial",
+        ]) ||
+        typeof index.name !== "string" ||
+        typeof index.origin !== "string"
+      ) {
+        fail("UNEXPECTED_SCHEMA");
+      }
+      const indexColumns = await database.request(
+        `SELECT CAST(seqno AS TEXT) AS sequence,
+                CAST(cid AS TEXT) AS cid,
+                name,
+                CAST(desc AS TEXT) AS descending,
+                coll AS collation,
+                CAST(key AS TEXT) AS is_key
+           FROM pragma_index_xinfo(${quoteSqlText(index.name)})
+          ORDER BY seqno`,
+      );
+      normalizedIndexes.push({
+        sequence: integer(index.sequence),
+        name: index.name,
+        unique: integer(index.is_unique),
+        origin: index.origin,
+        partial: integer(index.partial),
+        columns: indexColumns.map((column) => {
+          if (
+            !hasExactKeys(column, [
+              "sequence",
+              "cid",
+              "name",
+              "descending",
+              "collation",
+              "is_key",
+            ]) ||
+            (column.name !== null && typeof column.name !== "string") ||
+            (column.collation !== null && typeof column.collation !== "string")
+          ) {
+            fail("UNEXPECTED_SCHEMA");
+          }
+          return {
+            sequence: integer(column.sequence),
+            cid: signedInteger(column.cid),
+            name: column.name,
+            descending: integer(column.descending),
+            collation: column.collation,
+            key: integer(column.is_key),
+          };
+        }),
+      });
+    }
+    tables.push({
+      name: table,
+      columns: normalizedColumns,
+      foreignKeys: normalizedForeignKeys,
+      indexes: normalizedIndexes,
+    });
+  }
+
+  const tableList = tableNames.map(quoteSqlText).join(", ");
+  const objects = await database.request(
+    `SELECT type,
+            name,
+            tbl_name AS table_name,
+            sql
+       FROM sqlite_schema
+      WHERE tbl_name IN (${tableList})
+        AND type IN ('table', 'index', 'trigger')
+      ORDER BY type, name, tbl_name`,
+  );
+  const normalizedObjects = objects.map((object) => {
+    if (
+      !hasExactKeys(object, ["type", "name", "table_name", "sql"]) ||
+      !["table", "index", "trigger"].includes(object.type) ||
+      typeof object.name !== "string" ||
+      typeof object.table_name !== "string" ||
+      (object.sql !== null && typeof object.sql !== "string")
+    ) {
+      fail("UNEXPECTED_SCHEMA");
+    }
+    return {
+      type: object.type,
+      name: object.name,
+      tableName: object.table_name,
+      sql: object.sql,
+    };
+  });
+  return { tables, objects: normalizedObjects };
+}
+
 function typedScalar(type, bytesHex) {
   if (
-    !["null", "integer", "real", "text", "blob"].includes(type) ||
+    !["null", "integer", "text", "blob"].includes(type) ||
     (type === "null" && bytesHex !== null) ||
     (type !== "null" &&
       (typeof bytesHex !== "string" || !/^(?:[0-9A-F]{2})*$/.test(bytesHex)))
@@ -540,7 +758,7 @@ async function typedRow(database, table, tableSchema, rowId) {
       `typeof(${name}) AS "type_${index}"`,
       `CASE typeof(${name})
          WHEN 'null' THEN NULL
-         WHEN 'real' THEN hex(CAST(printf('%!.26g', ${name}) AS BLOB))
+         WHEN 'real' THEN NULL
          ELSE hex(CAST(${name} AS BLOB))
        END AS "bytes_${index}"`,
     ];
@@ -551,6 +769,13 @@ async function typedRow(database, table, tableSchema, rowId) {
       WHERE rowid = CAST('${rowId}' AS INTEGER)`,
   );
   if (rows.length !== 1) fail("VIOLATION_ROW_MISSING");
+  if (
+    tableSchema.columns.some(
+      (_column, index) => rows[0][`type_${index}`] === "real",
+    )
+  ) {
+    fail("UNSUPPORTED_REAL_STORAGE");
+  }
   return {
     columns: tableSchema.columns.map((column, index) => ({
       name: column.name,
@@ -666,7 +891,8 @@ async function snapshot(database) {
   if (!sameBytes(canonicalBytes(counts), canonicalBytes(EXPECTED_COUNTS))) {
     fail("UNEXPECTED_VIOLATION_COUNT");
   }
-  return { counts, tables, violations };
+  const schema = await relevantSchemaContract(database);
+  return { counts, tables, violations, schema };
 }
 
 async function readDatabaseSnapshot(databasePath, mountRoot) {
@@ -893,6 +1119,7 @@ function validateManifest(manifest, metadata) {
       "counts",
       "tables",
       "violations",
+      "schema",
       "integrity",
     ]) ||
     manifest.version !== MANIFEST_VERSION ||
@@ -902,7 +1129,11 @@ function validateManifest(manifest, metadata) {
     manifest.integrity.algorithm !== "sha256" ||
     !SHA256.test(manifest.integrity.digest) ||
     !Array.isArray(manifest.tables) ||
-    !Array.isArray(manifest.violations)
+    !Array.isArray(manifest.violations) ||
+    manifest.schema === null ||
+    typeof manifest.schema !== "object" ||
+    !Array.isArray(manifest.schema.tables) ||
+    !Array.isArray(manifest.schema.objects)
   ) {
     fail("INVALID_MANIFEST");
   }
@@ -942,6 +1173,7 @@ function exactSnapshot(manifest, databaseSnapshot) {
       counts: manifest.counts,
       tables: manifest.tables,
       violations: manifest.violations,
+      schema: manifest.schema,
     }),
     canonicalBytes(databaseSnapshot),
   );

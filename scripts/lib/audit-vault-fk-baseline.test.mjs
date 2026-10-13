@@ -85,7 +85,7 @@ function createFixture(directory = temporaryDirectory()) {
         : sqlText(`room-note-${ordinal}`);
     const payload = index === 0 ? "X'00ff10'" : `X'${ordinal}aa'`;
     const amount = index === 0 ? "9223372036854775807" : String(1000 + index);
-    const ratio = index === 0 ? "0.10000000000000001" : `${index + 1}.25`;
+    const ratio = sqlText(`ratio-${ordinal}`);
     return `(
       ${sqlText(`private-room-${ordinal}`)},
       ${sqlText(project)},
@@ -588,10 +588,8 @@ test("capture records one exact canonical typed snapshot and compare preserves a
     },
     {
       name: "ratio",
-      storageType: "real",
-      bytesHex: Buffer.from("0.1000000000000000055")
-        .toString("hex")
-        .toUpperCase(),
+      storageType: "text",
+      bytesHex: Buffer.from("ratio-01").toString("hex").toUpperCase(),
     },
     {
       name: "payload",
@@ -681,7 +679,7 @@ test("capture records one exact canonical typed snapshot and compare preserves a
   );
   assert.ok(
     room.row.columns.some(
-      (column) => column.name === "ratio" && column.storageType === "real",
+      (column) => column.name === "ratio" && column.storageType === "text",
     ),
   );
   assert.ok(
@@ -966,6 +964,90 @@ test("schema columns and complete FK definitions are exact baseline evidence", (
     runAuditor("compare", fkDrift, metadata),
     "FK action contract drift",
   );
+});
+
+test("compare rejects every relevant child and parent schema object drift", () => {
+  const source = createFixture();
+  const metadata = capture(source);
+  const mutations = [
+    ["ordinary index", "CREATE INDEX schema_drift_probe ON rooms(project_id);"],
+    ["unique index", "CREATE UNIQUE INDEX schema_unique_probe ON rooms(name);"],
+    [
+      "partial index",
+      "CREATE INDEX schema_partial_probe ON rooms(name) WHERE deleted_at IS NULL;",
+    ],
+    [
+      "trigger",
+      `CREATE TRIGGER schema_trigger_probe
+         AFTER INSERT ON rooms
+         BEGIN
+           SELECT 1;
+         END;`,
+    ],
+    ["parent table", "ALTER TABLE projects ADD COLUMN parent_drift TEXT;"],
+    [
+      "generated column",
+      "ALTER TABLE rooms ADD COLUMN generated_drift TEXT GENERATED ALWAYS AS (name || '!') VIRTUAL;",
+    ],
+    [
+      "CHECK and collation",
+      "ALTER TABLE projects ADD COLUMN constrained_drift TEXT COLLATE NOCASE CHECK (length(constrained_drift) < 5);",
+    ],
+    [
+      "FK deferrability",
+      `PRAGMA foreign_keys = OFF;
+       ALTER TABLE rooms RENAME TO rooms_before_deferrability;
+       CREATE TABLE rooms (
+         id TEXT PRIMARY KEY,
+         project_id TEXT NOT NULL REFERENCES projects(id) DEFERRABLE INITIALLY DEFERRED,
+         name TEXT NOT NULL,
+         amount,
+         ratio,
+         payload,
+         note,
+         deleted_at TEXT
+       );
+       INSERT INTO rooms SELECT * FROM rooms_before_deferrability;
+       DROP TABLE rooms_before_deferrability;`,
+    ],
+    [
+      "STRICT parent",
+      `DROP TABLE projects;
+       CREATE TABLE projects (id TEXT PRIMARY KEY) STRICT;`,
+    ],
+    [
+      "WITHOUT ROWID parent",
+      `DROP TABLE projects;
+       CREATE TABLE projects (id TEXT PRIMARY KEY) WITHOUT ROWID;`,
+    ],
+  ];
+
+  for (const [label, sql] of mutations) {
+    const fixture = cloneFixture(source);
+    sqlite(fixture.database, sql);
+    requireRejected(runAuditor("compare", fixture, metadata), label);
+  }
+});
+
+test("capture fails closed for negative-zero and special SQLite REAL storage", () => {
+  for (const [label, value] of [
+    ["negative zero", "CAST('-0.0' AS REAL)"],
+    ["positive zero", "CAST('+0.0' AS REAL)"],
+    ["positive infinity", "1e999"],
+    ["negative infinity", "-1e999"],
+  ]) {
+    const fixture = createFixture();
+    sqlite(
+      fixture.database,
+      `UPDATE rooms SET ratio = ${value} WHERE rowid = 1;`,
+    );
+    const result = runAuditor("capture", fixture);
+    requireRejected(result, label);
+    assert.match(result.stderr, /UNSUPPORTED_REAL_STORAGE/);
+  }
+
+  const source = readFileSync(AUDITOR, "utf8");
+  assert.doesNotMatch(source, /printf\(['"]%!?\.?[0-9]*g/);
 });
 
 test("expired windows and reuse of the exclusive capture path fail closed", () => {
