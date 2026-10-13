@@ -8,12 +8,9 @@ import { test } from "node:test";
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const AUDITOR = join(ROOT, "scripts", "audit-vault-fk-baseline.mjs");
-const LAUNCHER = join(
-  ROOT,
-  "deploy",
-  "vault-startup",
-  "run-fk-baseline-audit.sh",
-);
+const LAUNCHER =
+  process.env.VAULT_LAUNCHER_UNDER_TEST ??
+  join(ROOT, "deploy", "vault-startup", "run-fk-baseline-audit.sh");
 const RUNBOOK = join(ROOT, "deploy", "vault-startup", "README.md");
 const PACKAGE = join(ROOT, "package.json");
 const AGENTS = join(ROOT, "AGENTS.md");

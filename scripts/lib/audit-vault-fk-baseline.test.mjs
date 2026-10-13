@@ -335,7 +335,8 @@ function requireRejected(result, label) {
     `${label} unexpectedly passed\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
   );
   const allOutput = output(result);
-  assert.match(allOutput, /^vault-fk-baseline failed \([A-Z0-9_]+\)\n$/m);
+  assert.equal(result.stdout, "", `${label} wrote unexpected stdout`);
+  assert.match(result.stderr, /^vault-fk-baseline failed \([A-Z0-9_]+\)\n$/);
   for (const privateValue of PRIVATE_MARKERS) {
     assert.doesNotMatch(allOutput, new RegExp(privateValue));
   }
@@ -367,12 +368,174 @@ test("capture records one exact canonical typed snapshot and compare preserves a
   assert.equal(manifest.window.id, WINDOW_ID);
   assert.equal(manifest.window.startsAt, metadata.windowStart);
   assert.equal(manifest.window.expiresAt, metadata.windowEnd);
+  assert.deepEqual(manifest.tables, [
+    {
+      name: "cash_flow_entries",
+      columns: [
+        {
+          cid: 0,
+          name: "id",
+          declaredType: "TEXT",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 1,
+        },
+        {
+          cid: 1,
+          name: "expense_id",
+          declaredType: "TEXT",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 2,
+          name: "valor",
+          declaredType: "INTEGER",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 3,
+          name: "status",
+          declaredType: "TEXT",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 4,
+          name: "payload",
+          declaredType: "BLOB",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 5,
+          name: "deleted_at",
+          declaredType: "TEXT",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+      ],
+      foreignKeys: [
+        {
+          id: 0,
+          sequence: 0,
+          childColumn: "expense_id",
+          parentTable: "expenses",
+          parentColumn: "id",
+          onUpdate: "NO ACTION",
+          onDelete: "NO ACTION",
+          match: "NONE",
+        },
+      ],
+    },
+    {
+      name: "rooms",
+      columns: [
+        {
+          cid: 0,
+          name: "id",
+          declaredType: "TEXT",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 1,
+        },
+        {
+          cid: 1,
+          name: "project_id",
+          declaredType: "TEXT",
+          notNull: 1,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 2,
+          name: "name",
+          declaredType: "TEXT",
+          notNull: 1,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 3,
+          name: "amount",
+          declaredType: "",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 4,
+          name: "ratio",
+          declaredType: "",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 5,
+          name: "payload",
+          declaredType: "",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 6,
+          name: "note",
+          declaredType: "",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+        {
+          cid: 7,
+          name: "deleted_at",
+          declaredType: "TEXT",
+          notNull: 0,
+          defaultValue: null,
+          primaryKey: 0,
+        },
+      ],
+      foreignKeys: [
+        {
+          id: 0,
+          sequence: 0,
+          childColumn: "project_id",
+          parentTable: "projects",
+          parentColumn: "id",
+          onUpdate: "NO ACTION",
+          onDelete: "NO ACTION",
+          match: "NONE",
+        },
+      ],
+    },
+  ]);
 
   const room = manifest.violations.find(
-    (violation) => violation.childTable === "rooms",
+    (violation) =>
+      violation.childTable === "rooms" &&
+      violation.row.columns.some(
+        (column) =>
+          column.name === "id" &&
+          Buffer.from(column.bytesHex, "hex").toString("utf8") ===
+            "private-room-01",
+      ),
   );
   const cashFlow = manifest.violations.find(
-    (violation) => violation.childTable === "cash_flow_entries",
+    (violation) =>
+      violation.childTable === "cash_flow_entries" &&
+      violation.row.columns.some(
+        (column) =>
+          column.name === "id" &&
+          Buffer.from(column.bytesHex, "hex").toString("utf8") ===
+            "private-cash-01",
+      ),
   );
   const roomForeignKey = manifest.tables
     .find((table) => table.name === "rooms")
@@ -400,6 +563,86 @@ test("capture records one exact canonical typed snapshot and compare preserves a
     onDelete: "NO ACTION",
     match: "NONE",
   });
+  assert.deepEqual(room.row.columns, [
+    {
+      name: "id",
+      storageType: "text",
+      bytesHex: Buffer.from("private-room-01").toString("hex").toUpperCase(),
+    },
+    {
+      name: "project_id",
+      storageType: "text",
+      bytesHex: Buffer.from("private-project-01").toString("hex").toUpperCase(),
+    },
+    {
+      name: "name",
+      storageType: "text",
+      bytesHex: Buffer.from("Private room 01").toString("hex").toUpperCase(),
+    },
+    {
+      name: "amount",
+      storageType: "integer",
+      bytesHex: Buffer.from("9223372036854775807")
+        .toString("hex")
+        .toUpperCase(),
+    },
+    {
+      name: "ratio",
+      storageType: "real",
+      bytesHex: Buffer.from("0.1000000000000000055")
+        .toString("hex")
+        .toUpperCase(),
+    },
+    {
+      name: "payload",
+      storageType: "blob",
+      bytesHex: "00FF10",
+    },
+    {
+      name: "note",
+      storageType: "text",
+      bytesHex: "636166C3A90078",
+    },
+    {
+      name: "deleted_at",
+      storageType: "null",
+      bytesHex: null,
+    },
+  ]);
+  assert.deepEqual(cashFlow.row.columns, [
+    {
+      name: "id",
+      storageType: "text",
+      bytesHex: Buffer.from("private-cash-01").toString("hex").toUpperCase(),
+    },
+    {
+      name: "expense_id",
+      storageType: "text",
+      bytesHex: Buffer.from("private-expense-01").toString("hex").toUpperCase(),
+    },
+    {
+      name: "valor",
+      storageType: "integer",
+      bytesHex: Buffer.from("10001").toString("hex").toUpperCase(),
+    },
+    {
+      name: "status",
+      storageType: "text",
+      bytesHex: Buffer.from("PAGO").toString("hex").toUpperCase(),
+    },
+    {
+      name: "payload",
+      storageType: "blob",
+      bytesHex: "01BB",
+    },
+    {
+      name: "deleted_at",
+      storageType: "text",
+      bytesHex: Buffer.from("2026-10-12T00:00:00.000Z")
+        .toString("hex")
+        .toUpperCase(),
+    },
+  ]);
 
   for (const violation of manifest.violations) {
     const schema = manifest.tables.find(
@@ -743,6 +986,38 @@ test("expired windows and reuse of the exclusive capture path fail closed", () =
     "reused capture path",
   );
   compare(fixture, metadata);
+  const receiptPath = `${fixture.manifest}.consumed`;
+  const receiptBytes = readFileSync(receiptPath);
+  const receipt = JSON.parse(receiptBytes);
+  assert.deepEqual(receiptBytes, canonicalBytes(receipt));
+  assert.equal(lstatSync(receiptPath).mode & 0o777, 0o600);
+  assert.equal(lstatSync(receiptPath).isFile(), true);
+  assert.equal(lstatSync(receiptPath).nlink, 1);
+  assert.deepEqual(Object.keys(receipt).sort(), [
+    "authorizationSha256",
+    "comparisonSha256",
+    "consumedAt",
+    "contract",
+    "manifestSha256",
+    "state",
+    "version",
+  ]);
+  assert.equal(receipt.version, 1);
+  assert.equal(receipt.contract, "vault-fk-baseline-32-one-window");
+  assert.equal(receipt.state, "consumed");
+  assert.equal(
+    receipt.manifestSha256,
+    createHash("sha256").update(readFileSync(fixture.manifest)).digest("hex"),
+  );
+  assert.equal(
+    receipt.authorizationSha256,
+    createHash("sha256")
+      .update(readFileSync(fixture.authorization))
+      .digest("hex"),
+  );
+  assert.match(receipt.comparisonSha256, /^[0-9a-f]{64}$/);
+  assert.ok(Date.parse(receipt.consumedAt) >= Date.parse(metadata.windowStart));
+  assert.ok(Date.parse(receipt.consumedAt) < Date.parse(metadata.windowEnd));
   requireRejected(
     runAuditor("compare", fixture, metadata),
     "consumed window replay",
@@ -838,6 +1113,10 @@ test("query_only is enabled and verified, and capture never changes the database
   const fixture = createFixture();
   const before = readFileSync(fixture.database);
   const source = readFileSync(AUDITOR, "utf8");
+  assert.match(
+    source,
+    /\[\s*"-batch",\s*"-readonly",\s*this\.databasePath\s*\]/,
+  );
   assert.match(source, /PRAGMA query_only\s*=\s*ON/i);
   assert.match(source, /PRAGMA query_only\b/i);
   assert.match(source, /QUERY_ONLY_NOT_ENFORCED/);
