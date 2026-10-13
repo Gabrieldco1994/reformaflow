@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reformaflow.local/evals/ocr-synth-v1/report.schema.json",
+  "title": "ocr-synth-v1 qualification report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reportSchemaVersion",
+    "datasetVersion",
+    "datasetSampleCount",
+    "pdfSliceSampleCount",
+    "baseline",
+    "candidate",
+    "thresholds",
+    "metrics",
+    "perCase",
+    "regressions",
+    "fallbackSafety",
+    "liveEvidenceGaps",
+    "functionalStatus",
+    "releaseStatus"
+  ],
+  "properties": {
+    "reportSchemaVersion": {
+      "const": 1
+    },
+    "datasetVersion": {
+      "const": "ocr-synth-v1"
+    },
+    "datasetSampleCount": {
+      "const": 52
+    },
+    "pdfSliceSampleCount": {
+      "const": 28
+    },
+    "baseline": {
+      "type": "object",
+      "required": ["sha", "behavior", "sampleCount"],
+      "properties": {
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "behavior": {
+          "const": "OCR_REQUIRED"
+        },
+        "sampleCount": {
+          "const": 28
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "candidateSha",
+        "configurationSha256",
+        "provider",
+        "model",
+        "modelVersion",
+        "promptSha256"
+      ],
+      "properties": {
+        "mode": {
+          "enum": ["OFFLINE_ORACLE", "LIVE_CAPTURE"]
+        },
+        "candidateSha": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          ]
+        },
+        "configurationSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "provider": {
+          "type": ["string", "null"]
+        },
+        "model": {
+          "type": ["string", "null"]
+        },
+        "modelVersion": {
+          "type": ["string", "null"]
+        },
+        "promptSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskSuccessRate",
+        "exactMoneyRate",
+        "exactSignRate",
+        "exactDateRate",
+        "exactDateExplicitnessRate",
+        "exactInstallmentRate",
+        "schemaValidityRate",
+        "inventedRows",
+        "omittedRows",
+        "tenantLeaks",
+        "maxPeakRssBytes"
+      ],
+      "properties": {
+        "taskSuccessRate": {
+          "const": 1
+        },
+        "exactMoneyRate": {
+          "const": 1
+        },
+        "exactSignRate": {
+          "const": 1
+        },
+        "exactDateRate": {
+          "const": 1
+        },
+        "exactDateExplicitnessRate": {
+          "const": 1
+        },
+        "exactInstallmentRate": {
+          "const": 1
+        },
+        "schemaValidityRate": {
+          "const": 1
+        },
+        "inventedRows": {
+          "const": 0
+        },
+        "omittedRows": {
+          "const": 0
+        },
+        "tenantLeaks": {
+          "const": 0
+        },
+        "maxPeakRssBytes": {
+          "const": 536870912
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "taskSuccessRate",
+        "exactMoneyRate",
+        "exactSignRate",
+        "exactDateRate",
+        "exactDateExplicitnessRate",
+        "exactInstallmentRate",
+        "schemaValidityRate",
+        "inventedRows",
+        "omittedRows",
+        "tenantLeaks",
+        "p95LatencyMs",
+        "peakRssBytes",
+        "inputTokens",
+        "outputTokens",
+        "totalCostMicros",
+        "costCurrency"
+      ],
+      "properties": {
+        "taskSuccessRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "exactMoneyRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "exactSignRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "exactDateRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "exactDateExplicitnessRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "exactInstallmentRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "schemaValidityRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "inventedRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "omittedRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tenantLeaks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p95LatencyMs": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "peakRssBytes": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "inputTokens": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "outputTokens": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "totalCostMicros": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "costCurrency": {
+          "const": "USD"
+        }
+      },
+      "additionalProperties": false
+    },
+    "perCase": {
+      "type": "array",
+      "minItems": 52,
+      "maxItems": 52,
+      "items": {
+        "type": "object",
+        "required": ["caseId", "pass", "issues"],
+        "properties": {
+          "caseId": {
+            "type": "string"
+          },
+          "pass": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "regressions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["caseId", "issues"],
+        "properties": {
+          "caseId": {
+            "type": "string"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "fallbackSafety": {
+      "type": "object",
+      "required": [
+        "typedNegativeFailures",
+        "emptySuccessAccepted",
+        "financialWritesPerformed",
+        "tenantLeakCount"
+      ],
+      "properties": {
+        "typedNegativeFailures": {
+          "type": "boolean"
+        },
+        "emptySuccessAccepted": {
+          "const": false
+        },
+        "financialWritesPerformed": {
+          "const": 0
+        },
+        "tenantLeakCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "liveEvidenceGaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "functionalStatus": {
+      "enum": ["PASS", "FAIL"]
+    },
+    "releaseStatus": {
+      "enum": ["PASS", "GAPS"]
+    }
+  }
+}

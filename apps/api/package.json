@@ -13,7 +13,9 @@
     "plants-ai:eval": "ts-node src/plants-ai/eval.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "ocr-synth:ci": "jest --config src/imports/ocr-synth-v1/jest.config.cjs --runInBand",
+    "ocr-synth:release": "ts-node src/imports/ocr-synth-v1/qualify-live.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",
