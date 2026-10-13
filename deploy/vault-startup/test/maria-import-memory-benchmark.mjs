@@ -894,8 +894,8 @@ function parseProbeOutput(text) {
   };
 }
 
-function sampleMemory(api) {
-  markStage("live-cgroup-memory-sample");
+function sampleMemory(api, sampleKind) {
+  markStage(`${sampleKind}-docker-inspect`);
   const inspect = dockerInspect(api);
   assert.equal(
     inspect.State.Running,
@@ -906,9 +906,13 @@ function sampleMemory(api) {
   assert.equal(inspect.HostConfig.Memory, MEMORY_CAP_BYTES);
   assert.equal(inspect.HostConfig.MemorySwap, MEMORY_CAP_BYTES);
   assert.equal(inspect.HostConfig.CgroupnsMode, "private");
+  markStage(`${sampleKind}-container-memory-probe`);
   const inner = runDocker(["exec", api.name, "sh", "-c", LIVE_MEMORY_PROBE]);
+  markStage(`${sampleKind}-parse-memory-probe`);
   const probe = parseProbeOutput(inner);
+  markStage(`${sampleKind}-host-cgroup-hierarchy`);
   const hostCgroupLimits = readHostCgroupLimits(inspect.State.Pid);
+  markStage(`${sampleKind}-verify-cgroup-proof`);
   const proof = verifyCgroupV2Proof({
     cgroupVersion: 2,
     cgroupNamespaceMode: inspect.HostConfig.CgroupnsMode,
@@ -1244,7 +1248,7 @@ async function withMeasuredContainer(
     await waitReady(api);
     await verifyClonedUsers(api, scenarioUsers);
     markStage("memory-baseline");
-    const baseline = sampleMemory(api);
+    const baseline = sampleMemory(api, "baseline");
     markStage("measured-workload");
     const result = await work({
       api,
@@ -1254,7 +1258,7 @@ async function withMeasuredContainer(
       users: scenarioUsers,
     });
     markStage("memory-final-sample");
-    const final = sampleMemory(api);
+    const final = sampleMemory(api, "final");
     assert.equal(
       dockerInspect(api).State.Running,
       true,
