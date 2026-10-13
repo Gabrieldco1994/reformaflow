@@ -1,0 +1,255 @@
+export type CorpusPartition =
+  | "SCANNED_PDF"
+  | "MIXED_PDF"
+  | "IMAGE"
+  | "INVALID_ADMISSION"
+  | "PROVIDER_TENANT_ADVERSARIAL";
+
+export type ArtifactKind =
+  | "PDF_SCAN"
+  | "PDF_MIXED"
+  | "PNG"
+  | "JPEG"
+  | "WEBP"
+  | "GIF"
+  | "PNG_NAMED_JPEG"
+  | "TRUNCATED_PNG"
+  | "OVERSIZED_DIMENSIONS"
+  | "PDF_TOO_MANY_PAGES"
+  | "OVERSIZED_BYTES"
+  | "PROVIDER_ENVELOPE"
+  | "TENANT_BYTES";
+
+export interface OcrEvalRow {
+  rowId: string;
+  page: number;
+  order: number;
+  bbox: [number, number, number, number];
+  description: string;
+  evidenceText: string;
+  candidateDisposition: "RAW_UNCLASSIFIED";
+  amountText: string | null;
+  amountCents: string | null;
+  sign: "NEGATIVE" | "ZERO" | "POSITIVE" | "UNKNOWN";
+  amountMeaning: "LINE_AMOUNT" | "UNKNOWN";
+  dateText: string | null;
+  normalizedDate: string | null;
+  dateExplicitness: "FULL" | "YEARLESS" | "MISSING" | "UNKNOWN";
+  installmentText: string | null;
+  installmentCurrent: number | null;
+  installmentTotal: number | null;
+  installmentMeaning: "EXPLICIT" | "ABSENT" | "UNKNOWN";
+  selected?: false;
+  verificationStatus?: "UNVERIFIED";
+}
+
+export interface OcrEvalRegion {
+  regionId: string;
+  page: number;
+  order: number;
+  bbox: [number, number, number, number];
+  rows: OcrEvalRow[];
+}
+
+export type OcrEvalExpected =
+  | {
+      kind: "SUCCESS";
+      regions: OcrEvalRegion[];
+      blankPages: number[];
+      unreadablePages: number[];
+      ignoredText: string[];
+    }
+  | { kind: "ERROR"; errorCode: string; retryable: boolean };
+
+export interface OcrEvalCase {
+  id: string;
+  partition: CorpusPartition;
+  tenantId: string;
+  tags: string[];
+  artifact: {
+    kind: ArtifactKind;
+    artifactSeed: string;
+    pageCount: number;
+    rotationDegrees: number;
+    degradation: {
+      blurRadius: number;
+      contrastPercent: number;
+      noisePercent: number;
+      compressionQuality: number;
+    };
+    decorativeRasterLogo: boolean;
+  };
+  providerScenario?: string;
+  adversarialText?: string;
+  expected: OcrEvalExpected;
+}
+
+export interface OcrEvalDataset {
+  datasetVersion: "ocr-synth-v1-direct-pdf-vertex-v3";
+  schemaVersion: 4;
+  baseSha: string;
+  description: string;
+  limits: { maxPages: 10; maxPixels: number; maxBytes: number };
+  cases: OcrEvalCase[];
+}
+
+export interface OcrUsageEvidence {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}
+
+export interface OcrCostEvidence {
+  currency: "USD";
+  amountMicros: number | null;
+}
+
+export interface OcrPromptContractEvidence {
+  rawCandidatesOnly: boolean;
+  allVisibleOccurrences: boolean;
+  allPagesInOrder: boolean;
+  preserveDuplicates: boolean;
+  signedAmountIncludesNegativeZeroUnknown: boolean;
+  noFinancialExclusionsOrClassification: boolean;
+}
+
+export interface DirectPdfAdapterTrace {
+  seam: "VertexPdfOcrProvider.extractPdf";
+  endpoint: string;
+  region: string;
+  model: string;
+  auth: "ADC_OAUTH";
+  adcScopes: string[];
+  apiKeyUsed: boolean;
+  globalEndpointFallbackUsed: boolean;
+  inputMimeType: string;
+  inputMode: "INLINE_ORIGINAL_BYTES";
+  originalBytesSha256: string;
+  requestBodyBytes: number;
+  deadlineMs: number;
+  finishReason: string | null;
+  maxOutputTokens: number | null;
+  promptContract: OcrPromptContractEvidence;
+  toolsPresent: boolean;
+  fileUri: string | null;
+  cachedContent: string | null;
+  providerCallCount: number;
+  responseId: string | null;
+  attempts: number;
+  ambiguousTimeoutRetried: boolean;
+  textualPdf: boolean;
+  localFinancialRowsMerged: number;
+}
+
+export interface OcrConsentCapabilityEvidence {
+  capability: "ANALYZE_ATTACHMENT_V2";
+  consentPolicyVersion: 1;
+  decision: "ALLOW_EXTERNAL_PROCESSING";
+  purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW";
+  provider: string;
+  model: string;
+  region: string;
+  actorId: string;
+  sessionRevision: number;
+  attachmentId: string;
+  artifactSha256: string;
+  requestId: string;
+  requestPayloadHash: string;
+  completeOriginalFile: true;
+  includesMetadataAndEmbeddedContent: true;
+  includesPotentiallyNonVisibleContent: true;
+  externalContentRetentionDays: 7;
+}
+
+export interface OcrEvalPrediction {
+  caseId: string;
+  tenantId: string;
+  artifactSha256: string;
+  outcome: OcrEvalExpected;
+  provider: string | null;
+  model: string | null;
+  modelVersion: string | null;
+  promptSha256: string | null;
+  schemaValid: boolean;
+  latencyMs: number | null;
+  peakRssBytes: number | null;
+  usage: OcrUsageEvidence;
+  cost: OcrCostEvidence;
+  adapterTrace: DirectPdfAdapterTrace | null;
+  consentRecorded: boolean;
+  consentCapability: OcrConsentCapabilityEvidence | null;
+  attestationRequired: boolean;
+  financialWrites: number;
+}
+
+export interface OcrRoutingEvidence {
+  caseId: string;
+  tenantId: string;
+  artifactSha256: string;
+  source:
+    | "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED"
+    | "OFFLINE_EVALUATOR_SELF_TEST";
+  detectedReasons: Array<
+    "MIXED" | "SEARCHABLE" | "RASTER_LOGO" | "HIDDEN_TEXT"
+  >;
+  providerCalls: number;
+  routedLocally: boolean;
+  explicitFallback: boolean;
+  financialWrites: number;
+  testFile: string;
+}
+
+export const SAFETY_PROBE_IDS = [
+  "WRONG_ENDPOINT",
+  "WRONG_MODEL",
+  "WRONG_REGION",
+  "API_KEY_AUTH",
+  "ADC_SCOPE_BOUNDED",
+  "REQUEST_BODY_BOUNDED",
+  "DEADLINE_BOUNDED",
+  "GLOBAL_ENDPOINT_FALLBACK",
+  "TOOLS_PRESENT",
+  "FILE_URI_PRESENT",
+  "CACHE_PRESENT",
+  "TEXTUAL_PDF_PROVIDER_CALL",
+  "LOCAL_RASTER_SANDBOX",
+  "PAGE_11_ADMISSION",
+  "MIXED_LOCAL_PROVIDER_DUPLICATION",
+  "PARTIAL_RESPONSE",
+  "MALFORMED_RESPONSE",
+  "TRUNCATED_RESPONSE",
+  "SAFETY_BLOCKED_RESPONSE",
+  "AMBIGUOUS_TIMEOUT_RETRY",
+  "UNKNOWN_OUTCOME_NO_RETRY",
+  "DURABLE_TENANT_BUDGET",
+  "DURABLE_GLOBAL_BUDGET",
+  "ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS",
+  "EXACT_CONSENT_CAPABILITY",
+  "SELECTED_TRUE_DEFAULT",
+  "VERIFIED_DEFAULT",
+  "MISSING_CONSENT",
+  "MISSING_ATTESTATION",
+  "FINANCIAL_WRITE",
+  "KNOWN_SAFETY_FINISH_REASONS",
+  "TERMINAL_FAILURE_REPLAY_NO_CALL",
+  "CAPABILITY_OFF",
+  "PRIOR_CONSENT_DECLARATION",
+  "RESIDUAL_RISK_ACCEPTANCE",
+] as const;
+
+export type SafetyProbeId = (typeof SAFETY_PROBE_IDS)[number];
+
+export interface OcrSafetyProbeEvidence {
+  id: SafetyProbeId;
+  source:
+    | "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED"
+    | "OFFLINE_EVALUATOR_SELF_TEST";
+  blocked: boolean;
+  explicitError: boolean;
+  errorCode: string;
+  providerCalls: number;
+  financialWrites: number;
+  durableStateVerified: boolean;
+  finishReasonsTested: string[];
+  testFile: string;
+}
