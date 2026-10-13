@@ -18,6 +18,7 @@ const runRoot = "/tmp/reformaflow-pdf-qualification";
 const MIME = "application/pdf";
 const MEMORY_GATE_BYTES = 512 * 1024 * 1024;
 let peakRssBytes = 0;
+let memoryMonitor;
 
 function pdf({ pages = 1, image = true, text = true, metadata = false } = {}) {
   const body =
@@ -149,7 +150,7 @@ async function qualifyProfile() {
 async function main() {
   await rm(runRoot, { recursive: true, force: true });
   await mkdir(runRoot, { mode: 0o700 });
-  const monitor = setInterval(async () => {
+  memoryMonitor = setInterval(async () => {
     peakRssBytes = Math.max(peakRssBytes, await rssBytes());
   }, 10);
 
@@ -270,7 +271,7 @@ async function main() {
   await expectCode(pending, "ABORTED");
   console.log("qualification phase: process-group abort");
 
-  clearInterval(monitor);
+  clearInterval(memoryMonitor);
   peakRssBytes = Math.max(peakRssBytes, await rssBytes());
   assert(peakRssBytes <= MEMORY_GATE_BYTES, "512 MiB peak RSS gate");
   assert((await readdir(runRoot)).length === 0, "all run directories cleaned");
@@ -292,9 +293,11 @@ async function main() {
 }
 
 main().catch(async (error) => {
+  clearInterval(memoryMonitor);
   await rm(runRoot, { recursive: true, force: true });
   console.error(
-    error instanceof Error ? error.message : "qualification failed",
+    error?.code ??
+      (error instanceof Error ? error.message : "qualification failed"),
   );
   process.exitCode = 1;
 });

@@ -12,7 +12,7 @@ fail() {
 [[ -n "${PDF_SANDBOX_RUN_DIR:-}" && -n "${PDF_SANDBOX_WORKER:-}" ]] || fail
 [[ -d "$PDF_SANDBOX_RUN_DIR" && -f "$PDF_SANDBOX_WORKER" ]] || fail
 
-exec /usr/bin/bwrap \
+/usr/bin/bwrap \
   --unshare-all \
   --die-with-parent \
   --cap-drop ALL \
@@ -34,4 +34,5 @@ exec /usr/bin/bwrap \
   --setenv LC_ALL C \
   --setenv PDF_SANDBOX_ADDRESS_SPACE "$2" \
   --setenv PDF_SANDBOX_OPEN_FILES "$3" \
-  /bin/bash /worker.sh
+  /bin/bash /worker.sh ||
+  fail
