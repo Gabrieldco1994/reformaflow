@@ -9,6 +9,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   PDF_WORKER_PROBE_SOURCE,
+  cgroupLevelStage,
   observeDatabase,
   parsePdfWorkerEvents,
   parseVmHwmBytes,
@@ -124,6 +125,26 @@ test("cgroup proof requires the exact private 512 MiB v2 leaf with zero swap", (
   ]) {
     assert.throws(() => verifyCgroupV2Proof(cgroupEvidence(invalid)));
   }
+});
+
+test("host cgroup diagnostics expose only bounded booleans and numeric depth", () => {
+  const stage = cgroupLevelStage(2, {
+    directory: true,
+    memoryMax: "missing",
+    parentSubtreeControl: "readable",
+    memoryEnabledByParent: true,
+    controllers: "readable",
+    memoryAvailable: true,
+    subtreeControl: "readable",
+    memoryEnabledForChildren: false,
+    type: "domain",
+  });
+  assert.equal(
+    stage,
+    "host-cgroup-level-2-dir-1-max-missing-parent-sc-readable-parent-mem-1-controllers-readable-available-1-subtree-readable-child-mem-0-type-domain",
+  );
+  assert.doesNotMatch(stage, /[/\\]|secret|path|token/);
+  assert.throws(() => cgroupLevelStage(33, {}));
 });
 
 test("PDF worker probe counts overlapping started workers without identifiers", () => {

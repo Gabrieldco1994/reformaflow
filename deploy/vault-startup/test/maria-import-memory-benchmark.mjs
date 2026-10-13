@@ -301,6 +301,48 @@ export function parseVmHwmBytes(statusText) {
   return bytes;
 }
 
+export function cgroupLevelStage(depth, evidence) {
+  assert.ok(
+    Number.isInteger(depth) && depth >= 0 && depth < 32,
+    "cgroup hierarchy depth is outside the diagnostic bound",
+  );
+  const statuses = new Set(["readable", "missing", "denied", "unreadable"]);
+  for (const key of [
+    "memoryMax",
+    "parentSubtreeControl",
+    "controllers",
+    "subtreeControl",
+  ])
+    assert.ok(statuses.has(evidence[key]), `invalid cgroup ${key} status`);
+  for (const key of [
+    "directory",
+    "memoryEnabledByParent",
+    "memoryAvailable",
+    "memoryEnabledForChildren",
+  ])
+    assert.equal(
+      typeof evidence[key],
+      "boolean",
+      `invalid cgroup ${key} evidence`,
+    );
+  assert.ok(
+    ["domain", "threaded", "domain-threaded", "other"].includes(evidence.type),
+    "invalid cgroup type diagnostic",
+  );
+  return [
+    `host-cgroup-level-${depth}`,
+    `dir-${Number(evidence.directory)}`,
+    `max-${evidence.memoryMax}`,
+    `parent-sc-${evidence.parentSubtreeControl}`,
+    `parent-mem-${Number(evidence.memoryEnabledByParent)}`,
+    `controllers-${evidence.controllers}`,
+    `available-${Number(evidence.memoryAvailable)}`,
+    `subtree-${evidence.subtreeControl}`,
+    `child-mem-${Number(evidence.memoryEnabledForChildren)}`,
+    `type-${evidence.type}`,
+  ].join("-");
+}
+
 export function verifyCgroupV2Proof(evidence) {
   assert.equal(evidence?.cgroupVersion, 2, "cgroup v2 is required");
   assert.equal(
@@ -812,6 +854,63 @@ function dockerInspect(api) {
   return JSON.parse(runDocker(["inspect", api.name]))[0];
 }
 
+function cgroupFile(path) {
+  try {
+    return { status: "readable", value: readFileSync(path, "utf8").trim() };
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? error.code
+        : "UNKNOWN";
+    return {
+      status:
+        code === "ENOENT"
+          ? "missing"
+          : code === "EACCES"
+            ? "denied"
+            : "unreadable",
+      value: null,
+    };
+  }
+}
+
+function cgroupType(path) {
+  const sample = cgroupFile(join(path, "cgroup.type"));
+  if (sample.status !== "readable") return "other";
+  if (sample.value === "domain") return "domain";
+  if (sample.value === "threaded") return "threaded";
+  if (sample.value === "domain threaded") return "domain-threaded";
+  return "other";
+}
+
+function inspectCgroup2Mount() {
+  markStage("host-cgroup-mountinfo-read");
+  const mountInfo = cgroupFile("/proc/self/mountinfo");
+  if (mountInfo.status !== "readable") {
+    markStage(`host-cgroup-mountinfo-${mountInfo.status}`);
+    throw new Error("host cgroup mount metadata is unavailable");
+  }
+  const mount = mountInfo.value.split("\n").find((line) => {
+    const separator = line.indexOf(" - ");
+    if (separator < 0) return false;
+    const before = line.slice(0, separator).split(" ");
+    const after = line.slice(separator + 3).split(" ");
+    return after[0] === "cgroup2" && before[4] === "/sys/fs/cgroup";
+  });
+  if (!mount) {
+    markStage("host-cgroup2-mount-not-found");
+    throw new Error("host cgroup2 mount could not be mapped");
+  }
+  const before = mount.slice(0, mount.indexOf(" - ")).split(" ");
+  const mountRootIsHierarchyRoot = before[3] === "/";
+  markStage(`host-cgroup2-mount-root-${Number(mountRootIsHierarchyRoot)}`);
+  assert.equal(
+    mountRootIsHierarchyRoot,
+    true,
+    "cgroup2 mount does not expose the hierarchy root",
+  );
+}
+
 function readHostCgroupLimits(containerPid) {
   markStage("host-cgroup-controller-check");
   assert.ok(Number.isSafeInteger(containerPid) && containerPid > 0);
@@ -819,6 +918,7 @@ function readHostCgroupLimits(containerPid) {
     existsSync("/sys/fs/cgroup/cgroup.controllers"),
     "host is not cgroup v2",
   );
+  inspectCgroup2Mount();
   markStage("host-cgroup-path-read");
   const cgroups = readFileSync(`/proc/${containerPid}/cgroup`, "utf8");
   const match = /^0::(.+)$/m.exec(cgroups);
@@ -835,24 +935,48 @@ function readHostCgroupLimits(containerPid) {
   let current = leaf;
   let hierarchyLevel = 0;
   while (current === root || current.startsWith(`${root}${sep}`)) {
+    if (hierarchyLevel >= 32) {
+      markStage("host-cgroup-hierarchy-depth-truncated");
+      throw new Error("host cgroup hierarchy exceeds the diagnostic bound");
+    }
     markStage(`host-cgroup-memory-limit-read-level-${hierarchyLevel}`);
-    let raw;
-    try {
-      raw = readFileSync(join(current, "memory.max"), "utf8").trim();
-    } catch (error) {
-      const code =
-        error && typeof error === "object" && "code" in error
-          ? error.code
-          : "UNKNOWN";
-      const kind =
-        code === "ENOENT"
-          ? "missing"
-          : code === "EACCES"
-            ? "denied"
-            : "unreadable";
-      markStage(`host-cgroup-memory-limit-${hierarchyLevel}-${kind}`);
+    const max = cgroupFile(join(current, "memory.max"));
+    if (max.status !== "readable") {
+      const parentSubtree = cgroupFile(
+        join(dirname(current), "cgroup.subtree_control"),
+      );
+      const controllers = cgroupFile(join(current, "cgroup.controllers"));
+      const subtreeControl = cgroupFile(
+        join(current, "cgroup.subtree_control"),
+      );
+      let directory = false;
+      try {
+        directory = statSync(current).isDirectory();
+      } catch {
+        directory = false;
+      }
+      markStage(
+        cgroupLevelStage(hierarchyLevel, {
+          directory,
+          memoryMax: max.status,
+          parentSubtreeControl: parentSubtree.status,
+          memoryEnabledByParent:
+            parentSubtree.status === "readable" &&
+            parentSubtree.value.split(/\s+/).includes("memory"),
+          controllers: controllers.status,
+          memoryAvailable:
+            controllers.status === "readable" &&
+            controllers.value.split(/\s+/).includes("memory"),
+          subtreeControl: subtreeControl.status,
+          memoryEnabledForChildren:
+            subtreeControl.status === "readable" &&
+            subtreeControl.value.split(/\s+/).includes("memory"),
+          type: cgroupType(current),
+        }),
+      );
       throw new Error("host cgroup memory limit could not be read");
     }
+    const raw = max.value;
     if (raw === "max") limits.push(null);
     else {
       assert.match(raw, /^[0-9]+$/);
