@@ -175,8 +175,19 @@ function viewFixture(
     declaredFacts: [],
     reviewBlockers: [],
     actions: ["CANCEL"],
+    ocrCapability: {
+      status: "DISABLED",
+      consentPolicyVersion: 1,
+      provider: "GOOGLE_VERTEX_AI",
+      purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+      region: "southamerica-east1",
+      retentionDays: 7,
+      sendsFullOriginal: true,
+      includesMetadataAndEmbeddedContent: true,
+      attachments: [],
+    },
     ...overrides,
-  };
+  } as ImportSessionViewV1;
 }
 
 function documentaryView(

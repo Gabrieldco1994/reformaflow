@@ -28,7 +28,7 @@ import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-rea
 import { useImportUserId } from "./useImportSessions";
 import type { ImportEntryCard } from "../_lib/import-session-read";
 import type {
-  ImportOcrSessionViewV1,
+  OcrCapabilityV1,
   OcrTerminalUiState,
   OcrUiPresentation,
 } from "../_types";
@@ -109,8 +109,12 @@ const newGeneration = (
   ocrPresentation: null,
 });
 
-const ocrView = (value: ImportSessionViewV1): ImportOcrSessionViewV1 =>
-  value as ImportOcrSessionViewV1;
+const ocrCapabilityOf = (value: ImportSessionViewV1): OcrCapabilityV1 | null =>
+  (
+    value as ImportSessionViewV1 & {
+      ocrCapability?: OcrCapabilityV1;
+    }
+  ).ocrCapability ?? null;
 
 /** Documentary coordinator only; server actions still own analysis eligibility. */
 export function useImportDocumentFlow(
@@ -274,9 +278,10 @@ export function useImportDocumentFlow(
     const classified = classifyImportFailure(error);
     const described = describe(error);
     const cachedView = client.getQueryData<ImportSessionViewV1>(key);
+    const cachedCapability = cachedView ? ocrCapabilityOf(cachedView) : null;
     const capabilityAttachment =
-      cachedView && ocrView(cachedView).ocrCapability.status === "AVAILABLE"
-        ? ocrView(cachedView).ocrCapability.attachments.find(
+      cachedCapability?.status === "AVAILABLE"
+        ? cachedCapability.attachments.find(
             (candidate) => candidate.attachmentId === attachmentId,
           )
         : null;
@@ -713,7 +718,7 @@ export function useImportDocumentFlow(
     const attachment = latest?.attachments.find(
       (candidate) => candidate.id === attachmentId,
     );
-    const capability = latest ? ocrView(latest).ocrCapability : null;
+    const capability = latest ? ocrCapabilityOf(latest) : null;
     const capabilityAttachment =
       capability?.status === "AVAILABLE"
         ? capability.attachments.find(
@@ -768,11 +773,12 @@ export function useImportDocumentFlow(
       );
       if (!active()) return;
       controller.signal.throwIfAborted();
-      const persisted = ocrView(consented).ocrCapability.attachments.find(
+      const consentedCapability = ocrCapabilityOf(consented);
+      const persisted = consentedCapability?.attachments.find(
         (candidate) => candidate.attachmentId === attachmentId,
       );
       if (
-        ocrView(consented).ocrCapability.status !== "AVAILABLE" ||
+        consentedCapability?.status !== "AVAILABLE" ||
         persisted?.consentedRequestId !== requestId ||
         persisted.consentedRevision !== consented.revision
       )
@@ -809,8 +815,9 @@ export function useImportDocumentFlow(
     }
   }
 
+  const projectedCapability = view ? ocrCapabilityOf(view) : null;
   const listedCapability = view
-    ? ocrView(view).ocrCapability.attachments.find(
+    ? projectedCapability?.attachments.find(
         (candidate) =>
           candidate.consentedRequestId === null &&
           candidate.consentedRevision === null &&
@@ -828,7 +835,7 @@ export function useImportDocumentFlow(
       ? ({
           attachmentId: listedCapability.attachmentId,
           kind:
-            ocrView(view).ocrCapability.status === "AVAILABLE"
+            projectedCapability?.status === "AVAILABLE"
               ? "CONSENT_REQUIRED"
               : "OCR_UNAVAILABLE",
         } as const)
@@ -842,8 +849,8 @@ export function useImportDocumentFlow(
             ? ("REQUESTING" as const)
             : baseOcrPresentation.kind === "CONSENT_REQUIRED" &&
                 (!view ||
-                  ocrView(view).ocrCapability.status !== "AVAILABLE" ||
-                  !ocrView(view).ocrCapability.attachments.some(
+                  projectedCapability?.status !== "AVAILABLE" ||
+                  !projectedCapability.attachments.some(
                     (candidate) =>
                       candidate.attachmentId ===
                         baseOcrPresentation.attachmentId &&
