@@ -40,9 +40,11 @@ ENV NODE_ENV=production \
     UPLOADS_DIR=/data/uploads
 
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates curl sqlite3 util-linux bash \
+  && apt-get install -y --no-install-recommends openssl ca-certificates curl sqlite3 util-linux bash bubblewrap poppler-utils qpdf pngcrush pngcheck \
   && sqlite3 --version \
   && command -v flock && flock --version \
+  && command -v bwrap && command -v pdftocairo && command -v qpdf \
+  && command -v pngcrush && command -v pngcheck \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy only what's needed for runtime

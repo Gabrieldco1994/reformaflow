@@ -177,6 +177,23 @@ jobs:
       - name: Build NestJS
         run: npm --workspace @reformaflow/api run build
 
+  ocr-pdf-sandbox-image:
+    name: OCR PDF Sandbox (production image, 512 MiB)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the production API image
+        run: docker build --tag reformaflow-api:ocr-sandbox --file apps/api/Dockerfile .
+      - name: Qualify isolation, admission, cleanup and peak RSS
+        run: |
+          docker run --rm \
+            --memory=512m \
+            --memory-swap=512m \
+            --pids-limit=128 \
+            --network=bridge \
+            reformaflow-api:ocr-sandbox \
+            node /app/apps/api/dist/imports/import-session/ocr/pdf-raster-sandbox.qualify.mjs
+
   deploy-api:
     name: Deploy API to Fly
     runs-on: ubuntu-latest
@@ -190,6 +207,7 @@ jobs:
         quiesce-failsafe,
         build-web,
         build-api,
+        ocr-pdf-sandbox-image,
       ]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     concurrency:

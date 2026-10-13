@@ -4,6 +4,6 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": false,
-    "assets": ["**/*.mjs"]
+    "assets": ["**/*.mjs", "**/*.sh"]
   }
 }
