@@ -28,7 +28,7 @@ const EXPECTED_LABELS = [
   "pdf-max-c2",
   "upload-max-c1",
   "upload-max-c2",
-  "upload-max-c4",
+  "upload-max-c5",
 ];
 
 function cgroupEvidence(overrides = {}) {
@@ -57,7 +57,7 @@ function metricRow(label = "pdf-max-c1") {
     page_count: 30,
     operator_count: 200_000,
     text_output_bytes: 10_485_760,
-    registration_calls: 4,
+    registration_calls: 5,
     overlap_count: 1,
     analysis_calls: 1,
     distinct_tenant_count: 1,
@@ -282,7 +282,7 @@ test(
       result.rows.map(({ label }) => label),
       EXPECTED_LABELS,
     );
-    assert.equal(result.registration_calls, 4);
+    assert.equal(result.registration_calls, 5);
 
     for (const row of result.rows) {
       assert.equal(row.memory_limit_bytes, MEMORY_CAP_BYTES, row.label);
@@ -324,7 +324,7 @@ test(
       [
         [1, 1],
         [2, 2],
-        [4, 4],
+        [5, 5],
       ],
     );
     assert.deepEqual(
@@ -338,7 +338,7 @@ test(
       [
         [1, 1, 1],
         [2, 2, 2],
-        [4, 4, 4],
+        [5, 5, 5],
       ],
     );
     assert.deepEqual(

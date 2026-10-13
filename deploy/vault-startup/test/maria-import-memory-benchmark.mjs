@@ -21,7 +21,7 @@ import {
 } from "./maria-import-memory-fixtures.mjs";
 
 const MEMORY_CAP_BYTES = 536_870_912;
-const REGISTRATION_CALLS = 4;
+const REGISTRATION_CALLS = 5;
 const FINANCIAL_TABLES = [
   "expenses",
   "cash_flow_entries",
@@ -35,7 +35,7 @@ const METRIC_LABELS = new Set([
   "pdf-max-c2",
   "upload-max-c1",
   "upload-max-c2",
-  "upload-max-c4",
+  "upload-max-c5",
 ]);
 const METRIC_FIELDS = [
   "label",
@@ -390,6 +390,7 @@ export function serializeMetrics(rows, registrationCalls = REGISTRATION_CALLS) {
       METRIC_FIELDS.map((field) => [field, row[field]]),
     );
     for (const field of METRIC_FIELDS.slice(1)) safeInteger(safe[field], field);
+    assert.equal(safe.registration_calls, registrationCalls);
     for (const field of POSITIVE_METRIC_FIELDS)
       assert.ok(safe[field] > 0, `missing positive ${field} sample`);
     assert.equal(safe.memory_limit_bytes, MEMORY_CAP_BYTES);
@@ -1734,7 +1735,7 @@ export async function runBenchmark() {
         fixture: fixtures.maxAccepted,
       }),
     );
-    for (const concurrency of [1, 2, 4]) {
+    for (const concurrency of [1, 2, 5]) {
       stage = `upload-max-c${concurrency}`;
       markStage(stage);
       const row = await runUploadRung({
@@ -1759,7 +1760,7 @@ export async function runBenchmark() {
         "pdf-max-c2",
         "upload-max-c1",
         "upload-max-c2",
-        "upload-max-c4",
+        "upload-max-c5",
       ],
     );
     stage = "benchmark-cleanup";
