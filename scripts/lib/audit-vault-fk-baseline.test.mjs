@@ -9,10 +9,12 @@ import {
   lstatSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -1227,17 +1229,23 @@ test("concurrent database pathname replacement is detected", async () => {
   const metadata = capture(fixture);
   const replacement = join(fixture.directory, "replacement.db");
   const displaced = join(fixture.directory, "displaced.db");
-  const marker = join(fixture.directory, "sqlite-opened");
-  const resume = join(fixture.directory, "sqlite-resume");
-  const binaryDirectory = join(fixture.directory, "bin");
-  const sqliteWrapper = join(binaryDirectory, "sqlite3");
-  const realSqlite = spawnSync("sh", ["-c", "command -v sqlite3"], {
-    encoding: "utf8",
-  }).stdout.trim();
-  mkdirSync(binaryDirectory);
-  writeFileSync(
-    sqliteWrapper,
-    `#!${process.execPath}
+  const original = lstatSync(fixture.database, { bigint: true });
+  const environment = { ...process.env };
+  let marker;
+  let resume;
+
+  if (process.platform !== "linux") {
+    marker = join(fixture.directory, "sqlite-opened");
+    resume = join(fixture.directory, "sqlite-resume");
+    const binaryDirectory = join(fixture.directory, "bin");
+    const sqliteWrapper = join(binaryDirectory, "sqlite3");
+    const realSqlite = spawnSync("sh", ["-c", "command -v sqlite3"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    mkdirSync(binaryDirectory);
+    writeFileSync(
+      sqliteWrapper,
+      `#!${process.execPath}
 const { spawn } = require("node:child_process");
 const { existsSync, writeFileSync } = require("node:fs");
 const child = spawn(${JSON.stringify(realSqlite)}, process.argv.slice(2), { stdio: ["pipe", "pipe", "pipe"] });
@@ -1265,8 +1273,12 @@ process.stdin.on("data", (chunk) => {
 process.stdin.on("end", () => child.stdin.end());
 child.on("close", (code) => process.exit(code ?? 1));
 `,
-    { mode: 0o700 },
-  );
+      { mode: 0o700 },
+    );
+    environment.PATH = `${binaryDirectory}:${process.env.PATH}`;
+    environment.RF_RACE_MARKER = marker;
+    environment.RF_RACE_RESUME = resume;
+  }
   copyFileSync(fixture.database, replacement);
 
   const compared = spawn(
@@ -1274,29 +1286,74 @@ child.on("close", (code) => process.exit(code ?? 1));
     auditorArgs("compare", fixture, metadata),
     {
       cwd: ROOT,
-      env: {
-        ...process.env,
-        PATH: `${binaryDirectory}:${process.env.PATH}`,
-        RF_RACE_MARKER: marker,
-        RF_RACE_RESUME: resume,
-      },
+      env: environment,
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
   const chunks = [];
   compared.stdout.on("data", (chunk) => chunks.push(chunk));
   compared.stderr.on("data", (chunk) => chunks.push(chunk));
-  for (let attempt = 0; attempt < 2500 && !existsSync(marker); attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 2));
+  const closed = new Promise((resolve) =>
+    compared.once("close", (code) => resolve(code)),
+  );
+
+  if (process.platform === "linux") {
+    let descriptorObserved = false;
+    for (let attempt = 0; attempt < 5000 && !descriptorObserved; attempt += 1) {
+      let children = [];
+      try {
+        children = readFileSync(
+          `/proc/${compared.pid}/task/${compared.pid}/children`,
+          "utf8",
+        )
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+      } catch {
+        // The bounded assertion below reports a process that exited too early.
+      }
+      for (const child of children) {
+        let descriptors = [];
+        try {
+          descriptors = readdirSync(`/proc/${child}/fd`);
+        } catch {
+          continue;
+        }
+        for (const descriptor of descriptors) {
+          try {
+            const opened = statSync(`/proc/${child}/fd/${descriptor}`, {
+              bigint: true,
+            });
+            if (opened.dev === original.dev && opened.ino === original.ino) {
+              descriptorObserved = true;
+              break;
+            }
+          } catch {
+            // Descriptor churn is expected while the child initializes.
+          }
+        }
+        if (descriptorObserved) break;
+      }
+      if (!descriptorObserved)
+        await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    assert.equal(
+      descriptorObserved,
+      true,
+      "auditor did not expose its fixed /usr/bin/sqlite3 database descriptor",
+    );
+  } else {
+    for (let attempt = 0; attempt < 2500 && !existsSync(marker); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    assert.equal(existsSync(marker), true, "auditor did not open SQLite");
   }
-  assert.equal(existsSync(marker), true, "auditor did not open SQLite");
+
   renameSync(fixture.database, displaced);
   renameSync(replacement, fixture.database);
-  writeFileSync(resume, "resume");
+  if (resume) writeFileSync(resume, "resume");
 
-  const status = await new Promise((resolve) =>
-    compared.on("close", (code) => resolve(code)),
-  );
+  const status = await closed;
   assert.notEqual(status, 0, "replacement must not compare successfully");
   const allOutput = Buffer.concat(chunks).toString("utf8");
   assert.match(allOutput, /vault-fk-baseline failed \([A-Z0-9_]+\)/);
