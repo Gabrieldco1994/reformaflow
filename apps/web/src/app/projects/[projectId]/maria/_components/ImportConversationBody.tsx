@@ -242,8 +242,7 @@ function Conversation({
     >
       <ImportQuestionViewportOwner>
         <p className="text-sm text-lifeone-ink-2">
-          Importação {sessionId}
-          {view ? ` · Revisão ${view.revision}` : ""}
+          Importação{view ? ` · Revisão ${view.revision}` : ""}
         </p>
         {busy && <p role="status">Consultando a importação…</p>}
         {error && (

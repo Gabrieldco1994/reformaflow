@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 const LINE_A_ID = "550e8400-e29b-41d4-a716-446655440001";
 const LINE_B_ID = "550e8400-e29b-41d4-a716-446655440002";
+const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const OBSERVATION_A_ID = "6ba7b810-9dad-11d1-80b4-00c04fd430c1";
 const OBSERVATION_B_ID = "6ba7b810-9dad-11d1-80b4-00c04fd430c2";
 const QUESTION_A_ID = "9fd160aa-52b6-4df1-bb10-9a179900a211";
@@ -94,7 +95,7 @@ const answered = (
 
 const view: ImportSessionViewV1 = {
   version: 1,
-  id: "session-selection",
+  id: SESSION_ID,
   ownerProjectId: "project-owner",
   cardId: "card-1",
   state: "DRAFT",
@@ -147,6 +148,18 @@ const view: ImportSessionViewV1 = {
   actions: ["RESOLVE", "CANCEL"],
 };
 
+const forbiddenPresentationText = new RegExp(
+  [
+    LINE_A_ID,
+    LINE_B_ID,
+    OBSERVATION_A_ID,
+    OBSERVATION_B_ID,
+    view.id,
+    "amountMeaning",
+  ].join("|"),
+  "i",
+);
+
 beforeEach(() => {
   mocks.editQuestion.mockReset();
   mocks.conversation = {
@@ -179,6 +192,29 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("keeps the session ID out of visible and accessible import status", () => {
+  render(
+    <ImportConversationBody
+      sessionId={view.id}
+      documents={
+        {
+          busy: false,
+          error: null,
+          notice: null,
+          recover: vi.fn(),
+          analyze: vi.fn(),
+        } as never
+      }
+    />,
+  );
+
+  const conversation = screen.getByRole("region", {
+    name: "Conversa da importação",
+  });
+  expect(conversation).not.toHaveTextContent(view.id);
+  expect(conversation).not.toHaveAccessibleName(new RegExp(view.id));
+});
+
 it("offers edit only for answered lines that remain selected", () => {
   render(
     <ImportConversationBody
@@ -207,7 +243,7 @@ it("offers edit only for answered lines that remain selected", () => {
   ).toBeEnabled();
   expect(mocks.editQuestion).not.toHaveBeenCalled();
   expect(document.body.textContent ?? "").not.toMatch(
-    /550e8400-e29b-41d4-a716-44665544000[12]|6ba7b810-9dad-11d1-80b4-00c04fd430c[12]|amountMeaning/i,
+    forbiddenPresentationText,
   );
 });
 
@@ -240,11 +276,9 @@ it("renders guided response context without line or observation identifiers", ()
     screen.getByRole("button", { name: /Editar compra/ }),
   ).toHaveAccessibleName(/Geladeira/);
   expect(document.body.textContent ?? "").not.toMatch(
-    /550e8400-e29b-41d4-a716-44665544000[12]|6ba7b810-9dad-11d1-80b4-00c04fd430c[12]|amountMeaning/i,
+    forbiddenPresentationText,
   );
   for (const button of screen.getAllByRole("button")) {
-    expect(button).not.toHaveAccessibleName(
-      /550e8400-e29b-41d4-a716-44665544000[12]|6ba7b810-9dad-11d1-80b4-00c04fd430c[12]|amountMeaning/i,
-    );
+    expect(button).not.toHaveAccessibleName(forbiddenPresentationText);
   }
 });
