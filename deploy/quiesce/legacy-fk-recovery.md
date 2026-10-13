@@ -33,6 +33,14 @@ other recovery.
   `/app/repair-legacy-fk-integrity.mjs` and verify its local/remote SHA-256.
 - Use only the persistent-directory `op-wrap.sh`; never invoke the repair
   script, Node, SQLite, Prisma Studio, or a migration command directly.
+- The executable validates the SQLite `file:` datasource and forces its own
+  effective `connection_limit=1` before any proof, filesystem, or Prisma
+  access. Do not alter Fly's/global `DATABASE_URL` or append this parameter
+  manually.
+
+A patched repair artifact invalidates every prior artifact checksum and dry-run
+manifest. Verify a fresh local/remote checksum, then run a fresh
+`op-wrap fk-dryrun` and review its new manifest before any `fk-apply`.
 
 Before generating the proof, SRE must privately verify each tenant assignment
 against the authoritative historical source. The proof must then pin exactly
@@ -148,7 +156,9 @@ The repair executable checks the expected watchdog-supervised chain by
 requiring inherited fd-9 `flock` continuity and an unlinked per-execution
 capability before opening SQLite. An environment marker alone is insufficient,
 but these local checks still do not authenticate ancestry or prevent the
-trusted-root bypass accepted only by the exception above.
+trusted-root bypass accepted only by the exception above. The executable also
+forces one Prisma connection with `connection_limit=1`, preserving its manual
+`BEGIN`/`COMMIT`/`ROLLBACK` statements on that connection.
 
 ## Finish and evidence
 
