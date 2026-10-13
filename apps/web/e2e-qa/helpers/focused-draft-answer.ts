@@ -366,11 +366,12 @@ export async function fillFocusedDraftPreview(
     for (const id of question.lineIds) {
       const line = current.lines.find((line) => line.id === id);
       expect(line).toBeTruthy();
+      // Focused-question listitems expose this context as text content, not as
+      // an accessible name. Keep the role boundary and match the full context.
       await expect(
-        affected.getByRole("listitem", {
-          name: reviewBlockerArticleName(line!),
-          exact: true,
-        }),
+        affected
+          .getByRole("listitem")
+          .filter({ hasText: reviewBlockerArticleName(line!) }),
       ).toHaveCount(1);
     }
   }
