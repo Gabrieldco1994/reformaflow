@@ -183,7 +183,19 @@ export function ImportReviewBlockerNotice({
           onClick={() => onRemove(line.id)}
           className="min-h-11 rounded-xl border px-3 focus-visible:outline focus-visible:outline-2"
         >
-          Retirar da seleção
+          Retirar {purchaseIdentity}
+          {purchaseAmount && (
+            <>
+              {" · "}
+              <span
+                data-workflow-money
+                className={`${journeyStyles.money} whitespace-nowrap`}
+              >
+                {purchaseAmount}
+              </span>
+            </>
+          )}{" "}
+          da seleção
         </button>
       )}
       {!selected && onInclude && (

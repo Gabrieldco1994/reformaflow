@@ -534,6 +534,47 @@ it("gives duplicate purchases unique visible include labels with their amount co
   );
 });
 
+it("gives selected duplicate purchases unique visible remove labels with their amount context", () => {
+  const secondLineId = "550e8400-e29b-41d4-a716-446655440001";
+  render(
+    <>
+      <ImportReviewBlockerNotice
+        line={draftLine()}
+        blockers={[]}
+        selected
+        showLine
+        onRemove={vi.fn()}
+      />
+      <ImportReviewBlockerNotice
+        line={draftLine({
+          id: secondLineId,
+          amountCents: 67_890,
+          amountMeaning: ImportSessionAmountMeaning.INSTALLMENT_CHARGE,
+        })}
+        blockers={[]}
+        selected
+        showLine
+        onRemove={vi.fn()}
+      />
+    </>,
+  );
+
+  const buttons = screen.getAllByRole("button");
+  const visibleLabels = buttons.map((button) => button.textContent?.trim());
+  expect(new Set(visibleLabels).size).toBe(buttons.length);
+  expect(visibleLabels[0]).toMatch(
+    /Retirar.*Loja Aurora.*R\$ 123,45.*Total.*seleção/,
+  );
+  expect(visibleLabels[1]).toMatch(
+    /Retirar.*Loja Aurora.*R\$ 678,90.*Parcela.*seleção/,
+  );
+  buttons.forEach((button) =>
+    expect(
+      button.querySelector<HTMLElement>("[data-workflow-money]")?.className,
+    ).toContain("whitespace-nowrap"),
+  );
+});
+
 it("uses neutral Compra for legacy declarations with only an internal line key", () => {
   const fact: ImportDeclaredFactViewV1 = {
     lineId: LINE_ID,

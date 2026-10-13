@@ -15,11 +15,11 @@ import {
 } from "../_hooks/useImportDocumentFlow";
 import {
   useCancelImportSession,
-  useImportSessionList,
   useImportUserId,
 } from "../_hooks/useImportSessions";
 import { useImportObservations } from "../_hooks/useImportObservations";
 import { useImportCatalog } from "../_hooks/useImportCatalog";
+import { usePersistedImportContinuation } from "../_hooks/usePersistedImportContinuation";
 import { buildReceiptView } from "../_lib/import-receipt-view";
 import {
   ImportFocusedQuestion,
@@ -72,11 +72,6 @@ function Conversation({
       view?.attachments.some((attachment) => attachment.state === "ATTACHED"),
     ),
   );
-  const appliedList = useImportSessionList(
-    conversation.userId,
-    "applied",
-    Boolean(conversation.result),
-  );
   const [ignoredCount, setIgnoredCount] = useState(0);
   const [cancelPending, setCancelPending] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -122,9 +117,11 @@ function Conversation({
   const receiptView = conversation.result?.receipt
     ? buildReceiptView(conversation.result.receipt, names)
     : null;
-  const persistedContinuationSessionId =
-    appliedList.items.find((summary) => summary.id === sessionId)
-      ?.continuationSessionId ?? null;
+  const persistedContinuationSessionId = usePersistedImportContinuation(
+    conversation.userId,
+    sessionId,
+    Boolean(receiptView && !receiptView.continuationSessionId),
+  );
   const receipt =
     receiptView &&
     !receiptView.continuationSessionId &&

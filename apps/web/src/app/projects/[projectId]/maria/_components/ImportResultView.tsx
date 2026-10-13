@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useImportCatalog } from "../_hooks/useImportCatalog";
+import { usePersistedImportContinuation } from "../_hooks/usePersistedImportContinuation";
 import { useImportResult } from "../_hooks/useImportSessions";
 import { buildReceiptView } from "../_lib/import-receipt-view";
 import { describeImportFailure } from "../_lib/import-session-errors";
@@ -32,6 +33,23 @@ export function ImportResultView({
         : null,
     [read.result, names],
   );
+  const persistedContinuationSessionId = usePersistedImportContinuation(
+    userId,
+    sessionId,
+    Boolean(receiptView && !receiptView.continuationSessionId),
+  );
+  const receipt = useMemo(
+    () =>
+      receiptView &&
+      !receiptView.continuationSessionId &&
+      persistedContinuationSessionId
+        ? {
+            ...receiptView,
+            continuationSessionId: persistedContinuationSessionId,
+          }
+        : receiptView,
+    [persistedContinuationSessionId, receiptView],
+  );
 
   if (read.status === "loading" || read.status === "disabled") {
     return (
@@ -58,7 +76,7 @@ export function ImportResultView({
       <ImportFailureNotice message="Esta importação ainda não tem comprovante." />
     );
   }
-  if (!receiptView) {
+  if (!receipt) {
     return (
       <ImportFailureNotice
         message="Não foi possível exibir este comprovante."
@@ -76,7 +94,7 @@ export function ImportResultView({
           onAction={() => void read.retry()}
         />
       )}
-      <ImportReceipt view={receiptView} onOpenContinuation={onOpenSession} />
+      <ImportReceipt view={receipt} onOpenContinuation={onOpenSession} />
     </div>
   );
 }

@@ -550,6 +550,7 @@ for (const phase of ["upload", "confirmation"] as const) {
             .toBe(selectedIds.includes(line.id));
         }
         await noExpenses();
+        await assertUniqueButtonNames(page);
         await evidence.capture("ignored-payment-and-human-subset");
 
         let lostAnswerRecovered = false;
@@ -1059,6 +1060,7 @@ for (const phase of ["upload", "confirmation"] as const) {
         await assertDisposableInventory(sessionId, selectedIds);
         expect(executeRequests).toBe(1);
         await assertReadableMoney(receipt, true);
+        await expect(continuationAction).toBeVisible();
         await evidence.capture("terminal-receipt-persists-no-reupload");
         await continuationAction.click();
         await expect(page).toHaveURL(

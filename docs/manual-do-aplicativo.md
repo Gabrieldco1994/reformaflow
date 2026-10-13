@@ -400,9 +400,10 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   mesmo sem valor legível, evitando uma revisão incompleta.
 - A revisão separa compras, declarações e lançamentos ignorados. Pagamento de
   fatura é evidência informativa: importar compras não quita a fatura. Controles
-  de inclusão identificam cada compra pelo estabelecimento/título e pelo valor
-  disponível com seu significado. Enquanto o significado não foi declarado, a
-  tela diz **Significado a confirmar** em vez de presumir total ou parcela.
+  de inclusão e retirada identificam cada compra pelo estabelecimento/título e
+  pelo valor disponível com seu significado. Enquanto o significado não foi
+  declarado, a tela diz **Significado a confirmar** em vez de presumir total ou
+  parcela.
   Outros controles focados e manuais respondem cada pendência genérica do rascunho pelo `PATCH`
   autenticado da própria sessão. Não há chamada de modelo nem execução de tool
   da Maria para interpretar ou guardar essas respostas. Datas, valores, quantidade
