@@ -28,11 +28,16 @@ import {
   type OcrSafetyProbeEvidence,
 } from "./types";
 import policy from "./quality-closure-policy.json";
-import { isCanonicalQualityClosure } from "./quality-closure-attestation";
+import {
+  canonicalJson,
+  isCanonicalQualityClosure,
+} from "./quality-closure-attestation";
 import { isStructurallyValidatedLiveEvidence } from "./live-evidence-parser";
 import type { OcrQualityClosure } from "./types";
 
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
+const canonicallyEqual = (left: unknown, right: unknown): boolean =>
+  canonicalJson(left) === canonicalJson(right);
 
 export const DIRECT_PDF_VERTEX_CONFIG = Object.freeze({
   provider: PDF_OCR_PROVIDER_ID,
@@ -1234,25 +1239,22 @@ export async function evaluateOcrSynth(
     gaps.push("MISSING_DECLARED_DEADLINE_LIMIT");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    JSON.stringify(input.run.declaredLimits) !==
-      JSON.stringify({
-        maxP95LatencyMs: policy.declaredLimits.maxP95LatencyMs,
-        maxTotalCostMicros: policy.declaredLimits.maxTotalCostMicros,
-        maxRequestBodyBytes: policy.declaredLimits.maxRequestBodyBytes,
-        maxProviderDeadlineMs: policy.declaredLimits.maxProviderDeadlineMs,
-      })
+    !canonicallyEqual(input.run.declaredLimits, {
+      maxP95LatencyMs: policy.declaredLimits.maxP95LatencyMs,
+      maxTotalCostMicros: policy.declaredLimits.maxTotalCostMicros,
+      maxRequestBodyBytes: policy.declaredLimits.maxRequestBodyBytes,
+      maxProviderDeadlineMs: policy.declaredLimits.maxProviderDeadlineMs,
+    })
   )
     gaps.push("DECLARED_LIMIT_POLICY_MISMATCH");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    JSON.stringify(input.run.pricing) !==
-      JSON.stringify({
-        source: policy.pricing.source,
-        effectiveDate: policy.pricing.observedOn,
-        inputMicrosPerMillionTokens: policy.pricing.inputMicrosPerMillionTokens,
-        outputMicrosPerMillionTokens:
-          policy.pricing.outputMicrosPerMillionTokens,
-      })
+    !canonicallyEqual(input.run.pricing, {
+      source: policy.pricing.source,
+      effectiveDate: policy.pricing.observedOn,
+      inputMicrosPerMillionTokens: policy.pricing.inputMicrosPerMillionTokens,
+      outputMicrosPerMillionTokens: policy.pricing.outputMicrosPerMillionTokens,
+    })
   )
     gaps.push("PRICING_POLICY_MISMATCH");
   const residualRisk = input.run.residualRiskAcceptance;
@@ -1284,13 +1286,12 @@ export async function evaluateOcrSynth(
   if (
     input.run.mode === "LIVE_CAPTURE" &&
     (!qualityClosure ||
-      JSON.stringify(input.run.durableBudgets) !==
-        JSON.stringify({
-          policySha256: qualityClosure.snapshot.policySha256,
-          tenantLimitMicros: policy.durableBudgets.tenantLimitMicros,
-          globalLimitMicros: policy.durableBudgets.globalLimitMicros,
-          storage: policy.durableBudgets.storage,
-        }))
+      !canonicallyEqual(input.run.durableBudgets, {
+        policySha256: qualityClosure.snapshot.policySha256,
+        tenantLimitMicros: policy.durableBudgets.tenantLimitMicros,
+        globalLimitMicros: policy.durableBudgets.globalLimitMicros,
+        storage: policy.durableBudgets.storage,
+      }))
   )
     gaps.push("DURABLE_BUDGET_POLICY_MISMATCH");
   if (
