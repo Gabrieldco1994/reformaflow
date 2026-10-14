@@ -1,4 +1,10 @@
-export function OcrCandidateEvidence({ text }: { text: string }) {
+import type { ImportOcrReviewEvidenceV1 } from "@reformaflow/domain";
+
+export function OcrCandidateEvidence({
+  evidence,
+}: {
+  evidence: ImportOcrReviewEvidenceV1;
+}) {
   return (
     <aside
       role="note"
@@ -6,11 +12,11 @@ export function OcrCandidateEvidence({ text }: { text: string }) {
       className="min-w-0 space-y-1 rounded-xl border border-darc-linen bg-white p-3 text-sm"
     >
       <p className="break-words">
-        <strong>Texto extraído para conferência:</strong> {text}
+        <strong>Texto extraído para conferência:</strong> {evidence.text}
       </p>
       <p className="break-words">
-        <strong>Origem:</strong> PDF original · Google Cloud Vertex AI · Gemini
-        2.5 Flash · southamerica-east1.
+        <strong>Origem:</strong> PDF original · {evidence.origin} ·{" "}
+        {evidence.model} · {evidence.region}.
       </p>
       <p>Revise no documento original antes de atestar ou selecionar.</p>
     </aside>

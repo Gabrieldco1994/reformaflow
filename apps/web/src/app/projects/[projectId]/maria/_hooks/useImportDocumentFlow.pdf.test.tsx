@@ -44,6 +44,7 @@ const view = (over: Record<string, unknown> = {}): ImportSessionViewV1 =>
       retentionDays: 7,
       sendsFullOriginal: true,
       includesMetadataAndEmbeddedContent: true,
+      includesPotentiallyNonVisibleContent: true,
       attachments: [],
     },
     searchComplete: false,
@@ -69,6 +70,7 @@ const availableOcr = (
   retentionDays: 7,
   sendsFullOriginal: true,
   includesMetadataAndEmbeddedContent: true,
+  includesPotentiallyNonVisibleContent: true,
   attachments: [
     {
       attachmentId,
@@ -346,11 +348,28 @@ describe("textual PDF documentary coordinator", () => {
           retentionDays: 7,
           sendsFullOriginal: true,
           includesMetadataAndEmbeddedContent: true,
+          includesPotentiallyNonVisibleContent: true,
         },
       },
       expect.any(AbortSignal),
     );
     expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(2);
+    expect(
+      Object.keys(api.answerImportDocumentaryQuestion.mock.calls[0][1].answer),
+    ).toEqual([
+      "field",
+      "value",
+      "attachmentId",
+      "requestId",
+      "consentPolicyVersion",
+      "provider",
+      "purpose",
+      "region",
+      "retentionDays",
+      "sendsFullOriginal",
+      "includesMetadataAndEmbeddedContent",
+      "includesPotentiallyNonVisibleContent",
+    ]);
     expect(api.analyzeImportAttachment.mock.calls[1].slice(0, 3)).toEqual([
       "s1",
       "a1",
@@ -531,6 +550,41 @@ describe("textual PDF documentary coordinator", () => {
     expect(result.current.ocrConsentAttempted).toBe(false);
     expect(result.current.ocrUiState).toBeNull();
   });
+
+  it.each(["DISABLED", "UNAVAILABLE", "AVAILABLE"] as const)(
+    "does not synthesize consent eligibility from %s status alone",
+    async (status) => {
+      api.getFullImportSession.mockResolvedValue(
+        view({
+          actions: ["ANALYZE", "CANCEL"],
+          ocrCapability: {
+            ...availableOcr(),
+            status,
+            attachments: [],
+          },
+          attachments: [
+            {
+              id: "a1",
+              fileName: "uninspected.pdf",
+              declaredBytes: 9,
+              state: "ATTACHED",
+              canAnalyze: true,
+              materializedInSession: false,
+            },
+          ],
+        }),
+      );
+      const { result } = setup();
+      await waitFor(() => expect(result.current.view).not.toBeNull());
+      await act(async () => {
+        await result.current.consentExternalProcessing("a1");
+      });
+
+      expect(result.current.ocrUiState).toBeNull();
+      expect(api.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
+      expect(api.analyzeImportAttachment).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     [

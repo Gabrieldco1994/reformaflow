@@ -29,11 +29,12 @@ describe("ImportOcrFoundation", () => {
     const disclosure = screen.getByRole("region", {
       name: "Leitura externa do documento",
     });
-    expect(disclosure).toHaveTextContent(
-      /somente PDFs totalmente digitalizados/i,
-    );
+    expect(disclosure).toHaveTextContent(/se este arquivo for um PDF/i);
     expect(disclosure).toHaveTextContent(
       /PDFs textuais continuam locais.*mistos ou pesquisáveis não são enviados/i,
+    );
+    expect(disclosure).not.toHaveTextContent(
+      /identificado como um PDF totalmente digitalizado/i,
     );
     expect(disclosure).toHaveTextContent(/PDF original completo/i);
     expect(disclosure).toHaveTextContent(
@@ -42,8 +43,19 @@ describe("ImportOcrFoundation", () => {
     expect(disclosure).toHaveTextContent(/Google Cloud Vertex AI/i);
     expect(disclosure).toHaveTextContent(/Gemini 2\.5 Flash/i);
     expect(disclosure).toHaveTextContent(/southamerica-east1/i);
-    expect(disclosure).toHaveTextContent(/extrair transações/i);
-    expect(disclosure).toHaveTextContent(/sete dias sem edição/i);
+    expect(disclosure).toHaveTextContent(
+      /transcrição das linhas do documento para revisão humana/i,
+    );
+    expect(disclosure).toHaveTextContent(/não para classificação financeira/i);
+    expect(disclosure).toHaveTextContent(
+      /resultado e a evidência.*sete dias corridos desde a tentativa.*mesmo que a sessão seja editada ou prorrogada/i,
+    );
+    expect(disclosure).toHaveTextContent(
+      /PDF original.*retenção da sessão.*liberado antes/i,
+    );
+    expect(disclosure).toHaveTextContent(
+      /auditoria mínima de consentimento e provedor/i,
+    );
     expect(disclosure).toHaveTextContent(/revisão humana/i);
     expect(disclosure).toHaveTextContent(
       /nenhum registro financeiro.*confirmação/i,
@@ -87,7 +99,7 @@ describe("ImportOcrFoundation", () => {
   it.each([
     [
       "OCR_UNAVAILABLE",
-      /OCR externo está indisponível antes do envio.*entrada manual/i,
+      /falha aconteceu antes de o PDF ser enviado.*entrada manual/i,
     ],
     [
       "OCR_SAFETY_BLOCKED",
@@ -103,7 +115,7 @@ describe("ImportOcrFoundation", () => {
     ],
     [
       "OCR_ATTEMPT_UNKNOWN",
-      /não foi possível confirmar o resultado.*não pode ser repetida/i,
+      /envio começou ou pode ter ocorrido.*não pode ser repetida.*Nenhum lançamento foi criado/i,
     ],
     ["DOCUMENT_UNREADABLE", /não foi possível ler este documento/i],
     ["PDF_PASSWORD_REQUIRED", /protegido por senha.*não envie sua senha/i],

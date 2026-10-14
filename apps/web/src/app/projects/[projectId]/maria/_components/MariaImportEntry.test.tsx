@@ -184,6 +184,7 @@ function viewFixture(
       retentionDays: 7,
       sendsFullOriginal: true,
       includesMetadataAndEmbeddedContent: true,
+      includesPotentiallyNonVisibleContent: true,
       attachments: [],
     },
     ...overrides,

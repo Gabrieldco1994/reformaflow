@@ -5,13 +5,13 @@ import type { OcrTerminalUiState, OcrUiScope, OcrUiState } from "../_types";
 
 const TERMINAL_COPY: Record<OcrTerminalUiState, string> = {
   OCR_UNAVAILABLE:
-    "O OCR externo está indisponível antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
+    "A falha aconteceu antes de o PDF ser enviado. Use entrada manual, substitua o documento ou cancele a importação.",
   OCR_SAFETY_BLOCKED:
     "O provedor bloqueou a leitura deste documento por segurança. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_MALFORMED_RESPONSE:
     "O provedor devolveu uma leitura inválida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_ATTEMPT_UNKNOWN:
-    "Não foi possível confirmar o resultado do OCR e esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+    "O envio começou ou pode ter ocorrido, mas não foi possível confirmar o resultado do OCR. Esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_BUDGET_EXHAUSTED:
     "O limite diário de OCR foi atingido antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
   DOCUMENT_UNREADABLE:
@@ -60,16 +60,13 @@ function ConsentDisclosure({
 
   return (
     <>
-      <p className="break-words">
-        O arquivo “{scope.fileName}” foi identificado como um PDF totalmente
-        digitalizado, sem texto pesquisável.
-      </p>
+      <p className="break-words">Arquivo para análise: “{scope.fileName}”.</p>
       <div className="min-w-0 space-y-2 break-words">
         <p>
-          Nesta primeira versão, somente PDFs totalmente digitalizados, formados
-          apenas por imagens, podem usar leitura externa. PDFs textuais
-          continuam locais; PDFs mistos ou pesquisáveis não são enviados nesta
-          versão.
+          Se este arquivo for um PDF totalmente digitalizado, formado apenas por
+          imagens e sem texto pesquisável, ele poderá usar leitura externa nesta
+          primeira versão. PDFs textuais continuam locais; PDFs mistos ou
+          pesquisáveis não são enviados nesta versão.
         </p>
         <p>
           Se você autorizar, o <strong>PDF original completo</strong> será
@@ -77,16 +74,18 @@ function ConsentDisclosure({
           qualquer conteúdo potencialmente não visível ou incorporado, ao{" "}
           <strong>Google Cloud Vertex AI</strong>, modelo{" "}
           <strong>Gemini 2.5 Flash</strong>, na região{" "}
-          <strong>southamerica-east1</strong>, exclusivamente para extrair
-          transações para este rascunho. Esta versão não cria uma derivada
-          raster local para substituir esse envio.
+          <strong>southamerica-east1</strong>, exclusivamente para a transcrição
+          das linhas do documento para revisão humana, não para classificação
+          financeira. Esta versão não cria uma derivada raster local para
+          substituir esse envio.
         </p>
         <p>
-          O conteúdo enviado — original completo, resultado e evidência — fica
-          no rascunho privado por no máximo sete dias sem edição. Ele é liberado
-          antes ao concluir ou cancelar quando não houver outra referência
-          autorizada. O registro mínimo de consentimento e provedor segue a
-          política de auditoria.
+          O resultado e a evidência da leitura externa ficam por no máximo sete
+          dias corridos desde a tentativa, mesmo que a sessão seja editada ou
+          prorrogada. O PDF original segue a retenção da sessão e pode ser
+          liberado antes ao concluir ou cancelar quando não houver outra
+          referência autorizada. A auditoria mínima de consentimento e provedor
+          permanece conforme a política aplicável.
         </p>
         <p>
           Todo candidato exige revisão humana. A leitura e a correção do

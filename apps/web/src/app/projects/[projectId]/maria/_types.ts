@@ -1,5 +1,7 @@
 import type {
-  ImportSessionDraftLineV1,
+  ImportOcrReviewEvidenceV1,
+  ImportSessionLineViewV1,
+  ImportSessionOcrConsentAnswerRequestV1,
   ImportSessionViewV1,
 } from "@reformaflow/domain";
 
@@ -11,67 +13,17 @@ export interface OcrAnalyzeRequestV2 {
   consentExternalProcessing: true;
 }
 
-export interface OcrConsentAnswerRequestV1 {
-  version: 1;
-  answerRequestId: string;
-  expectedRevision: number;
-  questionId: string;
-  channel: "TEXT";
-  input: { kind: "VALUE"; text: "ALLOW_EXTERNAL_PROCESSING" };
-  answer: {
-    field: "externalOcrConsent";
-    value: "ALLOW_EXTERNAL_PROCESSING";
-    attachmentId: string;
-    requestId: string;
-    consentPolicyVersion: 1;
-    provider: "GOOGLE_VERTEX_AI";
-    purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW";
-    region: "southamerica-east1";
-    retentionDays: 7;
-    sendsFullOriginal: true;
-    includesMetadataAndEmbeddedContent: true;
-  };
-}
+export type OcrConsentAnswerRequestV1 = ImportSessionOcrConsentAnswerRequestV1;
+export type OcrReviewEvidenceV1 = ImportOcrReviewEvidenceV1;
 
-export interface OcrReviewEvidenceV1 {
-  origin: "GOOGLE_VERTEX_AI";
-  model: "gemini-2.5-flash";
-  region: "southamerica-east1";
-  attachmentId: string;
-  artifactFingerprint: string;
-  candidateFingerprint: string;
-  pageNumber: number;
-  text: string;
-}
+export type OcrReviewLineV1 = ImportSessionLineViewV1;
 
-export type OcrReviewLineV1 = ImportSessionDraftLineV1 & {
-  ocrEvidence?: OcrReviewEvidenceV1;
-};
+export type OcrCapabilityV1 = NonNullable<ImportSessionViewV1["ocrCapability"]>;
 
-export function lineOcrEvidence(
-  line: Pick<ImportSessionDraftLineV1, "id" | "titulo">,
-): OcrReviewEvidenceV1 | undefined {
-  return (line as OcrReviewLineV1).ocrEvidence;
-}
-
-export interface OcrCapabilityV1 {
-  status: "DISABLED" | "UNAVAILABLE" | "AVAILABLE";
-  consentPolicyVersion: 1;
-  provider: "GOOGLE_VERTEX_AI";
-  purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW";
-  region: "southamerica-east1";
-  retentionDays: 7;
-  sendsFullOriginal: true;
-  includesMetadataAndEmbeddedContent: true;
-  attachments: Array<{
-    attachmentId: string;
-    questionId: string;
-    consentedRequestId: string | null;
-    consentedRevision: number | null;
-  }>;
-}
-
-export type ImportOcrSessionViewV1 = Omit<ImportSessionViewV1, "lines"> & {
+export type ImportOcrSessionViewV1 = Omit<
+  ImportSessionViewV1,
+  "lines" | "ocrCapability"
+> & {
   lines: OcrReviewLineV1[];
   ocrCapability: OcrCapabilityV1;
 };

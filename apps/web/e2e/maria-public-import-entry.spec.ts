@@ -77,6 +77,7 @@ const sessionView = (id = SESSION): ImportSessionViewV1 =>
       retentionDays: 7,
       sendsFullOriginal: true,
       includesMetadataAndEmbeddedContent: true,
+      includesPotentiallyNonVisibleContent: true,
       attachments: [],
     },
   }) as ImportSessionViewV1;

@@ -390,6 +390,7 @@ function ocrCapability(v: unknown): v is OcrCapabilityV1 {
       "retentionDays",
       "sendsFullOriginal",
       "includesMetadataAndEmbeddedContent",
+      "includesPotentiallyNonVisibleContent",
       "attachments",
     ]) &&
     oneOf(v.status, ["DISABLED", "UNAVAILABLE", "AVAILABLE"]) &&
@@ -400,6 +401,7 @@ function ocrCapability(v: unknown): v is OcrCapabilityV1 {
     v.retentionDays === 7 &&
     v.sendsFullOriginal === true &&
     v.includesMetadataAndEmbeddedContent === true &&
+    v.includesPotentiallyNonVisibleContent === true &&
     every(
       v.attachments,
       (attachment): attachment is OcrCapabilityV1["attachments"][number] =>

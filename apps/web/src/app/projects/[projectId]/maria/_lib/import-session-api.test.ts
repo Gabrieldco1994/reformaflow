@@ -61,6 +61,7 @@ const view = {
     retentionDays: 7,
     sendsFullOriginal: true,
     includesMetadataAndEmbeddedContent: true,
+    includesPotentiallyNonVisibleContent: true,
     attachments: [],
   },
   searchComplete: false,
@@ -126,6 +127,7 @@ describe("readImportWorkflowView OCR reload contract", () => {
           retentionDays: 7,
           sendsFullOriginal: true,
           includesMetadataAndEmbeddedContent: true,
+          includesPotentiallyNonVisibleContent: true,
           attachments: [],
         },
       };
@@ -139,6 +141,93 @@ describe("readImportWorkflowView OCR reload contract", () => {
       expect(parsed.lines[0]?.amountCents).toBe(amountCents);
     },
   );
+
+  it.each(["DISABLED", "UNAVAILABLE", "AVAILABLE"] as const)(
+    "requires the exact non-visible-content capability literal for %s",
+    (status) => {
+      const capability = { ...view.ocrCapability, status };
+      expect(
+        readImportWorkflowView({ ...view, ocrCapability: capability }),
+      ).toMatchObject({
+        ocrCapability: {
+          status,
+          includesPotentiallyNonVisibleContent: true,
+        },
+      });
+
+      const { includesPotentiallyNonVisibleContent: _missing, ...missing } =
+        capability;
+      expect(() =>
+        readImportWorkflowView({ ...view, ocrCapability: missing }),
+      ).toThrow(ImportWorkflowResponseError);
+      expect(() =>
+        readImportWorkflowView({
+          ...view,
+          ocrCapability: {
+            ...capability,
+            includesPotentiallyNonVisibleContent: false,
+          },
+        }),
+      ).toThrow(ImportWorkflowResponseError);
+    },
+  );
+
+  it("rejects mutated OCR provenance and preserves a line with no authoritative evidence", () => {
+    const evidence = {
+      origin: "GOOGLE_VERTEX_AI",
+      model: "gemini-2.5-flash",
+      region: "southamerica-east1",
+      attachmentId: "scan",
+      artifactFingerprint: "a".repeat(64),
+      candidateFingerprint: "b".repeat(64),
+      pageNumber: 1,
+      text: "MERCADO ORIGINAL",
+    };
+    const line = {
+      id: "ocr-line",
+      observationIds: ["ocr-observation"],
+      titulo: "Linha OCR",
+      fornecedor: null,
+      tipoDespesa: null,
+      categoriaMaoDeObra: null,
+      amountMeaning: "UNKNOWN",
+      amountCents: 0,
+      installmentCount: null,
+      dataCompra: null,
+      firstDueDate: null,
+      targets: null,
+      decision: { kind: "UNRESOLVED" },
+    };
+    const response = {
+      ...view,
+      attachments: [
+        {
+          id: "scan",
+          fileName: "digitalizado.pdf",
+          declaredBytes: 123,
+          state: "ATTACHED",
+          materializedInSession: true,
+          canAnalyze: false,
+        },
+      ],
+      lines: [{ ...line, ocrEvidence: evidence }],
+    };
+
+    expect(() =>
+      readImportWorkflowView({
+        ...response,
+        lines: [
+          {
+            ...line,
+            ocrEvidence: { ...evidence, model: "mutated-provider-model" },
+          },
+        ],
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+    expect(
+      readImportWorkflowView({ ...response, lines: [line] }).lines[0],
+    ).not.toHaveProperty("ocrEvidence");
+  });
 });
 
 const appliedReceipt = {

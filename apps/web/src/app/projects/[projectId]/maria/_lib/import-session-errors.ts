@@ -55,15 +55,15 @@ export type ImportFailure =
 /** Fixed copy per wire code. The server never sends a message and none is ever rendered. */
 export const IMPORT_ERROR_COPY: Record<ImportWireErrorCode, string> = {
   OCR_REQUIRED:
-    "Este PDF totalmente digitalizado precisa de leitura externa para continuar. PDFs textuais permanecem locais; PDFs mistos ou pesquisáveis não são enviados nesta versão. Você pode autorizar o envio somente para este documento. Sem autorização ou disponibilidade, use um PDF textual ou CSV, conforme os formatos oferecidos, ou cancele a importação.",
+    "A análise local não pôde continuar sem leitura externa. Se o servidor confirmar que este documento é elegível, a tela poderá oferecer uma autorização separada somente para ele. PDFs textuais permanecem locais; PDFs mistos ou pesquisáveis não são enviados nesta versão. Sem essa oferta ou disponibilidade, use um PDF textual ou CSV, conforme os formatos oferecidos, ou cancele a importação.",
   OCR_UNAVAILABLE:
-    "O OCR externo está indisponível antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
+    "A falha aconteceu antes de o PDF ser enviado. Use entrada manual, substitua o documento ou cancele a importação.",
   OCR_SAFETY_BLOCKED:
     "O provedor bloqueou a leitura deste documento por segurança. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_MALFORMED_RESPONSE:
     "O provedor devolveu uma leitura inválida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_ATTEMPT_UNKNOWN:
-    "Não foi possível confirmar o resultado do OCR e esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+    "O envio começou ou pode ter ocorrido, mas não foi possível confirmar o resultado do OCR. Esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_BUDGET_EXHAUSTED:
     "O limite diário de OCR foi atingido antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
   DOCUMENT_UNREADABLE:

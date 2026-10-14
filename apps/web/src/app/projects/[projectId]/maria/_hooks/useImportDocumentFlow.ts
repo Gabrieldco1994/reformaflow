@@ -110,11 +110,7 @@ const newGeneration = (
 });
 
 const ocrCapabilityOf = (value: ImportSessionViewV1): OcrCapabilityV1 | null =>
-  (
-    value as ImportSessionViewV1 & {
-      ocrCapability?: OcrCapabilityV1;
-    }
-  ).ocrCapability ?? null;
+  value.ocrCapability ?? null;
 
 /** Documentary coordinator only; server actions still own analysis eligibility. */
 export function useImportDocumentFlow(
@@ -767,6 +763,7 @@ export function useImportDocumentFlow(
             retentionDays: 7,
             sendsFullOriginal: true,
             includesMetadataAndEmbeddedContent: true,
+            includesPotentiallyNonVisibleContent: true,
           },
         },
         controller.signal,

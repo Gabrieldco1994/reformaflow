@@ -11,6 +11,7 @@ import {
   ImportSessionAmountMeaning,
   ProjectType,
   type ImportDeclaredFactViewV1,
+  type ImportOcrReviewEvidenceV1,
   type ImportObservationQuestionV1,
   type ImportSessionObservationViewV1,
   type ImportSessionDraftLineV1,
@@ -643,23 +644,24 @@ it("shows a corrected field attestation as invalidated and outside the current s
 });
 
 it("shows provider evidence text and origin on an externally extracted candidate", () => {
-  render(
+  const ocrEvidence: ImportOcrReviewEvidenceV1 = {
+    origin: "GOOGLE_VERTEX_AI",
+    model: "gemini-2.5-flash",
+    region: "southamerica-east1",
+    attachmentId: "attachment",
+    artifactFingerprint: "a".repeat(64),
+    candidateFingerprint: "b".repeat(64),
+    pageNumber: 1,
+    text: "MERCADO ORIGINAL",
+  };
+  Object.defineProperties(ocrEvidence, {
+    origin: { value: "SERVER_OCR_ORIGIN", enumerable: true },
+    model: { value: "server-model", enumerable: true },
+    region: { value: "server-region", enumerable: true },
+  });
+  const { rerender } = render(
     <ImportReviewBlockerNotice
-      line={
-        {
-          ...draftLine(),
-          ocrEvidence: {
-            origin: "GOOGLE_VERTEX_AI",
-            model: "gemini-2.5-flash",
-            region: "southamerica-east1",
-            attachmentId: "attachment",
-            artifactFingerprint: "a".repeat(64),
-            candidateFingerprint: "b".repeat(64),
-            pageNumber: 1,
-            text: "MERCADO ORIGINAL",
-          },
-        } as ImportSessionDraftLineV1
-      }
+      line={{ ...draftLine(), ocrEvidence }}
       blockers={[]}
       selected={false}
       showLine
@@ -673,9 +675,21 @@ it("shows provider evidence text and origin on an externally extracted candidate
     /Texto extraído para conferência: MERCADO ORIGINAL/i,
   );
   expect(evidence).toHaveTextContent(
-    /PDF original.*Google Cloud Vertex AI.*Gemini 2\.5 Flash.*southamerica-east1/i,
+    /PDF original.*SERVER_OCR_ORIGIN.*server-model.*server-region/i,
   );
   expect(evidence).toHaveTextContent(/revise no documento original/i);
+
+  rerender(
+    <ImportReviewBlockerNotice
+      line={draftLine()}
+      blockers={[]}
+      selected={false}
+      showLine
+    />,
+  );
+  expect(
+    screen.queryByRole("note", { name: "Evidência da extração externa" }),
+  ).not.toBeInTheDocument();
 });
 
 it("keeps blocker focus management and answer-field focus when pending settles", async () => {

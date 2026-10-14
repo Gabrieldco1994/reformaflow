@@ -388,28 +388,35 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   e do servidor processam o documento; nenhum documento é enviado a LLM ou OCR.
   Se o vault estiver OFF ou falhar nas verificações privadas de inicialização, a
   entrada permanece indisponível; este fluxo não liga o vault nem altera sua política.
-  Na primeira versão, somente um PDF totalmente digitalizado, composto apenas
-  por imagens e sem texto pesquisável, pode receber `OCR_REQUIRED` e oferecer
-  leitura externa. PDFs textuais continuam locais; PDFs mistos ou pesquisáveis
-  não são enviados. A tela explica que o PDF original completo, incluindo
-  metadados e conteúdo potencialmente não visível ou incorporado, vai
-  diretamente ao Google Cloud Vertex AI, modelo Gemini 2.5 Flash, na região
-  `southamerica-east1`, exclusivamente para extrair transações, e pede
-  autorização explícita válida somente para aquele documento. A decisão do
-  data owner aceita expressamente o risco residual desse envio e não autoriza
-  criar silenciosamente uma derivada raster local. Resultado e
-  evidência ficam no rascunho privado por até sete dias sem edição; o original
-  privado segue a retenção da sessão pendente e é liberado ao concluir/cancelar
-  quando não houver outra referência autorizada. Consentimento e proveniência
-  mínima seguem a auditoria. A tela só oferece consentimento quando a capability
-  explícita da sessão está `AVAILABLE` e lista aquele anexo como elegível. Ao
+  Na primeira versão, somente um PDF que a inspeção validada confirme como
+  totalmente digitalizado, composto apenas por imagens e sem texto pesquisável,
+  pode receber `OCR_REQUIRED` e oferecer leitura externa. A capability
+  `AVAILABLE`, sozinha, não é apresentada como prova dessa inspeção. PDFs
+  textuais continuam locais; PDFs mistos ou pesquisáveis não são enviados. A
+  tela explica que o PDF original completo, incluindo metadados e conteúdo
+  potencialmente não visível ou incorporado, vai diretamente ao Google Cloud
+  Vertex AI, modelo Gemini 2.5 Flash, na região `southamerica-east1`,
+  exclusivamente para transcrever as linhas do documento para revisão humana,
+  não para classificação financeira, e pede autorização explícita válida
+  somente para aquele documento. A decisão do data owner aceita expressamente
+  o risco residual desse envio e não autoriza criar silenciosamente uma derivada
+  raster local. Resultado e evidência do OCR são mantidos por no máximo sete
+  dias corridos desde a tentativa, mesmo se a sessão for editada ou prorrogada.
+  O PDF original segue a retenção da sessão e pode ser liberado antes ao
+  concluir/cancelar quando não houver outra referência autorizada. A auditoria
+  mínima de consentimento e provedor permanece. A tela só oferece consentimento
+  quando a capability explícita da sessão está `AVAILABLE` e lista aquele anexo
+  como elegível; estados `DISABLED`/`UNAVAILABLE` e anexos não inspecionados não
+  exibem a autorização. Ao
   autorizar, ela primeiro persiste a declaração no endpoint documental já
   existente e, somente após a resposta confirmar a revisão e o `requestId`,
   chama uma única vez o mesmo endpoint de análise com o contrato v2 mínimo.
   Esse segundo corpo não contém ator, tenant, projeto, hash, provedor, modelo,
   região ou outros campos de autoridade. O resultado volta como o rascunho
-  normal: cada compra mostra `line.ocrEvidence.text` e a origem Vertex fornecidos
-  pela própria visão da sessão, inclusive após recarregar, começa fora da
+  normal: cada compra mostra `line.ocrEvidence.text`, `origin`, `model` e
+  `region` fornecidos e validados pela própria visão da sessão, sem sintetizar
+  proveniência; evidência ausente ou malformada não recebe selo de origem
+  autoritativa. Isso permanece após recarregar. Cada compra começa fora da
   seleção e com verificação pendente, e exige revisão humana nos controles já
   existentes antes de preparar, confirmar e executar. Valores OCR brutos podem
   ser negativos, zero ou desconhecidos; `LINE_AMOUNT` não classifica o valor
@@ -417,8 +424,11 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   atestação afetada. `OCR_UNAVAILABLE`, `OCR_SAFETY_BLOCKED`,
   `OCR_MALFORMED_RESPONSE`, `OCR_BUDGET_EXHAUSTED`,
   `OCR_ATTEMPT_UNKNOWN` e os bloqueios documentais têm mensagens distintas.
-  Resposta ambígua ou timeout após a chamada encerra a leitura externa daquele
-  anexo, sem botão para repetir. Em todos os fallbacks, a tela oferece entrada
+  `OCR_UNAVAILABLE` informa que a falha ocorreu antes do envio do PDF. Resposta
+  ambígua ou timeout depois de o envio começar — ou quando ele pode ter ocorrido
+  — produz `OCR_ATTEMPT_UNKNOWN`, informa que não é possível repetir e que
+  nenhum lançamento foi criado, e encerra a leitura externa daquele anexo sem
+  botão para repetir ou autorizar. Em todos os fallbacks, a tela oferece entrada
   manual, substituição ou cancelamento e informa que houve zero escrita
   financeira. Se `IMPORT_OCR_ENABLED` estiver desligada, indisponível ou sem
   anexo elegível na capability, não há falsa ativação; permanece o fallback para

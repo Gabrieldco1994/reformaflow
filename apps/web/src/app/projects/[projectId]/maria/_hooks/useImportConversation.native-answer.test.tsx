@@ -87,6 +87,7 @@ const base = {
     retentionDays: 7,
     sendsFullOriginal: true,
     includesMetadataAndEmbeddedContent: true,
+    includesPotentiallyNonVisibleContent: true,
     attachments: [],
   },
   searchComplete: false,

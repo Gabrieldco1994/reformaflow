@@ -39,7 +39,20 @@ test.beforeAll(async () => {
                 }}
                 onConsent={() => setAttempted(true)}
               />
-              {attempted && <OcrCandidateEvidence text="Mercado Central" />}
+              {attempted && (
+                <OcrCandidateEvidence
+                  evidence={{
+                    origin: "GOOGLE_VERTEX_AI",
+                    model: "gemini-2.5-flash",
+                    region: "southamerica-east1",
+                    attachmentId: "private-attachment",
+                    artifactFingerprint: "a".repeat(64),
+                    candidateFingerprint: "b".repeat(64),
+                    pageNumber: 1,
+                    text: "Mercado Central",
+                  }}
+                />
+              )}
             </main>
           );
         }
@@ -100,8 +113,11 @@ for (const width of [375, 390, 1280]) {
     await expect(consent).not.toBeChecked();
     await expect(submit).toBeDisabled();
     await expect(
-      page.getByText(/somente PDFs totalmente digitalizados/i),
+      page.getByText(/se este arquivo for um PDF totalmente digitalizado/i),
     ).toBeVisible();
+    await expect(page.locator("body")).not.toContainText(
+      "identificado como um PDF totalmente digitalizado",
+    );
     await expect(
       page.getByText(/PDFs mistos ou pesquisáveis não são enviados/i),
     ).toBeVisible();
@@ -113,6 +129,16 @@ for (const width of [375, 390, 1280]) {
     await expect(
       page.getByText(
         /Se você autorizar.*metadados.*conteúdo.*não visível ou incorporado/i,
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        /transcrição das linhas do documento para revisão humana, não para classificação financeira/i,
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        /sete dias corridos desde a tentativa, mesmo que a sessão seja editada ou prorrogada/i,
       ),
     ).toBeVisible();
     await expect(page.locator("body")).not.toContainText("private-session");
@@ -127,12 +153,12 @@ for (const width of [375, 390, 1280]) {
     await consent.check();
     await submit.click();
     await expect(page.getByRole("alert")).toContainText(
-      "Não foi possível confirmar o resultado do OCR",
+      "O envio começou ou pode ter ocorrido",
     );
     await expect(
       page.getByRole("note", { name: "Evidência da extração externa" }),
     ).toContainText(
-      "PDF original · Google Cloud Vertex AI · Gemini 2.5 Flash · southamerica-east1",
+      "PDF original · GOOGLE_VERTEX_AI · gemini-2.5-flash · southamerica-east1",
     );
     await expect(page.getByText(/Entrada manual:/i)).toBeVisible();
     await expect(page.getByText(/Substituir o arquivo:/i)).toBeVisible();
