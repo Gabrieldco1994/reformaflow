@@ -645,6 +645,13 @@ describe("quality-closure mechanical evidence binding", () => {
     expect(() => parseLiveEvidence(evidence)).toThrow("LIVE_EVIDENCE_INVALID");
   });
 
+  it("rejects a missing prediction instead of accepting a canonical prefix", async () => {
+    const evidence = await liveEvidence();
+    evidence.predictions.pop();
+
+    expect(() => parseLiveEvidence(evidence)).toThrow("LIVE_EVIDENCE_INVALID");
+  });
+
   it("scores an artifact hash rewrite against the generated corpus as GAPS", async () => {
     const evidence = await liveEvidence();
     const replacement = "f".repeat(64);

@@ -16,6 +16,7 @@ import {
   createArtifactDigest,
   verifyArtifactDigest,
 } from "../artifact-digest.mjs";
+import { runWifCaptureAdapter } from "../wif-adapter.mjs";
 const ROOT = resolve(import.meta.dirname, "../../..");
 const roles = [
   "DATA_OWNER_RISK_ACCEPTANCE",
@@ -160,6 +161,167 @@ test("committed reviewer claims are rejected and external approvals bind four ac
   assert.equal(new Set(bound.reviews.map((value) => value.reviewerId)).size, 4);
   assert.equal(bound.reviewSetSha256, sha256(canonicalize(bound.reviews)));
 });
+
+test("bound external reviews cross the default WIF authenticator by exact role", async () => {
+  const root = await repository();
+  const sha = git(root, ["rev-parse", "HEAD"]);
+  const approvals = await mkdtemp(join(tmpdir(), "adapter-approvals-"));
+  for (let index = 0; index < 4; index++) {
+    const evidence = extractApprovalEvidence(
+      [documentedApprovalHistoryEntry(index)],
+      {
+        role: roles[index],
+        environment: envs[index],
+        workflowRunId: "1001",
+        subjectSha: sha,
+        observedAt: "2026-10-14T05:01:00.000Z",
+      },
+    );
+    await writeFile(join(approvals, files[index]), JSON.stringify(evidence));
+  }
+  const bound = bindAuthenticatedApprovals(root, sha, approvals, "1001", 1);
+  const qualificationImageDigest = `sha256:${"b".repeat(64)}`;
+  const executableDigest = `sha256:${"c".repeat(64)}`;
+  const corpusSha256 = "d".repeat(64);
+  const authority = {
+    schemaVersion: 1,
+    subjectSha: bound.subjectSha,
+    subjectTree: bound.subjectTree,
+    qualificationImageDigest,
+    executableDigest,
+    policySha256: bound.policySha256,
+    corpusSha256,
+    snapshot: {
+      headSha: bound.subjectSha,
+      treeSha: bound.subjectTree,
+      policySha256: bound.policySha256,
+      corpusSha256,
+    },
+  };
+  const request = {
+    schemaVersion: 1,
+    subjectSha: bound.subjectSha,
+    subjectTree: bound.subjectTree,
+    productionImage: `registry.fly.io/reformaflow-api@sha256:${"e".repeat(64)}`,
+    qualificationImageDigest,
+    executableDigest,
+    workflowSha: "f".repeat(40),
+    policySha256: bound.policySha256,
+    corpusSha256,
+    reviewSetSha256: bound.reviewSetSha256,
+    runId: "1001",
+    runAttempt: 1,
+    currency: "USD",
+    hardLimitMicros: 502_000,
+    reservedMicros: 502_000,
+    provider: "GOOGLE_VERTEX_AI",
+    requestedModelAlias: "gemini-2.5-flash",
+    region: "southamerica-east1",
+    endpoint: "https://southamerica-east1-aiplatform.googleapis.com",
+    promptSha256: "1".repeat(64),
+    inputMicrosPerMillionTokens: 300_000,
+    outputMicrosPerMillionTokens: 2_500_000,
+    expectedCaseCount: 18,
+    admittedAt: "2026-10-14T05:10:00.000Z",
+  };
+  const environment = (reviews, spend = request) => ({
+    OCR_CAPTURE_AUTH_MODE: "GITHUB_OIDC_WIF",
+    OCR_GCP_PROJECT_ID: "review-bound-project",
+    OCR_SUBJECT_SHA: bound.subjectSha,
+    OCR_SUBJECT_TREE: bound.subjectTree,
+    OCR_PRODUCTION_IMAGE: request.productionImage,
+    OCR_QUALIFICATION_IMAGE_DIGEST: qualificationImageDigest,
+    OCR_EXECUTABLE_DIGEST: executableDigest,
+    OCR_WORKFLOW_SHA: request.workflowSha,
+    OCR_WORKFLOW_RUN_ID: request.runId,
+    OCR_WORKFLOW_RUN_ATTEMPT: "1",
+    OCR_POLICY_SHA256: bound.policySha256,
+    OCR_CORPUS_SHA256: corpusSha256,
+    OCR_MAX_TOTAL_COST_MICROS: "502000",
+    OCR_REQUESTED_MODEL_ALIAS: request.requestedModelAlias,
+    OCR_PROMPT_SHA256: request.promptSha256,
+    OCR_INPUT_MICROS_PER_MILLION_TOKENS: "300000",
+    OCR_OUTPUT_MICROS_PER_MILLION_TOKENS: "2500000",
+    OCR_EXPECTED_CASE_COUNT: "18",
+    OCR_REVIEW_SET_B64: Buffer.from(canonicalize(reviews)).toString("base64"),
+    OCR_SPEND_REQUEST_B64: Buffer.from(canonicalize(spend)).toString("base64"),
+    OCR_CAPTURE_AUTHORITY_B64: Buffer.from(canonicalize(authority)).toString(
+      "base64",
+    ),
+  });
+  const capture = async (input) => {
+    const byRole = new Map(
+      bound.reviews.map((review) => [review.role, review.sha256]),
+    );
+    assert.deepEqual(input.finalReviewHashes, {
+      residualRiskAcceptance: byRole.get("DATA_OWNER_RISK_ACCEPTANCE"),
+      securityReview: byRole.get("SECURITY"),
+      privacyReview: byRole.get("PRIVACY"),
+      dataOwnerReview: byRole.get("DATA_OWNER_FINAL"),
+    });
+    assert.deepEqual({ ...input.snapshot }, authority.snapshot);
+    return { evidenceClass: "LIVE" };
+  };
+  const dependencies = {
+    reserve: async () => ({ handle: { close: async () => undefined } }),
+    assertReservation: async () => undefined,
+    readToken: async () => "deterministic-review-token",
+    capture,
+    write: () => undefined,
+  };
+
+  await assert.doesNotReject(() =>
+    runWifCaptureAdapter(environment(bound.reviews), dependencies),
+  );
+
+  const missing = bound.reviews.slice(0, -1);
+  const missingRequest = {
+    ...request,
+    reviewSetSha256: sha256(canonicalize(missing)),
+  };
+  await assert.rejects(
+    () =>
+      runWifCaptureAdapter(environment(missing, missingRequest), dependencies),
+    /REVIEW_SET_INVALID/,
+  );
+
+  const swapped = structuredClone(bound.reviews);
+  [swapped[1], swapped[2]] = [swapped[2], swapped[1]];
+  const swappedRequest = {
+    ...request,
+    reviewSetSha256: sha256(canonicalize(swapped)),
+  };
+  await assert.rejects(
+    () =>
+      runWifCaptureAdapter(environment(swapped, swappedRequest), dependencies),
+    /REVIEW_SET_INVALID/,
+  );
+
+  await assert.rejects(
+    () =>
+      runWifCaptureAdapter(
+        environment(bound.reviews, {
+          ...request,
+          reviewSetSha256: "0".repeat(64),
+        }),
+        dependencies,
+      ),
+    /REVIEW_SET_INVALID/,
+  );
+
+  await assert.rejects(
+    () =>
+      runWifCaptureAdapter(
+        environment(bound.reviews, {
+          ...request,
+          subjectTree: "0".repeat(40),
+        }),
+        dependencies,
+      ),
+    /CAPTURE_BINDING_INVALID/,
+  );
+});
+
 test("pending approval history is accepted structurally but only approved record satisfies the gate", () => {
   const approved = documentedApprovalHistoryEntry(0);
   const pending = {

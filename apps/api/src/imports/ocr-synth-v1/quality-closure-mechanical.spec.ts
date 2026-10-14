@@ -195,6 +195,11 @@ interface MechanicalApi {
     policy: Policy,
     options: { root: string; exec: Exec },
   ): Promise<Record<string, unknown>>;
+  snapshotQualityFiles(
+    policy: Policy,
+    identity: { headSha: string; treeSha: string },
+    options: { root: string },
+  ): Promise<Record<string, unknown>>;
   runQualityClosureSuite(
     policy: Policy,
     options: { root: string; exec?: Exec },
@@ -224,6 +229,30 @@ interface MechanicalApi {
       policyVersion: string;
       snapshot: Record<string, unknown>;
       tests: Array<{ name: string; status: "PASS"; sourcePath: string }>;
+    };
+  }>;
+  attestQualityClosureFromSnapshot(
+    expected: Record<string, unknown>,
+    options: {
+      root: string;
+      now: Date;
+      exec: Exec;
+    },
+  ): Promise<{
+    policy: Policy;
+    closure: {
+      version: 2;
+      policyVersion: string;
+      snapshot: Record<string, unknown>;
+      tests: Array<{
+        name: string;
+        title: string;
+        fullName: string;
+        status: "PASS";
+        sourcePath: string;
+        assertionRecordSha256: string;
+        suiteResultSha256: string;
+      }>;
     };
   }>;
   readFinalReviewHashes(
@@ -1434,6 +1463,55 @@ describe("canonical quality closure mechanical binding", () => {
       });
     }
   });
+
+  it("[B3] snapshot wrapper returns the exact nested-Jest observations instead of fabricated records", async () => {
+    const loadedPolicy = await api().loadQualityClosurePolicy({
+      root: ROOT,
+      now: new Date("2026-10-14T12:00:00.000Z"),
+    });
+    const policy = causalPolicy(loadedPolicy);
+    const identity = {
+      headSha: "a".repeat(40),
+      treeSha: "b".repeat(40),
+    };
+    const snapshot = await api().snapshotQualityFiles(policy, identity, {
+      root: ROOT,
+    });
+    const nested = actualCausalJestExec();
+    let cachedResult: ExecResult | undefined;
+    let cachedOutput: string | undefined;
+    let invocations = 0;
+    const replayExactNestedJest: Exec = async (file, args, options) => {
+      invocations += 1;
+      const outputIndex = args.indexOf("--outputFile");
+      if (outputIndex < 0) throw new Error("missing Jest output path");
+      const outputPath = args[outputIndex + 1]!;
+      if (!cachedResult || cachedOutput === undefined) {
+        cachedResult = await nested(file, args, options);
+        cachedOutput = await readFile(outputPath, "utf8");
+        return cachedResult;
+      }
+      await writeFile(outputPath, cachedOutput);
+      return cachedResult;
+    };
+    const attested = await api().attestQualityClosureFromSnapshot(snapshot, {
+      root: ROOT,
+      now: new Date("2026-10-14T12:00:00.000Z"),
+      exec: replayExactNestedJest,
+    });
+    const expected = await api().runQualityClosureSuite(policy, {
+      root: ROOT,
+      exec: replayExactNestedJest,
+    });
+
+    expect(invocations).toBe(2);
+    expect(attested.closure.snapshot).toEqual(snapshot);
+    expect(attested.closure.tests).toEqual(expected);
+    expect(attested.closure.tests).toHaveLength(45);
+    expect(attested.closure.tests.map((item) => item.name)).toEqual(
+      EXPECTED_TOPOLOGY.map((item) => item.name),
+    );
+  }, 120_000);
 
   it("rejects missing, duplicate, unknown, failed, pending, wrong-source, and runtime-error Jest evidence", async () => {
     const loadedPolicy = await api().loadQualityClosurePolicy({
