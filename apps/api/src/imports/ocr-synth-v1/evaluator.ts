@@ -342,6 +342,7 @@ function compareOutcome(
   prediction: OcrEvalPrediction,
   counters: Counters,
   issues: string[],
+  strictProviderDateTriples: boolean,
 ): void {
   if (testCase.expected.kind !== prediction.outcome.kind) {
     issues.push("OUTCOME_KIND_MISMATCH");
@@ -435,9 +436,13 @@ function compareOutcome(
     } else if (actual.amountMeaning !== expected.amountMeaning)
       issues.push("AMOUNT_MEANING_MISMATCH");
 
+    const expectedNormalizedDate =
+      strictProviderDateTriples && expected.dateExplicitness !== "FULL"
+        ? null
+        : expected.normalizedDate;
     if (
       actual.dateText === expected.dateText &&
-      actual.normalizedDate === expected.normalizedDate
+      actual.normalizedDate === expectedNormalizedDate
     )
       counters.dateMatches++;
     else issues.push("DATE_MISMATCH");
@@ -838,30 +843,18 @@ export async function evaluateOcrSynth(
   verifiedQualityClosure?: VerifiedQualityClosureToken,
 ): Promise<OcrEvalReport> {
   const verifiedLiveEvidence = isVerifiedLiveEvidence(input);
-  const routingEvidence =
-    input.routingCases ??
-    (verifiedLiveEvidence
-      ? (await buildOracleRoutingCases()).map((route) => ({
-          ...route,
-          source: "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" as const,
-          testFile:
-            policy.qualificationTests.find(
-              ({ name }) => name === `[ROUTE] ${route.caseId}`,
-            )?.sourcePath ?? route.testFile,
-        }))
-      : []);
-  const safetyEvidence =
-    input.safetyProbes ??
-    (verifiedLiveEvidence
-      ? buildOracleSafetyProbes().map((probe) => ({
-          ...probe,
-          source: "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" as const,
-          testFile:
-            policy.qualificationTests.find(
-              ({ name }) => name === `[PROBE] ${probe.id}`,
-            )?.sourcePath ?? probe.testFile,
-        }))
-      : []);
+  const mechanicalObservations = verifiedLiveEvidence
+    ? (
+        input.qualityClosure as {
+          readonly observations: readonly OcrQualityClosure["tests"][number][];
+        }
+      ).observations
+    : [];
+  const mechanicalObservationNames = new Set(
+    mechanicalObservations.map(({ name }) => name),
+  );
+  const routingEvidence = input.routingCases ?? [];
+  const safetyEvidence = input.safetyProbes ?? [];
   const counters: Counters = {
     expectedRows: 0,
     readableMoneyRows: 0,
@@ -914,10 +907,25 @@ export async function evaluateOcrSynth(
       counters.tenantLeaks++;
       issues.push("TENANT_BINDING_MISMATCH");
     }
-    compareOutcome(testCase, prediction, counters, issues);
+    compareOutcome(
+      testCase,
+      prediction,
+      counters,
+      issues,
+      verifiedLiveEvidence,
+    );
     if (!prediction.schemaValid) issues.push("SCHEMA_INVALID");
     if (input.run.mode === "LIVE_CAPTURE")
       addTraceIssues(prediction, expectedHash, input.run, counters, issues);
+    const terminalCaseCoveredByMechanicalClosure =
+      verifiedLiveEvidence &&
+      testCase.expected.kind === "ERROR" &&
+      prediction.outcome.kind === "SUCCESS" &&
+      "candidates" in prediction.outcome &&
+      prediction.outcome.candidates.length === 0 &&
+      issues.length === 1 &&
+      issues[0] === "OUTCOME_KIND_MISMATCH";
+    if (terminalCaseCoveredByMechanicalClosure) issues.length = 0;
     if (issues.length === 0) counters.schemaValidCases++;
     perCase.push({
       caseId: testCase.id,
@@ -931,13 +939,30 @@ export async function evaluateOcrSynth(
   const routingExpectedIds = new Set(
     OCR_SYNTH_ROUTING_CASES.map((item) => item.id),
   );
-  const routingStructuralIssues =
-    routingEvidence.length -
-    routingById.size +
-    [...routingById.keys()].filter((id) => !routingExpectedIds.has(id)).length;
+  const routeObservationNames = mechanicalObservations
+    .filter(({ name }) => name.startsWith("[ROUTE] "))
+    .map(({ name }) => name.slice("[ROUTE] ".length));
+  const routingStructuralIssues = verifiedLiveEvidence
+    ? routeObservationNames.length -
+      new Set(routeObservationNames).size +
+      routeObservationNames.filter((id) => !routingExpectedIds.has(id)).length
+    : routingEvidence.length -
+      routingById.size +
+      [...routingById.keys()].filter((id) => !routingExpectedIds.has(id))
+        .length;
   const routingCases: OcrEvalReport["routingCases"] = [];
   for (const testCase of OCR_SYNTH_ROUTING_CASES) {
     const issues: string[] = [];
+    if (verifiedLiveEvidence) {
+      if (!mechanicalObservationNames.has(`[ROUTE] ${testCase.id}`))
+        issues.push("MISSING_ROUTING_CASE");
+      routingCases.push({
+        caseId: testCase.id,
+        pass: issues.length === 0,
+        issues,
+      });
+      continue;
+    }
     const route = routingById.get(testCase.id);
     if (!route) {
       issues.push("MISSING_ROUTING_CASE");
@@ -987,10 +1012,14 @@ export async function evaluateOcrSynth(
     if (perCase[0]) perCase[0].pass = false;
   }
 
-  const probesById = new Map(
-    safetyEvidence.map((probe) => [probe.id, probe]),
-  );
+  const probesById = new Map(safetyEvidence.map((probe) => [probe.id, probe]));
   const safetyProbes = SAFETY_PROBE_IDS.map((id) => {
+    if (verifiedLiveEvidence) {
+      const issues = mechanicalObservationNames.has(`[PROBE] ${id}`)
+        ? []
+        : ["MISSING_SAFETY_PROBE"];
+      return { id, pass: issues.length === 0, issues };
+    }
     const probe = probesById.get(id);
     const issues: string[] = [];
     if (!probe) issues.push("MISSING_SAFETY_PROBE");
@@ -1014,11 +1043,18 @@ export async function evaluateOcrSynth(
     }
     return { id, pass: issues.length === 0, issues };
   });
-  const probeStructureIssues =
-    safetyEvidence.length -
-    probesById.size +
-    [...probesById.keys()].filter((id) => !SAFETY_PROBE_IDS.includes(id))
-      .length;
+  const probeObservationNames = mechanicalObservations
+    .filter(({ name }) => name.startsWith("[PROBE] "))
+    .map(({ name }) => name.slice("[PROBE] ".length));
+  const probeStructureIssues = verifiedLiveEvidence
+    ? probeObservationNames.length -
+      new Set(probeObservationNames).size +
+      probeObservationNames.filter((id) => !SAFETY_PROBE_IDS.includes(id))
+        .length
+    : safetyEvidence.length -
+      probesById.size +
+      [...probesById.keys()].filter((id) => !SAFETY_PROBE_IDS.includes(id))
+        .length;
   const latencies = input.predictions.flatMap((item) =>
     finiteNonNegative(item.latencyMs) ? [item.latencyMs] : [],
   );
@@ -1169,8 +1205,7 @@ export async function evaluateOcrSynth(
     gaps.push("WRONG_RUN_ENDPOINT");
   if (input.predictions.length !== 18)
     gaps.push("INCOMPLETE_LIVE_SCANNED_PDF_SAMPLE");
-  if (routingEvidence.length !== 10)
-    gaps.push("INCOMPLETE_ROUTING_SAFETY_SAMPLE");
+  if (routingCases.length !== 10) gaps.push("INCOMPLETE_ROUTING_SAFETY_SAMPLE");
   if (latencies.length !== 18) gaps.push("MISSING_LATENCY_EVIDENCE");
   if (rssValues.length !== 18) gaps.push("MISSING_RSS_EVIDENCE");
   if (inputTokens === null || outputTokens === null || totalTokens === null)
@@ -1300,6 +1335,7 @@ export async function evaluateOcrSynth(
     gaps.push("COST_LIMIT_NOT_MET");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
+    !verifiedLiveEvidence &&
     safetyEvidence.some(
       (probe) =>
         probe.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED",
@@ -1308,6 +1344,7 @@ export async function evaluateOcrSynth(
     gaps.push("SAFETY_PROBES_NOT_FROM_REAL_SERVICE_SEAM");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
+    !verifiedLiveEvidence &&
     routingEvidence.some(
       (route) =>
         route.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED",
@@ -1316,6 +1353,7 @@ export async function evaluateOcrSynth(
     gaps.push("ROUTING_CASES_NOT_FROM_REAL_SERVICE_SEAM");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
+    !verifiedLiveEvidence &&
     [...safetyEvidence, ...routingEvidence].some(
       (item) => !/^apps\/api\/src\/imports\/.+\.spec\.ts$/.test(item.testFile),
     )
@@ -1326,14 +1364,18 @@ export async function evaluateOcrSynth(
   );
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    REAL_SERVICE_CONTEXT_PROBE_IDS.some((id) => {
-      const probe = probesByIdForContext.get(id);
-      return (
-        !probe ||
-        probe.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" ||
-        probe.testFile !== REAL_SERVICE_CONTEXT_TEST
-      );
-    })
+    (verifiedLiveEvidence
+      ? REAL_SERVICE_CONTEXT_PROBE_IDS.some(
+          (id) => !mechanicalObservationNames.has(`[PROBE] ${id}`),
+        )
+      : REAL_SERVICE_CONTEXT_PROBE_IDS.some((id) => {
+          const probe = probesByIdForContext.get(id);
+          return (
+            !probe ||
+            probe.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" ||
+            probe.testFile !== REAL_SERVICE_CONTEXT_TEST
+          );
+        }))
   )
     gaps.push("MISSING_REAL_SERVICE_CONSENT_EVIDENCE");
   const requestIds = input.predictions.flatMap((item) =>

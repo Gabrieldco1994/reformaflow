@@ -809,8 +809,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
           readonly outputTokens: number;
         }): void => {
           const measuredCurrentMicros = Math.ceil(
-            (usage.inputTokens * inputRate +
-              usage.outputTokens * outputRate) /
+            (usage.inputTokens * inputRate + usage.outputTokens * outputRate) /
               1_000_000,
           );
           emitQualification("SPEND_RECONCILED", {
@@ -831,10 +830,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
           reconcile(parsed.provenance.usage);
           return parsed;
         } catch (error) {
-          if (
-            error instanceof PdfOcrProviderError &&
-            error.provenance?.usage
-          )
+          if (error instanceof PdfOcrProviderError && error.provenance?.usage)
             reconcile(error.provenance.usage);
           throw error;
         }

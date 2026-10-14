@@ -718,8 +718,10 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
       .filter(object)
       .map((prediction) => [prediction.caseId, prediction]),
   );
-  for (const [caseIndex, expectedCase] of
-    OCR_SYNTH_SCANNED_RELEASE_CASES.entries()) {
+  for (const [
+    caseIndex,
+    expectedCase,
+  ] of OCR_SYNTH_SCANNED_RELEASE_CASES.entries()) {
     const group = value.attemptLedger[caseIndex];
     if (
       !object(group) ||
@@ -764,12 +766,10 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
           event.tenantId !== prediction.tenantId ||
           event.artifactSha256 !== prediction.artifactSha256 ||
           event.requestId !== adapterTrace.requestId ||
-          event.requestPlanSha256 !==
-            adapterTrace.requestPlanSha256 ||
+          event.requestPlanSha256 !== adapterTrace.requestPlanSha256 ||
           event.repositoryTreeSha !== snapshot.treeSha,
       ) ||
-      first.requestBodySha256 !==
-        adapterTrace.countRequestBodySha256 ||
+      first.requestBodySha256 !== adapterTrace.countRequestBodySha256 ||
       (events[3] as Record<string, unknown>).requestBodySha256 !==
         adapterTrace.generationRequestBodySha256
     )
@@ -804,18 +804,13 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
       prediction.modelVersion !== generationWire.modelVersion ||
       run.modelVersion !== generationWire.modelVersion ||
       !object(generationWire.usageMetadata) ||
-      usage.inputTokens !==
-        generationWire.usageMetadata.promptTokenCount ||
+      usage.inputTokens !== generationWire.usageMetadata.promptTokenCount ||
       usage.outputTokens !==
         generationWire.usageMetadata.candidatesTokenCount ||
-      usage.totalTokens !==
-        generationWire.usageMetadata.totalTokenCount
+      usage.totalTokens !== generationWire.usageMetadata.totalTokenCount
     )
       return false;
-    if (
-      object(prediction.outcome) &&
-      prediction.outcome.kind === "SUCCESS"
-    ) {
+    if (object(prediction.outcome) && prediction.outcome.kind === "SUCCESS") {
       const candidates = generationWire.candidates;
       if (
         !Array.isArray(candidates) ||
@@ -832,11 +827,7 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
       } catch {
         return false;
       }
-      if (
-        !object(payload) ||
-        !Array.isArray(payload.candidates)
-      )
-        return false;
+      if (!object(payload) || !Array.isArray(payload.candidates)) return false;
       const projectedCandidates = payload.candidates.map((candidate) => {
         if (!object(candidate)) return candidate;
         const amountCents = candidate.amountCents;
@@ -862,9 +853,7 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
           candidateDisposition: "RAW_UNCLASSIFIED",
         };
       });
-      if (
-        !sameJsonValue(projectedCandidates, prediction.outcome.candidates)
-      )
+      if (!sameJsonValue(projectedCandidates, prediction.outcome.candidates))
         return false;
     }
     const reconciled = events[5] as Record<string, unknown>;
