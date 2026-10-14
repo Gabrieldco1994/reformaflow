@@ -16,6 +16,7 @@ import {
   PDF_OCR_VERSION,
   ImportSessionErrorCode as Code,
   type PdfOcrDocumentV2,
+  type PdfOcrProviderProvenanceV2,
   type VertexAuthTraceV2,
   type ImportSessionRevisionRequestV1,
   type ImportSessionViewV1,
@@ -105,6 +106,10 @@ const ocrOutcomeProblem = (outcome: string, row: ImportSession) => {
     return problem(Code.OCR_SAFETY_BLOCKED, row);
   if (outcome === PDF_OCR_USAGE_OUTCOME.MALFORMED_RESPONSE)
     return problem(Code.OCR_MALFORMED_RESPONSE, row);
+  if (outcome === PDF_OCR_USAGE_OUTCOME.LIMIT_EXCEEDED)
+    return problem(Code.LIMIT_EXCEEDED, row);
+  if (outcome === PDF_OCR_USAGE_OUTCOME.DOCUMENT_UNREADABLE)
+    return problem(Code.DOCUMENT_UNREADABLE, row);
   if (
     outcome === PDF_OCR_USAGE_OUTCOME.AUTH ||
     outcome === PDF_OCR_USAGE_OUTCOME.NOT_DISPATCHED
@@ -124,6 +129,10 @@ const providerFailureOutcome = (
   if (error.failure === "SAFETY") return PDF_OCR_USAGE_OUTCOME.SAFETY;
   if (error.failure === "MALFORMED_RESPONSE")
     return PDF_OCR_USAGE_OUTCOME.MALFORMED_RESPONSE;
+  if (error.failure === "LIMIT_EXCEEDED")
+    return PDF_OCR_USAGE_OUTCOME.LIMIT_EXCEEDED;
+  if (error.failure === "DOCUMENT_UNREADABLE")
+    return PDF_OCR_USAGE_OUTCOME.DOCUMENT_UNREADABLE;
   return PDF_OCR_USAGE_OUTCOME.UNKNOWN;
 };
 
@@ -700,6 +709,7 @@ export class ImportSessionExtractionService {
     let ocrAttempted = false;
     let ocrBudgetReservationId: string | null = null;
     let ocrFailureOutcome: TerminalPdfOcrUsageOutcome | null = null;
+    let ocrFailureProvenance: PdfOcrProviderProvenanceV2 | null = null;
     let ocrDocument: PdfOcrDocumentV2 | null = null;
     let ocrAuthTrace: VertexAuthTraceV2 | null = null;
     const publicationLive = (): undefined => {
@@ -988,6 +998,10 @@ export class ImportSessionExtractionService {
               error instanceof PdfOcrProviderError
                 ? providerFailureOutcome(error)
                 : PDF_OCR_USAGE_OUTCOME.UNKNOWN;
+            ocrFailureProvenance =
+              error instanceof PdfOcrProviderError
+                ? (error.provenance ?? null)
+                : null;
             if (ocrAttempted)
               throw ocrOutcomeProblem(ocrFailureOutcome, capture.row);
             throw error;
@@ -1149,7 +1163,9 @@ export class ImportSessionExtractionService {
                 ocrBudgetReservationId,
                 ocrFailureOutcome ?? PDF_OCR_USAGE_OUTCOME.UNKNOWN,
                 now,
-                null,
+                ocrFailureProvenance?.usage ?? null,
+                ocrFailureProvenance?.responseId ?? null,
+                ocrFailureProvenance,
               );
             },
           );

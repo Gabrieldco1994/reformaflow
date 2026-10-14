@@ -6,6 +6,7 @@ import {
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
   type PdfOcrDocumentV2,
+  type PdfOcrProviderProvenanceV2,
   type VertexAuthTraceV2,
 } from "@reformaflow/domain";
 import type {
@@ -13,7 +14,8 @@ import type {
   FixedPdfOcrProviderRequest,
 } from "./pdf-ocr.ports";
 import { isAdmittedPdfOcrRequest } from "./pdf-ocr.ports";
-import { parsePdfOcrV2 } from "./pdf-ocr-parser";
+import { PdfOcrFailureCode, parsePdfOcrV2 } from "./pdf-ocr-parser";
+import { parseStrictJson } from "./strict-json";
 
 export const VERTEX_OCR_REGION = PDF_OCR_REGION;
 export const VERTEX_OCR_ENDPOINT =
@@ -37,7 +39,9 @@ const PROMPT = [
   "Preserve order, duplicates, negative signs, and zero values exactly; do not classify, combine, deduplicate, exclude, or decide financial meaning.",
   "Include credits, payments, fees, interest, subtotals, and totals as visible lines without classifying them.",
   "Use LINE_AMOUNT when a signed line amount is visible, UNKNOWN when its meaning is uncertain, and null for unreadable description, cents, date, or installment.",
-  "Return zero candidates only when there are genuinely no visible line occurrences.",
+  `Return COMPLETE only after accounting for every page and at most ${PDF_OCR_LIMITS.candidatesPerFile} visible occurrences; EMPTY pages have zero occurrences and READABLE pages have contiguous pageOccurrenceIndex values starting at 1.`,
+  `If more than ${PDF_OCR_LIMITS.candidatesPerFile} visible occurrences exist, return OCCURRENCE_LIMIT_EXCEEDED with exact page accounting and an empty candidates array.`,
+  "If any page is unreadable, return INCOMPLETE with that page marked UNREADABLE and an empty candidates array.",
   "Return only the requested JSON schema.",
 ].join(" ");
 const PROMPT_SHA256 = createHash("sha256").update(PROMPT).digest("hex");
@@ -48,7 +52,9 @@ export type PdfOcrProviderFailure =
   | "RATE_LIMITED"
   | "UPSTREAM"
   | "MALFORMED_RESPONSE"
-  | "SAFETY";
+  | "SAFETY"
+  | "LIMIT_EXCEEDED"
+  | "DOCUMENT_UNREADABLE";
 
 export const PDF_OCR_DISPATCH_STATE = Object.freeze({
   NOT_DISPATCHED: "NOT_DISPATCHED",
@@ -60,15 +66,19 @@ export type PdfOcrDispatchState =
 export class PdfOcrProviderError extends Error {
   readonly failure: PdfOcrProviderFailure;
   readonly dispatchState: PdfOcrDispatchState;
+  /** Present only for accounted terminal responses; never contains candidate text. */
+  readonly provenance?: PdfOcrProviderProvenanceV2;
 
   constructor(
     failure: PdfOcrProviderFailure,
     dispatchState: PdfOcrDispatchState,
+    provenance?: PdfOcrProviderProvenanceV2,
   ) {
     super(failure);
     this.name = "PdfOcrProviderError";
     this.failure = failure;
     this.dispatchState = dispatchState;
+    this.provenance = provenance;
     Object.freeze(this);
   }
 }
@@ -128,8 +138,48 @@ type ProviderClock = Readonly<{ now(): number }>;
 const responseSchema = Object.freeze({
   type: "OBJECT",
   additionalProperties: false,
-  required: ["candidates"],
+  required: [
+    "completionStatus",
+    "reportedPageCount",
+    "pageAccounting",
+    "candidates",
+  ],
   properties: {
+    completionStatus: {
+      type: "STRING",
+      enum: ["COMPLETE", "OCCURRENCE_LIMIT_EXCEEDED", "INCOMPLETE"],
+    },
+    reportedPageCount: {
+      type: "INTEGER",
+      minimum: 1,
+      maximum: PDF_OCR_LIMITS.pagesPerFile,
+    },
+    pageAccounting: {
+      type: "ARRAY",
+      minItems: 1,
+      maxItems: PDF_OCR_LIMITS.pagesPerFile,
+      items: {
+        type: "OBJECT",
+        additionalProperties: false,
+        required: ["pageNumber", "status", "visibleOccurrenceCount"],
+        properties: {
+          pageNumber: {
+            type: "INTEGER",
+            minimum: 1,
+            maximum: PDF_OCR_LIMITS.pagesPerFile,
+          },
+          status: {
+            type: "STRING",
+            enum: ["READABLE", "EMPTY", "UNREADABLE"],
+          },
+          visibleOccurrenceCount: {
+            type: "INTEGER",
+            minimum: 0,
+            maximum: IMPORT_SESSION_PRIMITIVES.maxRevision,
+          },
+        },
+      },
+    },
     candidates: {
       type: "ARRAY",
       minItems: 0,
@@ -139,6 +189,7 @@ const responseSchema = Object.freeze({
         additionalProperties: false,
         required: [
           "pageNumber",
+          "pageOccurrenceIndex",
           "description",
           "amountCents",
           "amountMeaning",
@@ -147,7 +198,16 @@ const responseSchema = Object.freeze({
           "evidenceText",
         ],
         properties: {
-          pageNumber: { type: "INTEGER", minimum: 1 },
+          pageNumber: {
+            type: "INTEGER",
+            minimum: 1,
+            maximum: PDF_OCR_LIMITS.pagesPerFile,
+          },
+          pageOccurrenceIndex: {
+            type: "INTEGER",
+            minimum: 1,
+            maximum: PDF_OCR_LIMITS.candidatesPerFile,
+          },
           description: {
             type: "STRING",
             nullable: true,
@@ -384,7 +444,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         const bytes = await readResponseBytes(response.body, controller.signal);
         let wire: unknown;
         try {
-          wire = JSON.parse(
+          wire = parseStrictJson(
             new TextDecoder("utf-8", { fatal: true }).decode(bytes),
           );
         } catch {
@@ -482,7 +542,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       throw dispatchedFailure("MALFORMED_RESPONSE");
     let payload: unknown;
     try {
-      payload = JSON.parse(candidate.content.parts[0].text);
+      payload = parseStrictJson(candidate.content.parts[0].text);
     } catch {
       throw dispatchedFailure("MALFORMED_RESPONSE");
     }
@@ -512,7 +572,27 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         cachedContent: null,
       },
     });
-    if (!parsed.ok) throw dispatchedFailure("MALFORMED_RESPONSE");
+    if (!parsed.ok) {
+      if (
+        parsed.error.code === PdfOcrFailureCode.LIMIT_EXCEEDED &&
+        parsed.error.provenance
+      )
+        throw new PdfOcrProviderError(
+          "LIMIT_EXCEEDED",
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+          parsed.error.provenance,
+        );
+      if (
+        parsed.error.code === PdfOcrFailureCode.DOCUMENT_UNREADABLE &&
+        parsed.error.provenance
+      )
+        throw new PdfOcrProviderError(
+          "DOCUMENT_UNREADABLE",
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+          parsed.error.provenance,
+        );
+      throw dispatchedFailure("MALFORMED_RESPONSE");
+    }
     return parsed.value;
   }
 

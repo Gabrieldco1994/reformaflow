@@ -47,6 +47,8 @@ export const PDF_OCR_USAGE_OUTCOME = {
   UPSTREAM: "UPSTREAM",
   MALFORMED_RESPONSE: "MALFORMED_RESPONSE",
   SAFETY: "SAFETY",
+  LIMIT_EXCEEDED: "LIMIT_EXCEEDED",
+  DOCUMENT_UNREADABLE: "DOCUMENT_UNREADABLE",
 } as const;
 export type PdfOcrUsageOutcome =
   (typeof PDF_OCR_USAGE_OUTCOME)[keyof typeof PDF_OCR_USAGE_OUTCOME];
@@ -152,8 +154,12 @@ export async function reconcilePdfOcrBudget(
   provenance: PdfOcrProviderProvenanceV2 | null = null,
 ): Promise<void> {
   const successful = outcome === PDF_OCR_USAGE_OUTCOME.SUCCEEDED;
+  const terminalWithProvenance =
+    outcome === PDF_OCR_USAGE_OUTCOME.LIMIT_EXCEEDED ||
+    outcome === PDF_OCR_USAGE_OUTCOME.DOCUMENT_UNREADABLE;
+  const expectsProvenance = successful || terminalWithProvenance;
   if (
-    successful !== (provenance !== null) ||
+    expectsProvenance !== (provenance !== null) ||
     (provenance !== null &&
       (usage === null ||
         responseId !== provenance.responseId ||
