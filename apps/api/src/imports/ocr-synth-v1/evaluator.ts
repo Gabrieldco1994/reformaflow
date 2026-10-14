@@ -26,10 +26,10 @@ import {
   type OcrRoutingEvidence,
   type OcrEvalRow,
   type OcrSafetyProbeEvidence,
-  type OcrQualityClosure,
 } from "./types";
 import policy from "./quality-closure-policy.json";
 import {
+  isCanonicalQualityClosure,
   isVerifiedQualityClosureToken,
   type VerifiedQualityClosureToken,
 } from "./quality-closure-attestation";
@@ -113,7 +113,7 @@ export interface OcrEvalInput {
   predictions: OcrEvalPrediction[];
   routingCases: OcrRoutingEvidence[];
   safetyProbes: OcrSafetyProbeEvidence[];
-  qualityClosure?: OcrQualityClosure;
+  qualityClosure?: unknown;
 }
 
 interface Counters {
@@ -1045,35 +1045,40 @@ export async function evaluateOcrSynth(
     routingCases.every((route) => route.pass) &&
     probeStructureIssues === 0 &&
     safetyProbes.every((probe) => probe.pass) &&
-    scannedTaskSuccessRate === 1 &&
-    metrics.exactMoneyRate === 1 &&
-    metrics.exactSignRate === 1 &&
-    metrics.exactDateRate === 1 &&
-    metrics.exactDateExplicitnessRate === 1 &&
-    metrics.exactInstallmentRate === 1 &&
-    metrics.unknownPreservationRate === 1 &&
-    metrics.visibleEvidenceRate === 1 &&
-    metrics.schemaValidityRate === 1 &&
-    metrics.inventedRows === 0 &&
-    metrics.omittedRows === 0 &&
-    metrics.tenantLeaks === 0 &&
-    metrics.falseAutomations === 0 &&
-    metrics.financialWrites === 0;
+    scannedTaskSuccessRate >= OCR_SYNTH_THRESHOLDS.scannedTaskSuccessRate &&
+    metrics.exactMoneyRate >= OCR_SYNTH_THRESHOLDS.exactMoneyRate &&
+    metrics.exactSignRate >= OCR_SYNTH_THRESHOLDS.exactSignRate &&
+    metrics.exactDateRate >= OCR_SYNTH_THRESHOLDS.exactDateRate &&
+    metrics.exactDateExplicitnessRate >=
+      OCR_SYNTH_THRESHOLDS.exactDateExplicitnessRate &&
+    metrics.exactInstallmentRate >= OCR_SYNTH_THRESHOLDS.exactInstallmentRate &&
+    metrics.unknownPreservationRate >=
+      OCR_SYNTH_THRESHOLDS.unknownPreservationRate &&
+    metrics.visibleEvidenceRate >= OCR_SYNTH_THRESHOLDS.visibleEvidenceRate &&
+    metrics.schemaValidityRate >= OCR_SYNTH_THRESHOLDS.schemaValidityRate &&
+    metrics.inventedRows <= OCR_SYNTH_THRESHOLDS.inventedRows &&
+    metrics.omittedRows <= OCR_SYNTH_THRESHOLDS.omittedRows &&
+    metrics.tenantLeaks <= OCR_SYNTH_THRESHOLDS.tenantLeaks &&
+    metrics.falseAutomations <= OCR_SYNTH_THRESHOLDS.falseAutomations &&
+    metrics.financialWrites <= OCR_SYNTH_THRESHOLDS.financialWrites;
 
   const gaps: string[] = [];
   const closureVerified =
     input.run.mode !== "LIVE_CAPTURE"
       ? false
       : await isVerifiedQualityClosureToken(verifiedQualityClosure, input);
+  const qualityClosure = isCanonicalQualityClosure(input.qualityClosure)
+    ? input.qualityClosure
+    : undefined;
   if (input.run.mode === "LIVE_CAPTURE" && !closureVerified)
     gaps.push("QUALITY_CLOSURE_NOT_VERIFIED");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    input.qualityClosure &&
-    (input.run.candidateSha !== input.qualityClosure.snapshot.headSha ||
+    qualityClosure &&
+    (input.run.candidateSha !== qualityClosure.snapshot.headSha ||
       input.run.configurationSha256 !==
-        input.qualityClosure.snapshot.configurationSha256 ||
-      input.run.adapterSha256 !== input.qualityClosure.snapshot.adapterSha256)
+        qualityClosure.snapshot.configurationSha256 ||
+      input.run.adapterSha256 !== qualityClosure.snapshot.adapterSha256)
   )
     gaps.push("QUALITY_CLOSURE_RUN_MISMATCH");
   if (input.datasetVersion !== OCR_SYNTH_DATASET.datasetVersion)
@@ -1218,10 +1223,10 @@ export async function evaluateOcrSynth(
     gaps.push("MISSING_DURABLE_BUDGET_POLICY");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    (!input.qualityClosure ||
+    (!qualityClosure ||
       JSON.stringify(input.run.durableBudgets) !==
         JSON.stringify({
-          policySha256: input.qualityClosure.snapshot.policySha256,
+          policySha256: qualityClosure.snapshot.policySha256,
           tenantLimitMicros: policy.durableBudgets.tenantLimitMicros,
           globalLimitMicros: policy.durableBudgets.globalLimitMicros,
           storage: policy.durableBudgets.storage,

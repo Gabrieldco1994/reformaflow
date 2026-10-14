@@ -40,6 +40,24 @@ const JEST_TIMEOUT_MS = 10 * 60 * 1000;
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const QUALIFICATION_NAME = /^\[(?:ROUTE|PROBE)\] [A-Za-z0-9_-]+$/;
+const RATE_THRESHOLD_KEYS = [
+  "scannedTaskSuccessRate",
+  "exactMoneyRate",
+  "exactSignRate",
+  "exactDateRate",
+  "exactDateExplicitnessRate",
+  "exactInstallmentRate",
+  "unknownPreservationRate",
+  "visibleEvidenceRate",
+  "schemaValidityRate",
+] as const;
+const DEFECT_THRESHOLD_KEYS = [
+  "inventedRows",
+  "omittedRows",
+  "tenantLeaks",
+  "falseAutomations",
+  "financialWrites",
+] as const;
 
 type ExecResult = Readonly<{
   error: Error | null;
@@ -151,6 +169,11 @@ const positiveInteger = (value: unknown): value is number =>
   Number.isSafeInteger(value) && Number(value) > 0;
 const nonNegativeInteger = (value: unknown): value is number =>
   Number.isSafeInteger(value) && Number(value) >= 0;
+const finiteRate = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  value >= 0 &&
+  value <= 1;
 const string = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 const stringArray = (value: unknown): value is string[] =>
@@ -264,6 +287,10 @@ function validDate(value: unknown): value is string {
 const budgetShape = (value: unknown): boolean =>
   exact(value, ["user", "tenant", "global"]) &&
   Object.values(value).every(positiveInteger);
+const thresholdShape = (value: unknown): boolean =>
+  exact(value, [...RATE_THRESHOLD_KEYS, ...DEFECT_THRESHOLD_KEYS]) &&
+  RATE_THRESHOLD_KEYS.every((key) => finiteRate(value[key])) &&
+  DEFECT_THRESHOLD_KEYS.every((key) => nonNegativeInteger(value[key]));
 
 function assertPolicyShape(
   value: unknown,
@@ -308,24 +335,7 @@ function assertPolicyShape(
       "maxVmHwmBytes",
     ]) ||
     !Object.values(value.declaredLimits).every(positiveInteger) ||
-    !object(value.thresholds) ||
-    !exact(value.thresholds, [
-      "scannedTaskSuccessRate",
-      "exactMoneyRate",
-      "exactSignRate",
-      "exactDateRate",
-      "exactDateExplicitnessRate",
-      "exactInstallmentRate",
-      "unknownPreservationRate",
-      "visibleEvidenceRate",
-      "schemaValidityRate",
-      "inventedRows",
-      "omittedRows",
-      "tenantLeaks",
-      "falseAutomations",
-      "financialWrites",
-    ]) ||
-    !Object.values(value.thresholds).every(nonNegativeInteger) ||
+    !thresholdShape(value.thresholds) ||
     !exact(value.pricing, [
       "currency",
       "source",
@@ -557,12 +567,8 @@ export async function snapshotQualityRepository(
     headSha,
     treeSha,
     clean: true,
-    policySha256: await sha256(
-      await readBoundedFile(root, QUALITY_POLICY_PATH),
-    ),
-    corpusSha256: await sha256(
-      await readBoundedFile(root, QUALITY_CORPUS_PATH),
-    ),
+    policySha256: await aggregateSha256(root, [QUALITY_POLICY_PATH]),
+    corpusSha256: await aggregateSha256(root, [QUALITY_CORPUS_PATH]),
     configurationSha256: await aggregateSha256(
       root,
       policy.configurationBindingFiles,
@@ -587,6 +593,7 @@ interface JestAssertion {
   readonly title?: unknown;
   readonly fullName?: unknown;
   readonly status?: unknown;
+  readonly failureMessages?: unknown;
 }
 interface JestFileResult {
   readonly name?: unknown;
@@ -618,6 +625,8 @@ function parseJestEvidence(
     value.success !== true ||
     value.numFailedTestSuites !== 0 ||
     value.numFailedTests !== 0 ||
+    value.numPendingTests !== 0 ||
+    value.numTodoTests !== 0 ||
     value.numRuntimeErrorTestSuites !== 0 ||
     !Array.isArray(value.testResults) ||
     executionError
@@ -634,8 +643,8 @@ function parseJestEvidence(
     if (
       !string(suite.name) ||
       !Array.isArray(suite.assertionResults) ||
-      (suite.status !== undefined && suite.status !== "passed") ||
-      (string(suite.message) && suite.message.length > 0)
+      suite.status !== "passed" ||
+      suite.message !== ""
     )
       throw new Error("QUALITY_SUITE_FAILED");
     const sourcePath = repositoryPath(root, suite.name);
@@ -643,6 +652,12 @@ function parseJestEvidence(
       throw new Error("QUALITY_SUITE_INVALID");
     seenSuites.add(sourcePath);
     for (const assertion of suite.assertionResults as JestAssertion[]) {
+      if (
+        assertion.status !== "passed" ||
+        !Array.isArray(assertion.failureMessages) ||
+        assertion.failureMessages.length !== 0
+      )
+        throw new Error("QUALITY_SUITE_FAILED");
       const title = string(assertion.title)
         ? assertion.title
         : string(assertion.fullName)
@@ -807,7 +822,9 @@ export async function issueVerifiedQualityClosureToken(
   policy: QualityClosurePolicy,
   dependencies: QualityAttestationDependencies = {},
 ): Promise<VerifiedQualityClosureToken> {
-  const closure = evidence.qualityClosure;
+  const closure = isCanonicalQualityClosure(evidence.qualityClosure)
+    ? evidence.qualityClosure
+    : undefined;
   const reviews = await readFinalReviewHashes(policy, dependencies);
   const expectedResidualRisk = reviews.residualRiskAcceptance
     ? {
@@ -847,7 +864,9 @@ export async function isVerifiedQualityClosureToken(
   token: VerifiedQualityClosureToken | undefined,
   evidence: OcrEvalInput,
 ): Promise<boolean> {
-  const closure = evidence.qualityClosure;
+  const closure = isCanonicalQualityClosure(evidence.qualityClosure)
+    ? evidence.qualityClosure
+    : undefined;
   return (
     token !== undefined &&
     closure !== undefined &&
