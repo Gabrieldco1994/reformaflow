@@ -626,6 +626,46 @@ test(
       assert.equal(report.historicalComparison, "NOT_PERFORMED_P1_DEFERRED");
       assert.deepEqual(report.liveEvidenceGaps, []);
       assert.equal(report.releaseStatus, "PASS");
+
+      for (const [mutate, expectedGap] of [
+        [
+          (value) => {
+            value.run.declaredLimits.maxP95LatencyMs += 1;
+          },
+          "DECLARED_LIMIT_POLICY_MISMATCH",
+        ],
+        [
+          (value) => {
+            value.run.pricing.effectiveDate = "2026-10-13";
+          },
+          "PRICING_POLICY_MISMATCH",
+        ],
+        [
+          (value) => {
+            value.run.durableBudgets.globalLimitMicros += 1;
+          },
+          "DURABLE_BUDGET_POLICY_MISMATCH",
+        ],
+      ]) {
+        const mutatedEvidence = structuredClone(evidence);
+        mutate(mutatedEvidence);
+        const mismatchResult = await spawnEntrypoint(
+          entrypoint,
+          "offline-report",
+          baseEnvironment,
+          JSON.stringify(mutatedEvidence),
+        );
+        assert.deepEqual(
+          {
+            code: mismatchResult.code,
+            stderr: mismatchResult.stderr,
+          },
+          { code: 0, stderr: "" },
+        );
+        const mismatchReport = JSON.parse(mismatchResult.stdout);
+        assert.deepEqual(mismatchReport.liveEvidenceGaps, [expectedGap]);
+        assert.equal(mismatchReport.releaseStatus, "GAPS");
+      }
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
