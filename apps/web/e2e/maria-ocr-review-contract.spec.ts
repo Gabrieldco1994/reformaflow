@@ -138,7 +138,12 @@ for (const width of [375, 390, 1280]) {
     ).toBeVisible();
     await expect(
       page.getByText(
-        /sete dias corridos desde a tentativa, mesmo que a sessão seja editada ou prorrogada/i,
+        /todo esse conteúdo enviado externamente.*resultado e a evidência.*no máximo sete dias corridos contados da tentativa.*independentemente de edições ou prorrogações da sessão/i,
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        /retenção local da sessão e do cofre privado.*não reinicia nem estende.*retenção externa/i,
       ),
     ).toBeVisible();
     await expect(page.locator("body")).not.toContainText("private-session");

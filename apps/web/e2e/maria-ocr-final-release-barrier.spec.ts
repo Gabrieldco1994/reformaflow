@@ -16,6 +16,10 @@ const privateTokens = [
   "request-private-final-719",
   "a".repeat(64),
 ];
+const externalRetentionDisclosure =
+  "Se você autorizar, o PDF original completo, incluindo seus metadados e qualquer conteúdo potencialmente não visível ou incorporado, será enviado ao Google Cloud Vertex AI, modelo Gemini 2.5 Flash, na região southamerica-east1, exclusivamente para a transcrição das linhas do documento para revisão humana, não para classificação financeira. Todo esse conteúdo enviado externamente, assim como o resultado e a evidência da leitura externa, fica retido externamente por no máximo sete dias corridos contados da tentativa, independentemente de edições ou prorrogações da sessão. Esta versão não cria uma derivada raster local para substituir esse envio.";
+const localRetentionDisclosure =
+  "Separadamente, o PDF original privado armazenado no ReformaFlow segue a política de retenção local da sessão e do cofre privado (vault): ele pode ser liberado antes ao concluir ou cancelar, quando não houver outra referência autorizada. Essa retenção local não reinicia nem estende o prazo máximo de sete dias da retenção externa. A auditoria mínima de consentimento e provedor permanece conforme a política aplicável.";
 let script: string;
 let css: string;
 
@@ -107,6 +111,12 @@ for (const width of [375, 390, 1280]) {
     ).toContainText(
       /PDF original completo.*metadados.*conteúdo potencialmente não visível ou incorporado/i,
     );
+    await expect(
+      page.getByText(externalRetentionDisclosure, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(localRetentionDisclosure, { exact: true }),
+    ).toBeVisible();
     await assertBoundedAndPrivate(page);
 
     for (const target of [consent.locator(".."), submit]) {

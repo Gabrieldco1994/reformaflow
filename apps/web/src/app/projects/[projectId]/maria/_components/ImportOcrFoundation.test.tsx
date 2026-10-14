@@ -9,6 +9,12 @@ const scope = {
   fileName: "fatura digitalizada.pdf",
 };
 
+const EXTERNAL_RETENTION_DISCLOSURE =
+  "Se você autorizar, o PDF original completo, incluindo seus metadados e qualquer conteúdo potencialmente não visível ou incorporado, será enviado ao Google Cloud Vertex AI, modelo Gemini 2.5 Flash, na região southamerica-east1, exclusivamente para a transcrição das linhas do documento para revisão humana, não para classificação financeira. Todo esse conteúdo enviado externamente, assim como o resultado e a evidência da leitura externa, fica retido externamente por no máximo sete dias corridos contados da tentativa, independentemente de edições ou prorrogações da sessão. Esta versão não cria uma derivada raster local para substituir esse envio.";
+
+const LOCAL_RETENTION_DISCLOSURE =
+  "Separadamente, o PDF original privado armazenado no ReformaFlow segue a política de retenção local da sessão e do cofre privado (vault): ele pode ser liberado antes ao concluir ou cancelar, quando não houver outra referência autorizada. Essa retenção local não reinicia nem estende o prazo máximo de sete dias da retenção externa. A auditoria mínima de consentimento e provedor permanece conforme a política aplicável.";
+
 describe("ImportOcrFoundation", () => {
   it("discloses the first-release boundary, full-PDF transfer, provider, retention, and human review", () => {
     const { rerender } = render(
@@ -43,19 +49,12 @@ describe("ImportOcrFoundation", () => {
     expect(disclosure).toHaveTextContent(/Google Cloud Vertex AI/i);
     expect(disclosure).toHaveTextContent(/Gemini 2\.5 Flash/i);
     expect(disclosure).toHaveTextContent(/southamerica-east1/i);
-    expect(disclosure).toHaveTextContent(
-      /transcrição das linhas do documento para revisão humana/i,
+    const renderedParagraphs = Array.from(
+      disclosure.querySelectorAll("p"),
+      (paragraph) => paragraph.textContent?.replace(/\s+/g, " ").trim(),
     );
-    expect(disclosure).toHaveTextContent(/não para classificação financeira/i);
-    expect(disclosure).toHaveTextContent(
-      /resultado e a evidência.*sete dias corridos desde a tentativa.*mesmo que a sessão seja editada ou prorrogada/i,
-    );
-    expect(disclosure).toHaveTextContent(
-      /PDF original.*retenção da sessão.*liberado antes/i,
-    );
-    expect(disclosure).toHaveTextContent(
-      /auditoria mínima de consentimento e provedor/i,
-    );
+    expect(renderedParagraphs).toContain(EXTERNAL_RETENTION_DISCLOSURE);
+    expect(renderedParagraphs).toContain(LOCAL_RETENTION_DISCLOSURE);
     expect(disclosure).toHaveTextContent(/revisão humana/i);
     expect(disclosure).toHaveTextContent(
       /nenhum registro financeiro.*confirmação/i,

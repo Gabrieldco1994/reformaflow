@@ -119,11 +119,15 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
   ficam no caminho local quando a extração textual é completa ou falham de forma tipada.
   Quando o OCR for explicitamente habilitado, a declaração persistida informa que o arquivo
   original completo — incluindo metadados e conteúdo potencialmente não visível/embutido — será
-  enviado ao Vertex regional para transcrição, com retenção de conteúdo por sete dias. Essa é uma
-  aceitação explícita de risco residual pelo data owner; este release não cria raster derivado local.
-  Este caminho não altera
-  habilitação do vault nem retenção: vault OFF por padrão continua fail-closed; rascunho pendente
-  continua expirando após sete dias sem edição, sem renovação por consulta.
+  enviado ao Google Cloud Vertex AI, modelo Gemini 2.5 Flash, na região `southamerica-east1`,
+  exclusivamente para transcrição das linhas para revisão humana, não para classificação financeira.
+  Todo esse conteúdo enviado externamente, o resultado e a evidência da leitura têm retenção externa
+  máxima de sete dias corridos contados da tentativa, independentemente de edição ou prorrogação da
+  sessão. Essa é uma aceitação explícita de risco residual pelo data owner; este release não cria
+  raster derivado local. Separadamente, este caminho não altera habilitação nem retenção local da
+  sessão e do vault: vault OFF por padrão continua fail-closed; rascunho pendente continua expirando
+  após sete dias sem edição, sem renovação por consulta. A retenção local não reinicia nem estende o
+  prazo externo.
 
 Esse comportamento está presente na árvore candidata atual da #718. A métrica de
 projeção de contexto elegível do corpus puro cobre somente o resultado e a projeção

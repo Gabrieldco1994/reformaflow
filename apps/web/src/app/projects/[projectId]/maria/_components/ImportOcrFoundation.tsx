@@ -69,23 +69,27 @@ function ConsentDisclosure({
           pesquisáveis não são enviados nesta versão.
         </p>
         <p>
-          Se você autorizar, o <strong>PDF original completo</strong> será
-          enviado externamente, incluindo seus <strong>metadados</strong> e
-          qualquer conteúdo potencialmente não visível ou incorporado, ao{" "}
+          Se você autorizar, o <strong>PDF original completo</strong>, incluindo
+          seus <strong>metadados</strong> e qualquer conteúdo potencialmente não
+          visível ou incorporado, será enviado ao{" "}
           <strong>Google Cloud Vertex AI</strong>, modelo{" "}
           <strong>Gemini 2.5 Flash</strong>, na região{" "}
           <strong>southamerica-east1</strong>, exclusivamente para a transcrição
           das linhas do documento para revisão humana, não para classificação
-          financeira. Esta versão não cria uma derivada raster local para
-          substituir esse envio.
+          financeira. Todo esse conteúdo enviado externamente, assim como o
+          resultado e a evidência da leitura externa, fica retido externamente
+          por no máximo sete dias corridos contados da tentativa,
+          independentemente de edições ou prorrogações da sessão. Esta versão
+          não cria uma derivada raster local para substituir esse envio.
         </p>
         <p>
-          O resultado e a evidência da leitura externa ficam por no máximo sete
-          dias corridos desde a tentativa, mesmo que a sessão seja editada ou
-          prorrogada. O PDF original segue a retenção da sessão e pode ser
-          liberado antes ao concluir ou cancelar quando não houver outra
-          referência autorizada. A auditoria mínima de consentimento e provedor
-          permanece conforme a política aplicável.
+          Separadamente, o PDF original privado armazenado no ReformaFlow segue
+          a política de retenção local da sessão e do cofre privado (vault): ele
+          pode ser liberado antes ao concluir ou cancelar, quando não houver
+          outra referência autorizada. Essa retenção local não reinicia nem
+          estende o prazo máximo de sete dias da retenção externa. A auditoria
+          mínima de consentimento e provedor permanece conforme a política
+          aplicável.
         </p>
         <p>
           Todo candidato exige revisão humana. A leitura e a correção do

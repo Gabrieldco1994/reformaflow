@@ -400,11 +400,15 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   não para classificação financeira, e pede autorização explícita válida
   somente para aquele documento. A decisão do data owner aceita expressamente
   o risco residual desse envio e não autoriza criar silenciosamente uma derivada
-  raster local. Resultado e evidência do OCR são mantidos por no máximo sete
-  dias corridos desde a tentativa, mesmo se a sessão for editada ou prorrogada.
-  O PDF original segue a retenção da sessão e pode ser liberado antes ao
-  concluir/cancelar quando não houver outra referência autorizada. A auditoria
-  mínima de consentimento e provedor permanece. A tela só oferece consentimento
+  raster local. Todo o conteúdo enviado externamente — o PDF original completo,
+  incluindo metadados e conteúdo potencialmente não visível ou incorporado —,
+  o resultado e a evidência do OCR são mantidos externamente por no máximo sete
+  dias corridos contados da tentativa, independentemente de edição ou prorrogação
+  da sessão. Separadamente, o PDF original privado no ReformaFlow segue a política
+  de retenção local da sessão e do cofre privado (vault) e pode ser liberado antes
+  ao concluir/cancelar quando não houver outra referência autorizada. A retenção
+  local não reinicia nem estende o prazo externo. A auditoria mínima de
+  consentimento e provedor permanece. A tela só oferece consentimento
   quando a capability explícita da sessão está `AVAILABLE` e lista aquele anexo
   como elegível; estados `DISABLED`/`UNAVAILABLE` e anexos não inspecionados não
   exibem a autorização. Ao
