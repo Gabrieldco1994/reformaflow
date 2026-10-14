@@ -122,7 +122,11 @@ export function useImportExecution(sessionId: string | null) {
     refetchOnReconnect: false,
     queryFn: async ({ signal }) => {
       if (sessionId === null) throw new ImportWorkflowResponseError();
-      const view = await getFullImportSession(sessionId);
+      const view = await getFullImportSession(
+        sessionId,
+        signal,
+        "WORKFLOW_VIEW",
+      );
       signal.throwIfAborted();
       if (view.id !== sessionId) throw new ImportWorkflowResponseError();
       return view;
@@ -147,7 +151,11 @@ export function useImportExecution(sessionId: string | null) {
   };
   async function readCurrent() {
     if (sessionId === null) throw new ImportWorkflowResponseError();
-    const fresh = await getFullImportSession(sessionId);
+    const fresh = await getFullImportSession(
+      sessionId,
+      undefined,
+      "WORKFLOW_VIEW",
+    );
     if (fresh.id !== sessionId) throw new ImportWorkflowResponseError();
     return fresh;
   }

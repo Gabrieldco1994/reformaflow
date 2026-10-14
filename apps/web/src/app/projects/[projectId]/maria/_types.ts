@@ -2,6 +2,8 @@ import type {
   ImportOcrReviewEvidenceV1,
   ImportSessionLineViewV1,
   ImportSessionOcrConsentAnswerRequestV1,
+  ImportSessionOcrTerminalCodeV1,
+  ImportSessionTerminalOutcomesV1,
   ImportSessionViewV1,
 } from "@reformaflow/domain";
 
@@ -18,25 +20,12 @@ export type OcrReviewEvidenceV1 = ImportOcrReviewEvidenceV1;
 
 export type OcrReviewLineV1 = ImportSessionLineViewV1;
 
-export type OcrTerminalOutcomeCode =
-  | "OCR_UNAVAILABLE"
-  | "OCR_SAFETY_BLOCKED"
-  | "OCR_MALFORMED_RESPONSE"
-  | "OCR_ATTEMPT_UNKNOWN"
-  | "LIMIT_EXCEEDED"
-  | "DOCUMENT_UNREADABLE";
+export type OcrTerminalOutcomeCode = ImportSessionOcrTerminalCodeV1;
 
-export interface OcrTerminalOutcomeV1 {
-  attachmentId: string;
-  code: OcrTerminalOutcomeCode;
-}
+export type OcrTerminalOutcomeV1 =
+  ImportSessionTerminalOutcomesV1["outcomes"][number];
 
-type DomainOcrCapabilityV1 = NonNullable<ImportSessionViewV1["ocrCapability"]>;
-
-/** Approved additive server projection until the domain package lands independently. */
-export type OcrCapabilityV1 = DomainOcrCapabilityV1 & {
-  terminalOutcomes: OcrTerminalOutcomeV1[];
-};
+export type OcrCapabilityV1 = NonNullable<ImportSessionViewV1["ocrCapability"]>;
 
 export type ImportOcrSessionViewV1 = Omit<
   ImportSessionViewV1,

@@ -180,7 +180,11 @@ export function useImportConversation(
       if (!sessionId) throw new ImportWorkflowResponseError();
       const previousRevision =
         client.getQueryData<ImportSessionViewV1>(key)?.revision;
-      const view = await getFullImportSession(sessionId, signal);
+      const view = await getFullImportSession(
+        sessionId,
+        signal,
+        "WORKFLOW_VIEW",
+      );
       signal.throwIfAborted();
       if (
         view.id !== sessionId ||
@@ -240,7 +244,11 @@ export function useImportConversation(
 
   async function readCurrent(signal?: AbortSignal) {
     if (!sessionId) throw new ImportWorkflowResponseError();
-    const fresh = await getFullImportSession(sessionId, signal);
+    const fresh = await getFullImportSession(
+      sessionId,
+      signal,
+      "WORKFLOW_VIEW",
+    );
     if (fresh.id !== sessionId) throw new ImportWorkflowResponseError();
     return fresh;
   }

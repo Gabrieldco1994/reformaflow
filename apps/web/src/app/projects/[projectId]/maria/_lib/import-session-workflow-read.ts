@@ -10,6 +10,7 @@ import {
   IMPORT_SESSION_PROTOCOL_VERSION as VERSION,
   ImportSessionAmountMeaning,
   ImportSessionState,
+  IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION,
   PDF_OCR_MODEL_VERSION_PATTERN,
   isInvoiceDueMonth,
   parseExpenseSchedule,
@@ -28,6 +29,7 @@ import {
   type ImportSessionReceiptV1,
   type ImportSessionReceiptLineSnapshotV1,
   type ImportSessionTargetInputV1,
+  type ImportSessionTerminalOutcomesV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
 import {
@@ -385,6 +387,8 @@ function draftLine(v: unknown): v is OcrReviewLineV1 {
 }
 
 function ocrCapability(v: unknown): v is OcrCapabilityV1 {
+  const hasTerminalOutcomes =
+    isRecord(v) && Object.hasOwn(v, "terminalOutcomes");
   return (
     isRecord(v) &&
     exact(v, [
@@ -398,7 +402,7 @@ function ocrCapability(v: unknown): v is OcrCapabilityV1 {
       "includesMetadataAndEmbeddedContent",
       "includesPotentiallyNonVisibleContent",
       "attachments",
-      "terminalOutcomes",
+      ...(hasTerminalOutcomes ? ["terminalOutcomes"] : []),
     ]) &&
     oneOf(v.status, ["DISABLED", "UNAVAILABLE", "AVAILABLE"]) &&
     v.consentPolicyVersion === 1 &&
@@ -431,25 +435,51 @@ function ocrCapability(v: unknown): v is OcrCapabilityV1 {
       L.filesPerSession,
     ) &&
     distinct(v.attachments.map((attachment) => attachment.attachmentId)) &&
-    every(
-      v.terminalOutcomes,
-      (outcome): outcome is OcrTerminalOutcomeV1 =>
-        isRecord(outcome) &&
-        exact(outcome, ["attachmentId", "code"]) &&
-        id(outcome.attachmentId) &&
-        oneOf(outcome.code, [
-          "OCR_UNAVAILABLE",
-          "OCR_SAFETY_BLOCKED",
-          "OCR_MALFORMED_RESPONSE",
-          "OCR_ATTEMPT_UNKNOWN",
-          "LIMIT_EXCEEDED",
-          "DOCUMENT_UNREADABLE",
-        ]),
-      0,
-      L.filesPerSession,
-    ) &&
-    distinct(v.terminalOutcomes.map((outcome) => outcome.attachmentId))
+    (!hasTerminalOutcomes ||
+      (every(v.terminalOutcomes, terminalOutcome, 0, L.filesPerSession) &&
+        distinct(v.terminalOutcomes.map((outcome) => outcome.attachmentId))))
   );
+}
+
+const OCR_TERMINAL_CODES: readonly OcrTerminalOutcomeV1["code"][] = [
+  "OCR_UNAVAILABLE",
+  "OCR_SAFETY_BLOCKED",
+  "OCR_MALFORMED_RESPONSE",
+  "OCR_ATTEMPT_UNKNOWN",
+  "LIMIT_EXCEEDED",
+  "DOCUMENT_UNREADABLE",
+];
+
+function terminalOutcome(v: unknown): v is OcrTerminalOutcomeV1 {
+  return (
+    isRecord(v) &&
+    exact(v, ["attachmentId", "code"]) &&
+    id(v.attachmentId) &&
+    oneOf(v.code, OCR_TERMINAL_CODES)
+  );
+}
+
+export function readImportTerminalOutcomes(
+  value: unknown,
+  expectedSessionId: string,
+): ImportSessionTerminalOutcomesV1 {
+  if (
+    !isRecord(value) ||
+    !exact(value, ["version", "sessionId", "revision", "outcomes"]) ||
+    value.version !== IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION ||
+    !id(value.sessionId) ||
+    value.sessionId !== expectedSessionId ||
+    !revision(value.revision) ||
+    !every(value.outcomes, terminalOutcome, 0, L.filesPerSession) ||
+    !distinct(value.outcomes.map((outcome) => outcome.attachmentId))
+  )
+    return invalid();
+  return {
+    version: IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION,
+    sessionId: value.sessionId,
+    revision: value.revision,
+    outcomes: value.outcomes,
+  };
 }
 export const QUESTION_FIELDS: readonly ImportSessionQuestionV1["field"][] = [
   ...IMPORT_DRAFT_QUESTION_FIELDS,
@@ -901,14 +931,7 @@ export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
   const draftQuestionLimit =
     L.editableLines * IMPORT_DRAFT_QUESTION_FIELDS.length;
   const documentaryFieldLimit = L.editableLines * L.observationsPerLine * 6;
-  const capabilityValue =
-    isRecord(value) &&
-    isRecord(value.ocrCapability) &&
-    !Object.hasOwn(value.ocrCapability, "terminalOutcomes")
-      ? { ...value.ocrCapability, terminalOutcomes: [] }
-      : isRecord(value)
-        ? value.ocrCapability
-        : null;
+  const capabilityValue = isRecord(value) ? value.ocrCapability : null;
   if (
     !isRecord(value) ||
     !exact(value, [
@@ -1000,7 +1023,7 @@ export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
         (attachment) => attachment.id !== candidate.attachmentId,
       ),
     ) ||
-    capability.terminalOutcomes.some((outcome) => {
+    (capability.terminalOutcomes ?? []).some((outcome) => {
       const attachment = attachments.find(
         (candidate) => candidate.id === outcome.attachmentId,
       );
@@ -1010,7 +1033,7 @@ export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
       attachments
         .filter((attachment) => attachment.canAnalyze)
         .every((attachment) =>
-          capability.terminalOutcomes.some(
+          (capability.terminalOutcomes ?? []).some(
             (outcome) => outcome.attachmentId === attachment.id,
           ),
         )) ||

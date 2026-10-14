@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, ApiResponseError } from "@/lib/api";
 import type {
   ImportDeclarationAnswerV1,
   ImportDeclarationUiInputV1,
@@ -15,14 +15,17 @@ import type {
   ImportSessionReserveRequestV1,
   ImportSessionRevisionRequestV1,
   ImportSessionSummaryV1,
+  ImportSessionTerminalOutcomesV1,
   ImportSessionUploadResponseV1,
   ImportSessionViewV1,
 } from "@reformaflow/domain";
 import {
+  ImportWorkflowResponseError,
   readImportCandidatePage,
   readImportChallenge,
   readImportConfirmation,
   readImportObservationPage,
+  readImportTerminalOutcomes,
   readImportWorkflowReceipt,
   readImportWorkflowView,
   type ImportObservationView,
@@ -49,8 +52,6 @@ import {
 
 /** Authenticated UI transport; the server owns availability and actions. */
 const UI_HEADERS = { "x-rf-import-ui": "1" } as const;
-export const IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY = "terminalOutcomes";
-export const IMPORT_SESSION_TERMINAL_OUTCOMES_VERSION = "v1";
 
 export class ImportMalformedResponseError extends Error {
   constructor() {
@@ -253,13 +254,66 @@ export async function cancelImportSession(
   return isViewRead(view) ? view : malformed();
 }
 
-export async function getFullImportSession(id: string, signal?: AbortSignal) {
-  const path = `/import-sessions/${enc(id)}?${IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY}=${IMPORT_SESSION_TERMINAL_OUTCOMES_VERSION}`;
-  return readImportWorkflowView(
-    signal
-      ? await api.get<unknown>(path, { signal })
-      : await api.get<unknown>(path),
+export type ImportTerminalOutcomesRead =
+  | ImportSessionTerminalOutcomesV1
+  | { support: "LEGACY_UNSUPPORTED"; outcomes: null };
+
+const getWithSignal = (path: string, signal?: AbortSignal) =>
+  signal ? api.get<unknown>(path, { signal }) : api.get<unknown>(path);
+
+async function readLegacyWorkflowSession(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ImportOcrSessionViewV1> {
+  const view = readImportWorkflowView(
+    await getWithSignal(`/import-sessions/${enc(id)}`, signal),
   );
+  if (view.id !== id) throw new ImportWorkflowResponseError();
+  return view;
+}
+
+export function getFullImportSession(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ImportTerminalOutcomesRead>;
+export function getFullImportSession(
+  id: string,
+  signal: AbortSignal | undefined,
+  mode: "WORKFLOW_VIEW",
+): Promise<ImportOcrSessionViewV1>;
+export async function getFullImportSession(
+  id: string,
+  signal?: AbortSignal,
+  mode?: "WORKFLOW_VIEW",
+): Promise<ImportTerminalOutcomesRead | ImportOcrSessionViewV1> {
+  const strictPath = `/import-sessions/${enc(id)}/terminal-outcomes-v1`;
+  let outcomes: ImportSessionTerminalOutcomesV1;
+  try {
+    outcomes = readImportTerminalOutcomes(
+      await getWithSignal(strictPath, signal),
+      id,
+    );
+  } catch (error) {
+    if (!(error instanceof ApiResponseError) || error.status !== 404)
+      throw error;
+    const legacy = await readLegacyWorkflowSession(id, signal);
+    return mode === "WORKFLOW_VIEW"
+      ? legacy
+      : { support: "LEGACY_UNSUPPORTED", outcomes: null };
+  }
+
+  if (mode !== "WORKFLOW_VIEW") return outcomes;
+
+  const legacy = await readLegacyWorkflowSession(id, signal);
+  if (legacy.revision !== outcomes.revision)
+    throw new ImportWorkflowResponseError();
+  return readImportWorkflowView({
+    ...legacy,
+    ocrCapability: {
+      ...legacy.ocrCapability,
+      terminalOutcomes: outcomes.outcomes,
+    },
+  });
 }
 
 export async function editImportSession(

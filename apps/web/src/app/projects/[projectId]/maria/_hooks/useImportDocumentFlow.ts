@@ -111,7 +111,7 @@ const newGeneration = (
 });
 
 const ocrCapabilityOf = (value: ImportSessionViewV1): OcrCapabilityV1 | null =>
-  value.ocrCapability ? (value.ocrCapability as OcrCapabilityV1) : null;
+  value.ocrCapability ?? null;
 
 /** Documentary coordinator only; server actions still own analysis eligibility. */
 export function useImportDocumentFlow(
@@ -204,7 +204,11 @@ export function useImportDocumentFlow(
       if (!sessionId) throw new ImportWorkflowResponseError();
       const previousRevision =
         client.getQueryData<ImportSessionViewV1>(key)?.revision;
-      const fresh = await getFullImportSession(sessionId, signal);
+      const fresh = await getFullImportSession(
+        sessionId,
+        signal,
+        "WORKFLOW_VIEW",
+      );
       signal.throwIfAborted();
       if (
         fresh.id !== generation.sessionId ||
@@ -341,7 +345,11 @@ export function useImportDocumentFlow(
     update({ pending: true });
     try {
       const fresh = sessionId
-        ? await getFullImportSession(sessionId, controller.signal)
+        ? await getFullImportSession(
+            sessionId,
+            controller.signal,
+            "WORKFLOW_VIEW",
+          )
         : await context?.recoverList();
       if (!active()) return;
       controller.signal.throwIfAborted();
@@ -850,7 +858,7 @@ export function useImportDocumentFlow(
 
   const projectedCapability = view ? ocrCapabilityOf(view) : null;
   const projectedTerminalPresentations =
-    projectedCapability?.terminalOutcomes.map(
+    projectedCapability?.terminalOutcomes?.map(
       (outcome): OcrUiPresentation => ({
         attachmentId: outcome.attachmentId,
         kind: outcome.code,
