@@ -8,9 +8,11 @@ import {
   PDF_OCR_CONSENT_PURPOSE,
   PDF_OCR_RETENTION_DAYS,
   PDF_OCR_VERSION,
+  PDF_OCR_DOCUMENT_VERSION,
   ExpenseType,
   ProjectType,
   type PdfOcrDocumentV2,
+  type PdfOcrDocumentV3,
 } from "@reformaflow/domain";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { ConciliacaoService } from "../../../conciliacao/conciliacao.service";
@@ -35,7 +37,7 @@ import {
   pdfOcrConsentQuestionId,
   pdfOcrRequestPayloadHash,
 } from "./pdf-ocr-state";
-import { parsePdfOcrV2 } from "./pdf-ocr-parser";
+import { parsePdfOcrV3 } from "./pdf-ocr-parser";
 import {
   PDF_OCR_DISPATCH_STATE,
   PdfOcrProviderError,
@@ -433,7 +435,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     ]);
     expect(artifact).toMatchObject({
       state: "EXTRACTED",
-      parserVersion: "card-vertex-ocr-v2",
+      parserVersion: "card-vertex-ocr-v3",
       extractionJson: expect.any(String),
     });
     expect(await exactFinancialSnapshot(prisma, owner.tenantId)).toEqual(
@@ -822,14 +824,14 @@ describe("POST attachment analyze v2 direct OCR", () => {
       model: PDF_OCR_MODEL_ID,
       ready: () => true,
       extractPdf: jest.fn().mockImplementation(async (request) => {
-        const current = provenanceDocument(
+        const strictV3 = provenanceDocument(
           owner.hash,
           request.requestId,
           "LOCAL_ADC",
           [],
         );
         return {
-          ...current,
+          ...strictV3,
           version: PDF_OCR_VERSION,
         } satisfies PdfOcrDocumentV2;
       }),
@@ -2760,8 +2762,11 @@ type AccountedCandidate = Readonly<{
   pageNumber: number;
   description: string | null;
   amountCents: string | null;
+  sign: "NEGATIVE" | "ZERO" | "POSITIVE" | "UNKNOWN";
   amountMeaning: "LINE_AMOUNT" | "UNKNOWN";
-  date: string | null;
+  dateText: string | null;
+  normalizedDate: string | null;
+  dateExplicitness: "FULL" | "YEARLESS" | "MISSING" | "UNKNOWN";
   installment: { index: number; total: number } | null;
   evidenceText: string;
 }>;
@@ -2800,16 +2805,19 @@ function document(
   hash: string,
   suffix: string,
   requestId: string,
-): PdfOcrDocumentV2 {
+): PdfOcrDocumentV3 {
   const evidenceText = "13/10/2026 MERCADO 10,01";
-  const parsed = parsePdfOcrV2(
+  const parsed = parsePdfOcrV3(
     completePayload([
       {
         pageNumber: 1,
         description: "MERCADO",
         amountCents: "1001",
+        sign: "POSITIVE",
         amountMeaning: "LINE_AMOUNT",
-        date: "2026-10-13",
+        dateText: "13/10/2026",
+        normalizedDate: "2026-10-13",
+        dateExplicitness: "FULL",
         installment: null,
         evidenceText,
       },
@@ -2842,10 +2850,12 @@ function document(
     },
   );
   if (!parsed.ok) throw new Error(parsed.error.code);
+  if (parsed.value.version !== PDF_OCR_DOCUMENT_VERSION)
+    throw new Error("STRICT_V3_FIXTURE_VERSION_INVALID");
   return parsed.value;
 }
 
-function allLinesDocument(hash: string, requestId: string): PdfOcrDocumentV2 {
+function allLinesDocument(hash: string, requestId: string): PdfOcrDocumentV3 {
   const rows = [
     ["PURCHASE", "12345", "01 PURCHASE 123,45"],
     [
@@ -2866,14 +2876,24 @@ function allLinesDocument(hash: string, requestId: string): PdfOcrDocumentV2 {
     ["EXACT DUPLICATE", "999", "13 EXACT DUPLICATE 9,99"],
     ["EXACT DUPLICATE", "999", "13 EXACT DUPLICATE 9,99"],
   ] as const;
-  const parsed = parsePdfOcrV2(
+  const parsed = parsePdfOcrV3(
     completePayload(
       rows.map(([description, amountCents, evidenceText]) => ({
         pageNumber: 1,
         description,
         amountCents,
+        sign:
+          amountCents === null
+            ? ("UNKNOWN" as const)
+            : BigInt(amountCents) < 0n
+              ? ("NEGATIVE" as const)
+              : BigInt(amountCents) > 0n
+                ? ("POSITIVE" as const)
+                : ("ZERO" as const),
         amountMeaning: amountCents === null ? "UNKNOWN" : "LINE_AMOUNT",
-        date: "2026-10-13",
+        dateText: "13/10/2026",
+        normalizedDate: "2026-10-13",
+        dateExplicitness: "FULL" as const,
         installment: null,
         evidenceText,
       })),
@@ -2907,6 +2927,8 @@ function allLinesDocument(hash: string, requestId: string): PdfOcrDocumentV2 {
     },
   );
   if (!parsed.ok) throw new Error(parsed.error.code);
+  if (parsed.value.version !== PDF_OCR_DOCUMENT_VERSION)
+    throw new Error("STRICT_V3_FIXTURE_VERSION_INVALID");
   return parsed.value;
 }
 
@@ -2918,8 +2940,11 @@ function provenanceDocument(
     pageNumber: number;
     description: string | null;
     amountCents: string | null;
+    sign: "NEGATIVE" | "ZERO" | "POSITIVE" | "UNKNOWN";
     amountMeaning: "LINE_AMOUNT" | "UNKNOWN";
-    date: string | null;
+    dateText: string | null;
+    normalizedDate: string | null;
+    dateExplicitness: "FULL" | "YEARLESS" | "MISSING" | "UNKNOWN";
     installment: { index: number; total: number } | null;
     evidenceText: string;
   }> = [
@@ -2927,14 +2952,17 @@ function provenanceDocument(
       pageNumber: 1,
       description: "PROVENANCE PURCHASE",
       amountCents: "20696",
+      sign: "POSITIVE",
       amountMeaning: "LINE_AMOUNT",
-      date: "2026-10-13",
+      dateText: "13/10/2026",
+      normalizedDate: "2026-10-13",
+      dateExplicitness: "FULL",
       installment: null,
       evidenceText: "13/10/2026 PROVENANCE PURCHASE 206,96",
     },
   ],
-): PdfOcrDocumentV2 {
-  const parsed = parsePdfOcrV2(completePayload(candidates), {
+): PdfOcrDocumentV3 {
+  const parsed = parsePdfOcrV3(completePayload(candidates), {
     artifactSha256: hash,
     pageCount: 1,
     requestId,
@@ -2962,6 +2990,8 @@ function provenanceDocument(
     },
   });
   if (!parsed.ok) throw new Error(parsed.error.code);
+  if (parsed.value.version !== PDF_OCR_DOCUMENT_VERSION)
+    throw new Error("STRICT_V3_FIXTURE_VERSION_INVALID");
   return parsed.value;
 }
 
