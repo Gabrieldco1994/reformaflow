@@ -8,9 +8,10 @@ Entrega [#689](https://github.com/Gabrieldco1994/reformaflow/issues/689):
 Reutiliza as PRs #687/#688, mergeadas na base `9587a19f`; este documento não
 comprova deploy. A verificação de toque também cobre a #662, sem encerrá-la por antecipação.
 
-**Recorte Maria no candidato exato
-`bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`:** a árvore contém a importação guiada
-CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da #719.
+**Recorte Maria no snapshot de implementação
+`6867ba991f4c39deb19bb48ead0cda62a2a9a131`:** a árvore contém a importação guiada
+CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da #719. A
+verdade de release será o HEAD corrente da PR `feat/719-final-ocr` quando ela for aberta.
 `881e9b5c` permanece apenas uma base histórica. OCR e vault estão OFF por padrão, e não há
 qualificação Vertex ao vivo; este documento não afirma merge, ativação, deploy, produção, Linux,
 Journey nem release. PNG/JPEG/WEBP, fotos e imagens avulsas continuam futuros e não são entregues
@@ -288,10 +289,10 @@ diretos. Estes locatores descrevem o candidato, não atestam merge, Linux, relea
 
 A métrica de projeção de contexto elegível do corpus puro cobre somente o
 resultado e a projeção de contexto do avaliador. Ela não comprova autenticação,
-isolamento de tenant, passagem pela API nem revalidação do servidor. O SHA inspecionado é
-`bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`; checks vivos ainda são necessários para
-qualquer decisão de merge/release, e o avaliador puro não concede autorização nem substitui essa
-evidência.
+isolamento de tenant, passagem pela API nem revalidação do servidor. O snapshot inspecionado é
+`6867ba991f4c39deb19bb48ead0cda62a2a9a131`; a decisão de merge/release usa o HEAD
+corrente da PR `feat/719-final-ocr` e seus checks vivos, e o avaliador puro não concede autorização
+nem substitui essa evidência.
 
 ## Apêndice histórico
 

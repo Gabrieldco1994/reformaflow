@@ -60,10 +60,11 @@ estar em andamento; ela não altera esta tela nem os contratos abaixo.
   `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (padrão desabilitado); ativação em produção não
   verificada. #456 permanece OPEN para o restante do escopo; `upcoming`/`top-suppliers` (#635) é
   follow-up separado.
-- Maria agent-first integral permanece FUTURO. O candidato exato
-  `bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf` contém o recorte M1/M2 de importação
+- Maria agent-first integral permanece FUTURO. O snapshot de implementação
+  `6867ba991f4c39deb19bb48ead0cda62a2a9a131` contém o recorte M1/M2 de importação
   CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da #719, com
-  consentimento documental separado de **Confirmar lote**. Isso não comprova merge, release,
+  consentimento documental separado de **Confirmar lote**. A verdade de release será o HEAD
+  corrente da PR `feat/719-final-ocr` quando ela for aberta. Isso não comprova merge, release,
   deploy, produção ou disponibilidade: vault e OCR permanecem OFF por padrão, e o OCR ainda exige
   a qualificação Vertex ao vivo e revisões finais do
   [runbook #732](732-direct-pdf-vertex-eval.md). PNG/JPEG/WEBP, fotos e imagens avulsas continuam

@@ -1,11 +1,12 @@
 # #732 — `ocr-synth-v1` scanned-PDF Vertex qualification
 
-Candidate reviewed: **`bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`**. The scanned-PDF OCR
-implementation and audited live-capture tooling exist in that exact tree, but
-`IMPORT_OCR_ENABLED` remains **OFF** and live qualification is still **GAPS (fail closed)**. This
-does not claim merge, deploy, production availability or rollout. The capture command does not
-enable OCR, use an application database, expose ingress, or write financial data. Ordinary CI
-still makes no Vertex call.
+Implementation snapshot reviewed: **`6867ba991f4c39deb19bb48ead0cda62a2a9a131`**. The
+scanned-PDF OCR implementation and audited live-capture tooling exist in that code snapshot. The
+release source of truth will be the current `feat/719-final-ocr` PR head once opened, not a
+self-referential documentation commit. `IMPORT_OCR_ENABLED` remains **OFF** and live qualification
+is still **GAPS (fail closed)**. This does not claim merge, deploy, production availability or
+rollout. The capture command does not enable OCR, use an application database, expose ingress, or
+write financial data. Ordinary CI still makes no Vertex call.
 
 ## User promise and safety boundary
 
@@ -210,23 +211,38 @@ opens only `~/.config/gcloud/application_default_credentials.json`, requires the
 host overrides and every fallback. A local run records `LOCAL_ADC` and is diagnostic only; it
 cannot satisfy the production-auth gate.
 
-Run capture from a clean checkout at the manifest's exact `candidateSha`. The first argument is the
-new evidence output; the second is the audited manifest. The only cloud configuration is ADC plus
-the project environment variable; endpoint, region and model are fixed in the production adapter.
-A production-qualifying run requires the fixed service-account file mounted at
-`/secrets/vertex-sa.json`; it records `SERVICE_ACCOUNT_FILE_ADC` on all 18 requests. The runtime
-parser accepts `LOCAL_ADC` for local diagnostics, but such a capture remains GAPS and cannot prove
-production authentication. Legacy undifferentiated `ADC_OAUTH` evidence is rejected.
+Run capture from a clean checkout at the current tested PR head. The operator must supply that full
+SHA as `CANDIDATE_SHA`; it must equal both Git `HEAD` and the audited manifest's exact
+`candidateSha`. Never copy the implementation snapshot above into a future run by default. The
+first argument is the new evidence output; the second is the audited manifest. The only cloud
+configuration is ADC plus the project environment variable; endpoint, region and model are fixed
+in the production adapter. A production-qualifying run requires the fixed service-account file
+mounted at `/secrets/vertex-sa.json`; it records `SERVICE_ACCOUNT_FILE_ADC` on all 18 requests.
+The runtime parser accepts `LOCAL_ADC` for local diagnostics, but such a capture remains GAPS and
+cannot prove production authentication. Legacy undifferentiated `ADC_OAUTH` evidence is rejected.
 
 ```bash
+cd /absolute/path/to/reformaflow
+CANDIDATE_SHA='<tested-current-feat-719-final-ocr-pr-head>'
+MANIFEST='/absolute/path/ocr-live-manifest.json'
+EVIDENCE='/absolute/path/ocr-live-evidence.json'
+test -n "$CANDIDATE_SHA" &&
+  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA" ||
+  { printf '%s\n' 'CANDIDATE_SHA does not match HEAD' >&2; exit 1; }
+node -e '
+  const fs = require("node:fs");
+  const [manifestPath, expectedSha] = process.argv.slice(1);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (manifest.candidateSha !== expectedSha) process.exit(1);
+' "$MANIFEST" "$CANDIDATE_SHA"
 cd apps/api
 IMPORT_OCR_ENABLED=true \
 NODE_ENV=production \
 VERTEX_AUTH_MODE=service-account-file \
 GOOGLE_CLOUD_PROJECT='<approved-project>' \
   npx ts-node src/imports/ocr-synth-v1/capture-live.ts \
-  /absolute/path/ocr-live-evidence.json \
-  /absolute/path/ocr-live-manifest.json
+  "$EVIDENCE" \
+  "$MANIFEST"
 ```
 
 For non-qualifying local diagnostics only, use `NODE_ENV=development` and
@@ -269,10 +285,10 @@ evidence and does not contain a second provider implementation.
 ```text
 ## AI Quality Report
 GAPS
-- surface/model: Maria scanned/image-only PDF OCR; fixed regional Vertex gemini-2.5-flash; implementation present at bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf but OCR OFF and production live run absent
+- surface/model: Maria scanned/image-only PDF OCR; fixed regional Vertex gemini-2.5-flash; implementation snapshot 6867ba991f4c39deb19bb48ead0cda62a2a9a131, release truth at current PR head, OCR OFF and production live run absent
 - eval set: ocr-synth-v1-direct-pdf-vertex-v3; quality n=18 scanned PDFs (1..10); routing safety n=10 mixed/searchable; 12 image files future
 - baseline: 08d19d11638a55e14ce73a6bf472894174c66389; 18/18 scanned fixtures exercise the real local parser seam and return OCR_REQUIRED
-- candidate: exact reviewed tree bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf; no qualifying manifest pins, provider modelVersion, real adapter trace, response IDs, 18-case live quality results or 10-case real routing results
+- candidate: no operator-supplied tested CANDIDATE_SHA/current PR-head manifest, provider modelVersion, real adapter trace, response IDs, 18-case live quality results or 10-case real routing results
 - regressions: deterministic mutations cover readable finance, UNKNOWN/evidence/schema, routing/config/auth/bounds, failures/retry, durable budgets, purge, tenant, consent/attestation and writes
 - safety/privacy: synthetic minimized corpus; ordinary CI has zero provider calls/writes; real service-seam and tenant evidence still missing
 - cost/latency: missing dated Vertex prices/source, durable budget policy, declared body/deadline/cost/p95 limits, and measured per-case usage/cost/latency/RSS

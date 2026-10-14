@@ -369,11 +369,13 @@ crescente. Projetos excluídos ou fora do escopo de `recurringBills` não partic
 da escolha. O critério não depende da ordem de inserção nem do índice do banco.
 
 - **Importação guiada de fatura na Maria (#711/#718/#719):** o comportamento descrito está no
-  candidato exato `bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`; `881e9b5c` foi apenas
-  uma base histórica. O candidato contém CSV/PDF textual (#718) e a implementação de OCR para PDF
-  integralmente digitalizado (#719), mas isso não significa merge, vault/OCR ON, deploy ou
-  disponibilidade em produção. A ativação exige primeiro um deploy do SHA aprovado inteiramente
-  verde e depois uma operação separada, autorizada e executada por `platform-sre`
+  snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131`; `881e9b5c`
+  foi apenas uma base histórica. A verdade de release será o HEAD corrente da PR
+  `feat/719-final-ocr` quando ela for aberta. O snapshot contém CSV/PDF textual (#718) e a
+  implementação de OCR para PDF integralmente digitalizado (#719), mas isso não significa merge,
+  vault/OCR ON, deploy ou disponibilidade em produção. A ativação exige primeiro um deploy do SHA
+  aprovado inteiramente verde e depois uma operação separada, autorizada e executada por
+  `platform-sre`
   conforme o [runbook do vault](../deploy/vault-startup/README.md#separate-activation-sequence).
   Nenhum verificador pode ativá-lo. Este manual não declara ativação, jornada
   Linux de produção nem gate de release aprovado.

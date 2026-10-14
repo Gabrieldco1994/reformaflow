@@ -136,9 +136,10 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
   aceitação explícita de risco residual pelo data owner; este release não cria raster derivado
   local.
 
-O candidato exato `bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf` contém os caminhos de
-CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da #719. OCR e
-vault permanecem OFF por padrão; não há qualificação Vertex ao vivo nem afirmação de merge,
+O snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131` contém os
+caminhos de CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da
+#719. A verdade de release será o HEAD corrente da PR `feat/719-final-ocr` quando ela for aberta.
+OCR e vault permanecem OFF por padrão; não há qualificação Vertex ao vivo nem afirmação de merge,
 deploy, produção ou disponibilidade. A liberação da #719 exige o runbook
 [`732-direct-pdf-vertex-eval.md`](732-direct-pdf-vertex-eval.md): 18/18 scans, 10/10 rotas
 mistos/pesquisáveis sem chamada, 35/35 probes de serviço, documento denso de 24 linhas,

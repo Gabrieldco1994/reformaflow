@@ -17,13 +17,14 @@ inventário de módulos**. Os mapas vivos e autoritativos são
 | **PLANTAS** | Cuidado de plantas                           |
 
 Inclui a assistente **Maria** (consultas, lançamento de despesas por voz e TTS
-via VibeVoice) e um motor de cronograma com gráfico de Gantt. O candidato exato
-`bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf` contém a importação guiada de
-faturas por CSV/PDF textual da #718 e a implementação da #719 para OCR de PDF
-integralmente digitalizado. O OCR permanece **OFF**, pendente da qualificação
-Vertex ao vivo e dos gates de release; este status não afirma merge, deploy,
-produção ou disponibilidade. PNG/JPEG/WEBP, fotos e imagens avulsas continuam
-futuros e não são entregues pela #719.
+via VibeVoice) e um motor de cronograma com gráfico de Gantt. O snapshot de
+implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131` contém a importação
+guiada de faturas por CSV/PDF textual da #718 e a implementação da #719 para OCR
+de PDF integralmente digitalizado. A verdade de release será o HEAD corrente da
+PR `feat/719-final-ocr` quando ela for aberta. O OCR permanece **OFF**, pendente
+da qualificação Vertex ao vivo e dos gates de release; este status não afirma
+merge, deploy, produção ou disponibilidade. PNG/JPEG/WEBP, fotos e imagens
+avulsas continuam futuros e não são entregues pela #719.
 
 ## Stack
 

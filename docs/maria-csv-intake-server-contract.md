@@ -1,12 +1,13 @@
 # Maria CSV — contrato delimitado do servidor
 
-**Estado no candidato exato `bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`: o comportamento
-CSV/PDF textual da #718 está presente na árvore; merge, ativação, produção, jornadas
-Linux/Journey e release não são afirmados aqui.** `881e9b5c` foi uma base histórica. O candidato
-também contém a implementação separada da #719 para PDF integralmente digitalizado, ainda OFF e
-sem qualificação Vertex ao vivo; isso não amplia este contrato de intake textual nem entrega
-PNG/JPEG/WEBP, fotos ou imagens avulsas. O documento define o contrato do candidato, não
-capacidades implantadas.
+**No snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131`, o
+comportamento CSV/PDF textual da #718 está presente na árvore; merge, ativação, produção, jornadas
+Linux/Journey e release não são afirmados aqui.** A verdade de release será o HEAD corrente da PR
+`feat/719-final-ocr` quando ela for aberta. `881e9b5c` foi uma base histórica. O snapshot também
+contém a implementação separada da #719 para PDF integralmente digitalizado, ainda OFF e sem
+qualificação Vertex ao vivo; isso não amplia este contrato de intake textual nem entrega
+PNG/JPEG/WEBP, fotos ou imagens avulsas. O documento define o contrato do snapshot, não capacidades
+implantadas.
 O [ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711) é a referência de
 aceite; o contrato prospectivo M1/M2 já aprovado não comprova entrega funcional.
 
@@ -172,10 +173,10 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
 
 ## Referência de implementação
 
-O candidato exato `bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf` contém o subsistema
-import-session e os controles determinísticos descritos aqui. Isso identifica o comportamento
-inspecionado, sem afirmar merge, ativação, jornada Linux, release ou produção. Locatores
-principais:
+O snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131` contém o
+subsistema import-session e os controles determinísticos descritos aqui. A verdade de release será
+o HEAD corrente da PR `feat/719-final-ocr` quando ela for aberta. Isso identifica o comportamento
+inspecionado, sem afirmar merge, ativação, jornada Linux, release ou produção. Locatores principais:
 
 - contrato wire: `packages/domain/src/import-session.ts` e
   `packages/domain/src/import-focused-answer.ts`;
@@ -337,8 +338,8 @@ financeiros antes da confirmação.
 
 A métrica de projeção de contexto elegível do corpus puro mede somente o resultado
 e a projeção de contexto do avaliador. Ela não prova autenticação, isolamento de
-tenant, passagem pela API nem revalidação do servidor. O SHA inspecionado é o candidato exato
-acima; checks vivos ainda são necessários para qualquer decisão de merge/release, e o avaliador
+tenant, passagem pela API nem revalidação do servidor. O SHA inspecionado é o snapshot acima; o
+HEAD corrente da PR e seus checks vivos governam qualquer decisão de merge/release, e o avaliador
 puro não concede autorização nem substitui essa evidência.
 
 Na UI, voz apenas fornece a transcrição ao parser determinístico e abre a mesma prévia manual.
@@ -356,7 +357,7 @@ lê o estado/recibo autorizado. Nenhum deles confirma. Challenge, confirmação 
 autenticada e execução permanecem ações separadas. O vault OFF por padrão e a retenção de sete
 dias sem edição permanecem exatamente como definidos acima.
 
-Não existe arquitetura contextual de importação no candidato exato acima: o contrato público
+Não existe arquitetura contextual de importação no snapshot acima: o contrato público
 contextual, seus leitores/cópias na UI, portas de texto livre e aprovação de escopo foram
 removidos. A Maria genérica detecta deterministicamente apenas o pedido inicial e pode devolver
 `START_CARD_INVOICE_IMPORT` com os formatos habilitados antes de consultar provider; isso não é

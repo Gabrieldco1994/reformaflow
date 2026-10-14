@@ -86,11 +86,12 @@ deve ser regular, não symlink, `<=64 KiB` e owner-only. Projeto, e-mail canôni
 URI são conferidos antes do provider ficar pronto. Nunca copie o JSON para volume, imagem, log,
 issue ou PR.
 
-No candidato `bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`, o `apps/api/fly.toml`
-**intencionalmente não inclui** o file mount: a referência a um secret inexistente pode impedir o
-deploy mesmo com OCR desabilitado. Primeiro crie `VERTEX_SA_KEY` no app pelo canal privado do Fly
-(valor = conteúdo integral do JSON; não o imprima). Somente depois, em uma mudança operacional
-coordenada, adicione:
+No snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131`, o
+`apps/api/fly.toml` **intencionalmente não inclui** o file mount: a referência a um secret
+inexistente pode impedir o deploy mesmo com OCR desabilitado. Para release, confira o HEAD corrente
+da PR `feat/719-final-ocr`, não este snapshot histórico. Primeiro crie `VERTEX_SA_KEY` no app pelo
+canal privado do Fly (valor = conteúdo integral do JSON; não o imprima). Somente depois, em uma
+mudança operacional coordenada, adicione:
 
 ```toml
 [[files]]
