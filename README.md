@@ -7,20 +7,23 @@ inventário de módulos**. Os mapas vivos e autoritativos são
 [`type-modules.ts`](./packages/domain/src/config/type-modules.ts) e
 [`module-navigator.ts`](./packages/domain/src/config/module-navigator.ts).
 
-| Tipo | Foco |
-|---|---|
-| **REFORMA** | Obra/renovação |
-| **COMPRA** | Aquisição de imóvel |
-| **CASA** | Casa em andamento |
-| **CARRO** | Veículo |
-| **PESSOAL** | Controlador universal de caixa (o *Cockpit*) |
-| **PLANTAS** | Cuidado de plantas |
+| Tipo        | Foco                                         |
+| ----------- | -------------------------------------------- |
+| **REFORMA** | Obra/renovação                               |
+| **COMPRA**  | Aquisição de imóvel                          |
+| **CASA**    | Casa em andamento                            |
+| **CARRO**   | Veículo                                      |
+| **PESSOAL** | Controlador universal de caixa (o _Cockpit_) |
+| **PLANTAS** | Cuidado de plantas                           |
 
 Inclui a assistente **Maria** (consultas, lançamento de despesas por voz e TTS
-via VibeVoice) e um motor de cronograma com gráfico de Gantt. O candidato
-integrado #718 acrescenta importação guiada de faturas por CSV e PDF textual;
-merge, ativação e produção ainda não foram verificados, e scans, fotos ou PDFs
-com raster continuam fora do recorte até a qualificação de OCR da #719.
+via VibeVoice) e um motor de cronograma com gráfico de Gantt. O candidato exato
+`bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf` contém a importação guiada de
+faturas por CSV/PDF textual da #718 e a implementação da #719 para OCR de PDF
+integralmente digitalizado. O OCR permanece **OFF**, pendente da qualificação
+Vertex ao vivo e dos gates de release; este status não afirma merge, deploy,
+produção ou disponibilidade. PNG/JPEG/WEBP, fotos e imagens avulsas continuam
+futuros e não são entregues pela #719.
 
 ## Stack
 

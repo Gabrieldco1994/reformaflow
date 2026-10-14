@@ -368,10 +368,11 @@ mais antigo daquele tipo (`createdAt` crescente), com desempate pelo `id`
 crescente. Projetos excluídos ou fora do escopo de `recurringBills` não participam
 da escolha. O critério não depende da ordem de inserção nem do índice do banco.
 
-- **Importação guiada de fatura na Maria (#711/#718):** o comportamento descrito
-  foi integrado em `main`; `881e9b5c` foi apenas uma base histórica. Integração,
-  PR de verificador e CI não significam vault ON nem disponibilidade em produção.
-  A ativação exige primeiro um deploy corrigido do SHA exato de `main` inteiramente
+- **Importação guiada de fatura na Maria (#711/#718/#719):** o comportamento descrito está no
+  candidato exato `bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`; `881e9b5c` foi apenas
+  uma base histórica. O candidato contém CSV/PDF textual (#718) e a implementação de OCR para PDF
+  integralmente digitalizado (#719), mas isso não significa merge, vault/OCR ON, deploy ou
+  disponibilidade em produção. A ativação exige primeiro um deploy do SHA aprovado inteiramente
   verde e depois uma operação separada, autorizada e executada por `platform-sre`
   conforme o [runbook do vault](../deploy/vault-startup/README.md#separate-activation-sequence).
   Nenhum verificador pode ativá-lo. Este manual não declara ativação, jornada
@@ -388,6 +389,7 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   e do servidor processam o documento; nenhum documento é enviado a LLM ou OCR.
   Se o vault estiver OFF ou falhar nas verificações privadas de inicialização, a
   entrada permanece indisponível; este fluxo não liga o vault nem altera sua política.
+  PNG/JPEG/WEBP, fotos e imagens avulsas não são formatos entregues pela #719; permanecem futuros.
   Na primeira versão, somente um PDF que a inspeção validada confirme como
   totalmente digitalizado, composto apenas por imagens e sem texto pesquisável,
   pode receber `OCR_REQUIRED` e oferecer leitura externa. A capability
@@ -400,15 +402,19 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   não para classificação financeira, e pede autorização explícita válida
   somente para aquele documento. A decisão do data owner aceita expressamente
   o risco residual desse envio e não autoriza criar silenciosamente uma derivada
-  raster local. Todo o conteúdo enviado externamente — o PDF original completo,
-  incluindo metadados e conteúdo potencialmente não visível ou incorporado —,
-  o resultado e a evidência do OCR são mantidos externamente por no máximo sete
-  dias corridos contados da tentativa, independentemente de edição ou prorrogação
-  da sessão. Separadamente, o PDF original privado no ReformaFlow segue a política
-  de retenção local da sessão e do cofre privado (vault) e pode ser liberado antes
+  raster local. O conteúdo OCR derivado do PDF original completo, o resultado e
+  a evidência tornam-se ilegíveis no limite absoluto
+  `ImportOcrUsage.createdAt + 7 × 24 horas`. Toda leitura/escrita relevante
+  aplica a barreira antes de responder, mesmo se o cron atrasar; edição, consulta
+  e extensão da sessão não renovam o prazo. Separadamente, o PDF privado no
+  ReformaFlow segue a retenção local da sessão/vault e pode ser liberado antes
   ao concluir/cancelar quando não houver outra referência autorizada. A retenção
-  local não reinicia nem estende o prazo externo. A auditoria mínima de
-  consentimento e provedor permanece. A tela só oferece consentimento
+  local não reinicia nem estende o limite OCR. Sobrevive apenas
+  auditoria/proveniência não-conteúdo: consentimento, modelo configurado,
+  `modelVersion` do provedor, região, `authTrace`, correlação, contadores,
+  resultado e instante da limpeza. Não sobrevivem PDF/base64 legível,
+  texto/evidência extraído, corpo/erro bruto, token, secret, chave ou documento
+  de credencial. A tela só oferece consentimento
   quando a capability explícita da sessão está `AVAILABLE` e lista aquele anexo
   como elegível; estados `DISABLED`/`UNAVAILABLE` e anexos não inspecionados não
   exibem a autorização. Ao
@@ -439,8 +445,10 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   financeira. Se `IMPORT_OCR_ENABLED` estiver desligada, indisponível ou sem
   anexo elegível na capability, não há falsa ativação; permanece o fallback para
   PDF textual/CSV ou cancelamento. O OCR fica OFF até os gates de runtime e as
-  revisões finais. A qualificação e o rollout seguros seguem acompanhados
-  separadamente pela #719 e não ampliam retroativamente a entrega #718. PDFs
+  revisões finais. A qualificação exige 18/18 scans ao vivo, 10/10 casos
+  mistos/pesquisáveis sem chamada, 35/35 probes de serviço, o caso denso de 24 linhas,
+  `finishReason=STOP`, `maxOutputTokens=8192`, autenticação de produção e aprovações finais. Isso
+  não amplia retroativamente a entrega #718. PDFs
   protegidos por senha ou ilegíveis bloqueiam a análise, sem confirmação
   financeira.
   Nas compras, datas `D/M/AAAA` ou `AAAA-MM-DD` são aceitas; `D/M` sem ano exige

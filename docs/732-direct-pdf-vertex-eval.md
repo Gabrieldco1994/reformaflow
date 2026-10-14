@@ -1,8 +1,11 @@
 # #732 — `ocr-synth-v1` scanned-PDF Vertex qualification
 
-Status: **audited live-capture tooling available; GAPS (fail closed) until a qualifying run**. The
-capture command does not enable OCR, use an application database, expose ingress, or write
-financial data. Ordinary CI still makes no Vertex call.
+Candidate reviewed: **`bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`**. The scanned-PDF OCR
+implementation and audited live-capture tooling exist in that exact tree, but
+`IMPORT_OCR_ENABLED` remains **OFF** and live qualification is still **GAPS (fail closed)**. This
+does not claim merge, deploy, production availability or rollout. The capture command does not
+enable OCR, use an application database, expose ingress, or write financial data. Ordinary CI
+still makes no Vertex call.
 
 ## User promise and safety boundary
 
@@ -41,9 +44,20 @@ merge or reinterpret a line based on whether it resembles a purchase, payment, c
 There is no local raster sandbox, image conversion, Files API/file URI, context cache, tools, API
 key, global endpoint, provider/model fallback, or retry after timeout/UNKNOWN outcome. Partial,
 malformed, truncated, safety-blocked and timeout responses are explicit typed failures, never
-success-shaped empty data. OCR candidates/evidence in active sessions are purged after seven days
-without extending the boundary when the session expiry changes. Tenant/global cost budgets are durable,
-and tenant identity or response evidence cannot be reused.
+success-shaped empty data. The absolute content deadline is
+`ImportOcrUsage.createdAt + 7 × 24 hours`: on every relevant session read/write, the request-time
+fence removes or scrubs the complete OCR result and evidence before returning data, independently
+of the periodic reaper and without extension from edits, polling or a later session expiry.
+Completion/cancellation and vault reference release may make the local original, result and
+evidence unreadable earlier. Local session/vault retention is a separate policy and never resets
+or extends the OCR deadline.
+
+After content purge, durable non-content audit/provenance remains: consent and purpose, configured
+model, provider `modelVersion`, region, `authTrace`, request/response correlation, usage/cost
+counters, outcome, artifact hash and purge timestamp. It must not retain readable PDF bytes,
+base64, extracted line text, candidate evidence, raw provider body/error, access/refresh tokens,
+client secrets, private keys or credential documents. Tenant/global cost budgets are durable, and
+tenant identity or response evidence cannot be reused.
 
 This preserves the canonical boundary in [`docs/maria-ia.md`](maria-ia.md): OCR is preview-only,
 ambiguity remains pending, confirmation is explicit, retries cannot duplicate writes, and model
@@ -60,7 +74,7 @@ Live inventory: `apps/api/src/imports/ocr-synth-v1/ground-truth.json`.
 - **routing safety denominator: 10 mixed/searchable PDFs**, including raster-logo and hidden-text
   variants; every case requires zero provider calls;
 - 12 generated PNG/JPEG/WEBP cases remain future inventory and do not enter quality, routing,
-  cost, latency or release scoring;
+  cost, latency or release scoring. Photo/image-file ingestion is not delivered by #719;
 - invalid/provider/adversarial fixtures remain deterministic support data. Service behavior is
   release-scored through the 35-probe matrix.
 
@@ -113,6 +127,12 @@ Durable budget evidence pins a database-backed policy SHA and tenant/global limi
 counters do not satisfy the gate. Active-session purge and exact consent capability are tested
 before provider admission. Release also requires pinned Security, Privacy and data-owner final
 review evidence; capability remains OFF while any live gate or final review is absent.
+
+Durable runtime provenance records the configured model (`model`), the opaque provider-returned
+`modelVersion`, fixed region and admitted `authTrace` for every successful usage. The session view
+shows those four fields only while the content is live and cross-checks them against the durable
+usage row; it never reconstructs missing provenance. Purge removes readable candidate content and
+evidence but preserves the non-content usage/audit record described above.
 
 ## Pre-declared release thresholds
 
@@ -169,6 +189,27 @@ calls, zero OCR-usage rows and zero financial writes. Probe rows must likewise c
 unknown-enum, byte-bearing, offline-oracle, cross-tenant, stale-hash, or incomplete evidence before
 the first provider request.
 
+### Authentication decision and prerequisites
+
+Workload Identity Federation (WIF) was evaluated and deferred. The supported
+`google-auth-library` STS exchange path does not expose the required explicit per-exchange
+timeout/cancellation and no-retry control needed to preserve the pre-dispatch/unknown-dispatch
+boundary. `fly-wif` is therefore rejected rather than silently degrading that contract.
+
+The selected production fallback is exactly one dedicated service-account credential
+`reformaflow-ocr@<GOOGLE_CLOUD_PROJECT>.iam.gserviceaccount.com`, read only from the fixed
+Fly secret-file path `/secrets/vertex-sa.json`. There is no ambient ADC discovery or credential
+fallback. The candidate's `apps/api/fly.toml` intentionally has **no** `[[files]]` mount: first
+create the private Fly secret, then add the fixed mount in a separately reviewed operational
+change. OCR must stay OFF until both exist and all release gates pass.
+
+Local qualification is deterministic rather than ambient: `VERTEX_AUTH_MODE=local-adc` securely
+opens only `~/.config/gcloud/application_default_credentials.json`, requires the exact
+`authorized_user` shape and owner-only file, and passes the admitted in-memory values directly to
+`GoogleAuth`. It rejects API keys, `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_CONFIG`, metadata
+host overrides and every fallback. A local run records `LOCAL_ADC` and is diagnostic only; it
+cannot satisfy the production-auth gate.
+
 Run capture from a clean checkout at the manifest's exact `candidateSha`. The first argument is the
 new evidence output; the second is the audited manifest. The only cloud configuration is ADC plus
 the project environment variable; endpoint, region and model are fixed in the production adapter.
@@ -189,14 +230,9 @@ GOOGLE_CLOUD_PROJECT='<approved-project>' \
 ```
 
 For non-qualifying local diagnostics only, use `NODE_ENV=development` and
-`VERTEX_AUTH_MODE=local-adc`. The API securely reads only
-`~/.config/gcloud/application_default_credentials.json` as an owner-only regular
-`authorized_user` file and passes the admitted in-memory credentials directly to
-GoogleAuth. Production accepts only `/secrets/vertex-sa.json` for
-`reformaflow-ocr@<GOOGLE_CLOUD_PROJECT>.iam.gserviceaccount.com`. Do not set an
-API key, `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_CONFIG`, or a metadata-host
-override. There is no auth fallback: missing or invalid credentials stop before
-the first provider call, and a token failure remains `NOT_DISPATCHED`.
+`VERTEX_AUTH_MODE=local-adc` as constrained above. Production accepts only the fixed secret file
+and exact dedicated principal. There is no auth fallback: missing or invalid credentials stop
+before the first provider call, and a token failure remains `NOT_DISPATCHED`.
 
 The command generates only the in-repository synthetic `scan-001` through `scan-018` PDFs in
 memory, hashes and admits all of them before dispatch, then calls
@@ -233,10 +269,10 @@ evidence and does not contain a second provider implementation.
 ```text
 ## AI Quality Report
 GAPS
-- surface/model: Maria scanned/image-only PDF OCR; fixed regional Vertex gemini-2.5-flash; production candidate/live run absent
+- surface/model: Maria scanned/image-only PDF OCR; fixed regional Vertex gemini-2.5-flash; implementation present at bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf but OCR OFF and production live run absent
 - eval set: ocr-synth-v1-direct-pdf-vertex-v3; quality n=18 scanned PDFs (1..10); routing safety n=10 mixed/searchable; 12 image files future
 - baseline: 08d19d11638a55e14ce73a6bf472894174c66389; 18/18 scanned fixtures exercise the real local parser seam and return OCR_REQUIRED
-- candidate: no candidate/config/adapter/prompt SHA, model version, real adapter trace, response IDs, 18-case live quality results or 10-case real routing results
+- candidate: exact reviewed tree bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf; no qualifying manifest pins, provider modelVersion, real adapter trace, response IDs, 18-case live quality results or 10-case real routing results
 - regressions: deterministic mutations cover readable finance, UNKNOWN/evidence/schema, routing/config/auth/bounds, failures/retry, durable budgets, purge, tenant, consent/attestation and writes
 - safety/privacy: synthetic minimized corpus; ordinary CI has zero provider calls/writes; real service-seam and tenant evidence still missing
 - cost/latency: missing dated Vertex prices/source, durable budget policy, declared body/deadline/cost/p95 limits, and measured per-case usage/cost/latency/RSS

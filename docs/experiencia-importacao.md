@@ -8,13 +8,13 @@ Entrega [#689](https://github.com/Gabrieldco1994/reformaflow/issues/689):
 Reutiliza as PRs #687/#688, mergeadas na base `9587a19f`; este documento não
 comprova deploy. A verificação de toque também cobre a #662, sem encerrá-la por antecipação.
 
-**Recorte Maria na árvore candidata atual da #718:** o comportamento descrito está
-presente na árvore; `881e9b5c` foi uma base histórica de implementação, não o
-candidato final atual. Antes de merge ou release, o SHA exato da composição final
-**MUST** ser atestado por checks externos correspondentes da PR #718; enquanto eles
-não corresponderem ao SHA final, esta documentação não o atesta nem fixa um SHA
-final futuro ou circular. Merge, ativação, produção, Linux, Journey e release não
-são inferidos desta documentação. O recorte de
+**Recorte Maria no candidato exato
+`bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`:** a árvore contém a importação guiada
+CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da #719.
+`881e9b5c` permanece apenas uma base histórica. OCR e vault estão OFF por padrão, e não há
+qualificação Vertex ao vivo; este documento não afirma merge, ativação, deploy, produção, Linux,
+Journey nem release. PNG/JPEG/WEBP, fotos e imagens avulsas continuam futuros e não são entregues
+pela #719. O recorte de
 [importação conversacional](#importação-conversacional-na-maria) é separado da entrega #689.
 Não libera todo E5, não dispensa H1–H5 e não comprova disponibilidade ou deploy.
 
@@ -159,9 +159,17 @@ daquela entrega.
 > Apenas PDF integralmente raster, sem qualquer texto pesquisável e com 1–10
 > páginas observadas, pode, depois da ativação, enviar uma
 > única vez os bytes imutáveis de `application/pdf` ao Vertex regional
-> `southamerica-east1`, modelo fixo `gemini-2.5-flash`, via ADC. Não há API key,
+> `southamerica-east1`, modelo fixo `gemini-2.5-flash`, via uma fonte explícita. Em produção,
+> aceita-se somente o principal
+> `reformaflow-ocr@<GOOGLE_CLOUD_PROJECT>.iam.gserviceaccount.com` no arquivo fixo
+> `/secrets/vertex-sa.json`; o `apps/api/fly.toml` do candidato ainda não possui esse mount,
+> intencionalmente, até o secret existir. Localmente, aceita-se somente o arquivo owner-only
+> `~/.config/gcloud/application_default_credentials.json` no shape `authorized_user` gerado pelo
+> gcloud, sem descoberta ambiente. Não há API key,
 > Developer API, região global, renderização local, File API, cache, tools,
-> grounding ou fallback. A falha sanitizada do adapter carrega a fronteira
+> grounding ou fallback. WIF foi avaliado e adiado porque o caminho STS suportado por
+> `google-auth-library` não fornece o controle explícito de timeout/cancelamento e ausência de retry
+> exigido para esta fronteira. A falha sanitizada do adapter carrega a fronteira
 > imutável `NOT_DISPATCHED` ou `DISPATCHED_OR_UNKNOWN`. Erro de validação,
 > ADC ou cancelamento antes de invocar `fetch` é reconciliado como
 > `NOT_DISPATCHED`/`OCR_UNAVAILABLE`; rede, timeout, 429 e demais respostas HTTP
@@ -173,9 +181,18 @@ daquela entrega.
 > Candidatos entram não selecionados e `UNVERIFIED`; preparar uma linha
 > escolhida exige declarações documentais atuais. Evidência mínima e origem
 > permanecem visíveis ao retomar a sessão, vinculadas ao anexo, artefato e
-> candidato; conteúdo OCR é eliminado após sete dias mesmo se a expiração da
-> sessão for prorrogada. Reservas diárias duráveis limitam chamadas, páginas,
-> bytes e unidades de tokens por pessoa, tenant e globalmente. Indisponibilidade
+> candidato. O conteúdo OCR derivado do PDF original completo, o resultado e a evidência OCR
+> tornam-se ilegíveis no limite absoluto `ImportOcrUsage.createdAt + 7 × 24 horas`. Toda
+> leitura/escrita relevante aplica essa barreira antes de responder, independentemente do cron;
+> edição, polling e extensão da sessão não renovam o prazo. Conclusão/cancelamento ou liberação da
+> referência local do vault podem apagar antes. O original privado no vault segue a retenção local
+> separada da sessão; ela pode soltá-lo antes e nunca renova nem torna novamente legível o conteúdo
+> OCR após o limite. Permanecem somente auditoria/proveniência não-conteúdo duráveis:
+> consentimento, modelo configurado, `modelVersion` do provedor, região, `authTrace`, correlação,
+> contadores, resultado e instante da limpeza. Não permanecem bytes/base64 do PDF, texto ou
+> evidência extraídos, resposta/erro bruto, token, secret, chave ou documento de credencial.
+> Reservas diárias duráveis limitam chamadas, páginas, bytes e unidades de tokens por pessoa,
+> tenant e globalmente. Indisponibilidade
 > antes da chamada, bloqueio de segurança/resposta inválida e resultado
 > desconhecido sem repetição são erros distintos e orientam entrada manual,
 > substituição ou cancelamento; nenhum deles grava finanças. O modelo apenas
@@ -191,10 +208,13 @@ daquela entrega.
 > validado pela aplicação, sem FK própria. Fixtures cobrem banco novo, upgrade
 > legado populado e rejeição de órfão/cross-tenant. A decisão do data owner aceita
 > explicitamente o risco residual do transporte do original completo e rejeita
-> rasterização local silenciosa neste release. A ativação ainda exige avaliação
-> ao vivo de documento denso com 24 linhas, `STOP`, envelope de 8k tokens,
-> aprovação do provedor e revisões finais. O código não comprova rollout,
-> aprovação do fornecedor nem disponibilidade em produção.
+> rasterização local silenciosa neste release. A ativação ainda exige uma captura real única dos
+> 18 scans, com 18/18 de qualidade, 10/10 casos mistos/pesquisáveis sem chamada, 35/35 probes de
+> serviço, documento denso com 24 linhas, `finishReason=STOP`, `maxOutputTokens=8192`, limites
+> pré-declarados de custo/latência/RSS, autenticação `SERVICE_ACCOUNT_FILE_ADC`, aprovação do
+> provedor e revisões finais de Security, Privacy e data owner. O código não comprova rollout,
+> aprovação do fornecedor nem disponibilidade em produção; qualquer evidência ausente mantém GAPS
+> e OCR OFF.
 
 Durante uma sessão ativa, as pendências são resolvidas por controles manuais e determinísticos:
 
@@ -268,10 +288,10 @@ diretos. Estes locatores descrevem o candidato, não atestam merge, Linux, relea
 
 A métrica de projeção de contexto elegível do corpus puro cobre somente o
 resultado e a projeção de contexto do avaliador. Ela não comprova autenticação,
-isolamento de tenant, passagem pela API nem revalidação do servidor. Essas
-garantias dependem de checks externos correspondentes da PR #718. Antes de merge
-ou release, esses checks **MUST** atestar o SHA exato da composição final; o
-avaliador puro não concede autorização nem substitui essa evidência.
+isolamento de tenant, passagem pela API nem revalidação do servidor. O SHA inspecionado é
+`bdfcf12726fb0ba0ba4b0b041b437ea6260ebedf`; checks vivos ainda são necessários para
+qualquer decisão de merge/release, e o avaliador puro não concede autorização nem substitui essa
+evidência.
 
 ## Apêndice histórico
 

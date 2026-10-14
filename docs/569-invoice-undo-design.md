@@ -27,7 +27,8 @@
 > `imported_invoice_liquidations`/colunas de carimbo (exige autorização
 > explícita do PO, ver §3.3); criação direta/inline cross-project na prévia de
 > importação.
-> Fontes normativas: [faturas](visao-conta-faturas.md §16),
+> Fontes normativas:
+> [faturas, §16](visao-conta-faturas.md#16-undo-de-importação-de-extrato-com-pagamento-de-fatura-569),
 > [caixa real](cockpit-caixa-real.md), [datas](politica-datas-timezone.md),
 > [manual](manual-do-aplicativo.md#569--undo-real-de-liquidação-de-fatura-por-importação-pr-1--pr-2-entregues).
 >
