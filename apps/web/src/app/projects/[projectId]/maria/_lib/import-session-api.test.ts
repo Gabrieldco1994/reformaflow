@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiResponseError } from "@/lib/api";
 import {
   analyzeImportAttachment,
   answerImportDocumentaryQuestion,
@@ -28,7 +29,16 @@ vi.mock("@/lib/api", () => ({
     patch: api.patch,
     get: api.get,
   },
-  ApiResponseError: class ApiResponseError extends Error {},
+  ApiResponseError: class ApiResponseError extends Error {
+    constructor(
+      message: string,
+      public readonly status: number,
+      public readonly body?: unknown,
+    ) {
+      super(message);
+      this.name = "ApiResponseError";
+    }
+  },
 }));
 
 const sourceAttachment = {
@@ -103,15 +113,15 @@ describe("readImportWorkflowView OCR reload contract", () => {
     ).toEqual([{ attachmentId: "source", code }]);
   });
 
-  it("normalizes an absent terminalOutcomes projection from an old backend to an empty list", () => {
+  it("does not collapse an omitted strict terminal projection to an empty list", () => {
     const { terminalOutcomes: _missing, ...withoutTerminalOutcomes } =
       view.ocrCapability;
-    expect(
+    expect(() =>
       readImportWorkflowView({
         ...view,
         ocrCapability: withoutTerminalOutcomes,
-      }).ocrCapability.terminalOutcomes,
-    ).toEqual([]);
+      }),
+    ).toThrow(ImportWorkflowResponseError);
   });
 
   it.each([
@@ -662,20 +672,83 @@ describe("direct review and result endpoints", () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
-  it("opts the detail GET into terminal outcomes while accepting an old backend omission", async () => {
+  it("accepts strict 200 only with the explicit v1 marker and field", async () => {
     const signal = new AbortController().signal;
-    const { terminalOutcomes: _missing, ...oldCapability } = view.ocrCapability;
-    api.get.mockResolvedValue({ ...view, ocrCapability: oldCapability });
+    api.get.mockResolvedValue({
+      ...view,
+      ocrCapability: {
+        ...view.ocrCapability,
+        terminalOutcomesVersion: "v1",
+        terminalOutcomes: [],
+      },
+    });
 
     await expect(
       getFullImportSession("session", signal),
     ).resolves.toMatchObject({
-      ocrCapability: { terminalOutcomes: [] },
+      ocrCapability: {
+        terminalOutcomesVersion: "v1",
+        terminalOutcomes: [],
+      },
     });
+    expect(api.get).toHaveBeenCalledTimes(1);
     expect(api.get).toHaveBeenCalledWith(
       "/import-sessions/session?terminalOutcomes=v1",
       { signal },
     );
+  });
+
+  it("hard-fails malformed strict 200 instead of treating omission as empty", async () => {
+    const { terminalOutcomes: _missing, ...withoutTerminalOutcomes } =
+      view.ocrCapability;
+    api.get.mockResolvedValue({
+      ...view,
+      ocrCapability: {
+        ...withoutTerminalOutcomes,
+        terminalOutcomesVersion: "v1",
+      },
+    });
+
+    await expect(getFullImportSession("session")).rejects.toThrow(
+      ImportWorkflowResponseError,
+    );
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.get).toHaveBeenCalledWith(
+      "/import-sessions/session?terminalOutcomes=v1",
+    );
+  });
+
+  it("falls back only on explicit 404 and tags the read LEGACY_UNSUPPORTED", async () => {
+    const signal = new AbortController().signal;
+    const { terminalOutcomes: _missing, ...legacyCapability } =
+      view.ocrCapability;
+    api.get
+      .mockRejectedValueOnce(
+        new ApiResponseError("unsupported projection", 404, {
+          code: "NOT_FOUND",
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...view,
+        ocrCapability: legacyCapability,
+      });
+
+    await expect(
+      getFullImportSession("session", signal),
+    ).resolves.toMatchObject({
+      ocrCapability: {
+        terminalOutcomesSupport: "LEGACY_UNSUPPORTED",
+      },
+    });
+    expect(api.get.mock.calls).toEqual([
+      [
+        "/import-sessions/session?terminalOutcomes=v1",
+        {
+          signal,
+        },
+      ],
+      ["/import-sessions/session", { signal }],
+    ]);
   });
 });
 

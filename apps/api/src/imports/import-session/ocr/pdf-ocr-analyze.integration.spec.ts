@@ -1939,6 +1939,14 @@ describe("POST attachment analyze v2 direct OCR", () => {
       owner.sessionId,
       terminalOutcomeProjection,
     );
+    expect(
+      (
+        view.ocrCapability as unknown as
+          | Record<string, unknown>
+          | null
+          | undefined
+      )?.terminalOutcomesVersion,
+    ).toBe("v1");
     expect(view.ocrCapability?.terminalOutcomes).toEqual([
       {
         attachmentId: owner.attachmentId,
