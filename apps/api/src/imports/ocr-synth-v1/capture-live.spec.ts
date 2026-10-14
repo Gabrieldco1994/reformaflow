@@ -17,6 +17,7 @@ import { captureLiveEvidence } from "./capture-live-core";
 import * as captureLiveCore from "./capture-live-core";
 import { writeLiveEvidenceExclusive } from "./capture-live-file";
 import {
+  getOcrSynthCase,
   OCR_SYNTH_ROUTING_CASES,
   OCR_SYNTH_SCANNED_RELEASE_CASES,
   successfulRows,
@@ -621,7 +622,9 @@ describe("audited synthetic Vertex capture", () => {
     [
       "another tenant ID",
       (value: Record<string, any>) => {
-        value.predictions[0].tenantId = value.predictions[1].tenantId;
+        value.predictions[0].tenantId = getOcrSynthCase(
+          "tenant-identical-bytes-b",
+        ).tenantId;
       },
     ],
     [
