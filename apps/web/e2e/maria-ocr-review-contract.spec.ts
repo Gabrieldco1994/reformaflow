@@ -68,7 +68,10 @@ test.beforeAll(async () => {
     write: false,
     outfile: "ocr-review-contract.js",
     jsx: "automatic",
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: {
+      "process.env.NODE_ENV": '"production"',
+      "process.env.NEXT_PUBLIC_API_URL": '""',
+    },
     alias: { "@": path.join(root, "src") },
   });
   script = bundle.outputFiles.find((file) => file.path.endsWith(".js"))!.text;
@@ -100,6 +103,9 @@ for (const width of [375, 390, 1280]) {
   test(`external consent is explicit, bounded, and terminal at ${width}px`, async ({
     page,
   }) => {
+    page.on("pageerror", (error) => {
+      throw error;
+    });
     await page.setViewportSize({ width, height: 900 });
     await page.setContent(
       `<meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><div id="root"></div>`,

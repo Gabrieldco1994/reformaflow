@@ -10,7 +10,7 @@ const formatCopy = {
 } as const;
 const extensions = { CSV: ".csv", PDF: ".pdf" } as const;
 const pdfWarning =
-  "PDF textual sem imagens; documentos com imagens podem exigir OCR, ainda indisponível. Isso inclui imagens como logotipos de bancos. Use um arquivo com texto e sem imagens ou cancele; nenhum lançamento será confirmado.";
+  "A análise começa localmente. PDFs textuais permanecem locais. Nesta primeira versão, PDFs mistos ou pesquisáveis não são enviados para leitura externa; somente um PDF totalmente digitalizado pode oferecer uma autorização separada para envio. Sem autorização ou disponibilidade, use um PDF textual ou CSV; nenhum lançamento será confirmado.";
 
 /** Assert the actual server-qualified entry, including CSV-only capability.
  * Never import production view/parser modules into the browser spec.
