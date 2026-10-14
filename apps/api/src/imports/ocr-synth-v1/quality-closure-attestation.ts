@@ -289,8 +289,12 @@ const budgetShape = (value: unknown): boolean =>
   Object.values(value).every(positiveInteger);
 const thresholdShape = (value: unknown): boolean =>
   exact(value, [...RATE_THRESHOLD_KEYS, ...DEFECT_THRESHOLD_KEYS]) &&
-  RATE_THRESHOLD_KEYS.every((key) => finiteRate(value[key])) &&
-  DEFECT_THRESHOLD_KEYS.every((key) => nonNegativeInteger(value[key]));
+  RATE_THRESHOLD_KEYS.every(
+    (key) => finiteRate(value[key]) && value[key] === 1,
+  ) &&
+  DEFECT_THRESHOLD_KEYS.every(
+    (key) => nonNegativeInteger(value[key]) && value[key] === 0,
+  );
 
 function assertPolicyShape(
   value: unknown,
