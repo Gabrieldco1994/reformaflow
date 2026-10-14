@@ -89,6 +89,7 @@ const base = {
     includesMetadataAndEmbeddedContent: true,
     includesPotentiallyNonVisibleContent: true,
     attachments: [],
+    terminalOutcomes: [],
   },
   searchComplete: false,
   proposal: null,

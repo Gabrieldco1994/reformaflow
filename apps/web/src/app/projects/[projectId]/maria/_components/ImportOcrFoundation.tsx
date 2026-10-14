@@ -14,6 +14,8 @@ const TERMINAL_COPY: Record<OcrTerminalUiState, string> = {
     "O envio começou ou pode ter ocorrido, e o PDF pode ter sido enviado ao Google Cloud Vertex AI, mas não foi possível confirmar o resultado do OCR. Esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_BUDGET_EXHAUSTED:
     "O limite diário de OCR foi atingido antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
+  LIMIT_EXCEEDED:
+    "A leitura excedeu um limite permitido e não pode continuar para este documento. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   DOCUMENT_UNREADABLE:
     "Não foi possível ler este documento. Substitua por um arquivo legível ou cancele a importação.",
   PDF_PASSWORD_REQUIRED:
@@ -147,7 +149,9 @@ export function ImportOcrFoundation({
 }) {
   if (!state) return null;
   const terminal =
-    state.kind !== "CONSENT_REQUIRED" && state.kind !== "REQUESTING"
+    state.kind !== "CONSENT_REQUIRED" &&
+    state.kind !== "CONSENTED_READY" &&
+    state.kind !== "REQUESTING"
       ? TERMINAL_COPY[state.kind]
       : null;
 
@@ -157,6 +161,9 @@ export function ImportOcrFoundation({
       className="min-w-0 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-lifeone-ink"
     >
       <h3 className="font-semibold">Leitura externa do PDF</h3>
+      {state.kind !== "CONSENT_REQUIRED" && (
+        <p className="break-words">Arquivo: “{scope.fileName}”.</p>
+      )}
       {state.kind === "CONSENT_REQUIRED" && (
         <ConsentDisclosure
           key={scope.key}
@@ -170,8 +177,25 @@ export function ImportOcrFoundation({
           chamada para o documento.
         </p>
       )}
+      {state.kind === "CONSENTED_READY" && (
+        <>
+          <p>
+            A autorização deste documento já foi guardada. A leitura externa só
+            continuará quando você solicitar.
+          </p>
+          <button
+            type="button"
+            onClick={onConsent}
+            className="min-h-11 w-full rounded-xl border border-darc-linen bg-white px-3 font-semibold"
+          >
+            Continuar leitura externa
+          </button>
+        </>
+      )}
       {terminal && <p role="alert">{terminal}</p>}
-      {state.kind !== "REQUESTING" && <FallbackChoices />}
+      {state.kind !== "REQUESTING" && state.kind !== "CONSENTED_READY" && (
+        <FallbackChoices />
+      )}
     </section>
   );
 }

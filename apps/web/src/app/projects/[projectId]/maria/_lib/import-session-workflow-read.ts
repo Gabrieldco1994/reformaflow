@@ -45,6 +45,7 @@ import type {
   OcrCapabilityV1,
   OcrReviewEvidenceV1,
   OcrReviewLineV1,
+  OcrTerminalOutcomeV1,
 } from "../_types";
 
 export class ImportWorkflowResponseError extends Error {
@@ -397,6 +398,7 @@ function ocrCapability(v: unknown): v is OcrCapabilityV1 {
       "includesMetadataAndEmbeddedContent",
       "includesPotentiallyNonVisibleContent",
       "attachments",
+      "terminalOutcomes",
     ]) &&
     oneOf(v.status, ["DISABLED", "UNAVAILABLE", "AVAILABLE"]) &&
     v.consentPolicyVersion === 1 &&
@@ -428,7 +430,25 @@ function ocrCapability(v: unknown): v is OcrCapabilityV1 {
       0,
       L.filesPerSession,
     ) &&
-    distinct(v.attachments.map((attachment) => attachment.attachmentId))
+    distinct(v.attachments.map((attachment) => attachment.attachmentId)) &&
+    every(
+      v.terminalOutcomes,
+      (outcome): outcome is OcrTerminalOutcomeV1 =>
+        isRecord(outcome) &&
+        exact(outcome, ["attachmentId", "code"]) &&
+        id(outcome.attachmentId) &&
+        oneOf(outcome.code, [
+          "OCR_UNAVAILABLE",
+          "OCR_SAFETY_BLOCKED",
+          "OCR_MALFORMED_RESPONSE",
+          "OCR_ATTEMPT_UNKNOWN",
+          "LIMIT_EXCEEDED",
+          "DOCUMENT_UNREADABLE",
+        ]),
+      0,
+      L.filesPerSession,
+    ) &&
+    distinct(v.terminalOutcomes.map((outcome) => outcome.attachmentId))
   );
 }
 export const QUESTION_FIELDS: readonly ImportSessionQuestionV1["field"][] = [
@@ -977,6 +997,20 @@ export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
         (attachment) => attachment.id !== candidate.attachmentId,
       ),
     ) ||
+    capability.terminalOutcomes.some((outcome) => {
+      const attachment = attachments.find(
+        (candidate) => candidate.id === outcome.attachmentId,
+      );
+      return !attachment || attachment.canAnalyze;
+    }) ||
+    (value.actions.includes("ANALYZE") &&
+      attachments
+        .filter((attachment) => attachment.canAnalyze)
+        .every((attachment) =>
+          capability.terminalOutcomes.some(
+            (outcome) => outcome.attachmentId === attachment.id,
+          ),
+        )) ||
     lines.some(
       (line) =>
         line.ocrEvidence &&

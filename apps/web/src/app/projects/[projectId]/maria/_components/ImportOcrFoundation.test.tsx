@@ -113,6 +113,10 @@ describe("ImportOcrFoundation", () => {
       /limite diário de OCR foi atingido antes do envio/i,
     ],
     [
+      "LIMIT_EXCEEDED",
+      /A leitura excedeu um limite permitido e não pode continuar para este documento\. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação\./i,
+    ],
+    [
       "OCR_ATTEMPT_UNKNOWN",
       /envio começou ou pode ter ocorrido.*não pode ser repetida.*Nenhum lançamento foi criado/i,
     ],
@@ -138,10 +142,48 @@ describe("ImportOcrFoundation", () => {
         screen.getByText(/zero registros financeiros foram criados/i),
       ).toBeVisible();
       expect(
-        screen.queryByRole("button", { name: /autorizar|tentar|retry/i }),
+        screen.queryByRole("button", {
+          name: /autorizar|analisar|continuar|tentar|retry|novamente/i,
+        }),
       ).not.toBeInTheDocument();
     },
   );
+
+  it("renders every terminal file with its copy and fallbacks, without action CTAs", () => {
+    render(
+      <>
+        <ImportOcrFoundation
+          state={{ kind: "LIMIT_EXCEEDED" }}
+          scope={{ key: "session:first", fileName: "primeira-fatura.pdf" }}
+          onConsent={vi.fn()}
+        />
+        <ImportOcrFoundation
+          state={{ kind: "DOCUMENT_UNREADABLE" }}
+          scope={{ key: "session:second", fileName: "segunda-fatura.pdf" }}
+          onConsent={vi.fn()}
+        />
+      </>,
+    );
+
+    expect(screen.getByText(/primeira-fatura\.pdf/i)).toBeVisible();
+    expect(screen.getByText(/segunda-fatura\.pdf/i)).toBeVisible();
+    expect(
+      screen.getByText(
+        "A leitura excedeu um limite permitido e não pode continuar para este documento. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "Não foi possível ler este documento. Substitua por um arquivo legível ou cancele a importação.",
+      ),
+    ).toBeVisible();
+    expect(screen.getAllByText(/Entrada manual:/i)).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", {
+        name: /autorizar|analisar|continuar|tentar|retry|novamente/i,
+      }),
+    ).not.toBeInTheDocument();
+  });
 
   it("does not render consent on textual or mixed/searchable paths", () => {
     render(

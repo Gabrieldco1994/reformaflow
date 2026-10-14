@@ -77,17 +77,25 @@ function Conversation({
   const [cancelPending, setCancelPending] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const busy = conversation.busy || documents.busy;
+  const ocrUiStates =
+    documents.ocrUiStates ??
+    (documents.ocrUiState ? [documents.ocrUiState] : []);
   const documentBlocked =
-    isPdfDocumentErrorCode(documents.error?.code) ||
-    Boolean(documents.ocrUiState);
-  const ocrAttachment = documents.ocrUiState
-    ? view?.attachments.find(
-        (attachment) => attachment.id === documents.ocrUiState?.attachmentId,
-      )
-    : undefined;
-  const ocrActivationAvailable =
-    documents.ocrUiState?.kind === "CONSENT_REQUIRED" ||
-    documents.ocrUiState?.kind === "REQUESTING";
+    isPdfDocumentErrorCode(documents.error?.code) || ocrUiStates.length > 0;
+  const ocrPresentations = ocrUiStates.flatMap((state) => {
+    const attachment = documents.view?.attachments.find(
+      (candidate) => candidate.id === state.attachmentId,
+    );
+    return attachment ? [{ state, attachment }] : [];
+  });
+  const firstOcrState = ocrUiStates[0] ?? null;
+  const ocrAttachment = ocrPresentations[0]?.attachment;
+  const ocrActivationAvailable = ocrUiStates.some(
+    (state) =>
+      state.kind === "CONSENT_REQUIRED" ||
+      state.kind === "CONSENTED_READY" ||
+      state.kind === "REQUESTING",
+  );
   const privateContextLost =
     error?.privateContextLost || documents.error?.privateContextLost;
   const guided =
@@ -353,11 +361,13 @@ function Conversation({
             {documentBlocked ? (
               <p>
                 {ocrAttachment
-                  ? documents.ocrUiState?.kind === "CONSENT_REQUIRED"
+                  ? firstOcrState?.kind === "CONSENT_REQUIRED"
                     ? "A leitura externa só ocorrerá após sua autorização e poderá ser solicitada uma única vez para este documento."
-                    : documents.ocrUiState?.kind === "REQUESTING"
-                      ? "Uma chamada externa está em andamento. Esta tela não iniciará outra para o documento."
-                      : "A leitura externa não pode continuar neste estado e não será repetida. Use uma das alternativas abaixo."
+                    : firstOcrState?.kind === "CONSENTED_READY"
+                      ? "A autorização já está guardada. A leitura externa só continuará quando você solicitar explicitamente."
+                      : firstOcrState?.kind === "REQUESTING"
+                        ? "Uma chamada externa está em andamento. Esta tela não iniciará outra para o documento."
+                        : "A leitura externa não pode continuar neste estado e não será repetida. Use uma das alternativas abaixo."
                   : "Para substituir o documento, cancele esta importação e peça outra à Maria com um arquivo legível. Não há confirmação financeira nesta etapa."}
               </p>
             ) : (
@@ -367,23 +377,24 @@ function Conversation({
                 compras.
               </p>
             )}
-            {view && ocrAttachment && (
+            {ocrPresentations.map(({ state, attachment }) => (
               <ImportOcrFoundation
-                state={documents.ocrUiState}
+                key={attachment.id}
+                state={state}
                 scope={{
                   key: JSON.stringify([
                     conversation.userId,
                     projectId,
                     sessionId,
-                    ocrAttachment.id,
+                    attachment.id,
                   ]),
-                  fileName: ocrAttachment.fileName,
+                  fileName: attachment.fileName,
                 }}
                 onConsent={() =>
-                  void documents.consentExternalProcessing(ocrAttachment.id)
+                  void documents.consentExternalProcessing(attachment.id)
                 }
               />
-            )}
+            ))}
             {view?.actions.includes("CANCEL") ? (
               <button
                 type="button"

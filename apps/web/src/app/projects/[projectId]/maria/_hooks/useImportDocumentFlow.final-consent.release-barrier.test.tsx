@@ -40,6 +40,7 @@ const capability = (
       consentedRevision,
     },
   ],
+  terminalOutcomes: [],
 });
 
 const view = (

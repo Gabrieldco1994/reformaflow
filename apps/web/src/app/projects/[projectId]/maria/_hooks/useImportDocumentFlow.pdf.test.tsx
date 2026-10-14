@@ -46,6 +46,7 @@ const view = (over: Record<string, unknown> = {}): ImportSessionViewV1 =>
       includesMetadataAndEmbeddedContent: true,
       includesPotentiallyNonVisibleContent: true,
       attachments: [],
+      terminalOutcomes: [],
     },
     searchComplete: false,
     proposal: null,
@@ -79,6 +80,7 @@ const availableOcr = (
       consentedRevision,
     },
   ],
+  terminalOutcomes: [],
 });
 const pdf = () => new File(["%PDF-text"], "fatura.pdf", { type: "" });
 function setup(sessionId: string | null = "s1") {
@@ -619,6 +621,16 @@ describe("textual PDF documentary coordinator", () => {
       }),
       "OCR_BUDGET_EXHAUSTED",
     ],
+    [
+      new ApiResponseError("Limit", 422, {
+        code: "LIMIT_EXCEEDED",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 1,
+        reason: null,
+      }),
+      "LIMIT_EXCEEDED",
+    ],
   ] as const)(
     "maps pre-call documentary failure to %s",
     async (failure, kind) => {
@@ -749,6 +761,181 @@ describe("textual PDF documentary coordinator", () => {
       amountMeaning: "UNKNOWN",
       ocrEvidence: { text: "ESTORNO -10,01" },
     });
+    expect(api.analyzeImportAttachment).not.toHaveBeenCalled();
+  });
+
+  it("restores all terminal outcomes on cold OCR-OFF reload without dispatching", async () => {
+    api.getFullImportSession.mockResolvedValue(
+      view({
+        actions: ["CANCEL"],
+        ocrCapability: {
+          ...availableOcr(),
+          status: "DISABLED",
+          attachments: [],
+          terminalOutcomes: [
+            { attachmentId: "a1", code: "LIMIT_EXCEEDED" },
+            { attachmentId: "a2", code: "DOCUMENT_UNREADABLE" },
+          ],
+        },
+        attachments: [
+          {
+            id: "a1",
+            fileName: "limite.pdf",
+            declaredBytes: 9,
+            state: "ATTACHED",
+            canAnalyze: false,
+            materializedInSession: false,
+          },
+          {
+            id: "a2",
+            fileName: "ilegivel.pdf",
+            declaredBytes: 9,
+            state: "ATTACHED",
+            canAnalyze: false,
+            materializedInSession: false,
+          },
+        ],
+      }),
+    );
+
+    const { result } = setup();
+    await waitFor(() => expect(result.current.view).not.toBeNull());
+
+    expect(result.current.ocrUiStates).toEqual([
+      { attachmentId: "a1", kind: "LIMIT_EXCEEDED" },
+      { attachmentId: "a2", kind: "DOCUMENT_UNREADABLE" },
+    ]);
+    expect(result.current.ocrUiState).toEqual({
+      attachmentId: "a1",
+      kind: "LIMIT_EXCEEDED",
+    });
+    expect(api.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
+    expect(api.analyzeImportAttachment).not.toHaveBeenCalled();
+  });
+
+  it("resumes persisted unspent consent only after an explicit click", async () => {
+    const requestId = "12345678-1234-4123-8123-123456789abc";
+    const consented = view({
+      revision: 2,
+      actions: ["ANALYZE", "CANCEL"],
+      ocrCapability: availableOcr("a1", requestId, 2),
+      attachments: [
+        {
+          id: "a1",
+          fileName: "consentido.pdf",
+          declaredBytes: 9,
+          state: "ATTACHED",
+          canAnalyze: true,
+          materializedInSession: false,
+        },
+      ],
+    });
+    api.getFullImportSession.mockResolvedValue(consented);
+    api.analyzeImportAttachment.mockResolvedValue(
+      view({
+        revision: 3,
+        actions: ["CANCEL"],
+        ocrCapability: {
+          ...availableOcr(),
+          attachments: [],
+        },
+        attachments: [
+          {
+            ...consented.attachments[0],
+            canAnalyze: false,
+            materializedInSession: true,
+          },
+        ],
+      }),
+    );
+
+    const { result } = setup();
+    await waitFor(() =>
+      expect(result.current.ocrUiState).toEqual({
+        attachmentId: "a1",
+        kind: "CONSENTED_READY",
+      }),
+    );
+    expect(api.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
+    expect(api.analyzeImportAttachment).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.consentExternalProcessing("a1");
+    });
+
+    expect(api.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
+    expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(1);
+    expect(api.analyzeImportAttachment.mock.calls[0]?.slice(0, 3)).toEqual([
+      "s1",
+      "a1",
+      {
+        version: 2,
+        expectedRevision: 2,
+        requestId,
+        consentExternalProcessing: true,
+      },
+    ]);
+  });
+
+  it("replaces terminal projection on session navigation without leaking the prior session", async () => {
+    const projected = (
+      id: string,
+      code: "LIMIT_EXCEEDED" | "DOCUMENT_UNREADABLE",
+    ) =>
+      view({
+        id,
+        actions: ["CANCEL"],
+        ocrCapability: {
+          ...availableOcr(),
+          status: "DISABLED",
+          attachments: [],
+          terminalOutcomes: [{ attachmentId: `${id}-attachment`, code }],
+        },
+        attachments: [
+          {
+            id: `${id}-attachment`,
+            fileName: `${id}.pdf`,
+            declaredBytes: 9,
+            state: "ATTACHED",
+            canAnalyze: false,
+            materializedInSession: false,
+          },
+        ],
+      });
+    api.getFullImportSession.mockImplementation(async (id: string) =>
+      id === "s1"
+        ? projected("s1", "LIMIT_EXCEEDED")
+        : projected("s2", "DOCUMENT_UNREADABLE"),
+    );
+    const client = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const context = {
+      key: "navigation",
+      adoptionKey: (id: string) => id,
+      publishSession: vi.fn(),
+      recoverList: vi.fn(),
+      supportedFormats: ["CSV", "PDF"] as const,
+    };
+    const { result, rerender } = renderHook(
+      ({ sessionId }) => useImportDocumentFlow(sessionId, context),
+      { initialProps: { sessionId: "s1" }, wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.ocrUiState?.kind).toBe("LIMIT_EXCEEDED"),
+    );
+
+    rerender({ sessionId: "s2" });
+    await waitFor(() =>
+      expect(result.current.ocrUiStates).toEqual([
+        { attachmentId: "s2-attachment", kind: "DOCUMENT_UNREADABLE" },
+      ]),
+    );
+    expect(result.current.ocrUiStates).not.toContainEqual(
+      expect.objectContaining({ attachmentId: "s1-attachment" }),
+    );
+    expect(api.answerImportDocumentaryQuestion).not.toHaveBeenCalled();
     expect(api.analyzeImportAttachment).not.toHaveBeenCalled();
   });
 

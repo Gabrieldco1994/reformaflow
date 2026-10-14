@@ -444,10 +444,18 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   lançamento foi criado, e encerra a leitura externa daquele anexo sem botão
   para repetir ou autorizar. Em todos os fallbacks, a tela oferece entrada
   manual, substituição ou cancelamento e informa que houve zero escrita
-  financeira. Se `IMPORT_OCR_ENABLED` estiver desligada, indisponível ou sem
-  anexo elegível na capability, não há falsa ativação; permanece o fallback para
-  PDF textual/CSV ou cancelamento. O OCR fica OFF até os gates de runtime e as
-  revisões finais. A qualificação exige 18/18 scans ao vivo, 10/10 casos
+  financeira. Resultados terminais persistidos continuam visíveis após
+  recarregar ou navegar de volta à importação, inclusive com OCR desligado, sem
+  nova chamada automática. Cada arquivo afetado mostra seu nome e seu resultado.
+  Para `LIMIT_EXCEEDED`, a mensagem é: “A leitura excedeu um limite permitido e
+  não pode continuar para este documento. Nenhum lançamento foi criado; use
+  entrada manual, substitua o documento ou cancele a importação.” A autorização
+  já persistida, mas ainda não consumida, só retoma a chamada v2 após um novo
+  clique explícito e não registra o consentimento outra vez. Se
+  `IMPORT_OCR_ENABLED` estiver desligada, indisponível ou sem anexo elegível na
+  capability, não há falsa ativação; permanece o fallback para PDF textual/CSV
+  ou cancelamento. O OCR fica OFF até os gates de runtime e as revisões finais. A
+  qualificação exige 18/18 scans ao vivo, 10/10 casos
   mistos/pesquisáveis sem chamada, 35/35 probes de serviço, o caso denso de 24 linhas,
   `finishReason=STOP`, `maxOutputTokens=8192`, autenticação de produção e aprovações finais. Isso
   não amplia retroativamente a entrega #718. PDFs

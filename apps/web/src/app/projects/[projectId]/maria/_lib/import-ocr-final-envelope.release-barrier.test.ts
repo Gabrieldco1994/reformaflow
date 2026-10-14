@@ -15,6 +15,7 @@ const COMPLETE_CAPABILITY = {
   includesMetadataAndEmbeddedContent: true,
   includesPotentiallyNonVisibleContent: true,
   attachments: [],
+  terminalOutcomes: [],
 };
 
 const line = (index: number) => ({

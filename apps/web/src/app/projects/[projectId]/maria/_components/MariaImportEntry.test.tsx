@@ -186,6 +186,7 @@ function viewFixture(
       includesMetadataAndEmbeddedContent: true,
       includesPotentiallyNonVisibleContent: true,
       attachments: [],
+      terminalOutcomes: [],
     },
     ...overrides,
   } as ImportSessionViewV1;

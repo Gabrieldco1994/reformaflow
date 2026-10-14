@@ -110,7 +110,7 @@ const newGeneration = (
 });
 
 const ocrCapabilityOf = (value: ImportSessionViewV1): OcrCapabilityV1 | null =>
-  value.ocrCapability ?? null;
+  value.ocrCapability ? (value.ocrCapability as OcrCapabilityV1) : null;
 
 /** Documentary coordinator only; server actions still own analysis eligibility. */
 export function useImportDocumentFlow(
@@ -233,6 +233,8 @@ export function useImportDocumentFlow(
           return "OCR_ATTEMPT_UNKNOWN";
         case "OCR_BUDGET_EXHAUSTED":
           return "OCR_BUDGET_EXHAUSTED";
+        case "LIMIT_EXCEEDED":
+          return "LIMIT_EXCEEDED";
         case "DOCUMENT_UNREADABLE":
           return "DOCUMENT_UNREADABLE";
         case "PDF_PASSWORD_REQUIRED":
@@ -718,10 +720,7 @@ export function useImportDocumentFlow(
     const capabilityAttachment =
       capability?.status === "AVAILABLE"
         ? capability.attachments.find(
-            (candidate) =>
-              candidate.attachmentId === attachmentId &&
-              candidate.consentedRequestId === null &&
-              candidate.consentedRevision === null,
+            (candidate) => candidate.attachmentId === attachmentId,
           )
         : null;
     if (
@@ -740,6 +739,32 @@ export function useImportDocumentFlow(
     generation.controller = controller;
     update({ pending: true, error: null });
     try {
+      if (
+        capabilityAttachment.consentedRequestId !== null &&
+        capabilityAttachment.consentedRevision !== null
+      ) {
+        if (capabilityAttachment.consentedRevision !== latest.revision)
+          throw new ImportWorkflowResponseError();
+        generation.externalProcessingAttempts.add(attachmentId);
+        const fresh = await analyzeImportAttachment(
+          sessionId,
+          attachmentId,
+          {
+            version: 2,
+            expectedRevision: capabilityAttachment.consentedRevision,
+            requestId: capabilityAttachment.consentedRequestId,
+            consentExternalProcessing: true,
+          },
+          controller.signal,
+        );
+        if (!active()) return;
+        controller.signal.throwIfAborted();
+        publish(fresh, latest.revision);
+        generation.ocrPresentation = null;
+        generation.mustRead = false;
+        update({ pending: false, error: null });
+        return;
+      }
       const requestId = crypto.randomUUID();
       const answerRequestId = crypto.randomUUID();
       const consented = await answerImportDocumentaryQuestion(
@@ -813,11 +838,22 @@ export function useImportDocumentFlow(
   }
 
   const projectedCapability = view ? ocrCapabilityOf(view) : null;
+  const projectedTerminalPresentations =
+    projectedCapability?.terminalOutcomes.map(
+      (outcome): OcrUiPresentation => ({
+        attachmentId: outcome.attachmentId,
+        kind: outcome.code,
+      }),
+    ) ?? [];
+  const projectedTerminalIds = new Set(
+    projectedTerminalPresentations.map(
+      (presentation) => presentation.attachmentId,
+    ),
+  );
   const listedCapability = view
     ? projectedCapability?.attachments.find(
         (candidate) =>
-          candidate.consentedRequestId === null &&
-          candidate.consentedRevision === null &&
+          !projectedTerminalIds.has(candidate.attachmentId) &&
           view.attachments.some(
             (attachment) =>
               attachment.id === candidate.attachmentId &&
@@ -826,38 +862,54 @@ export function useImportDocumentFlow(
           ),
       )
     : null;
+  const localOcrPresentation =
+    generation.ocrPresentation &&
+    !projectedTerminalIds.has(generation.ocrPresentation.attachmentId)
+      ? generation.ocrPresentation
+      : null;
   const baseOcrPresentation =
-    generation.ocrPresentation ??
+    localOcrPresentation ??
     (listedCapability && view
       ? ({
           attachmentId: listedCapability.attachmentId,
           kind:
             projectedCapability?.status === "AVAILABLE"
-              ? "CONSENT_REQUIRED"
+              ? listedCapability.consentedRequestId === null
+                ? "CONSENT_REQUIRED"
+                : "CONSENTED_READY"
               : "OCR_UNAVAILABLE",
         } as const)
       : null);
-  const ocrUiState = baseOcrPresentation
+  const actionableOcrPresentation = baseOcrPresentation
     ? {
         ...baseOcrPresentation,
         kind:
           feedback.pending &&
           generation.ocrConsentSubmissions.has(baseOcrPresentation.attachmentId)
             ? ("REQUESTING" as const)
-            : baseOcrPresentation.kind === "CONSENT_REQUIRED" &&
+            : (baseOcrPresentation.kind === "CONSENT_REQUIRED" ||
+                  baseOcrPresentation.kind === "CONSENTED_READY") &&
                 (!view ||
                   projectedCapability?.status !== "AVAILABLE" ||
                   !projectedCapability.attachments.some(
                     (candidate) =>
                       candidate.attachmentId ===
                         baseOcrPresentation.attachmentId &&
-                      candidate.consentedRequestId === null &&
-                      candidate.consentedRevision === null,
+                      (baseOcrPresentation.kind === "CONSENT_REQUIRED"
+                        ? candidate.consentedRequestId === null &&
+                          candidate.consentedRevision === null
+                        : candidate.consentedRequestId !== null &&
+                          candidate.consentedRevision !== null),
                   ))
               ? ("OCR_UNAVAILABLE" as const)
               : baseOcrPresentation.kind,
       }
     : null;
+  const ocrUiStates = [
+    ...projectedTerminalPresentations,
+    ...(actionableOcrPresentation ? [actionableOcrPresentation] : []),
+  ];
+  const ocrUiState = ocrUiStates[0] ?? null;
   const ocrRequiredAttachmentId =
     ocrUiState?.kind === "CONSENT_REQUIRED" ? ocrUiState.attachmentId : null;
 
@@ -879,6 +931,7 @@ export function useImportDocumentFlow(
     consentExternalProcessing,
     ocrRequiredAttachmentId,
     ocrUiState,
+    ocrUiStates,
     ocrConsentAttempted: Boolean(
       baseOcrPresentation &&
       generation.externalProcessingAttempts.has(

@@ -63,6 +63,7 @@ const view = {
     includesMetadataAndEmbeddedContent: true,
     includesPotentiallyNonVisibleContent: true,
     attachments: [],
+    terminalOutcomes: [],
   },
   searchComplete: false,
   proposal: null,
@@ -72,6 +73,108 @@ const view = {
 };
 
 describe("readImportWorkflowView OCR reload contract", () => {
+  const terminalCapability = (
+    code:
+      | "OCR_UNAVAILABLE"
+      | "OCR_SAFETY_BLOCKED"
+      | "OCR_MALFORMED_RESPONSE"
+      | "OCR_ATTEMPT_UNKNOWN"
+      | "LIMIT_EXCEEDED"
+      | "DOCUMENT_UNREADABLE",
+  ) => ({
+    ...view.ocrCapability,
+    terminalOutcomes: [{ attachmentId: "source", code }],
+  });
+
+  it.each([
+    "OCR_UNAVAILABLE",
+    "OCR_SAFETY_BLOCKED",
+    "OCR_MALFORMED_RESPONSE",
+    "OCR_ATTEMPT_UNKNOWN",
+    "LIMIT_EXCEEDED",
+    "DOCUMENT_UNREADABLE",
+  ] as const)("accepts exact persisted terminal outcome %s", (code) => {
+    expect(
+      readImportWorkflowView({
+        ...view,
+        ocrCapability: terminalCapability(code),
+      }).ocrCapability.terminalOutcomes,
+    ).toEqual([{ attachmentId: "source", code }]);
+  });
+
+  it("requires terminalOutcomes on every OCR capability projection", () => {
+    const { terminalOutcomes: _missing, ...withoutTerminalOutcomes } =
+      view.ocrCapability;
+    expect(() =>
+      readImportWorkflowView({
+        ...view,
+        ocrCapability: withoutTerminalOutcomes,
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+  });
+
+  it.each([
+    {
+      label: "unknown code",
+      outcomes: [{ attachmentId: "source", code: "UNKNOWN_TERMINAL" }],
+    },
+    {
+      label: "extra outcome field",
+      outcomes: [
+        {
+          attachmentId: "source",
+          code: "OCR_UNAVAILABLE",
+          retryable: false,
+        },
+      ],
+    },
+    {
+      label: "duplicate attachment",
+      outcomes: [
+        { attachmentId: "source", code: "OCR_UNAVAILABLE" },
+        { attachmentId: "source", code: "DOCUMENT_UNREADABLE" },
+      ],
+    },
+    {
+      label: "missing attachment reference",
+      outcomes: [{ attachmentId: "missing-source", code: "OCR_UNAVAILABLE" }],
+    },
+  ])("rejects $label in terminalOutcomes", ({ outcomes }) => {
+    expect(() =>
+      readImportWorkflowView({
+        ...view,
+        ocrCapability: { ...view.ocrCapability, terminalOutcomes: outcomes },
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+  });
+
+  it("rejects a terminal attachment that remains analyzable", () => {
+    expect(() =>
+      readImportWorkflowView({
+        ...view,
+        attachments: [
+          {
+            ...sourceAttachment,
+            materializedInSession: false,
+            canAnalyze: true,
+          },
+        ],
+        actions: ["ANALYZE", "CANCEL"],
+        ocrCapability: terminalCapability("DOCUMENT_UNREADABLE"),
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+  });
+
+  it("rejects ANALYZE when every attached document is terminal", () => {
+    expect(() =>
+      readImportWorkflowView({
+        ...view,
+        actions: ["ANALYZE", "CANCEL"],
+        ocrCapability: terminalCapability("LIMIT_EXCEEDED"),
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+  });
+
   it.each([
     [-1001, "ESTORNO -10,01"],
     [0, "AJUSTE 0,00"],
@@ -133,6 +236,7 @@ describe("readImportWorkflowView OCR reload contract", () => {
           includesMetadataAndEmbeddedContent: true,
           includesPotentiallyNonVisibleContent: true,
           attachments: [],
+          terminalOutcomes: [],
         },
       };
 

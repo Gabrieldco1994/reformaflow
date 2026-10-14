@@ -18,7 +18,25 @@ export type OcrReviewEvidenceV1 = ImportOcrReviewEvidenceV1;
 
 export type OcrReviewLineV1 = ImportSessionLineViewV1;
 
-export type OcrCapabilityV1 = NonNullable<ImportSessionViewV1["ocrCapability"]>;
+export type OcrTerminalOutcomeCode =
+  | "OCR_UNAVAILABLE"
+  | "OCR_SAFETY_BLOCKED"
+  | "OCR_MALFORMED_RESPONSE"
+  | "OCR_ATTEMPT_UNKNOWN"
+  | "LIMIT_EXCEEDED"
+  | "DOCUMENT_UNREADABLE";
+
+export interface OcrTerminalOutcomeV1 {
+  attachmentId: string;
+  code: OcrTerminalOutcomeCode;
+}
+
+type DomainOcrCapabilityV1 = NonNullable<ImportSessionViewV1["ocrCapability"]>;
+
+/** Approved additive server projection until the domain package lands independently. */
+export type OcrCapabilityV1 = DomainOcrCapabilityV1 & {
+  terminalOutcomes: OcrTerminalOutcomeV1[];
+};
 
 export type ImportOcrSessionViewV1 = Omit<
   ImportSessionViewV1,
@@ -30,19 +48,21 @@ export type ImportOcrSessionViewV1 = Omit<
 
 export type OcrUiState =
   | { kind: "CONSENT_REQUIRED" }
+  | { kind: "CONSENTED_READY" }
   | { kind: "REQUESTING" }
   | { kind: "OCR_UNAVAILABLE" }
   | { kind: "OCR_SAFETY_BLOCKED" }
   | { kind: "OCR_MALFORMED_RESPONSE" }
   | { kind: "OCR_ATTEMPT_UNKNOWN" }
   | { kind: "OCR_BUDGET_EXHAUSTED" }
+  | { kind: "LIMIT_EXCEEDED" }
   | { kind: "DOCUMENT_UNREADABLE" }
   | { kind: "PDF_PASSWORD_REQUIRED" }
   | { kind: "UNSUPPORTED_DOCUMENT" };
 
 export type OcrTerminalUiState = Exclude<
   OcrUiState["kind"],
-  "CONSENT_REQUIRED" | "REQUESTING"
+  "CONSENT_REQUIRED" | "CONSENTED_READY" | "REQUESTING"
 >;
 
 export type OcrUiPresentation = OcrUiState & {
