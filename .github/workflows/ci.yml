@@ -177,6 +177,24 @@ jobs:
       - name: Build NestJS
         run: npm --workspace @reformaflow/api run build
 
+  detect-api-deploy:
+    name: Detect API Deploy
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_api: ${{ steps.detect.outputs.deploy_api }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Test and detect API image/runtime changes (fail-closed)
+        id: detect
+        shell: bash
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          scripts/ci/api-deploy-required.sh --self-test
+          scripts/ci/api-deploy-required.sh
+
   deploy-api:
     name: Deploy API to Fly
     runs-on: ubuntu-latest
@@ -190,8 +208,23 @@ jobs:
         quiesce-failsafe,
         build-web,
         build-api,
+        detect-api-deploy,
       ]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      ${{
+        always() &&
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        needs['lint-and-typecheck'].result == 'success' &&
+        needs['test-domain'].result == 'success' &&
+        needs['test-api'].result == 'success' &&
+        needs['test-web'].result == 'success' &&
+        needs['e2e-web'].result == 'success' &&
+        needs['quiesce-failsafe'].result == 'success' &&
+        needs['build-web'].result == 'success' &&
+        needs['build-api'].result == 'success' &&
+        (needs['detect-api-deploy'].result != 'success' || needs['detect-api-deploy'].outputs.deploy_api != 'false')
+      }}
     concurrency:
       group: deploy-api
       cancel-in-progress: false
