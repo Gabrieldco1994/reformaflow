@@ -175,15 +175,13 @@ describe("ocr-synth-v1 scanned-only release corpus (offline)", () => {
 
     const zero = getOcrSynthCase("scan-011");
     expect(successfulRows(zero)).toHaveLength(0);
-    const unreadable = successfulRows(getOcrSynthCase("scan-012"))[0]!;
-    expect(unreadable).toMatchObject({
-      amountText: null,
-      amountCents: null,
-      sign: "UNKNOWN",
-      amountMeaning: "UNKNOWN",
-      dateExplicitness: "UNKNOWN",
-      installmentMeaning: "UNKNOWN",
+    const unreadable = getOcrSynthCase("scan-012");
+    expect(unreadable.expected).toEqual({
+      kind: "ERROR",
+      errorCode: "DOCUMENT_UNREADABLE",
+      retryable: false,
     });
+    expect(successfulRows(unreadable)).toEqual([]);
     const ambiguous = successfulRows(getOcrSynthCase("scan-009"))[0]!;
     expect(ambiguous.amountCents).not.toBeNull();
     expect(ambiguous.amountMeaning).toBe("UNKNOWN");
@@ -209,10 +207,7 @@ describe("ocr-synth-v1 scanned-only release corpus (offline)", () => {
     ).toBe(true);
     expect(
       rawRows.some(
-        (row) =>
-          row.amountCents === null &&
-          row.sign === "UNKNOWN" &&
-          row.amountMeaning === "UNKNOWN",
+        (row) => row.amountCents !== null && row.amountMeaning === "UNKNOWN",
       ),
     ).toBe(true);
   });
@@ -374,13 +369,14 @@ describe("scanned PDF evaluator and release evidence gate", () => {
       "SIGN_MISMATCH",
     ],
     [
-      "invented unreadable amount",
+      "reverted unreadable terminal to success",
       (items: OcrEvalPrediction[]) => {
-        const row = successful(items, "scan-012").outcome.regions[0]!.rows[0]!;
-        row.amountCents = "999999";
-        row.sign = "POSITIVE";
+        const unreadable = items.find(
+          (prediction) => prediction.caseId === "scan-012",
+        )!;
+        unreadable.outcome = clone(successful(items, "scan-001").outcome);
       },
-      "UNKNOWN_AMOUNT_INVENTED",
+      "OUTCOME_KIND_MISMATCH",
     ],
     [
       "invented ambiguous meaning",

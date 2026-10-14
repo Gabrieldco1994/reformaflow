@@ -1,4 +1,9 @@
-import { PDF_OCR_LIMITS } from "@reformaflow/domain";
+import {
+  PDF_OCR_LIMITS,
+  PDF_OCR_MODEL_ID,
+  PDF_OCR_PROVIDER_ID,
+  PDF_OCR_REGION,
+} from "@reformaflow/domain";
 import { PdfOcrFailureCode, parsePdfOcrV2 } from "./pdf-ocr-parser";
 import { isPdfOcrEnabled } from "./pdf-ocr-capability";
 
@@ -14,6 +19,7 @@ const context = {
 };
 const candidate = {
   pageNumber: 2,
+  pageOccurrenceIndex: 1,
   description: "MERCADO",
   amountCents: "-1001",
   amountMeaning: "LINE_AMOUNT",
@@ -22,6 +28,12 @@ const candidate = {
   evidenceText: "13/10/2026 MERCADO 10,01",
 };
 const payload = (overrides: Record<string, unknown> = {}) => ({
+  completionStatus: "COMPLETE",
+  reportedPageCount: 2,
+  pageAccounting: [
+    { pageNumber: 1, status: "EMPTY", visibleOccurrenceCount: 0 },
+    { pageNumber: 2, status: "READABLE", visibleOccurrenceCount: 1 },
+  ],
   candidates: [candidate],
   ...overrides,
 });
@@ -72,7 +84,18 @@ describe("strict review-only OCR parser", () => {
   });
 
   it("accepts zero candidates, signed zero, and uncertainty without inference", () => {
-    expect(parsePdfOcrV2({ candidates: [] }, context)).toMatchObject({
+    expect(
+      parsePdfOcrV2(
+        payload({
+          pageAccounting: [
+            { pageNumber: 1, status: "EMPTY", visibleOccurrenceCount: 0 },
+            { pageNumber: 2, status: "EMPTY", visibleOccurrenceCount: 0 },
+          ],
+          candidates: [],
+        }),
+        context,
+      ),
+    ).toMatchObject({
       ok: true,
       value: { candidates: [] },
     });
@@ -148,30 +171,58 @@ describe("strict review-only OCR parser", () => {
   });
 
   it("admits the measured dense bound and rejects one more candidate", () => {
+    const denseCandidates = Array.from(
+      { length: PDF_OCR_LIMITS.candidatesPerFile },
+      (_, index) => ({ ...candidate, pageOccurrenceIndex: index + 1 }),
+    );
     expect(
       parsePdfOcrV2(
         payload({
-          candidates: Array.from(
-            { length: PDF_OCR_LIMITS.candidatesPerFile },
-            () => candidate,
-          ),
+          pageAccounting: [
+            { pageNumber: 1, status: "EMPTY", visibleOccurrenceCount: 0 },
+            {
+              pageNumber: 2,
+              status: "READABLE",
+              visibleOccurrenceCount: PDF_OCR_LIMITS.candidatesPerFile,
+            },
+          ],
+          candidates: denseCandidates,
         }),
         context,
       ).ok,
     ).toBe(true);
     expect(
       parsePdfOcrV2(
-        payload({
-          candidates: Array.from(
-            { length: PDF_OCR_LIMITS.candidatesPerFile + 1 },
-            () => candidate,
-          ),
-        }),
+        {
+          completionStatus: "OCCURRENCE_LIMIT_EXCEEDED",
+          reportedPageCount: 2,
+          pageAccounting: [
+            { pageNumber: 1, status: "EMPTY", visibleOccurrenceCount: 0 },
+            {
+              pageNumber: 2,
+              status: "READABLE",
+              visibleOccurrenceCount: PDF_OCR_LIMITS.candidatesPerFile + 1,
+            },
+          ],
+          candidates: [],
+        },
         context,
       ),
     ).toEqual({
       ok: false,
-      error: { code: PdfOcrFailureCode.LIMIT_EXCEEDED },
+      error: {
+        code: PdfOcrFailureCode.LIMIT_EXCEEDED,
+        provenance: {
+          provider: PDF_OCR_PROVIDER_ID,
+          model: PDF_OCR_MODEL_ID,
+          modelVersion: context.modelVersion,
+          region: PDF_OCR_REGION,
+          requestId: context.requestId,
+          responseId: context.responseId,
+          usage: context.usage,
+          latencyMs: context.latencyMs,
+        },
+      },
     });
   });
 

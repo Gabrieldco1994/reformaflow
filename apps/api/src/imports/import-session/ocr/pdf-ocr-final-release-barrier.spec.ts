@@ -171,7 +171,8 @@ describe("final #719 release barriers", () => {
     const candidates = Array.from(
       { length: PDF_OCR_LIMITS.candidatesPerFile },
       (_, index) => ({
-        pageNumber: (index % PDF_OCR_LIMITS.pagesPerFile) + 1,
+        pageNumber: Math.floor(index / 3) + 1,
+        pageOccurrenceIndex: (index % 3) + 1,
         description: index === 2 ? null : `LINHA ${index + 1}`,
         amountCents:
           index === 0 ? "-20696" : index === 1 ? "0" : index === 2 ? null : "1",
@@ -181,7 +182,28 @@ describe("final #719 release barriers", () => {
         evidenceText: `evidencia ${index + 1}`,
       }),
     );
-    const parsed = parsePdfOcrV2({ candidates }, CONTEXT);
+    const pageAccounting = Array.from(
+      { length: PDF_OCR_LIMITS.pagesPerFile },
+      (_, pageIndex) => {
+        const visibleOccurrenceCount = candidates.filter(
+          (candidate) => candidate.pageNumber === pageIndex + 1,
+        ).length;
+        return {
+          pageNumber: pageIndex + 1,
+          status: visibleOccurrenceCount === 0 ? "EMPTY" : "READABLE",
+          visibleOccurrenceCount,
+        };
+      },
+    );
+    const parsed = parsePdfOcrV2(
+      {
+        completionStatus: "COMPLETE",
+        reportedPageCount: PDF_OCR_LIMITS.pagesPerFile,
+        pageAccounting,
+        candidates,
+      },
+      CONTEXT,
+    );
 
     if (!parsed.ok) throw new Error(parsed.error.code);
     expect(parsed.value).toMatchObject({
@@ -213,10 +235,37 @@ describe("final #719 release barriers", () => {
     ]);
 
     expect(
-      parsePdfOcrV2({ candidates: [...candidates, candidates[0]] }, CONTEXT),
+      parsePdfOcrV2(
+        {
+          completionStatus: "OCCURRENCE_LIMIT_EXCEEDED",
+          reportedPageCount: PDF_OCR_LIMITS.pagesPerFile,
+          pageAccounting: pageAccounting.map((page) =>
+            page.pageNumber === 1
+              ? {
+                  ...page,
+                  visibleOccurrenceCount: page.visibleOccurrenceCount + 1,
+                }
+              : page,
+          ),
+          candidates: [],
+        },
+        CONTEXT,
+      ),
     ).toEqual({
       ok: false,
-      error: { code: PdfOcrFailureCode.LIMIT_EXCEEDED },
+      error: {
+        code: PdfOcrFailureCode.LIMIT_EXCEEDED,
+        provenance: {
+          provider: PDF_OCR_PROVIDER_ID,
+          model: PDF_OCR_MODEL_ID,
+          modelVersion: CONTEXT.modelVersion,
+          region: PDF_OCR_REGION,
+          requestId: CONTEXT.requestId,
+          responseId: CONTEXT.responseId,
+          usage: CONTEXT.usage,
+          latencyMs: CONTEXT.latencyMs,
+        },
+      },
     });
   });
 });
