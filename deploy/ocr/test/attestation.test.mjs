@@ -26,6 +26,7 @@ import {
   assessReportV4,
   buildUnsignedPayloadFromBytes,
 } from "../build-unsigned-attestation.mjs";
+import * as unsignedAttestation from "../build-unsigned-attestation.mjs";
 
 function fixture(publicKeySha256) {
   const sha = "a".repeat(40);
@@ -1059,4 +1060,455 @@ test("two-way binding rejects recovery mutation runtime byte mutation and valid 
     () => verifyReleaseCrossBinding(mixed, b.runtimeEnvelopeBytes),
     /ACTIVATION_SUBJECT_DIGEST_MISMATCH/,
   );
+});
+
+const authorityRoot = resolve(import.meta.dirname, "../../..");
+const canonicalCaseIds = Array.from(
+  { length: 18 },
+  (_, index) => `scan-${String(index + 1).padStart(3, "0")}`,
+);
+const canonicalDatasetVersion = "ocr-synth-v1-direct-pdf-vertex-v3";
+const canonicalReportSchemaPath =
+  "apps/api/src/imports/ocr-synth-v1/report.schema.json";
+
+function canonicalAuthorityBoundary() {
+  const loaded = unsignedAttestation;
+  const observation = {
+    kind:
+      typeof loaded.assessCanonicalReport === "function" &&
+      typeof loaded.verifyCandidateArtifactV4 === "function"
+        ? "READY"
+        : "BOUNDARY_UNAVAILABLE",
+    code: "CANONICAL_REPORT_V4_AUTHORITY_NOT_IMPLEMENTED",
+  };
+  assert.deepEqual(observation, {
+    kind: "READY",
+    code: "CANONICAL_REPORT_V4_AUTHORITY_NOT_IMPLEMENTED",
+  });
+  if (observation.kind !== "READY") throw new Error(observation.code);
+  return loaded;
+}
+
+function exactRawEntry(bytes) {
+  return {
+    bytesBase64: bytes.toString("base64"),
+    byteLength: bytes.length,
+    sha256: sha256(bytes),
+  };
+}
+
+function providerPayload(index) {
+  return {
+    completionStatus: "COMPLETE",
+    reportedPageCount: 1,
+    pageAccounting: [
+      {
+        pageNumber: 1,
+        status: "READABLE",
+        visibleOccurrenceCount: 1,
+      },
+    ],
+    candidates: [
+      {
+        pageNumber: 1,
+        pageOccurrenceIndex: 1,
+        description: `ITEM SINTETICO ${String(index + 1).padStart(3, "0")}-0`,
+        amountCents: String(index + 1),
+        sign: "POSITIVE",
+        amountMeaning: "LINE_AMOUNT",
+        rawDate: "29/02/2024",
+        normalizedDate: "2024-02-29",
+        dateExplicitness: "FULL",
+        installment: null,
+        installmentMeaning: "ABSENT",
+        evidenceText: `29/02/2024 ITEM SINTETICO ${String(index + 1).padStart(3, "0")}-0`,
+        selected: false,
+        verificationStatus: "UNVERIFIED",
+        candidateDisposition: "RAW_UNCLASSIFIED",
+      },
+    ],
+  };
+}
+
+function rawCandidateCase(index) {
+  const caseId = canonicalCaseIds[index];
+  const countTokensBytes = Buffer.from(canonicalize({ totalTokens: 100 }));
+  const generationBytes = Buffer.from(
+    canonicalize({
+      responseId: `response-${caseId}`,
+      modelVersion: "gemini-2.5-flash-001",
+      candidates: [
+        {
+          finishReason: "STOP",
+          content: {
+            parts: [{ text: canonicalize(providerPayload(index)) }],
+          },
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 20,
+        totalTokenCount: 120,
+      },
+    }),
+  );
+  return {
+    caseId,
+    tenantId: "tenant-synthetic-a",
+    artifactSha256: sha256(`generated-pdf-${caseId}`),
+    requestPlanSha256: sha256(`request-plan-${caseId}`),
+    requestId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    countTokens: {
+      endpoint:
+        "https://southamerica-east1-aiplatform.googleapis.com/v1/projects/p/locations/southamerica-east1/publishers/google/models/gemini-2.5-flash:countTokens",
+      method: "POST",
+      ...exactRawEntry(countTokensBytes),
+    },
+    admission: {
+      countTokensResponseSha256: sha256(countTokensBytes),
+      decision: "ADMITTED",
+    },
+    generation: {
+      endpoint:
+        "https://southamerica-east1-aiplatform.googleapis.com/v1/projects/p/locations/southamerica-east1/publishers/google/models/gemini-2.5-flash:generateContent",
+      method: "POST",
+      ...exactRawEntry(generationBytes),
+    },
+  };
+}
+
+function canonicalApplicationReport() {
+  return {
+    reportSchemaVersion: 4,
+    datasetVersion: canonicalDatasetVersion,
+    corpusSampleCount: 52,
+    releaseScannedPdfSampleCount: 18,
+    routingSafetySampleCount: 10,
+    futureImageSampleCount: 12,
+    baseline: {
+      sha: "a".repeat(40),
+      behavior: "OCR_REQUIRED",
+      sampleCount: 18,
+    },
+    candidate: { evidenceClass: "LIVE" },
+    thresholds: {
+      scannedTaskSuccessRate: 1,
+      exactMoneyRate: 1,
+      exactSignRate: 1,
+      exactDateRate: 1,
+      exactDateExplicitnessRate: 1,
+      exactInstallmentRate: 1,
+      unknownPreservationRate: 1,
+      visibleEvidenceRate: 1,
+      schemaValidityRate: 1,
+      inventedRows: 0,
+      omittedRows: 0,
+      tenantLeaks: 0,
+      falseAutomations: 0,
+      financialWrites: 0,
+      maxP95LatencyMs: 30_000,
+      maxPeakRssBytes: 536_870_912,
+      maxTotalCostMicros: 500_000,
+    },
+    metrics: {
+      scannedTaskSuccessRate: 1,
+      exactMoneyRate: 1,
+      exactSignRate: 1,
+      exactDateRate: 1,
+      exactDateExplicitnessRate: 1,
+      exactInstallmentRate: 1,
+      unknownPreservationRate: 1,
+      visibleEvidenceRate: 1,
+      schemaValidityRate: 1,
+      inventedRows: 0,
+      omittedRows: 0,
+      tenantLeaks: 0,
+      falseAutomations: 0,
+      financialWrites: 0,
+      p95LatencyMs: 1_000,
+      peakRssBytes: 100_000_000,
+      inputTokens: 1_800,
+      outputTokens: 360,
+      totalTokens: 2_160,
+      totalCostMicros: 1_440,
+      costCurrency: "USD",
+    },
+    perCase: canonicalCaseIds.map((caseId) => ({
+      caseId,
+      pass: true,
+      issues: [],
+    })),
+    regressions: [],
+    routingCases: Array.from({ length: 10 }, (_, index) => ({
+      caseId: `mixed-${String(index + 1).padStart(3, "0")}`,
+      pass: true,
+      issues: [],
+    })),
+    safetyProbes: probeIds.map((id) => ({ id, pass: true, issues: [] })),
+    fallbackSafety: {
+      explicitFailures: true,
+      emptySuccessAccepted: false,
+      financialWritesPerformed: 0,
+      tenantLeakCount: 0,
+      routingProviderCalls: 0,
+    },
+    liveEvidenceGaps: [],
+    functionalStatus: "PASS",
+    releaseStatus: "PASS",
+  };
+}
+
+function candidateGithubArtifactFixture(rawEvidence) {
+  const memberBytes = Buffer.from(canonicalize(rawEvidence));
+  const archiveBytes = Buffer.from(
+    "deterministic-candidate-github-artifact-v4-archive",
+  );
+  return {
+    expected: {
+      repositoryId: 12345,
+      workflowPath: ".github/workflows/ocr-qualification.yml",
+      workflowRunId: 1001,
+      workflowRunAttempt: 1,
+      artifactId: 7002,
+      artifactName: "ocr-candidate-1001-1",
+      workflowSha: "a".repeat(40),
+      workflowHeadSha: "b".repeat(40),
+      workflowHeadTree: "c".repeat(40),
+      subjectSha: "d".repeat(40),
+      subjectTree: "e".repeat(40),
+      memberName: "candidate.json",
+    },
+    metadata: {
+      id: 7002,
+      name: "ocr-candidate-1001-1",
+      expired: false,
+      digest: `sha256:${sha256(archiveBytes)}`,
+      workflow_run: { id: 1001, head_sha: "b".repeat(40) },
+    },
+    archiveBytes,
+    members: [{ name: "candidate.json", bytes: memberBytes }],
+    payload: rawEvidence,
+    bindings: {
+      workflowPath: ".github/workflows/ocr-qualification.yml",
+      workflowSha: "a".repeat(40),
+      workflowHeadTree: "c".repeat(40),
+      subjectSha: "d".repeat(40),
+      subjectTree: "e".repeat(40),
+    },
+  };
+}
+
+async function canonicalAuthorityInputs(options = {}) {
+  const rawEvidence = {
+    evidenceClass: options.evidenceClass ?? "LIVE",
+    datasetVersion: canonicalDatasetVersion,
+    cases: canonicalCaseIds.map((_, index) => rawCandidateCase(index)),
+  };
+  return {
+    evidenceClass: options.evidenceClass ?? "LIVE",
+    report: canonicalApplicationReport(),
+    rawEvidence,
+    baselineArtifact: { verified: true, records: canonicalCaseIds },
+    candidateArtifact: candidateGithubArtifactFixture(rawEvidence),
+    boundaryObservations: { verified: true, count: 45 },
+    attemptLedger: { verified: true, runAttempt: 1 },
+  };
+}
+
+async function assessCanonicalMutation(input, mutation) {
+  return canonicalAuthorityBoundary().assessCanonicalReport({
+    ...input,
+    ...mutation,
+  });
+}
+
+test("provider outcome wrappers are not accepted as raw Vertex response bytes", async () => {
+  const input = await canonicalAuthorityInputs();
+  const raw = structuredClone(input.rawEvidence);
+  const wrapperBytes = Buffer.from(
+    canonicalize({
+      responseId: "response-scan-001",
+      modelVersion: "gemini-2.5-flash-001",
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 20,
+        totalTokenCount: 120,
+      },
+      result: { providerOutcome: "SUCCEEDED" },
+    }),
+  );
+  Object.assign(raw.cases[0].generation, exactRawEntry(wrapperBytes));
+
+  const result = await assessCanonicalMutation(input, { rawEvidence: raw });
+
+  assert.equal(result.releaseStatus, "GAPS");
+  assert.equal(result.signable, false);
+  assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_SCHEMA_INVALID"]);
+});
+
+test("exact raw OCR bytes outrank matching caller PASS and report claims", async () => {
+  const input = await canonicalAuthorityInputs();
+  const raw = structuredClone(input.rawEvidence);
+  const generation = parseStrictJson(
+    Buffer.from(raw.cases[0].generation.bytesBase64, "base64").toString("utf8"),
+  );
+  const text = parseStrictJson(generation.candidates[0].content.parts[0].text);
+  text.candidates[0].amountCents = "2";
+  generation.candidates[0].content.parts[0].text = canonicalize(text);
+  const mutatedBytes = Buffer.from(canonicalize(generation));
+  Object.assign(raw.cases[0].generation, exactRawEntry(mutatedBytes));
+  const report = structuredClone(input.report);
+  report.releaseStatus = "PASS";
+  report.functionalStatus = "PASS";
+  report.regressions = [];
+
+  const result = await assessCanonicalMutation(input, {
+    rawEvidence: raw,
+    report,
+    releaseStatus: "PASS",
+    issues: [],
+  });
+
+  assert.equal(result.releaseStatus, "GAPS");
+  assert.equal(result.signable, false);
+  assert.ok(result.issues.includes("MONEY_MISMATCH"));
+  assert.ok(result.issues.includes("REPORT_V4_DERIVATION_MISMATCH"));
+});
+
+test("missing exact Vertex bytes has its own fail-closed code", async () => {
+  const input = await canonicalAuthorityInputs();
+  const raw = structuredClone(input.rawEvidence);
+  delete raw.cases[0].generation.bytesBase64;
+
+  const result = await assessCanonicalMutation(input, { rawEvidence: raw });
+
+  assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_BYTES_MISSING"]);
+  assert.equal(result.releaseStatus, "GAPS");
+  assert.equal(result.signable, false);
+});
+
+test("invalid base64, hash mismatch, zero bytes, and limit+1 raw bytes are invalid", async () => {
+  const input = await canonicalAuthorityInputs();
+  const limit = 16 * 1024 * 1024;
+  const mutations = [
+    (entry) => {
+      entry.bytesBase64 = "***not-base64***";
+    },
+    (entry) => {
+      entry.sha256 = "0".repeat(64);
+    },
+    (entry) => {
+      Object.assign(entry, exactRawEntry(Buffer.alloc(0)));
+    },
+    (entry) => {
+      Object.assign(entry, exactRawEntry(Buffer.alloc(limit + 1, 1)));
+    },
+  ];
+
+  for (const mutate of mutations) {
+    const raw = structuredClone(input.rawEvidence);
+    mutate(raw.cases[0].generation);
+    const result = await assessCanonicalMutation(input, { rawEvidence: raw });
+    assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_BYTES_INVALID"]);
+    assert.equal(result.signable, false);
+  }
+});
+
+test("response ID, model, and usage claims cannot disagree with exact bytes", async () => {
+  const input = await canonicalAuthorityInputs();
+  for (const mutate of [
+    (entry) => {
+      entry.responseId = "caller-response-id";
+    },
+    (entry) => {
+      entry.modelVersion = "caller-model-version";
+    },
+    (entry) => {
+      entry.usage = {
+        promptTokenCount: 0,
+        candidatesTokenCount: 0,
+        totalTokenCount: 0,
+      };
+    },
+  ]) {
+    const raw = structuredClone(input.rawEvidence);
+    mutate(raw.cases[0].generation);
+    const result = await assessCanonicalMutation(input, { rawEvidence: raw });
+    assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_BINDING_INVALID"]);
+  }
+});
+
+test("candidate GitHub artifact provenance is externally bound", async () => {
+  const input = await canonicalAuthorityInputs();
+  const mutations = [
+    (artifact) => {
+      artifact.metadata.digest = `sha256:${"0".repeat(64)}`;
+    },
+    (artifact) => {
+      artifact.metadata.id = 999999;
+    },
+    (artifact) => {
+      artifact.metadata.workflow_run.id += 1;
+    },
+    (artifact) => {
+      artifact.metadata.workflow_run.head_sha = "0".repeat(40);
+    },
+    (artifact) => {
+      artifact.bindings.subjectTree = "0".repeat(40);
+    },
+    (artifact) => {
+      artifact.members.push({
+        name: "extra.json",
+        bytes: Buffer.from("{}"),
+      });
+    },
+  ];
+
+  for (const mutate of mutations) {
+    const artifact = structuredClone(input.candidateArtifact);
+    mutate(artifact);
+    await assert.rejects(
+      () => canonicalAuthorityBoundary().verifyCandidateArtifactV4(artifact),
+      /CANDIDATE_ARTIFACT_PROVENANCE_INVALID/,
+    );
+  }
+});
+
+test("only the application-owned report V4 is accepted with no SRE transformation", async () => {
+  const input = await canonicalAuthorityInputs();
+  const result =
+    await canonicalAuthorityBoundary().assessCanonicalReport(input);
+  const schemaBytes = await readFile(
+    resolve(authorityRoot, canonicalReportSchemaPath),
+  );
+
+  assert.equal(result.reportSchemaVersion, 4);
+  assert.equal(result.bindings.reportSchemaSha256, sha256(schemaBytes));
+  assert.equal(
+    result.bindings.reportSha256,
+    sha256(Buffer.from(canonicalize(input.report))),
+  );
+  assert.equal(result.releaseStatus, "PASS");
+  assert.equal(result.signable, true);
+  assert.equal("transformedReport" in result, false);
+});
+
+test("TEST_ONLY remains deterministic GAPS with every live-evidence deficit", async () => {
+  const input = await canonicalAuthorityInputs({ evidenceClass: "TEST_ONLY" });
+  const first = await canonicalAuthorityBoundary().assessCanonicalReport(input);
+  const second = await canonicalAuthorityBoundary().assessCanonicalReport(
+    structuredClone(input),
+  );
+
+  assert.deepEqual(second, first);
+  assert.equal(first.releaseStatus, "GAPS");
+  assert.equal(first.signable, false);
+  assert.deepEqual(first.issues, [
+    "LIVE_PROVIDER_RUN_NOT_SUPPLIED",
+    "MISSING_BASELINE_EXECUTION",
+    "MISSING_LIVE_CANDIDATE_EXECUTION",
+    "MISSING_RAW_VERTEX_RESPONSE_BYTES",
+    "MISSING_LIVE_ATTEMPT_LEDGER",
+    "MISSING_LIVE_BOUNDARY_OBSERVATIONS",
+  ]);
 });

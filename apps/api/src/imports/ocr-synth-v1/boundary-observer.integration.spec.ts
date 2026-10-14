@@ -25,6 +25,12 @@ type ObserverModule = Readonly<{
     releaseStatus: "PASS" | "GAPS";
     issues: readonly string[];
   };
+  CANONICAL_PROBE_CALL_EXPECTATIONS: Readonly<
+    Record<
+      string,
+      Readonly<{ countTokensCalls: number; generationCalls: number }>
+    >
+  >;
 }>;
 
 function loadObserverBoundary():
@@ -42,7 +48,8 @@ function loadObserverBoundary():
   if (
     typeof loaded.observeQualificationBoundaries !== "function" ||
     typeof loaded.parseLiveCaptureInput !== "function" ||
-    typeof loaded.evaluateBoundaryObservations !== "function"
+    typeof loaded.evaluateBoundaryObservations !== "function" ||
+    typeof loaded.CANONICAL_PROBE_CALL_EXPECTATIONS !== "object"
   )
     return {
       kind: "BOUNDARY_UNAVAILABLE",
@@ -134,6 +141,228 @@ describe("45 causal production boundary observations", () => {
     expect(boundary().evaluateBoundaryObservations(probes)).toMatchObject({
       releaseStatus: expect.stringMatching(/^(?:PASS|GAPS)$/),
     });
+  });
+
+  const PROVIDER_CALL_PROBES = [
+    "ADC_SCOPE_BOUNDED",
+    "REQUEST_BODY_BOUNDED",
+    "DEADLINE_BOUNDED",
+    "MIXED_LOCAL_PROVIDER_DUPLICATION",
+    "PARTIAL_RESPONSE",
+    "MALFORMED_RESPONSE",
+    "TRUNCATED_RESPONSE",
+    "SAFETY_BLOCKED_RESPONSE",
+    "AMBIGUOUS_TIMEOUT_RETRY",
+    "UNKNOWN_OUTCOME_NO_RETRY",
+    "SELECTED_TRUE_DEFAULT",
+    "VERIFIED_DEFAULT",
+    "KNOWN_SAFETY_FINISH_REASONS",
+  ] as const;
+  const FINANCIAL_TABLES = [
+    "Expense",
+    "CashFlowEntry",
+    "Receipt",
+    "RateioAllocation",
+    "Settlement",
+    "InvoiceLiquidation",
+  ] as const;
+
+  function observationRecord(value: unknown): Record<string, any> {
+    if (!value || typeof value !== "object")
+      throw new Error("BOUNDARY_TEST_FIXTURE_INVALID");
+    return value as Record<string, any>;
+  }
+
+  function isProbeObservation(value: unknown): value is Record<string, any> {
+    return String(observationRecord(value).identity).startsWith("[PROBE] ");
+  }
+
+  function isRouteObservation(value: unknown): value is Record<string, any> {
+    return String(observationRecord(value).identity).startsWith("[ROUTE] ");
+  }
+
+  function exactZeroSixTableDeltas() {
+    return {
+      Expense: { count: 0, centValueSum: 0 },
+      CashFlowEntry: { count: 0, centValueSum: 0 },
+      Receipt: { count: 0, centValueSum: 0 },
+      RateioAllocation: { count: 0, centValueSum: 0 },
+      Settlement: { count: 0 },
+      InvoiceLiquidation: { count: 0 },
+    };
+  }
+
+  describe("canonical causal call tuples and financial observations", () => {
+    it("keeps the application-owned map at exactly thirteen 1/1 and twenty-two 0/0 PROBEs", () => {
+      const map = boundary().CANONICAL_PROBE_CALL_EXPECTATIONS;
+
+      expect(Object.keys(map)).toEqual(PROBE_IDS);
+      expect(
+        Object.entries(map)
+          .filter(
+            ([, calls]) =>
+              calls.countTokensCalls === 1 && calls.generationCalls === 1,
+          )
+          .map(([id]) => id),
+      ).toEqual(PROVIDER_CALL_PROBES);
+      expect(
+        Object.values(map).filter(
+          (calls) =>
+            calls.countTokensCalls === 0 && calls.generationCalls === 0,
+        ),
+      ).toHaveLength(22);
+    });
+
+    it("enforces the canonical countTokens/generation tuple for every ROUTE and PROBE", async () => {
+      const observations = await boundary().observeQualificationBoundaries();
+      const routes = observations.filter(isRouteObservation);
+      const probes = observations.filter(isProbeObservation);
+
+      expect(routes).toHaveLength(10);
+      expect(probes).toHaveLength(35);
+      for (const route of routes)
+        expect({
+          countTokensCalls: route.countTokensCalls,
+          generationCalls: route.generationCalls,
+        }).toEqual({ countTokensCalls: 0, generationCalls: 0 });
+      for (const probe of probes) {
+        const id = String(probe.identity).slice("[PROBE] ".length);
+        expect({
+          countTokensCalls: probe.countTokensCalls,
+          generationCalls: probe.generationCalls,
+        }).toEqual(boundary().CANONICAL_PROBE_CALL_EXPECTATIONS[id]);
+      }
+    });
+
+    it.each([
+      ["countTokens", "countTokensCalls"],
+      ["generation", "generationCalls"],
+    ] as const)(
+      "a wrong PROBE %s count produces BOUNDARY_CALL_COUNT_MISMATCH",
+      async (_label, field) => {
+        const observations = structuredClone(
+          await boundary().observeQualificationBoundaries(),
+        ).map(observationRecord);
+        const probe = observations.find(isProbeObservation)!;
+        probe[field] += 1;
+
+        expect(boundary().evaluateBoundaryObservations(observations)).toEqual({
+          releaseStatus: "GAPS",
+          issues: ["BOUNDARY_CALL_COUNT_MISMATCH"],
+        });
+      },
+    );
+
+    it("binds before, after, deltas and mutation calls for all six financial tables", async () => {
+      const observations = await boundary().observeQualificationBoundaries();
+
+      for (const value of observations) {
+        const observation = observationRecord(value);
+        expect(Object.keys(observation.financial)).toEqual([
+          "mutationCalls",
+          "before",
+          "after",
+          "deltas",
+        ]);
+        expect(observation.financial.mutationCalls).toBe(0);
+        expect(Object.keys(observation.financial.before)).toEqual(
+          FINANCIAL_TABLES,
+        );
+        expect(Object.keys(observation.financial.after)).toEqual(
+          FINANCIAL_TABLES,
+        );
+        expect(observation.financial.after).toEqual(
+          observation.financial.before,
+        );
+        expect(observation.financial.deltas).toEqual(exactZeroSixTableDeltas());
+        for (const table of FINANCIAL_TABLES.slice(0, 4)) {
+          expect(observation.financial.before[table]).toEqual({
+            count: expect.any(Number),
+            centValueSum: expect.any(Number),
+          });
+        }
+        for (const table of FINANCIAL_TABLES.slice(4)) {
+          expect(observation.financial.before[table]).toEqual({
+            count: expect.any(Number),
+          });
+        }
+      }
+    });
+
+    it.each([
+      [
+        "scenario hash",
+        (observations: Array<Record<string, any>>) => {
+          observations[0]!.scenarioSha256 = "0".repeat(64);
+        },
+        "BOUNDARY_SCENARIO_BINDING_INVALID",
+      ],
+      [
+        "missing before snapshot",
+        (observations: Array<Record<string, any>>) => {
+          delete observations[0]!.financial.before;
+        },
+        "BOUNDARY_EVIDENCE_INVALID",
+      ],
+      [
+        "missing after snapshot",
+        (observations: Array<Record<string, any>>) => {
+          delete observations[0]!.financial.after;
+        },
+        "BOUNDARY_EVIDENCE_INVALID",
+      ],
+      [
+        "nonzero financial delta",
+        (observations: Array<Record<string, any>>) => {
+          observations[0]!.financial.deltas.Expense.count = 1;
+        },
+        "FINANCIAL_DELTA_NONZERO",
+      ],
+      [
+        "zero net delta with an observed write",
+        (observations: Array<Record<string, any>>) => {
+          observations[0]!.financial.mutationCalls = 1;
+        },
+        "FINANCIAL_WRITE_OBSERVED",
+      ],
+      [
+        "missing observation",
+        (observations: Array<Record<string, any>>) => {
+          observations.splice(0, 1);
+        },
+        "BOUNDARY_EVIDENCE_INCOMPLETE",
+      ],
+      [
+        "duplicate observation",
+        (observations: Array<Record<string, any>>) => {
+          observations.splice(1, 0, structuredClone(observations[0]!));
+        },
+        "BOUNDARY_EVIDENCE_INCOMPLETE",
+      ],
+      [
+        "reordered observation",
+        (observations: Array<Record<string, any>>) => {
+          [observations[0], observations[1]] = [
+            observations[1]!,
+            observations[0]!,
+          ];
+        },
+        "BOUNDARY_EVIDENCE_INCOMPLETE",
+      ],
+    ] as const)(
+      "rejects %s with the exact derived code",
+      async (_label, mutate, code) => {
+        const observations = structuredClone(
+          await boundary().observeQualificationBoundaries(),
+        ).map(observationRecord);
+        mutate(observations);
+
+        expect(boundary().evaluateBoundaryObservations(observations)).toEqual({
+          releaseStatus: "GAPS",
+          issues: [code],
+        });
+      },
+    );
   });
 
   it("rejects caller supplied ROUTE and PROBE claims", () => {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   mkdtemp,
   readFile,
@@ -740,5 +741,294 @@ describe("audited synthetic Vertex capture", () => {
         artifactSha256(await generateArtifact(testCase)),
       );
     }
+  });
+});
+
+type CapturedAttemptAuthority = Readonly<{
+  executeCapturedAttempt(input: {
+    runId: string;
+    runAttempt: 1;
+    caseId: string;
+    requestId: string;
+    requestPlanSha256: string;
+    countTokensRequestSha256: string;
+    spentKnownBeforeMicros: number;
+    reservedOutputTokens: 8192;
+    inputMicrosPerMillionTokens: 300000;
+    outputMicrosPerMillionTokens: 2500000;
+    hardLimitMicros: 500000;
+    countTokens: () => Promise<Buffer>;
+    generation: () => Promise<Buffer>;
+  }): Promise<Record<string, any>>;
+  verifyAttemptLedger(input: unknown): unknown;
+}>;
+
+function capturedAttemptAuthority(): CapturedAttemptAuthority {
+  const loaded =
+    captureLiveCore as unknown as Partial<CapturedAttemptAuthority>;
+  const observation = {
+    kind:
+      typeof loaded.executeCapturedAttempt === "function" &&
+      typeof loaded.verifyAttemptLedger === "function"
+        ? "READY"
+        : "BOUNDARY_UNAVAILABLE",
+    code: "CAPTURE_ATTEMPT_LEDGER_NOT_IMPLEMENTED",
+  };
+  expect(observation).toMatchObject({ kind: "READY" });
+  if (observation.kind !== "READY") throw new Error(observation.code);
+  return loaded as CapturedAttemptAuthority;
+}
+
+const attemptHash = (bytes: Buffer | string) =>
+  createHash("sha256").update(bytes).digest("hex");
+
+function countTokensResponse(totalTokens = 100) {
+  return Buffer.from(JSON.stringify({ totalTokens }));
+}
+
+function generationResponseBytes() {
+  return Buffer.from(
+    JSON.stringify({
+      responseId: "response-scan-001",
+      modelVersion: VERSION,
+      candidates: [
+        {
+          finishReason: "STOP",
+          content: { parts: [{ text: JSON.stringify({ candidates: [] }) }] },
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 20,
+        totalTokenCount: 120,
+      },
+    }),
+  );
+}
+
+function attemptInput(
+  spentKnownBeforeMicros: number,
+  countTokens = jest.fn(async () => countTokensResponse()),
+  generation = jest.fn(async () => generationResponseBytes()),
+) {
+  return {
+    runId: "qualification-run-1001",
+    runAttempt: 1 as const,
+    caseId: "scan-001",
+    requestId: "10000000-0000-4000-8000-000000000001",
+    requestPlanSha256: "a".repeat(64),
+    countTokensRequestSha256: "b".repeat(64),
+    spentKnownBeforeMicros,
+    reservedOutputTokens: 8192 as const,
+    inputMicrosPerMillionTokens: 300_000 as const,
+    outputMicrosPerMillionTokens: 2_500_000 as const,
+    hardLimitMicros: 500_000 as const,
+    countTokens,
+    generation,
+  };
+}
+
+function admittedLedgerCase(caseId: string, sequenceStart: number) {
+  const countBytes = countTokensResponse();
+  const generationBytes = generationResponseBytes();
+  const common = {
+    runId: "qualification-run-1001",
+    runAttempt: 1,
+    caseId,
+    requestId: `request-${caseId}`,
+    requestPlanSha256: "a".repeat(64),
+  };
+  return [
+    {
+      ...common,
+      sequence: sequenceStart,
+      kind: "COUNT_TOKENS_REQUEST",
+      requestBodySha256: "b".repeat(64),
+    },
+    {
+      ...common,
+      sequence: sequenceStart + 1,
+      kind: "COUNT_TOKENS_RESPONSE",
+      responseBytesBase64: countBytes.toString("base64"),
+      responseByteLength: countBytes.length,
+      responseSha256: attemptHash(countBytes),
+      parsedInputTokens: 100,
+    },
+    {
+      ...common,
+      sequence: sequenceStart + 2,
+      kind: "ADMISSION_DECISION",
+      countTokensResponseSha256: attemptHash(countBytes),
+      countedInputTokens: 100,
+      reservedOutputTokens: 8192,
+      inputMicrosPerMillionTokens: 300_000,
+      outputMicrosPerMillionTokens: 2_500_000,
+      spentKnownBeforeMicros: sequenceStart === 1 ? 0 : 20_510,
+      worstCaseCurrentMicros: 20_510,
+      cumulativeWorstCaseMicros: sequenceStart === 1 ? 20_510 : 41_020,
+      hardLimitMicros: 500_000,
+      decision: "ADMITTED",
+    },
+    {
+      ...common,
+      sequence: sequenceStart + 3,
+      kind: "GENERATION_REQUEST",
+      requestBodySha256: "c".repeat(64),
+    },
+    {
+      ...common,
+      sequence: sequenceStart + 4,
+      kind: "GENERATION_RESPONSE",
+      responseBytesBase64: generationBytes.toString("base64"),
+      responseByteLength: generationBytes.length,
+      responseSha256: attemptHash(generationBytes),
+    },
+    {
+      ...common,
+      sequence: sequenceStart + 5,
+      kind: "SPEND_RECONCILED",
+      measuredCurrentMicros: 80,
+      cumulativeMeasuredMicros: sequenceStart === 1 ? 80 : 160,
+      cumulativeWorstCaseMicros: sequenceStart === 1 ? 20_510 : 41_020,
+    },
+  ] as Array<Record<string, any>>;
+}
+
+function capturedAttemptFixture() {
+  return {
+    runId: "qualification-run-1001",
+    runAttempt: 1,
+    ledger: [
+      ...admittedLedgerCase("scan-001", 1),
+      ...admittedLedgerCase("scan-002", 7),
+    ],
+  };
+}
+
+describe("hashed countTokens admission and ordered attempt ledger", () => {
+  it.each([
+    [479_490, "ADMITTED", 500_000, 1],
+    [479_491, "CAPTURE_SPEND_LIMIT", 500_001, 0],
+  ] as const)(
+    "derives cumulative %i boundary from exact hashed bytes before generation",
+    async (spentKnownBeforeMicros, decision, cumulative, generationCalls) => {
+      const countTokens = jest.fn(async () => countTokensResponse());
+      const generation = jest.fn(async () => generationResponseBytes());
+
+      const result = await capturedAttemptAuthority().executeCapturedAttempt(
+        attemptInput(spentKnownBeforeMicros, countTokens, generation),
+      );
+
+      expect(countTokens).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        decision,
+        countedInputTokens: 100,
+        worstCaseCurrentMicros: 20_510,
+        cumulativeWorstCaseMicros: cumulative,
+      });
+      expect(generation).toHaveBeenCalledTimes(generationCalls);
+      expect(
+        result.ledger.map((event: { kind: string }) => event.kind),
+      ).toEqual(
+        decision === "ADMITTED"
+          ? [
+              "COUNT_TOKENS_REQUEST",
+              "COUNT_TOKENS_RESPONSE",
+              "ADMISSION_DECISION",
+              "GENERATION_REQUEST",
+              "GENERATION_RESPONSE",
+              "SPEND_RECONCILED",
+            ]
+          : [
+              "COUNT_TOKENS_REQUEST",
+              "COUNT_TOKENS_RESPONSE",
+              "ADMISSION_DECISION",
+            ],
+      );
+      expect(result.ledger[1]).toMatchObject({
+        responseByteLength: countTokensResponse().length,
+        responseSha256: attemptHash(countTokensResponse()),
+        parsedInputTokens: 100,
+      });
+    },
+  );
+
+  it("does not trust an unbound countedInputTokens claim", () => {
+    const evidence = capturedAttemptFixture();
+    const admission = evidence.ledger.find(
+      ({ kind }) => kind === "ADMISSION_DECISION",
+    )!;
+    admission.countedInputTokens = 0;
+
+    expect(() =>
+      capturedAttemptAuthority().verifyAttemptLedger(evidence),
+    ).toThrow("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+  });
+
+  it.each([
+    [
+      "generation before admission",
+      (events: Array<Record<string, any>>) => {
+        [events[2], events[3]] = [events[3]!, events[2]!];
+      },
+    ],
+    [
+      "duplicate admission",
+      (events: Array<Record<string, any>>) => {
+        events.splice(3, 0, structuredClone(events[2]!));
+      },
+    ],
+    [
+      "missing count response",
+      (events: Array<Record<string, any>>) => {
+        events.splice(1, 1);
+      },
+    ],
+    [
+      "sequence reset",
+      (events: Array<Record<string, any>>) => {
+        events[6]!.sequence = 1;
+      },
+    ],
+  ] as const)("rejects %s", (_label, mutate) => {
+    const evidence = capturedAttemptFixture();
+    mutate(evidence.ledger);
+
+    expect(() =>
+      capturedAttemptAuthority().verifyAttemptLedger(evidence),
+    ).toThrow("ATTEMPT_LEDGER_ORDER_INVALID");
+  });
+
+  it("rejects a spend reset between cases", () => {
+    const evidence = capturedAttemptFixture();
+    const secondAdmission = evidence.ledger.find(
+      (event) =>
+        event.caseId === "scan-002" && event.kind === "ADMISSION_DECISION",
+    )!;
+    secondAdmission.spentKnownBeforeMicros = 0;
+
+    expect(() =>
+      capturedAttemptAuthority().verifyAttemptLedger(evidence),
+    ).toThrow("CUMULATIVE_SPEND_MISMATCH");
+  });
+
+  it("rejects any generation event after terminal spend rejection", () => {
+    const evidence = capturedAttemptFixture();
+    evidence.ledger = evidence.ledger.slice(0, 3);
+    Object.assign(evidence.ledger[2]!, {
+      spentKnownBeforeMicros: 479_491,
+      cumulativeWorstCaseMicros: 500_001,
+      decision: "CAPTURE_SPEND_LIMIT",
+    });
+    evidence.ledger.push({
+      ...evidence.ledger[2]!,
+      sequence: 4,
+      kind: "GENERATION_REQUEST",
+      requestBodySha256: "c".repeat(64),
+    });
+
+    expect(() =>
+      capturedAttemptAuthority().verifyAttemptLedger(evidence),
+    ).toThrow("GENERATION_AFTER_REJECTION");
   });
 });

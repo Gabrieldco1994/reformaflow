@@ -3,6 +3,8 @@ import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { canonicalize } from "../../../scripts/ci/ocr-attestation.mjs";
+import { assessReportV4 } from "../build-unsigned-attestation.mjs";
 import { writeKmsCurlConfig } from "../kms-curl-config.mjs";
 const root = resolve(import.meta.dirname, "../../..");
 const q = await readFile(
@@ -192,4 +194,64 @@ test("activation independently verifies pinned artifacts and dormant exact diges
 test("qualification OCI layout intentionally disables provenance", () => {
   assert.match(q, /docker buildx build --provenance=false/);
   assert.equal((q.match(/--provenance=false/g) ?? []).length, 1);
+});
+
+test("baseline, candidate, assessment and persisted GAPS precede payload construction", () => {
+  const baseline = q.indexOf("verify-baseline-artifact");
+  const candidate = q.indexOf("verify-candidate-artifact");
+  const assessmentBundle = q.indexOf("assessment-bundle");
+  const assess = q.indexOf("assess-report");
+  const assessmentArtifact = q.indexOf("ocr-report-assessment-");
+  const passGate = q.indexOf(
+    "Block signing unless independently recomputed V4 assessment passes",
+  );
+  const template = q.indexOf("workflow-payload-template.mjs");
+  const unsignedBundle = q.indexOf("unsigned-bundle");
+  const buildUnsigned = q.indexOf("build-unsigned");
+  const signing = q.indexOf("sign-kms:");
+
+  assert.ok(baseline > 0);
+  assert.ok(candidate > baseline);
+  assert.ok(assessmentBundle > candidate);
+  assert.ok(assess > assessmentBundle);
+  assert.ok(assessmentArtifact > assess);
+  assert.ok(passGate > assessmentArtifact);
+  assert.ok(template > passGate);
+  assert.ok(unsignedBundle > template);
+  assert.ok(buildUnsigned > unsignedBundle);
+  assert.ok(signing > buildUnsigned);
+});
+
+test("V1 and hybrid reports persist structured GAPS before zero payload, build, and KMS calls", () => {
+  const verify = section(q, "verify-offline", "sign-kms");
+  const assess = verify.indexOf("assess-report");
+  const upload = verify.indexOf("ocr-report-assessment-");
+  const gate = verify.indexOf(
+    "Block signing unless independently recomputed V4 assessment passes",
+  );
+  const template = verify.indexOf("workflow-payload-template.mjs");
+  const build = verify.indexOf("build-unsigned");
+
+  for (const report of [
+    { schemaVersion: 1, releaseStatus: "PASS" },
+    { reportSchemaVersion: 4, schemaVersion: 1, releaseStatus: "PASS" },
+  ]) {
+    const result = assessReportV4(
+      {},
+      Buffer.from("{}"),
+      Buffer.from(canonicalize(report)),
+    );
+    assert.deepEqual(result.issues, ["REPORT_V4_REQUIRED"]);
+    assert.equal(result.releaseStatus, "GAPS");
+    assert.equal(result.signable, false);
+  }
+  assert.match(verify, /reportSchemaVersion[^]*==[^]*4/);
+  assert.ok(assess > 0);
+  assert.ok(upload > assess);
+  assert.ok(gate > upload);
+  assert.ok(template > gate);
+  assert.ok(build > template);
+  assert.doesNotMatch(verify.slice(0, gate), /workflow-payload-template\.mjs/);
+  assert.doesNotMatch(verify.slice(0, gate), /build-unsigned/);
+  assert.doesNotMatch(verify, /asymmetricSign|cloudkms|sign-kms:/);
 });
