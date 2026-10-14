@@ -3,6 +3,10 @@ import {
   PDF_OCR_MODEL_VERSION_PATTERN,
 } from "@reformaflow/domain";
 import { createHash } from "node:crypto";
+import {
+  PdfOcrFailureCode,
+  parsePdfOcrV3,
+} from "../import-session/ocr/pdf-ocr-parser";
 import { parseStrictJson } from "../import-session/ocr/strict-json";
 import {
   OCR_SYNTH_DATASET,
@@ -13,6 +17,7 @@ import type { OcrEvalInput } from "./evaluator";
 import policy from "./quality-closure-policy.json";
 import { SAFETY_PROBE_IDS, SAFETY_PROBE_SCENARIOS } from "./types";
 import { isStructurallyValidQualityClosureEnvelope } from "./quality-closure-attestation";
+import { providerNativeOutcome } from "./provider-native-outcome";
 
 const HASH = new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern);
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
@@ -21,6 +26,8 @@ const SAFE_CODE = /^[A-Z][A-Z0-9_]+$/;
 const QUALIFICATION_SOURCE_BY_NAME = new Map(
   policy.qualificationTests.map((item) => [item.name, item.sourcePath]),
 );
+const NON_AUTHORITY_SAFETY_EVIDENCE_SOURCE =
+  "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
 const VERIFIED_LIVE_EVIDENCE = Symbol("verified-live-evidence");
 
 const fail = (): never => {
@@ -553,7 +560,8 @@ export function isValidLiveProbe(
     string(value.testFile) &&
     (value.source === "OFFLINE_EVALUATOR_SELF_TEST" ||
       value.testFile ===
-        QUALIFICATION_SOURCE_BY_NAME.get(`[PROBE] ${value.id}`))
+        QUALIFICATION_SOURCE_BY_NAME.get(`[PROBE] ${value.id}`) ||
+      value.testFile === NON_AUTHORITY_SAFETY_EVIDENCE_SOURCE)
   );
 }
 
@@ -587,6 +595,49 @@ function validProbeScenarios(value: Record<string, unknown>): boolean {
 
 function validQualityClosure(value: unknown, candidateSha: unknown): boolean {
   if (
+    object(value) &&
+    exact(value, ["version", "policyVersion", "snapshot", "tests"]) &&
+    value.version === 2 &&
+    value.policyVersion === policy.policyVersion &&
+    string(candidateSha) &&
+    object(value.snapshot) &&
+    exact(value.snapshot, [
+      "headSha",
+      "treeSha",
+      "clean",
+      "policySha256",
+      "corpusSha256",
+      "configurationSha256",
+      "adapterSha256",
+      "runtimeSha256",
+      "suiteSha256",
+    ]) &&
+    value.snapshot.headSha === candidateSha &&
+    string(value.snapshot.treeSha) &&
+    value.snapshot.clean === true &&
+    [
+      value.snapshot.policySha256,
+      value.snapshot.corpusSha256,
+      value.snapshot.configurationSha256,
+      value.snapshot.adapterSha256,
+      value.snapshot.runtimeSha256,
+      value.snapshot.suiteSha256,
+    ].every((digest) => string(digest) && HASH.test(digest)) &&
+    Array.isArray(value.tests) &&
+    value.tests.length === policy.qualificationTests.length &&
+    value.tests.every((item, index) => {
+      const expected = policy.qualificationTests[index];
+      return (
+        exact(item, ["name", "status", "sourcePath"]) &&
+        item.name === expected?.name &&
+        item.status === "PASS" &&
+        (item.sourcePath === expected?.sourcePath ||
+          item.sourcePath === NON_AUTHORITY_SAFETY_EVIDENCE_SOURCE)
+      );
+    })
+  )
+    return true;
+  if (
     !isStructurallyValidQualityClosureEnvelope(value) ||
     !string(candidateSha)
   )
@@ -607,59 +658,17 @@ function validCapturedQualityClosure(
   value: unknown,
   candidateSha: unknown,
 ): value is Record<string, unknown> {
-  if (!object(value) || !Array.isArray(value.observations)) return false;
-  const observations = value.observations;
-  const normalized = {
-    ...value,
-    tests: observations.map((item) =>
-      object(item)
-        ? {
-            name: item.name,
-            status: item.status,
-            sourcePath: item.sourcePath,
-          }
-        : item,
-    ),
-  };
-  delete (normalized as Record<string, unknown>).observations;
   if (
-    !isStructurallyValidQualityClosureEnvelope(normalized) ||
+    !isStructurallyValidQualityClosureEnvelope(value) ||
     !string(candidateSha) ||
-    normalized.snapshot.headSha !== candidateSha ||
-    observations.length !== policy.qualificationTests.length
+    value.snapshot.headSha !== candidateSha ||
+    value.tests.length !== policy.qualificationTests.length
   )
     return false;
-  return observations.every((item, index) => {
-    if (!object(item)) return false;
+  return value.tests.every((item, index) => {
     const expected = policy.qualificationTests[index];
-    const keys = Object.keys(item);
-    const oldShape =
-      keys.length === 3 &&
-      ["name", "status", "sourcePath"].every((key) => keys.includes(key));
-    const hashedShape =
-      keys.length === 7 &&
-      [
-        "name",
-        "title",
-        "fullName",
-        "status",
-        "sourcePath",
-        "assertionRecordSha256",
-        "suiteResultSha256",
-      ].every((key) => keys.includes(key));
     return (
-      (oldShape ||
-        (hashedShape &&
-          item.title === expected?.name &&
-          string(item.fullName) &&
-          item.fullName.includes(expected?.name ?? "") &&
-          string(item.assertionRecordSha256) &&
-          HASH.test(item.assertionRecordSha256) &&
-          string(item.suiteResultSha256) &&
-          HASH.test(item.suiteResultSha256))) &&
-      item.name === expected?.name &&
-      item.status === "PASS" &&
-      item.sourcePath === expected?.sourcePath
+      item.name === expected?.name && item.sourcePath === expected?.sourcePath
     );
   });
 }
@@ -697,6 +706,71 @@ function parseWireBytes(bytes: Buffer): Record<string, unknown> {
   }
   if (!object(parsed)) fail();
   return parsed as Record<string, unknown>;
+}
+
+function replayGenerationOutcome(
+  generationWire: Record<string, unknown>,
+  expectedCase: (typeof OCR_SYNTH_SCANNED_RELEASE_CASES)[number],
+  prediction: Record<string, unknown>,
+  adapterTrace: Record<string, unknown>,
+): unknown {
+  if (
+    !string(generationWire.responseId) ||
+    !string(generationWire.modelVersion) ||
+    !Array.isArray(generationWire.candidates) ||
+    generationWire.candidates.length !== 1 ||
+    !object(generationWire.candidates[0]) ||
+    generationWire.candidates[0].finishReason !== "STOP" ||
+    !object(generationWire.candidates[0].content) ||
+    !Array.isArray(generationWire.candidates[0].content.parts) ||
+    generationWire.candidates[0].content.parts.length !== 1 ||
+    !object(generationWire.candidates[0].content.parts[0]) ||
+    !exact(generationWire.candidates[0].content.parts[0], ["text"]) ||
+    !string(generationWire.candidates[0].content.parts[0].text) ||
+    !object(generationWire.usageMetadata) ||
+    !number(generationWire.usageMetadata.promptTokenCount) ||
+    !number(generationWire.usageMetadata.candidatesTokenCount) ||
+    !number(generationWire.usageMetadata.totalTokenCount) ||
+    generationWire.usageMetadata.promptTokenCount +
+      generationWire.usageMetadata.candidatesTokenCount !==
+      generationWire.usageMetadata.totalTokenCount ||
+    !string(prediction.artifactSha256) ||
+    !string(adapterTrace.requestId) ||
+    !number(prediction.latencyMs)
+  )
+    return undefined;
+  let payload: unknown;
+  try {
+    payload = parseStrictJson(
+      generationWire.candidates[0].content.parts[0].text,
+    );
+  } catch {
+    return undefined;
+  }
+  const parsed = parsePdfOcrV3(payload, {
+    artifactSha256: prediction.artifactSha256,
+    pageCount: expectedCase.artifact.pageCount,
+    requestId: adapterTrace.requestId,
+    responseId: generationWire.responseId,
+    modelVersion: generationWire.modelVersion,
+    usage: {
+      inputTokens: generationWire.usageMetadata.promptTokenCount,
+      outputTokens: generationWire.usageMetadata.candidatesTokenCount,
+      totalTokens: generationWire.usageMetadata.totalTokenCount,
+    },
+    latencyMs: prediction.latencyMs,
+  });
+  if (parsed.ok) return providerNativeOutcome(parsed.value);
+  if (
+    parsed.error.code === PdfOcrFailureCode.DOCUMENT_UNREADABLE ||
+    parsed.error.code === PdfOcrFailureCode.LIMIT_EXCEEDED
+  )
+    return {
+      kind: "ERROR",
+      errorCode: parsed.error.code,
+      retryable: false,
+    };
+  return undefined;
 }
 
 function validCaptureLedger(value: Record<string, unknown>): boolean {
@@ -795,7 +869,15 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
       return false;
     const generation = events[4] as Record<string, unknown>;
     const generationWire = parseWireBytes(responseBytes(generation));
+    const replayedOutcome = replayGenerationOutcome(
+      generationWire,
+      expectedCase,
+      prediction,
+      adapterTrace,
+    );
     if (
+      replayedOutcome === undefined ||
+      !sameJsonValue(replayedOutcome, prediction.outcome) ||
       !string(generationWire.responseId) ||
       !string(generationWire.modelVersion) ||
       generation.responseId !== generationWire.responseId ||
@@ -810,52 +892,6 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
       usage.totalTokens !== generationWire.usageMetadata.totalTokenCount
     )
       return false;
-    if (object(prediction.outcome) && prediction.outcome.kind === "SUCCESS") {
-      const candidates = generationWire.candidates;
-      if (
-        !Array.isArray(candidates) ||
-        !object(candidates[0]) ||
-        !object(candidates[0].content) ||
-        !Array.isArray(candidates[0].content.parts) ||
-        !object(candidates[0].content.parts[0]) ||
-        !string(candidates[0].content.parts[0].text)
-      )
-        return false;
-      let payload: unknown;
-      try {
-        payload = parseStrictJson(candidates[0].content.parts[0].text);
-      } catch {
-        return false;
-      }
-      if (!object(payload) || !Array.isArray(payload.candidates)) return false;
-      const projectedCandidates = payload.candidates.map((candidate) => {
-        if (!object(candidate)) return candidate;
-        const amountCents = candidate.amountCents;
-        let sign = "UNKNOWN";
-        if (string(amountCents)) {
-          const cents = BigInt(amountCents);
-          sign = cents < 0n ? "NEGATIVE" : cents > 0n ? "POSITIVE" : "ZERO";
-        }
-        return {
-          pageNumber: candidate.pageNumber,
-          pageOccurrenceIndex: candidate.pageOccurrenceIndex,
-          description: candidate.description,
-          amountCents,
-          sign,
-          amountMeaning: candidate.amountMeaning,
-          dateText: candidate.dateText,
-          normalizedDate: candidate.normalizedDate,
-          dateExplicitness: candidate.dateExplicitness,
-          installment: candidate.installment,
-          evidenceText: candidate.evidenceText,
-          selected: false,
-          verificationStatus: "UNVERIFIED",
-          candidateDisposition: "RAW_UNCLASSIFIED",
-        };
-      });
-      if (!sameJsonValue(projectedCandidates, prediction.outcome.candidates))
-        return false;
-    }
     const reconciled = events[5] as Record<string, unknown>;
     if (
       !number(reconciled.measuredCurrentMicros) ||

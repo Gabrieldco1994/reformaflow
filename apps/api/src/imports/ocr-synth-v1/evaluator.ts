@@ -844,11 +844,7 @@ export async function evaluateOcrSynth(
 ): Promise<OcrEvalReport> {
   const verifiedLiveEvidence = isVerifiedLiveEvidence(input);
   const mechanicalObservations = verifiedLiveEvidence
-    ? (
-        input.qualityClosure as {
-          readonly observations: readonly OcrQualityClosure["tests"][number][];
-        }
-      ).observations
+    ? (input.qualityClosure as OcrQualityClosure).tests
     : [];
   const mechanicalObservationNames = new Set(
     mechanicalObservations.map(({ name }) => name),
@@ -917,15 +913,6 @@ export async function evaluateOcrSynth(
     if (!prediction.schemaValid) issues.push("SCHEMA_INVALID");
     if (input.run.mode === "LIVE_CAPTURE")
       addTraceIssues(prediction, expectedHash, input.run, counters, issues);
-    const terminalCaseCoveredByMechanicalClosure =
-      verifiedLiveEvidence &&
-      testCase.expected.kind === "ERROR" &&
-      prediction.outcome.kind === "SUCCESS" &&
-      "candidates" in prediction.outcome &&
-      prediction.outcome.candidates.length === 0 &&
-      issues.length === 1 &&
-      issues[0] === "OUTCOME_KIND_MISMATCH";
-    if (terminalCaseCoveredByMechanicalClosure) issues.length = 0;
     if (issues.length === 0) counters.schemaValidCases++;
     perCase.push({
       caseId: testCase.id,

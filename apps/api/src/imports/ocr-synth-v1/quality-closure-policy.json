@@ -83,7 +83,8 @@
   "jestConfigPath": "apps/api/src/imports/ocr-synth-v1/quality-closure-jest.config.cjs",
   "qualificationSuiteFiles": [
     "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts",
-    "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+    "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts",
+    "apps/api/src/imports/ocr-synth-v1/capture-live.spec.ts"
   ],
   "qualificationTests": [
     {
@@ -128,99 +129,99 @@
     },
     {
       "name": "[PROBE] WRONG_ENDPOINT",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] WRONG_MODEL",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] WRONG_REGION",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] API_KEY_AUTH",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] ADC_SCOPE_BOUNDED",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] REQUEST_BODY_BOUNDED",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] DEADLINE_BOUNDED",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] GLOBAL_ENDPOINT_FALLBACK",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] TOOLS_PRESENT",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] FILE_URI_PRESENT",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] CACHE_PRESENT",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] TEXTUAL_PDF_PROVIDER_CALL",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] LOCAL_RASTER_SANDBOX",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] PAGE_11_ADMISSION",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] MIXED_LOCAL_PROVIDER_DUPLICATION",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] PARTIAL_RESPONSE",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] MALFORMED_RESPONSE",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] TRUNCATED_RESPONSE",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] SAFETY_BLOCKED_RESPONSE",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] AMBIGUOUS_TIMEOUT_RETRY",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] UNKNOWN_OUTCOME_NO_RETRY",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] DURABLE_TENANT_BUDGET",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] DURABLE_GLOBAL_BUDGET",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] EXACT_CONSENT_CAPABILITY",
@@ -244,19 +245,19 @@
     },
     {
       "name": "[PROBE] FINANCIAL_WRITE",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] KNOWN_SAFETY_FINISH_REASONS",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
     },
     {
       "name": "[PROBE] TERMINAL_FAILURE_REPLAY_NO_CALL",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] CAPABILITY_OFF",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
     },
     {
       "name": "[PROBE] PRIOR_CONSENT_DECLARATION",
@@ -264,7 +265,7 @@
     },
     {
       "name": "[PROBE] RESIDUAL_RISK_ACCEPTANCE",
-      "sourcePath": "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts"
+      "sourcePath": "apps/api/src/imports/ocr-synth-v1/capture-live.spec.ts"
     }
   ],
   "configurationBindingFiles": [

@@ -41,6 +41,7 @@ import type {
   FinalReviewHashes,
   QualityClosurePolicy,
 } from "./quality-closure-attestation";
+import { isStructurallyValidQualityClosureEnvelope } from "./quality-closure-attestation";
 import type { OcrQualityClosure } from "./types";
 import qualityPolicy from "./quality-closure-policy.json";
 
@@ -368,31 +369,6 @@ async function mechanicalManifest(
   };
 }
 
-function structurallyBoundLegacyClosure(
-  manifest: CaptureLiveManifest,
-): OcrQualityClosure {
-  return {
-    version: 2,
-    policyVersion: qualityPolicy.policyVersion,
-    snapshot: {
-      headSha: manifest.candidateSha,
-      treeSha: manifest.candidateSha,
-      clean: true,
-      policySha256: manifest.durableBudgets.policySha256,
-      corpusSha256: manifest.configurationSha256,
-      configurationSha256: manifest.configurationSha256,
-      adapterSha256: manifest.adapterSha256,
-      runtimeSha256: manifest.adapterSha256,
-      suiteSha256: manifest.configurationSha256,
-    },
-    tests: qualityPolicy.qualificationTests.map((item) => ({
-      name: item.name,
-      status: "PASS",
-      sourcePath: item.sourcePath,
-    })),
-  };
-}
-
 const PROC_SELF_STATUS = "/proc/self/status";
 const VM_HWM = /^VmHWM:\s+([0-9]+)\s+kB$/m;
 
@@ -415,6 +391,39 @@ async function linuxVmHwmBytes(
 export async function captureLiveEvidence(
   options: CaptureLiveOptions,
 ): Promise<OcrEvalInput> {
+  if (!options.mechanical) throw new Error("LIVE_CAPTURE_ATTESTATION_MISSING");
+  const closureEvidence: unknown = options.mechanical.qualityClosure;
+  if (!isStructurallyValidQualityClosureEnvelope(closureEvidence)) {
+    const legacyThreeFieldClosure =
+      record(closureEvidence) &&
+      Array.isArray(closureEvidence.tests) &&
+      closureEvidence.tests.every(
+        (test) =>
+          record(test) &&
+          Reflect.ownKeys(test).length === 3 &&
+          ["name", "status", "sourcePath"].every((key) =>
+            Object.prototype.hasOwnProperty.call(test, key),
+          ),
+      );
+    throw new Error(
+      legacyThreeFieldClosure
+        ? "LIVE_CAPTURE_ATTESTATION_MISSING"
+        : "LIVE_CAPTURE_ATTESTATION_INVALID",
+    );
+  }
+  const closure = closureEvidence;
+  if (
+    closure.policyVersion !== options.mechanical.policy.policyVersion ||
+    closure.tests.length !==
+      options.mechanical.policy.qualificationTests.length ||
+    closure.tests.some((test, index) => {
+      const expected = options.mechanical!.policy.qualificationTests[index];
+      return (
+        test.name !== expected?.name || test.sourcePath !== expected.sourcePath
+      );
+    })
+  )
+    throw new Error("LIVE_CAPTURE_ATTESTATION_INVALID");
   if (
     !(options.provider instanceof VertexPdfOcrProvider) ||
     !options.provider.ready()
@@ -422,16 +431,12 @@ export async function captureLiveEvidence(
     throw new Error("LIVE_CAPTURE_PROVIDER_INVALID");
   if (options.mechanical && process.platform !== "linux")
     throw new Error("LIVE_CAPTURE_VMHWM_UNAVAILABLE");
-  const manifest = options.mechanical
-    ? await mechanicalManifest(
-        options.mechanical.policy,
-        options.mechanical.qualityClosure,
-        options.mechanical.finalReviewHashes,
-      )
-    : options.manifest;
-  const currentRepoSha = options.mechanical
-    ? options.mechanical.qualityClosure.snapshot.headSha
-    : options.currentRepoSha;
+  const manifest = await mechanicalManifest(
+    options.mechanical.policy,
+    closure,
+    options.mechanical.finalReviewHashes,
+  );
+  const currentRepoSha = closure.snapshot.headSha;
   if (!manifest || !currentRepoSha)
     throw new Error("LIVE_CAPTURE_CONFIG_MISSING");
   const artifacts = await preflight(manifest, currentRepoSha);
@@ -675,35 +680,7 @@ export async function captureLiveEvidence(
     },
     predictions,
     attemptLedger,
-    qualityClosure: (() => {
-      const closure =
-        options.mechanical?.qualityClosure ??
-        structurallyBoundLegacyClosure(manifest);
-      const { tests, ...rest } = closure;
-      return {
-        ...rest,
-        observations: tests.map((test) => ({
-          ...test,
-          title: test.title ?? test.name,
-          fullName: test.fullName ?? test.name,
-          assertionRecordSha256:
-            test.assertionRecordSha256 ??
-            createHash("sha256")
-              .update(
-                JSON.stringify({
-                  title: test.name,
-                  fullName: test.name,
-                  status: "passed",
-                  failureMessages: [],
-                  sourcePath: test.sourcePath,
-                }),
-              )
-              .digest("hex"),
-          suiteResultSha256:
-            test.suiteResultSha256 ?? closure.snapshot.suiteSha256,
-        })),
-      };
-    })(),
+    qualityClosure: structuredClone(closure),
   } as unknown as OcrEvalInput;
   return parseLiveEvidence(evidence);
 }

@@ -182,6 +182,7 @@ export interface VerifiedQualityClosureToken {
   readonly keyId: string;
   readonly signature: string;
 }
+const issuedQualityClosureTokens = new WeakSet<object>();
 
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -914,19 +915,77 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function canonicalSha256(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+function evidenceWithoutQualityAuthority(
+  evidence: OcrEvalInput,
+): Record<string, unknown> {
+  const unsignedEvidence = { ...evidence } as Record<string, unknown>;
+  if (object(evidence.qualityClosure))
+    unsignedEvidence.qualityClosure = withoutQualityAuthority(
+      evidence.qualityClosure,
+    );
+  return unsignedEvidence;
+}
+
 export async function issueVerifiedQualityClosureToken(
   evidence: OcrEvalInput,
   rerun: OcrQualityClosure,
   policy: QualityClosurePolicy,
   dependencies: QualityAttestationDependencies = {},
 ): Promise<VerifiedQualityClosureToken> {
-  const closure = isCanonicalQualityClosure(evidence.qualityClosure, {
-    verifier: dependencies.verifier,
-  })
-    ? evidence.qualityClosure
-    : undefined;
-  const unsignedClosure =
-    closure === undefined ? undefined : withoutQualityAuthority(closure);
+  if (!object(evidence.qualityClosure))
+    throw new Error("QUALITY_ATTESTATION_AUTHORITY_MISSING");
+  const closure = evidence.qualityClosure;
+  if (!object(closure.authority))
+    throw new Error("QUALITY_ATTESTATION_AUTHORITY_MISSING");
+  const authority = closure.authority;
+  if (!dependencies.verifier)
+    throw new Error("QUALITY_ATTESTATION_VERIFIER_MISSING");
+  const unsignedClosure = withoutQualityAuthority(closure);
+  if (!isStructurallySignedQualityClosure(closure)) {
+    const malformedClosureDigest = canonicalSha256(unsignedClosure);
+    if (authority.evidenceSha256 !== malformedClosureDigest)
+      throw new Error("QUALITY_EVIDENCE_DIGEST_MISMATCH");
+    try {
+      dependencies.verifier.verify({
+        keyId: String(authority.keyId),
+        candidateSha: String(authority.candidateSha),
+        evidenceSha256: canonicalSha256(
+          evidenceWithoutQualityAuthority(evidence),
+        ),
+        signature: String(authority.signature),
+      });
+    } catch {
+      // A malformed closure can never become authority.
+    }
+    throw new Error("QUALITY_ATTESTATION_MISMATCH");
+  }
+  const verifiedAuthority = closure.authority;
+  const evidenceSha256 = canonicalSha256(
+    evidenceWithoutQualityAuthority(evidence),
+  );
+  if (verifiedAuthority.evidenceSha256 !== evidenceSha256)
+    throw new Error("QUALITY_EVIDENCE_DIGEST_MISMATCH");
+  if (
+    verifiedAuthority.candidateSha !== closure.snapshot.headSha ||
+    verifiedAuthority.candidateSha !== evidence.run.candidateSha
+  )
+    throw new Error("QUALITY_ATTESTATION_MISMATCH");
+  let signatureVerified = false;
+  try {
+    signatureVerified = dependencies.verifier.verify({
+      keyId: verifiedAuthority.keyId,
+      candidateSha: verifiedAuthority.candidateSha,
+      evidenceSha256,
+      signature: verifiedAuthority.signature,
+    });
+  } catch {
+    signatureVerified = false;
+  }
+  if (!signatureVerified) throw new Error("QUALITY_ATTESTATION_MISMATCH");
   const reviews = await readFinalReviewHashes(policy, dependencies);
   const expectedResidualRisk = reviews.residualRiskAcceptance
     ? {
@@ -944,8 +1003,6 @@ export async function issueVerifiedQualityClosureToken(
         }
       : null;
   if (
-    !closure ||
-    !unsignedClosure ||
     canonicalJson(unsignedClosure) !== canonicalJson(rerun) ||
     canonicalJson(evidence.run.residualRiskAcceptance) !==
       canonicalJson(expectedResidualRisk) ||
@@ -956,10 +1013,11 @@ export async function issueVerifiedQualityClosureToken(
   const token = Object.freeze({
     headSha: closure.snapshot.headSha,
     closureSha256: await sha256(canonicalJson(closure)),
-    evidenceSha256: await sha256(canonicalJson(evidence)),
-    keyId: closure.authority!.keyId,
-    signature: closure.authority!.signature,
+    evidenceSha256,
+    keyId: verifiedAuthority.keyId,
+    signature: verifiedAuthority.signature,
   });
+  issuedQualityClosureTokens.add(token);
   return token;
 }
 
@@ -968,20 +1026,20 @@ export async function isVerifiedQualityClosureToken(
   evidence: OcrEvalInput,
   dependencies: Pick<QualityAttestationDependencies, "verifier"> = {},
 ): Promise<boolean> {
-  const closure = isCanonicalQualityClosure(
-    evidence.qualityClosure,
-    dependencies,
-  )
-    ? (evidence.qualityClosure as unknown as OcrQualityClosure)
+  void dependencies;
+  const closure = isStructurallySignedQualityClosure(evidence.qualityClosure)
+    ? evidence.qualityClosure
     : undefined;
   return (
     token !== undefined &&
+    issuedQualityClosureTokens.has(token) &&
     closure !== undefined &&
     token.headSha === closure.snapshot.headSha &&
     token.keyId === closure.authority?.keyId &&
     token.signature === closure.authority?.signature &&
     token.closureSha256 === (await sha256(canonicalJson(closure))) &&
-    token.evidenceSha256 === (await sha256(canonicalJson(evidence)))
+    token.evidenceSha256 ===
+      canonicalSha256(evidenceWithoutQualityAuthority(evidence))
   );
 }
 
@@ -1096,12 +1154,28 @@ function isStructurallyValidQualityClosure(value: unknown): boolean {
     value.tests.length === 45 &&
     value.tests.every(
       (item) =>
-        exact(item, ["name", "status", "sourcePath"]) &&
+        exact(item, [
+          "name",
+          "title",
+          "fullName",
+          "status",
+          "sourcePath",
+          "assertionRecordSha256",
+          "suiteResultSha256",
+        ]) &&
         string(item.name) &&
         QUALIFICATION_NAME.test(item.name) &&
+        string(item.title) &&
+        item.title === item.name &&
+        string(item.fullName) &&
+        item.fullName.includes(item.name) &&
         item.status === "PASS" &&
         string(item.sourcePath) &&
-        safeRelativePath(item.sourcePath),
+        safeRelativePath(item.sourcePath) &&
+        string(item.assertionRecordSha256) &&
+        HASH_PATTERN.test(item.assertionRecordSha256) &&
+        string(item.suiteResultSha256) &&
+        HASH_PATTERN.test(item.suiteResultSha256),
     ) &&
     unique(value.tests.map((item) => item.name))
   );
@@ -1135,16 +1209,11 @@ export function isCanonicalQualityClosure(
   const unsigned = withoutQualityAuthority(value);
   const authority = value.authority;
   if (!dependencies.verifier || !object(authority)) return false;
-  const authorityCandidate = authority.candidateSha;
+  const computedDigest = canonicalSha256(unsigned);
+  if (authority.evidenceSha256 !== computedDigest) return false;
+  const candidateSha = authority.candidateSha;
   if (
-    authorityCandidate !== undefined &&
-    typeof authorityCandidate !== "string"
-  )
-    return false;
-  const candidateSha =
-    authorityCandidate ??
-    String((unsigned.snapshot as Record<string, unknown>).headSha);
-  if (
+    !string(candidateSha) ||
     !SHA_PATTERN.test(candidateSha) ||
     candidateSha !== (unsigned.snapshot as Record<string, unknown>).headSha
   )
@@ -1153,7 +1222,7 @@ export function isCanonicalQualityClosure(
     return dependencies.verifier.verify({
       keyId: authority.keyId,
       candidateSha,
-      evidenceSha256: authority.evidenceSha256,
+      evidenceSha256: computedDigest,
       signature: authority.signature,
     });
   } catch {
@@ -1174,20 +1243,18 @@ export function isStructurallySignedQualityClosure(
   return (
     isStructurallyValidQualityClosure(unsigned) &&
     object(authority) &&
-    (exact(authority, ["keyId", "evidenceSha256", "signature"]) ||
-      exact(authority, [
-        "keyId",
-        "candidateSha",
-        "evidenceSha256",
-        "signature",
-      ])) &&
+    exact(authority, [
+      "keyId",
+      "candidateSha",
+      "evidenceSha256",
+      "signature",
+    ]) &&
     string(authority.keyId) &&
     string(authority.signature) &&
     string(authority.evidenceSha256) &&
     HASH_PATTERN.test(authority.evidenceSha256) &&
-    (authority.candidateSha === undefined ||
-      (string(authority.candidateSha) &&
-        authority.candidateSha ===
-          (unsigned.snapshot as Record<string, unknown>).headSha))
+    string(authority.candidateSha) &&
+    authority.candidateSha ===
+      (unsigned.snapshot as Record<string, unknown>).headSha
   );
 }

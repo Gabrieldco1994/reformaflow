@@ -1,15 +1,5 @@
-import { resolve } from "node:path";
 import { writeQualifiedLiveEvidenceExclusive } from "./capture-live-file";
-import {
-  assertOutputOutsideRepository,
-  assertQualityRepositorySnapshot,
-  attestQualityClosure,
-  qualityCaptureLockPath,
-  readFinalReviewHashes,
-  type QualityClosurePolicy,
-} from "./quality-closure-attestation";
 import type { OcrEvalInput } from "./evaluator";
-import type { OcrRepositorySnapshot } from "./types";
 
 const PROTECTED_DEPENDENCIES_MISSING =
   "LIVE_CAPTURE_PROTECTED_DEPENDENCIES_MISSING";
@@ -75,34 +65,7 @@ export async function runProtectedLiveCapture(input: unknown): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const arguments_ = process.argv.slice(2);
-  if (arguments_.length !== 1 || !arguments_[0])
-    throw new Error("LIVE_CAPTURE_OUTPUT_MISSING");
-  const outputPath = resolve(process.cwd(), arguments_[0]);
-  await assertOutputOutsideRepository(outputPath);
-  const lockPath = await qualityCaptureLockPath();
-  let policy: QualityClosurePolicy | undefined;
-  let snapshot: OcrRepositorySnapshot | undefined;
-  const verifyRepository = async (): Promise<void> => {
-    if (!policy || !snapshot)
-      throw new Error("LIVE_CAPTURE_ATTESTATION_MISSING");
-    await assertQualityRepositorySnapshot(snapshot, policy);
-  };
-
-  const attestation = await attestQualityClosure();
-  policy = attestation.policy;
-  snapshot = attestation.closure.snapshot;
-  await readFinalReviewHashes(policy);
-  await verifyRepository();
-  await runProtectedLiveCapture({
-    outputPath,
-    lockPath,
-    credentials: {},
-    captureEvidence: async () => {
-      throw new Error(PROTECTED_DEPENDENCIES_MISSING);
-    },
-    verifyRepository,
-  });
+  throw new Error("LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE");
 }
 
 void main().catch((error: unknown) => {

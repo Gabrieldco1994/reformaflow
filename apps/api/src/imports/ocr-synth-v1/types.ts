@@ -290,12 +290,12 @@ export interface OcrSafetyProbeEvidence {
 
 export interface OcrQualityClosureTestEvidence {
   readonly name: string;
-  readonly title?: string;
-  readonly fullName?: string;
+  readonly title: string;
+  readonly fullName: string;
   readonly status: "PASS";
   readonly sourcePath: string;
-  readonly assertionRecordSha256?: string;
-  readonly suiteResultSha256?: string;
+  readonly assertionRecordSha256: string;
+  readonly suiteResultSha256: string;
 }
 
 export interface OcrRepositorySnapshot {
@@ -317,7 +317,7 @@ export interface OcrQualityClosure {
   readonly tests: readonly OcrQualityClosureTestEvidence[];
   readonly authority?: {
     readonly keyId: string;
-    readonly candidateSha?: string;
+    readonly candidateSha: string;
     readonly evidenceSha256: string;
     readonly signature: string;
   };
