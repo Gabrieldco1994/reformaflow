@@ -423,12 +423,12 @@ for (const fixture of [
   {
     name: "scanned",
     code: "OCR_REQUIRED",
-    copy: /Este PDF contém imagens e pode exigir OCR/,
+    copy: "A análise local não pôde continuar sem leitura externa. Se o servidor confirmar que este documento é elegível, a tela poderá oferecer uma autorização separada somente para ele. PDFs textuais permanecem locais; PDFs mistos ou pesquisáveis não são enviados nesta versão. Sem essa oferta ou disponibilidade, use um PDF textual ou CSV, conforme os formatos oferecidos, ou cancele a importação.",
   },
   {
     name: "mixed",
-    code: "OCR_REQUIRED",
-    copy: /Este PDF contém imagens e pode exigir OCR/,
+    code: "DOCUMENT_UNREADABLE",
+    copy: "Não foi possível ler este documento. Substitua por um arquivo legível ou cancele a importação.",
   },
   {
     name: "invalid",
@@ -483,9 +483,12 @@ for (const fixture of [
       );
       const sessionId = sessionIdFromAnalyzeResponseUrl(analyzeResponse.url());
       const persistentSessionHref = `/projects/${journey.projectId}/maria?importSessionId=${encodeURIComponent(sessionId)}`;
-      await expect(
-        page.getByRole("alert").filter({ hasText: fixture.copy }),
-      ).toBeVisible();
+      const assertVisibleFailure = async () => {
+        await expect(
+          page.getByRole("alert").getByText(fixture.copy, { exact: true }),
+        ).toBeVisible();
+      };
+      await assertVisibleFailure();
       const assertUnpublished = async () => {
         const current = await journey.view(sessionId);
         expect(current.lines).toEqual([]);
@@ -495,6 +498,7 @@ for (const fixture of [
         expect(current.proposal).toBeNull();
         expect(current.confirmation).toBeNull();
         expect(current.receipt).toBeNull();
+        expect(current.ocrCapability?.status).toBe("DISABLED");
         expect(current.attachments.every((a) => !a.materializedInSession)).toBe(
           true,
         );
@@ -525,9 +529,7 @@ for (const fixture of [
           exact: true,
         })
         .click();
-      await expect(
-        page.getByRole("alert").filter({ hasText: fixture.copy }),
-      ).toBeVisible();
+      await assertVisibleFailure();
       await assertUnpublished();
       // Reload reads persistent server state without re-analyzing/re-uploading.
       await page.goto(persistentSessionHref);
