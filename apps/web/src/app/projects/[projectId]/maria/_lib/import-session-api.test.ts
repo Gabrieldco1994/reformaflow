@@ -113,15 +113,15 @@ describe("readImportWorkflowView OCR reload contract", () => {
     ).toEqual([{ attachmentId: "source", code }]);
   });
 
-  it("does not collapse an omitted strict terminal projection to an empty list", () => {
+  it("preserves a legacy session view omission without synthesizing terminal outcomes", () => {
     const { terminalOutcomes: _missing, ...withoutTerminalOutcomes } =
       view.ocrCapability;
-    expect(() =>
-      readImportWorkflowView({
-        ...view,
-        ocrCapability: withoutTerminalOutcomes,
-      }),
-    ).toThrow(ImportWorkflowResponseError);
+    const parsed = readImportWorkflowView({
+      ...view,
+      ocrCapability: withoutTerminalOutcomes,
+    });
+
+    expect(Object.hasOwn(parsed.ocrCapability, "terminalOutcomes")).toBe(false);
   });
 
   it.each([
@@ -672,82 +672,185 @@ describe("direct review and result endpoints", () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
-  it("accepts strict 200 only with the explicit v1 marker and field", async () => {
+  const strictTerminalPath = "/import-sessions/session/terminal-outcomes-v1";
+  const strictTerminalEnvelope = {
+    version: 1,
+    sessionId: "session",
+    revision: 2,
+    outcomes: [
+      {
+        attachmentId: "source",
+        code: "DOCUMENT_UNREADABLE",
+      },
+    ],
+  };
+
+  it("reads the exact terminal-outcomes-v1 envelope without touching the legacy session", async () => {
     const signal = new AbortController().signal;
-    api.get.mockResolvedValue({
-      ...view,
-      ocrCapability: {
-        ...view.ocrCapability,
-        terminalOutcomesVersion: "v1",
-        terminalOutcomes: [],
-      },
-    });
+    api.get.mockResolvedValue(strictTerminalEnvelope);
 
-    await expect(
-      getFullImportSession("session", signal),
-    ).resolves.toMatchObject({
-      ocrCapability: {
-        terminalOutcomesVersion: "v1",
-        terminalOutcomes: [],
-      },
-    });
-    expect(api.get).toHaveBeenCalledTimes(1);
-    expect(api.get).toHaveBeenCalledWith(
-      "/import-sessions/session?terminalOutcomes=v1",
-      { signal },
-    );
-  });
-
-  it("hard-fails malformed strict 200 instead of treating omission as empty", async () => {
-    const { terminalOutcomes: _missing, ...withoutTerminalOutcomes } =
-      view.ocrCapability;
-    api.get.mockResolvedValue({
-      ...view,
-      ocrCapability: {
-        ...withoutTerminalOutcomes,
-        terminalOutcomesVersion: "v1",
-      },
-    });
-
-    await expect(getFullImportSession("session")).rejects.toThrow(
-      ImportWorkflowResponseError,
+    await expect(getFullImportSession("session", signal)).resolves.toEqual(
+      strictTerminalEnvelope,
     );
     expect(api.get).toHaveBeenCalledTimes(1);
-    expect(api.get).toHaveBeenCalledWith(
-      "/import-sessions/session?terminalOutcomes=v1",
-    );
+    expect(api.get).toHaveBeenCalledWith(strictTerminalPath, { signal });
   });
 
-  it("falls back only on explicit 404 and tags the read LEGACY_UNSUPPORTED", async () => {
+  it("accepts outcomes: [] only in the explicit strict envelope", async () => {
+    const empty = { ...strictTerminalEnvelope, outcomes: [] };
+    api.get.mockResolvedValue(empty);
+
+    await expect(getFullImportSession("session")).resolves.toEqual(empty);
+    expect(api.get.mock.calls).toEqual([[strictTerminalPath]]);
+  });
+
+  it.each([
+    {
+      label: "missing version",
+      response: {
+        sessionId: "session",
+        revision: 2,
+        outcomes: [],
+      },
+    },
+    {
+      label: "wrong version",
+      response: { ...strictTerminalEnvelope, version: 2 },
+    },
+    {
+      label: "extra root key",
+      response: { ...strictTerminalEnvelope, source: "legacy-query" },
+    },
+    {
+      label: "missing outcomes",
+      response: {
+        version: 1,
+        sessionId: "session",
+        revision: 2,
+      },
+    },
+    {
+      label: "null outcomes",
+      response: { ...strictTerminalEnvelope, outcomes: null },
+    },
+    {
+      label: "extra outcome key",
+      response: {
+        ...strictTerminalEnvelope,
+        outcomes: [
+          {
+            ...strictTerminalEnvelope.outcomes[0],
+            retryable: false,
+          },
+        ],
+      },
+    },
+    {
+      label: "duplicate attachment",
+      response: {
+        ...strictTerminalEnvelope,
+        outcomes: [
+          strictTerminalEnvelope.outcomes[0],
+          {
+            attachmentId: "source",
+            code: "LIMIT_EXCEEDED",
+          },
+        ],
+      },
+    },
+    {
+      label: "unknown code",
+      response: {
+        ...strictTerminalEnvelope,
+        outcomes: [
+          {
+            attachmentId: "source",
+            code: "UNKNOWN_TERMINAL",
+          },
+        ],
+      },
+    },
+    {
+      label: "different session",
+      response: { ...strictTerminalEnvelope, sessionId: "other-session" },
+    },
+    {
+      label: "malformed revision",
+      response: { ...strictTerminalEnvelope, revision: -1 },
+    },
+  ])(
+    "hard-fails strict 200 with $label and never falls back",
+    async ({ response }) => {
+      api.get.mockResolvedValue(response);
+
+      await expect(getFullImportSession("session")).rejects.toThrow(
+        ImportWorkflowResponseError,
+      );
+      expect(api.get.mock.calls).toEqual([[strictTerminalPath]]);
+    },
+  );
+
+  it("falls back exactly once on strict-route 404 and returns separate legacy state", async () => {
     const signal = new AbortController().signal;
     const { terminalOutcomes: _missing, ...legacyCapability } =
       view.ocrCapability;
+    const legacyView = {
+      ...view,
+      ocrCapability: legacyCapability,
+    };
     api.get
       .mockRejectedValueOnce(
         new ApiResponseError("unsupported projection", 404, {
           code: "NOT_FOUND",
         }),
       )
-      .mockResolvedValueOnce({
-        ...view,
-        ocrCapability: legacyCapability,
-      });
+      .mockResolvedValueOnce(legacyView);
 
-    await expect(
-      getFullImportSession("session", signal),
-    ).resolves.toMatchObject({
-      ocrCapability: {
-        terminalOutcomesSupport: "LEGACY_UNSUPPORTED",
-      },
+    await expect(getFullImportSession("session", signal)).resolves.toEqual({
+      support: "LEGACY_UNSUPPORTED",
+      outcomes: null,
     });
     expect(api.get.mock.calls).toEqual([
-      [
-        "/import-sessions/session?terminalOutcomes=v1",
-        {
-          signal,
-        },
-      ],
+      [strictTerminalPath, { signal }],
       ["/import-sessions/session", { signal }],
+    ]);
+    expect(Object.hasOwn(legacyView.ocrCapability, "terminalOutcomes")).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    ["401", new ApiResponseError("unauthorized", 401)],
+    ["403", new ApiResponseError("forbidden", 403)],
+    ["409", new ApiResponseError("conflict", 409)],
+    ["429", new ApiResponseError("limited", 429)],
+    ["5xx", new ApiResponseError("upstream", 503)],
+    [
+      "timeout",
+      Object.assign(new Error("timeout"), { name: "ApiTimeoutError" }),
+    ],
+    ["offline", new TypeError("offline")],
+    ["abort", Object.assign(new Error("aborted"), { name: "AbortError" })],
+    ["untyped 404", Object.assign(new Error("not found"), { status: 404 })],
+  ])(
+    "does not fallback for strict-route %s failure",
+    async (_label, failure) => {
+      api.get.mockRejectedValue(failure);
+
+      await expect(getFullImportSession("session")).rejects.toBe(failure);
+      expect(api.get.mock.calls).toEqual([[strictTerminalPath]]);
+    },
+  );
+
+  it("propagates the legacy error after the one allowed 404 fallback", async () => {
+    const primary = new ApiResponseError("unsupported", 404);
+    const legacy = new ApiResponseError("legacy unavailable", 503);
+    api.get.mockRejectedValueOnce(primary).mockRejectedValueOnce(legacy);
+
+    await expect(getFullImportSession("session")).rejects.toBe(legacy);
+    expect(api.get.mock.calls).toEqual([
+      [strictTerminalPath],
+      ["/import-sessions/session"],
     ]);
   });
 });
