@@ -78,11 +78,12 @@ function provider(
         pageOccurrenceIndex,
         description: row.description,
         amountCents: row.amountCents,
+        sign: row.sign,
         amountMeaning: row.amountMeaning,
-        date:
-          row.normalizedDate && /^\d{4}-\d{2}-\d{2}$/.test(row.normalizedDate)
-            ? row.normalizedDate
-            : null,
+        dateText: row.dateText,
+        normalizedDate:
+          row.dateExplicitness === "FULL" ? row.normalizedDate : null,
+        dateExplicitness: row.dateExplicitness,
         installment:
           row.installmentCurrent !== null && row.installmentTotal !== null
             ? {
@@ -158,16 +159,26 @@ function provider(
       },
     });
   });
+  const value = new VertexPdfOcrProvider(
+    "synthetic-eval-project",
+    {
+      authTrace: "SERVICE_ACCOUNT_FILE_ADC",
+      accessToken: async () => "test-only-adc-token",
+    },
+    fetcher,
+  );
+  const executeFullV3Attempt = value.extractPdf.bind(value);
+  value.extractPdf = ((request) => {
+    // Qualification-mode selection is mutation-locked independently in
+    // vertex-pdf-ocr.provider.spec.ts. This fixture always exercises the
+    // complete countTokens + generateContent strict-V3 provider phase.
+    const { qualificationCapture: _qualificationCapture, ...providerRequest } =
+      request;
+    return executeFullV3Attempt(providerRequest);
+  }) as typeof value.extractPdf;
   return {
     fetcher,
-    value: new VertexPdfOcrProvider(
-      "synthetic-eval-project",
-      {
-        authTrace: "SERVICE_ACCOUNT_FILE_ADC",
-        accessToken: async () => "test-only-adc-token",
-      },
-      fetcher,
-    ),
+    value,
   };
 }
 
@@ -557,7 +568,7 @@ describe("audited synthetic Vertex capture", () => {
       );
 
       await expect(capture).rejects.toThrow("QUALITY_REPOSITORY_DRIFT");
-      expect(adapter.fetcher).toHaveBeenCalledTimes(driftAt);
+      expect(adapter.fetcher).toHaveBeenCalledTimes(driftAt * 2);
       expect(verifySnapshot).toHaveBeenCalledTimes(driftAt);
     }
   });
@@ -567,13 +578,13 @@ describe("audited synthetic Vertex capture", () => {
     await expect(
       captureLiveEvidence(canonicalCaptureOptions(duplicate.value)),
     ).rejects.toThrow("LIVE_CAPTURE_PROVENANCE_MISMATCH");
-    expect(duplicate.fetcher).toHaveBeenCalledTimes(2);
+    expect(duplicate.fetcher).toHaveBeenCalledTimes(4);
 
     const mixed = provider([VERSION, "gemini-other-version"]);
     await expect(
       captureLiveEvidence(canonicalCaptureOptions(mixed.value)),
     ).rejects.toThrow("LIVE_CAPTURE_PROVENANCE_MISMATCH");
-    expect(mixed.fetcher).toHaveBeenCalledTimes(2);
+    expect(mixed.fetcher).toHaveBeenCalledTimes(4);
   });
 
   it.each(["provenance", "trace"] as const)(
@@ -605,7 +616,7 @@ describe("audited synthetic Vertex capture", () => {
       await expect(
         captureLiveEvidence(canonicalCaptureOptions(adapter.value)),
       ).rejects.toThrow("LIVE_CAPTURE_PROVIDER_CONTRACT_FAILED");
-      expect(adapter.fetcher).toHaveBeenCalledTimes(1);
+      expect(adapter.fetcher).toHaveBeenCalledTimes(2);
     },
   );
 
