@@ -1558,6 +1558,7 @@ describe("canonical capture and qualification orchestration", () => {
       text: "QUALITY_REPOSITORY_DRIFT\n",
     });
     expect(result.events).toEqual([
+      "lock",
       "open",
       "rerun",
       "token",
