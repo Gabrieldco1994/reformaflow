@@ -273,7 +273,10 @@ describe("45 causal production boundary observations", () => {
           "after",
           "deltas",
         ]);
-        expect(observation.financial.mutationCalls).toBe(0);
+        expect(observation.financial.mutationCalls).toEqual({
+          count: 0,
+          operations: [],
+        });
         expect(Object.keys(observation.financial.before)).toEqual(
           FINANCIAL_TABLES,
         );
