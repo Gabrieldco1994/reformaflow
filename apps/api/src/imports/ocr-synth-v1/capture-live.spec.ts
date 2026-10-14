@@ -439,7 +439,10 @@ describe("audited synthetic Vertex capture", () => {
   });
 
   it("[B3] capture output is directly consumable by the live parser and evaluator", async () => {
-    const adapter = provider();
+    const adapter = provider([VERSION], undefined, {
+      "scan-012": "DOCUMENT_UNREADABLE",
+      "scan-018": "LIMIT_EXCEEDED",
+    });
     const captured = (await captureLiveEvidence(
       canonicalCaptureOptions(adapter.value, {
         memoryRss: () => 256_000_000,
@@ -453,6 +456,22 @@ describe("audited synthetic Vertex capture", () => {
     const report = await evaluateOcrSynth(parsed as unknown as OcrEvalInput);
 
     expect(parsed).toEqual(captured);
+    expect(
+      parsed.predictions.find((item: any) => item.caseId === "scan-012")
+        .outcome,
+    ).toEqual({
+      kind: "ERROR",
+      errorCode: "DOCUMENT_UNREADABLE",
+      retryable: false,
+    });
+    expect(
+      parsed.predictions.find((item: any) => item.caseId === "scan-018")
+        .outcome,
+    ).toEqual({
+      kind: "ERROR",
+      errorCode: "LIMIT_EXCEEDED",
+      retryable: false,
+    });
     expect(captured).not.toHaveProperty("rawResponses");
     expect(captured).not.toHaveProperty("routingCases");
     expect(captured).not.toHaveProperty("safetyProbes");
