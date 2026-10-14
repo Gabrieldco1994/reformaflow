@@ -122,6 +122,8 @@ describe("direct Vertex PDF OCR", () => {
         model: PDF_OCR_MODEL_ID,
         modelVersion: "gemini-2.5-flash-001",
         region: "southamerica-east1",
+        requestId: REQUEST_ID,
+        requestTrace: { requestId: REQUEST_ID },
       },
     });
   });

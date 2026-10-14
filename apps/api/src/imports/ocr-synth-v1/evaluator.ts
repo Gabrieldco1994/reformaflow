@@ -4,6 +4,7 @@ import {
   OCR_SYNTH_SCANNED_RELEASE_CASES,
 } from "./corpus";
 import {
+  IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_CONSENT_POLICY_VERSION,
   PDF_OCR_CONSENT_PURPOSE,
   PDF_OCR_LIMITS,
@@ -23,6 +24,8 @@ import {
   type OcrEvalRow,
   type OcrSafetyProbeEvidence,
 } from "./types";
+
+const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
 
 export const DIRECT_PDF_VERTEX_CONFIG = Object.freeze({
   provider: "GOOGLE_VERTEX_AI",
@@ -514,6 +517,7 @@ function addTraceIssues(
   }
   if (trace.seam !== DIRECT_PDF_VERTEX_CONFIG.seam)
     issues.push("WRONG_ADAPTER_SEAM");
+  if (!REQUEST_ID.test(trace.requestId)) issues.push("INVALID_REQUEST_ID");
   if (trace.endpoint !== DIRECT_PDF_VERTEX_CONFIG.endpoint)
     issues.push("WRONG_ENDPOINT");
   if (trace.region !== DIRECT_PDF_VERTEX_CONFIG.region)
@@ -572,34 +576,48 @@ function addTraceIssues(
     counters.inventedRows += trace.localFinancialRowsMerged;
     issues.push("DUPLICATED_LOCAL_PROVIDER_ROWS");
   }
-  if (!prediction.consentRecorded) issues.push("MISSING_CONSENT");
-  const consent = prediction.consentCapability;
-  if (
-    !consent ||
-    consent.capability !== "ANALYZE_ATTACHMENT_V2" ||
-    consent.consentPolicyVersion !== PDF_OCR_CONSENT_POLICY_VERSION ||
-    consent.decision !== "ALLOW_EXTERNAL_PROCESSING" ||
-    consent.purpose !== PDF_OCR_CONSENT_PURPOSE ||
-    consent.provider !== DIRECT_PDF_VERTEX_CONFIG.provider ||
-    consent.model !== DIRECT_PDF_VERTEX_CONFIG.model ||
-    consent.region !== DIRECT_PDF_VERTEX_CONFIG.region ||
-    consent.actorId !== `actor-${prediction.tenantId}` ||
-    consent.sessionRevision !== 2 ||
-    consent.attachmentId !== `attachment-${prediction.caseId}` ||
-    consent.artifactSha256 !== expectedHash ||
-    consent.requestId !== `request-${prediction.caseId}` ||
-    consent.requestPayloadHash !==
-      artifactSha256(Buffer.from(`request-${prediction.caseId}`)) ||
-    consent.completeOriginalFile !== true ||
-    consent.includesMetadataAndEmbeddedContent !== true ||
-    consent.includesPotentiallyNonVisibleContent !== true ||
-    consent.externalContentRetentionDays !== 7
-  )
-    issues.push("CONSENT_CAPABILITY_MISMATCH");
-  if (!prediction.attestationRequired) issues.push("ATTESTATION_NOT_REQUIRED");
-  if (prediction.financialWrites !== 0) issues.push("FINANCIAL_WRITE");
-  counters.financialWrites += prediction.financialWrites;
+  if (prediction.capturePath === "REAL_IMPORT_SERVICE") {
+    if (prediction.consentRecorded !== true) issues.push("MISSING_CONSENT");
+    if (prediction.attestationRequired !== true)
+      issues.push("ATTESTATION_NOT_REQUIRED");
+    const consent = prediction.consentCapability as
+      | typeof prediction.consentCapability
+      | null;
+    if (
+      !consent ||
+      consent.capability !== "ANALYZE_ATTACHMENT_V2" ||
+      consent.consentPolicyVersion !== PDF_OCR_CONSENT_POLICY_VERSION ||
+      consent.decision !== "ALLOW_EXTERNAL_PROCESSING" ||
+      consent.purpose !== PDF_OCR_CONSENT_PURPOSE ||
+      consent.provider !== DIRECT_PDF_VERTEX_CONFIG.provider ||
+      consent.model !== DIRECT_PDF_VERTEX_CONFIG.model ||
+      consent.region !== DIRECT_PDF_VERTEX_CONFIG.region ||
+      consent.actorId !== `actor-${prediction.tenantId}` ||
+      consent.sessionRevision !== 2 ||
+      consent.attachmentId !== `attachment-${prediction.caseId}` ||
+      consent.artifactSha256 !== expectedHash ||
+      consent.requestId !== trace.requestId ||
+      consent.completeOriginalFile !== true ||
+      consent.includesMetadataAndEmbeddedContent !== true ||
+      consent.includesPotentiallyNonVisibleContent !== true ||
+      consent.externalContentRetentionDays !== 7
+    )
+      issues.push("CONSENT_CAPABILITY_MISMATCH");
+    if (prediction.financialWrites !== 0) issues.push("FINANCIAL_WRITE");
+    counters.financialWrites += prediction.financialWrites;
+  }
 }
+
+export const REAL_SERVICE_CONTEXT_PROBE_IDS = Object.freeze([
+  "EXACT_CONSENT_CAPABILITY",
+  "PRIOR_CONSENT_DECLARATION",
+  "MISSING_CONSENT",
+  "MISSING_ATTESTATION",
+  "SELECTED_TRUE_DEFAULT",
+  "VERIFIED_DEFAULT",
+] as const);
+export const REAL_SERVICE_CONTEXT_TEST =
+  "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts";
 
 export const OCR_PROVIDER_CALL_PROBE_IDS = new Set([
   "ADC_SCOPE_BOUNDED",
@@ -675,8 +693,9 @@ export async function buildOraclePredictions(
   liveFields = false,
 ): Promise<OcrEvalPrediction[]> {
   const results: OcrEvalPrediction[] = [];
-  for (const testCase of OCR_SYNTH_SCANNED_RELEASE_CASES) {
+  for (const [index, testCase] of OCR_SYNTH_SCANNED_RELEASE_CASES.entries()) {
     const hash = await expectedArtifactSha256(testCase);
+    const fixtureRequestId = `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
     const outcome = structuredClone(testCase.expected);
     if (outcome.kind === "SUCCESS")
       for (const row of outcome.regions.flatMap((region) => region.rows)) {
@@ -704,6 +723,7 @@ export async function buildOraclePredictions(
       adapterTrace: liveFields
         ? {
             seam: DIRECT_PDF_VERTEX_CONFIG.seam,
+            requestId: fixtureRequestId,
             endpoint: DIRECT_PDF_VERTEX_CONFIG.endpoint,
             region: DIRECT_PDF_VERTEX_CONFIG.region,
             model: DIRECT_PDF_VERTEX_CONFIG.model,
@@ -737,31 +757,37 @@ export async function buildOraclePredictions(
             localFinancialRowsMerged: 0,
           }
         : null,
-      consentRecorded: liveFields,
-      consentCapability: liveFields
+      ...(liveFields
         ? {
-            capability: "ANALYZE_ATTACHMENT_V2",
-            consentPolicyVersion: PDF_OCR_CONSENT_POLICY_VERSION,
-            decision: "ALLOW_EXTERNAL_PROCESSING",
-            purpose: PDF_OCR_CONSENT_PURPOSE,
-            provider: PDF_OCR_PROVIDER_ID,
-            model: PDF_OCR_MODEL_ID,
-            region: PDF_OCR_REGION,
-            actorId: `actor-${testCase.tenantId}`,
-            sessionRevision: 2,
-            attachmentId: `attachment-${testCase.id}`,
-            artifactSha256: hash,
-            requestId: `request-${testCase.id}`,
-            requestPayloadHash: artifactSha256(
-              Buffer.from(`request-${testCase.id}`),
-            ),
-            completeOriginalFile: true,
-            includesMetadataAndEmbeddedContent: true,
-            includesPotentiallyNonVisibleContent: true,
-            externalContentRetentionDays: 7,
+            capturePath: "REAL_IMPORT_SERVICE" as const,
+            consentRecorded: true as const,
+            consentCapability: {
+              capability: "ANALYZE_ATTACHMENT_V2",
+              consentPolicyVersion: PDF_OCR_CONSENT_POLICY_VERSION,
+              decision: "ALLOW_EXTERNAL_PROCESSING",
+              purpose: PDF_OCR_CONSENT_PURPOSE,
+              provider: PDF_OCR_PROVIDER_ID,
+              model: PDF_OCR_MODEL_ID,
+              region: PDF_OCR_REGION,
+              actorId: `actor-${testCase.tenantId}`,
+              sessionRevision: 2,
+              attachmentId: `attachment-${testCase.id}`,
+              artifactSha256: hash,
+              requestId: fixtureRequestId,
+              requestPayloadHash: artifactSha256(Buffer.from(fixtureRequestId)),
+              completeOriginalFile: true,
+              includesMetadataAndEmbeddedContent: true,
+              includesPotentiallyNonVisibleContent: true,
+              externalContentRetentionDays: 7,
+            },
+            attestationRequired: true as const,
           }
-        : null,
-      attestationRequired: liveFields,
+        : {
+            capturePath: "DIRECT_PROVIDER_CAPTURE" as const,
+            consentRecorded: false as const,
+            consentCapability: null,
+            attestationRequired: null,
+          }),
       financialWrites: 0,
     });
   }
@@ -1170,6 +1196,30 @@ export async function evaluateOcrSynth(
     )
   )
     gaps.push("MISSING_LIVE_SERVICE_TEST_PATH");
+  const probesByIdForContext = new Map(
+    input.safetyProbes.map((probe) => [probe.id, probe]),
+  );
+  if (
+    input.run.mode === "LIVE_CAPTURE" &&
+    REAL_SERVICE_CONTEXT_PROBE_IDS.some((id) => {
+      const probe = probesByIdForContext.get(id);
+      return (
+        !probe ||
+        probe.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" ||
+        probe.testFile !== REAL_SERVICE_CONTEXT_TEST
+      );
+    })
+  )
+    gaps.push("MISSING_REAL_SERVICE_CONSENT_EVIDENCE");
+  const requestIds = input.predictions.flatMap((item) =>
+    item.adapterTrace ? [item.adapterTrace.requestId] : [],
+  );
+  if (
+    input.run.mode === "LIVE_CAPTURE" &&
+    (requestIds.length !== OCR_SYNTH_SCANNED_RELEASE_CASES.length ||
+      new Set(requestIds).size !== requestIds.length)
+  )
+    gaps.push("INVALID_OR_REUSED_REQUEST_ID");
   const metadataMismatch = input.predictions.some(
     (item) =>
       item.provider !== input.run.provider ||

@@ -13,6 +13,13 @@ import {
 } from "../import-session/ocr/vertex-pdf-ocr.provider";
 
 const execFileAsync = promisify(execFile);
+const gitHead = async (): Promise<string> => {
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  return stdout.trim();
+};
 
 async function main(): Promise<void> {
   const [outputArgument, manifestArgument] = process.argv.slice(2);
@@ -31,20 +38,26 @@ async function main(): Promise<void> {
   const manifest = parseCaptureLiveManifestJson(
     await readFile(manifestPath, "utf8"),
   );
-  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-  });
-  const provider = new VertexPdfOcrProvider(
-    projectId,
-    new GoogleAuthVertexAccessToken(),
+  let capturedHead: string | undefined;
+  await writeLiveEvidenceExclusive(
+    outputPath,
+    async () => {
+      capturedHead = await gitHead();
+      const provider = new VertexPdfOcrProvider(
+        projectId,
+        new GoogleAuthVertexAccessToken(),
+      );
+      return await captureLiveEvidence({
+        provider,
+        manifest,
+        currentRepoSha: capturedHead,
+      });
+    },
+    async () => {
+      if (!capturedHead || (await gitHead()) !== capturedHead)
+        throw new Error("LIVE_CAPTURE_REPOSITORY_DRIFT");
+    },
   );
-  const evidence = await captureLiveEvidence({
-    provider,
-    manifest,
-    currentRepoSha: stdout.trim(),
-  });
-  await writeLiveEvidenceExclusive(outputPath, evidence);
 }
 
 void main().catch((error: unknown) => {

@@ -517,6 +517,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       usage: { inputTokens, outputTokens, totalTokens },
       latencyMs: Math.max(0, this.clock.now() - startedAt),
       requestTrace: {
+        requestId: request.requestId,
         endpoint: VERTEX_OCR_ENDPOINT,
         auth: "ADC_OAUTH",
         adcScopes: VERTEX_ADC_SCOPES,

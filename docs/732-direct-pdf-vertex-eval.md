@@ -97,11 +97,14 @@ The adapter requires Vertex's opaque `modelVersion` on every successful response
 configured model ID. Missing or invalid versions are `MALFORMED_RESPONSE` after an ambiguous
 dispatch. A live run stops if versions differ between cases.
 
-The adapter trace proves original inline `application/pdf` bytes, exact artifact SHA, bounded body
-and deadline, exact ADC scope, no API key/global fallback/tools/file URI/cache, one request, no
-UNKNOWN retry, prior exact image-only OCR consent declaration/capability, required attestation and
-zero writes. Every successful live case must record `finishReason=STOP` and
-`maxOutputTokens=8192`; missing or different evidence fails release.
+The direct adapter trace proves original inline `application/pdf` bytes, exact artifact SHA,
+bounded body and deadline, exact ADC scope, no API key/global fallback/tools/file URI/cache, one
+unique request ID, and no UNKNOWN retry. It does **not** execute the import service and therefore
+honestly records `capturePath=DIRECT_PROVIDER_CAPTURE`, `consentRecorded=false`,
+`consentCapability=null` and `attestationRequired=null`. Consent, declaration, attestation and safe
+candidate defaults are release evidence only through the six pinned real-service probes in
+`pdf-ocr-analyze.integration.spec.ts`. Every successful live case must record
+`finishReason=STOP` and `maxOutputTokens=8192`; missing or different evidence fails release.
 The 10 routing cases and all service probes must come from real service tests with only the external
 model and Prisma mocked. A model mock cannot supply the cents/sign/schema field being evaluated.
 
@@ -184,9 +187,12 @@ path. Mixed/textual cases come only from the bounded service evidence and make n
 The dense `scan-010` result retains all returned occurrences in order; qualification requires its
 24 expected occurrences.
 
-The output is created with exclusive/no-follow semantics and mode `0600`; an existing file,
-symlink, concurrent writer, write failure, repository-SHA drift, duplicate response ID, mixed model
-version, adapter failure, or incomplete trace stops the command and leaves no partial new output.
+The output is reserved with exclusive/no-follow semantics and mode `0600` **before** Git, ADC or
+provider work begins, and the descriptor remains open throughout capture. An existing file,
+symlink, concurrent writer, write failure, repository-SHA drift, duplicate request/response ID,
+mixed model version, adapter failure, or incomplete trace stops the command and leaves no partial
+new output. Git HEAD is checked again after all calls and before publication. Failure cleanup
+unlinks only when the path still has the reserved file's device and inode, never a replacement.
 Stderr contains only a fixed `LIVE_CAPTURE_*` code. The evidence contains typed candidates and
 sanitized request provenance, never PDF bytes, base64 payloads, access tokens, credentials, raw
 wire responses or raw provider errors.

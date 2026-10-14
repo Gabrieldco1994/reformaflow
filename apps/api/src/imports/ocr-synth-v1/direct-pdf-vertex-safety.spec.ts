@@ -233,7 +233,11 @@ describe("scanned PDF Vertex adapter and service mutation gates", () => {
     [
       "attestation not required",
       (items: OcrEvalPrediction[]) => {
-        items[0]!.attestationRequired = false;
+        (
+          items[0]! as unknown as {
+            attestationRequired: boolean;
+          }
+        ).attestationRequired = false;
       },
       "ATTESTATION_NOT_REQUIRED",
     ],

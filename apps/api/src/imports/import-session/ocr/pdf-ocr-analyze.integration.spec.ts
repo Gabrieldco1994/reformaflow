@@ -19,6 +19,7 @@ import { parseStoredPdfOcrState } from "./pdf-ocr-state";
 import {
   PDF_OCR_CONSENT_DECISION,
   pdfOcrConsentQuestionId,
+  pdfOcrRequestPayloadHash,
 } from "./pdf-ocr-state";
 import { parsePdfOcrV2 } from "./pdf-ocr-parser";
 import { PdfOcrProviderError } from "./vertex-pdf-ocr.provider";
@@ -129,6 +130,11 @@ describe("POST attachment analyze v2 direct OCR", () => {
       pdfBytes: owner.bytes,
       signal: expect.any(AbortSignal),
     });
+    await expect(
+      provider.extractPdf.mock.results[0]!.value,
+    ).resolves.toMatchObject({
+      provenance: { requestId: request.requestId },
+    });
     expect(analyzed.lines).toHaveLength(1);
     expect(analyzed.selectedLineIds).toEqual([]);
     expect(analyzed.lines[0]!.ocrEvidence).toEqual({
@@ -145,11 +151,13 @@ describe("POST attachment analyze v2 direct OCR", () => {
       where: { id: owner.sessionId },
     });
     const state = parseStoredPdfOcrState(stored.ocrJson);
+    const expectedRequestPayloadHash = pdfOcrRequestPayloadHash(request);
     expect(state.consents).toMatchObject([
       {
         attachmentId: owner.attachmentId,
         artifactSha256: owner.hash,
         requestId: request.requestId,
+        requestPayloadHash: expectedRequestPayloadHash,
         actorId: owner.userId,
         consentPolicyVersion: PDF_OCR_CONSENT_POLICY_VERSION,
         consentDecision: PDF_OCR_CONSENT_DECISION,

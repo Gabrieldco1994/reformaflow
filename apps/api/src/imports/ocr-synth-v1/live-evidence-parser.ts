@@ -11,6 +11,7 @@ import type { OcrEvalInput } from "./evaluator";
 import { SAFETY_PROBE_IDS } from "./types";
 
 const HASH = new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern);
+const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
 const MODEL_VERSION = new RegExp(PDF_OCR_MODEL_VERSION_PATTERN);
 const SAFE_CODE = /^[A-Z][A-Z0-9_]+$/;
 
@@ -200,6 +201,7 @@ function validTrace(value: unknown): boolean {
   return (
     exact(value, [
       "seam",
+      "requestId",
       "endpoint",
       "region",
       "model",
@@ -226,6 +228,8 @@ function validTrace(value: unknown): boolean {
       "localFinancialRowsMerged",
     ]) &&
     string(value.seam) &&
+    string(value.requestId) &&
+    REQUEST_ID.test(value.requestId) &&
     string(value.endpoint) &&
     string(value.region) &&
     string(value.model) &&
@@ -306,6 +310,25 @@ function validConsent(value: unknown): boolean {
   );
 }
 
+function validCaptureContext(value: Record<string, unknown>): boolean {
+  if (value.capturePath === "DIRECT_PROVIDER_CAPTURE")
+    return (
+      value.consentRecorded === false &&
+      value.consentCapability === null &&
+      value.attestationRequired === null
+    );
+  if (
+    value.capturePath !== "REAL_IMPORT_SERVICE" ||
+    value.consentRecorded !== true ||
+    !validConsent(value.consentCapability) ||
+    value.attestationRequired !== true ||
+    !object(value.consentCapability) ||
+    !object(value.adapterTrace)
+  )
+    return false;
+  return value.consentCapability.requestId === value.adapterTrace.requestId;
+}
+
 function validPrediction(value: unknown): boolean {
   return (
     exact(value, [
@@ -323,6 +346,7 @@ function validPrediction(value: unknown): boolean {
       "usage",
       "cost",
       "adapterTrace",
+      "capturePath",
       "consentRecorded",
       "consentCapability",
       "attestationRequired",
@@ -350,9 +374,7 @@ function validPrediction(value: unknown): boolean {
     value.cost.currency === "USD" &&
     nullableNumber(value.cost.amountMicros) &&
     validTrace(value.adapterTrace) &&
-    bool(value.consentRecorded) &&
-    validConsent(value.consentCapability) &&
-    bool(value.attestationRequired) &&
+    validCaptureContext(value) &&
     number(value.financialWrites)
   );
 }
@@ -423,6 +445,8 @@ function exactIdSet(values: readonly string[], expected: readonly string[]) {
     expected.every((id) => values.includes(id))
   );
 }
+const unique = (values: readonly string[]): boolean =>
+  new Set(values).size === values.length;
 
 export function parseLiveEvidence(value: unknown): OcrEvalInput {
   if (
@@ -452,95 +476,18 @@ export function parseLiveEvidence(value: unknown): OcrEvalInput {
     !exactIdSet(
       value.safetyProbes.map((item) => item.id),
       SAFETY_PROBE_IDS,
-    )
+    ) ||
+    !unique(value.predictions.map((item) => item.adapterTrace.requestId))
   )
     fail();
   return value as unknown as OcrEvalInput;
 }
 
-function rejectDuplicateObjectKeys(raw: string): void {
-  let index = 0;
-  const whitespace = () => {
-    while (/\s/.test(raw[index] ?? "")) index++;
-  };
-  const quoted = (): string => {
-    const start = index++;
-    for (;;) {
-      if (index >= raw.length) fail();
-      const char = raw[index++];
-      if (char === "\\") index++;
-      else if (char === '"') break;
-    }
-    try {
-      return JSON.parse(raw.slice(start, index)) as string;
-    } catch {
-      return fail();
-    }
-  };
-  const value = (): void => {
-    whitespace();
-    const char = raw[index];
-    if (char === "{") {
-      index++;
-      whitespace();
-      const keys = new Set<string>();
-      if (raw[index] === "}") {
-        index++;
-        return;
-      }
-      for (;;) {
-        whitespace();
-        if (raw[index] !== '"') fail();
-        const key = quoted();
-        if (keys.has(key)) fail();
-        keys.add(key);
-        whitespace();
-        if (raw[index++] !== ":") fail();
-        value();
-        whitespace();
-        const next = raw[index++];
-        if (next === "}") return;
-        if (next !== ",") fail();
-      }
-    }
-    if (char === "[") {
-      index++;
-      whitespace();
-      if (raw[index] === "]") {
-        index++;
-        return;
-      }
-      for (;;) {
-        value();
-        whitespace();
-        const next = raw[index++];
-        if (next === "]") return;
-        if (next !== ",") fail();
-      }
-    }
-    if (char === '"') {
-      quoted();
-      return;
-    }
-    const match = raw
-      .slice(index)
-      .match(
-        /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/,
-      );
-    if (!match) return fail();
-    index += match[0].length;
-  };
-  value();
-  whitespace();
-  if (index !== raw.length) fail();
-}
-
 export function parseLiveEvidenceJson(raw: string): OcrEvalInput {
-  return parseLiveEvidence(parseJsonWithoutDuplicateKeys(raw));
+  return parseLiveEvidence(parseJson(raw));
 }
 
-export function parseJsonWithoutDuplicateKeys(raw: string): unknown {
-  rejectDuplicateObjectKeys(raw);
+export function parseJson(raw: string): unknown {
   let value: unknown;
   try {
     value = JSON.parse(raw);

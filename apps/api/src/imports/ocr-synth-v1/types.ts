@@ -115,6 +115,7 @@ export interface OcrPromptContractEvidence {
 
 export interface DirectPdfAdapterTrace {
   seam: "VertexPdfOcrProvider.extractPdf";
+  requestId: string;
   endpoint: string;
   region: string;
   model: string;
@@ -179,7 +180,7 @@ export type OcrProviderNativeOutcome =
   | { kind: "SUCCESS"; candidates: OcrProviderNativeCandidate[] }
   | { kind: "ERROR"; errorCode: string; retryable: boolean };
 
-export interface OcrEvalPrediction {
+interface OcrEvalPredictionBase {
   caseId: string;
   tenantId: string;
   artifactSha256: string;
@@ -194,11 +195,24 @@ export interface OcrEvalPrediction {
   usage: OcrUsageEvidence;
   cost: OcrCostEvidence;
   adapterTrace: DirectPdfAdapterTrace | null;
-  consentRecorded: boolean;
-  consentCapability: OcrConsentCapabilityEvidence | null;
-  attestationRequired: boolean;
   financialWrites: number;
 }
+
+export type OcrEvalPrediction = OcrEvalPredictionBase &
+  (
+    | {
+        capturePath: "DIRECT_PROVIDER_CAPTURE";
+        consentRecorded: false;
+        consentCapability: null;
+        attestationRequired: null;
+      }
+    | {
+        capturePath: "REAL_IMPORT_SERVICE";
+        consentRecorded: true;
+        consentCapability: OcrConsentCapabilityEvidence;
+        attestationRequired: true;
+      }
+  );
 
 export interface OcrRoutingEvidence {
   caseId: string;

@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  PDF_OCR_CONSENT_POLICY_VERSION,
-  PDF_OCR_CONSENT_PURPOSE,
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
@@ -14,6 +12,8 @@ import {
   KNOWN_SAFETY_FINISH_REASONS,
   OCR_DURABLE_PROBE_IDS,
   OCR_PROVIDER_CALL_PROBE_IDS,
+  REAL_SERVICE_CONTEXT_PROBE_IDS,
+  REAL_SERVICE_CONTEXT_TEST,
   type OcrEvalInput,
   type OcrEvalRunConfig,
 } from "./evaluator";
@@ -21,7 +21,7 @@ import {
   isValidLiveProbe,
   isValidLiveRoute,
   isValidLiveRun,
-  parseJsonWithoutDuplicateKeys,
+  parseJson,
   parseLiveEvidence,
 } from "./live-evidence-parser";
 import { providerNativeOutcome } from "./provider-native-outcome";
@@ -83,7 +83,7 @@ const record = (value: unknown): value is Record<string, unknown> =>
   Object.getPrototypeOf(value) === Object.prototype;
 
 export function parseCaptureLiveManifestJson(raw: string): CaptureLiveManifest {
-  const value = parseJsonWithoutDuplicateKeys(raw);
+  const value = parseJson(raw);
   const keys = [
     "candidateSha",
     "configurationSha256",
@@ -132,8 +132,10 @@ export function parseCaptureLiveManifestJson(raw: string): CaptureLiveManifest {
   return value as unknown as CaptureLiveManifest;
 }
 
-const requestId = (caseId: string): string => {
-  const value = createHash("sha256").update(`ocr-synth-v1:${caseId}`).digest();
+const requestId = (candidateSha: string, caseId: string): string => {
+  const value = createHash("sha256")
+    .update(`${OCR_SYNTH_DATASET.datasetVersion}:${candidateSha}:${caseId}`)
+    .digest();
   value[6] = (value[6]! & 0x0f) | 0x40;
   value[8] = (value[8]! & 0x3f) | 0x80;
   const hex = value.subarray(0, 16).toString("hex");
@@ -199,6 +201,10 @@ async function preflight(
         (item.id === "KNOWN_SAFETY_FINISH_REASONS" &&
           JSON.stringify(item.finishReasonsTested) !==
             JSON.stringify(KNOWN_SAFETY_FINISH_REASONS)) ||
+        (REAL_SERVICE_CONTEXT_PROBE_IDS.includes(
+          item.id as (typeof REAL_SERVICE_CONTEXT_PROBE_IDS)[number],
+        ) &&
+          item.testFile !== REAL_SERVICE_CONTEXT_TEST) ||
         !/^apps\/api\/src\/imports\/.+\.spec\.ts$/.test(item.testFile),
     )
   )
@@ -249,14 +255,16 @@ export async function captureLiveEvidence(
   const rss = options.memoryRss ?? (() => process.memoryUsage().rss);
   const predictions: OcrEvalInput["predictions"] = [];
   const responseIds = new Set<string>();
+  const requestIds = new Set<string>();
   let modelVersion: string | undefined;
   let promptSha256: string | undefined;
 
   for (const { testCase, bytes, hash } of artifacts) {
+    const caseRequestId = requestId(options.manifest.candidateSha, testCase.id);
     const document = await options.provider.extractPdf({
       artifactSha256: hash,
       pageCount: testCase.artifact.pageCount,
-      requestId: requestId(testCase.id),
+      requestId: caseRequestId,
       pdfBytes: bytes,
       signal: new AbortController().signal,
     });
@@ -267,19 +275,23 @@ export async function captureLiveEvidence(
       document.provenance.provider !== PDF_OCR_PROVIDER_ID ||
       document.provenance.model !== PDF_OCR_MODEL_ID ||
       document.provenance.region !== PDF_OCR_REGION ||
+      document.provenance.requestId !== caseRequestId ||
       !trace ||
+      trace.requestId !== caseRequestId ||
       trace.originalBytesSha256 !== hash ||
       trace.endpoint !== DIRECT_PDF_VERTEX_CONFIG.endpoint ||
       trace.finishReason !== "STOP"
     )
       throw new Error("LIVE_CAPTURE_PROVIDER_CONTRACT_FAILED");
     if (
+      requestIds.has(caseRequestId) ||
       responseIds.has(document.provenance.responseId) ||
       (modelVersion !== undefined &&
         modelVersion !== document.provenance.modelVersion) ||
       (promptSha256 !== undefined && promptSha256 !== trace.promptSha256)
     )
       throw new Error("LIVE_CAPTURE_PROVENANCE_MISMATCH");
+    requestIds.add(caseRequestId);
     responseIds.add(document.provenance.responseId);
     modelVersion = document.provenance.modelVersion;
     promptSha256 = trace.promptSha256;
@@ -291,7 +303,6 @@ export async function captureLiveEvidence(
           options.manifest.pricing.outputMicrosPerMillionTokens) /
         1_000_000,
     );
-    const caseRequestId = requestId(testCase.id);
     predictions.push({
       caseId: testCase.id,
       tenantId: testCase.tenantId,
@@ -308,6 +319,7 @@ export async function captureLiveEvidence(
       cost: { currency: "USD", amountMicros: costMicros },
       adapterTrace: {
         seam: DIRECT_PDF_VERTEX_CONFIG.seam,
+        requestId: caseRequestId,
         endpoint: trace.endpoint,
         region: document.provenance.region,
         model: document.provenance.model,
@@ -340,27 +352,10 @@ export async function captureLiveEvidence(
         textualPdf: false,
         localFinancialRowsMerged: 0,
       },
-      consentRecorded: true,
-      consentCapability: {
-        capability: "ANALYZE_ATTACHMENT_V2",
-        consentPolicyVersion: PDF_OCR_CONSENT_POLICY_VERSION,
-        decision: "ALLOW_EXTERNAL_PROCESSING",
-        purpose: PDF_OCR_CONSENT_PURPOSE,
-        provider: PDF_OCR_PROVIDER_ID,
-        model: PDF_OCR_MODEL_ID,
-        region: PDF_OCR_REGION,
-        actorId: `actor-${testCase.tenantId}`,
-        sessionRevision: 2,
-        attachmentId: `attachment-${testCase.id}`,
-        artifactSha256: hash,
-        requestId: caseRequestId,
-        requestPayloadHash: artifactSha256(Buffer.from(caseRequestId)),
-        completeOriginalFile: true,
-        includesMetadataAndEmbeddedContent: true,
-        includesPotentiallyNonVisibleContent: true,
-        externalContentRetentionDays: 7,
-      },
-      attestationRequired: true,
+      capturePath: "DIRECT_PROVIDER_CAPTURE",
+      consentRecorded: false,
+      consentCapability: null,
+      attestationRequired: null,
       financialWrites: 0,
     });
   }

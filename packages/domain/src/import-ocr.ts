@@ -36,6 +36,7 @@ export interface PdfOcrUsageV2 {
 }
 
 export interface PdfOcrProviderRequestTraceV2 {
+  readonly requestId: string;
   readonly endpoint: string;
   readonly auth: "ADC_OAUTH";
   readonly adcScopes: readonly string[];

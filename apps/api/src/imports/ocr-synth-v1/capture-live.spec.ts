@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, stat, symlink } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  stat,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDF_OCR_MODEL_ID, PDF_OCR_PROVIDER_ID } from "@reformaflow/domain";
@@ -28,6 +35,16 @@ jest.setTimeout(120_000);
 
 const SHA = "c".repeat(40);
 const VERSION = "gemini-2.5-flash-001";
+const SERVICE_EVIDENCE_TEST =
+  "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts";
+const SERVICE_CONTEXT_PROBES = new Set([
+  "EXACT_CONSENT_CAPABILITY",
+  "PRIOR_CONSENT_DECLARATION",
+  "MISSING_CONSENT",
+  "MISSING_ATTESTATION",
+  "SELECTED_TRUE_DEFAULT",
+  "VERIFIED_DEFAULT",
+]);
 
 function response(value: unknown) {
   const bytes = Buffer.from(JSON.stringify(value));
@@ -120,8 +137,11 @@ async function manifest(): Promise<CaptureLiveManifest> {
       "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts";
   }
   const safetyProbes = buildOracleSafetyProbes();
-  for (const probe of safetyProbes)
+  for (const probe of safetyProbes) {
     probe.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
+    if (SERVICE_CONTEXT_PROBES.has(probe.id))
+      probe.testFile = SERVICE_EVIDENCE_TEST;
+  }
   return {
     candidateSha: SHA,
     configurationSha256: "a".repeat(64),
@@ -161,6 +181,7 @@ async function manifest(): Promise<CaptureLiveManifest> {
 
 describe("audited synthetic Vertex capture", () => {
   let evidence: Awaited<ReturnType<typeof captureLiveEvidence>>;
+  let dispatchedRequestIds: string[];
 
   beforeAll(async () => {
     const adapter = provider();
@@ -171,6 +192,9 @@ describe("audited synthetic Vertex capture", () => {
       currentRepoSha: SHA,
       memoryRss: () => 100,
     });
+    dispatchedRequestIds = extract.mock.calls.map(
+      ([request]) => request.requestId,
+    );
     expect(extract).toHaveBeenCalledTimes(18);
     expect(adapter.fetcher).toHaveBeenCalledTimes(18);
   });
@@ -209,7 +233,45 @@ describe("audited synthetic Vertex capture", () => {
       provider: PDF_OCR_PROVIDER_ID,
       model: PDF_OCR_MODEL_ID,
       modelVersion: VERSION,
+      capturePath: "DIRECT_PROVIDER_CAPTURE",
+      consentRecorded: false,
+      consentCapability: null,
+      attestationRequired: null,
     });
+    expect(JSON.stringify(evidence.predictions[0])).not.toContain(
+      "requestPayloadHash",
+    );
+  });
+
+  it("uses one unique valid request identity across request, provenance, and trace", () => {
+    const requestIds = evidence.predictions.map(
+      (item) => item.adapterTrace!.requestId,
+    );
+    expect(new Set(requestIds).size).toBe(18);
+    for (const [index, requestId] of requestIds.entries()) {
+      expect(requestId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      expect(requestId).toBe(
+        evidence.predictions[index]!.adapterTrace!.requestId,
+      );
+      expect(requestId).toBe(dispatchedRequestIds[index]);
+    }
+  });
+
+  it("produces no fabricated consent or request mismatch issues", async () => {
+    const report = await evaluateOcrSynth(evidence);
+    expect(report.perCase.flatMap((item) => item.issues)).not.toEqual(
+      expect.arrayContaining([
+        "MISSING_CONSENT",
+        "CONSENT_CAPABILITY_MISMATCH",
+        "ATTESTATION_NOT_REQUIRED",
+        "REQUEST_ID_MISMATCH",
+      ]),
+    );
+    expect(report.liveEvidenceGaps).not.toContain(
+      "MISSING_REAL_SERVICE_CONSENT_EVIDENCE",
+    );
   });
 
   it("fails preflight with zero calls on repository drift or cross-contract routing", async () => {
@@ -255,6 +317,74 @@ describe("audited synthetic Vertex capture", () => {
     expect(mixed.fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["provenance", "trace"] as const)(
+    "stops when returned %s request identity differs from dispatch",
+    async (target) => {
+      const adapter = provider();
+      const extract = adapter.value.extractPdf.bind(adapter.value);
+      jest
+        .spyOn(adapter.value, "extractPdf")
+        .mockImplementation(async (request) => {
+          const document = await extract(request);
+          return {
+            ...document,
+            provenance: {
+              ...document.provenance,
+              ...(target === "provenance"
+                ? {
+                    requestId: "20000000-0000-4000-8000-000000000001",
+                  }
+                : {
+                    requestTrace: {
+                      ...document.provenance.requestTrace!,
+                      requestId: "20000000-0000-4000-8000-000000000001",
+                    },
+                  }),
+            },
+          };
+        });
+      await expect(
+        captureLiveEvidence({
+          provider: adapter.value,
+          manifest: await manifest(),
+          currentRepoSha: SHA,
+        }),
+      ).rejects.toThrow("LIVE_CAPTURE_PROVIDER_CONTRACT_FAILED");
+      expect(adapter.fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("rejects duplicate request identities and fabricated direct consent", () => {
+    const duplicate = structuredClone(evidence);
+    duplicate.predictions[1]!.adapterTrace!.requestId =
+      duplicate.predictions[0]!.adapterTrace!.requestId;
+    expect(() => parseLiveEvidence(duplicate)).toThrow("LIVE_EVIDENCE_INVALID");
+
+    const fabricated = structuredClone(evidence) as unknown as {
+      predictions: Array<Record<string, unknown>>;
+    };
+    fabricated.predictions[0]!.consentRecorded = true;
+    fabricated.predictions[0]!.consentCapability = {
+      capability: "ANALYZE_ATTACHMENT_V2",
+    };
+    fabricated.predictions[0]!.attestationRequired = true;
+    expect(() => parseLiveEvidence(fabricated)).toThrow(
+      "LIVE_EVIDENCE_INVALID",
+    );
+  });
+
+  it("requires exact real-service consent probe provenance", async () => {
+    const changed = structuredClone(evidence);
+    changed.safetyProbes.find(
+      (probe) => probe.id === "EXACT_CONSENT_CAPABILITY",
+    )!.testFile =
+      "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
+    const report = await evaluateOcrSynth(changed);
+    expect(report.liveEvidenceGaps).toContain(
+      "MISSING_REAL_SERVICE_CONSENT_EVIDENCE",
+    );
+  });
+
   it("scores mutations from native candidates without oracle annotations", async () => {
     const changed = structuredClone(evidence);
     const outcome = changed.predictions[0]!.outcome;
@@ -267,7 +397,7 @@ describe("audited synthetic Vertex capture", () => {
     ).toContain("MONEY_MISMATCH");
   });
 
-  it("strictly parses evidence and rejects extra, missing, duplicate, and byte fields", () => {
+  it("strictly parses evidence after JSON.parse and rejects malformed, extra, missing, and byte fields", () => {
     expect(parseLiveEvidenceJson(JSON.stringify(evidence))).toEqual(evidence);
     const extra = structuredClone(evidence) as unknown as Record<
       string,
@@ -303,51 +433,98 @@ describe("audited synthetic Vertex capture", () => {
     expect(() => parseLiveEvidence(duplicateCase)).toThrow(
       "LIVE_EVIDENCE_INVALID",
     );
-    expect(() =>
+    expect(() => parseLiveEvidenceJson("{")).toThrow("LIVE_EVIDENCE_INVALID");
+    expect(
       parseLiveEvidenceJson(
         JSON.stringify(evidence).replace(
           '"datasetVersion":',
-          '"datasetVersion":"duplicate","datasetVersion":',
+          '"datasetVersion":"shadowed","datasetVersion":',
         ),
       ),
-    ).toThrow("LIVE_EVIDENCE_INVALID");
+    ).toEqual(evidence);
   });
 
-  it("writes mode 0600 exclusively without following links and cleans failures", async () => {
+  it("reserves mode 0600 before capture without following existing paths", async () => {
     const directory = await mkdtemp(join(tmpdir(), "ocr-live-"));
     const output = join(directory, "evidence.json");
-    await writeLiveEvidenceExclusive(output, evidence);
+    const capture = jest.fn(async () => evidence);
+    await writeLiveEvidenceExclusive(output, capture);
+    expect(capture).toHaveBeenCalledTimes(1);
     expect((await stat(output)).mode & 0o777).toBe(0o600);
     const serialized = await readFile(output, "utf8");
     expect(serialized).not.toContain("test-only-adc-token");
     expect(serialized).not.toContain("%PDF-");
+    const existingCapture = jest.fn(async () => evidence);
     await expect(
-      writeLiveEvidenceExclusive(output, evidence),
+      writeLiveEvidenceExclusive(output, existingCapture),
     ).rejects.toBeDefined();
+    expect(existingCapture).not.toHaveBeenCalled();
 
     const target = join(directory, "target.json");
     const link = join(directory, "link.json");
     await symlink(target, link);
+    const symlinkCapture = jest.fn(async () => evidence);
     await expect(
-      writeLiveEvidenceExclusive(link, evidence),
+      writeLiveEvidenceExclusive(link, symlinkCapture),
     ).rejects.toBeDefined();
+    expect(symlinkCapture).not.toHaveBeenCalled();
 
     const concurrent = join(directory, "concurrent.json");
-    const writes = await Promise.allSettled([
-      writeLiveEvidenceExclusive(concurrent, evidence),
-      writeLiveEvidenceExclusive(concurrent, evidence),
-    ]);
-    expect(writes.filter((item) => item.status === "fulfilled")).toHaveLength(
-      1,
-    );
+    let releaseFirst!: () => void;
+    let firstStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstWrite = writeLiveEvidenceExclusive(concurrent, async () => {
+      firstStarted();
+      await release;
+      return evidence;
+    });
+    await started;
+    const secondCapture = jest.fn(async () => evidence);
+    await expect(
+      writeLiveEvidenceExclusive(concurrent, secondCapture),
+    ).rejects.toBeDefined();
+    expect(secondCapture).not.toHaveBeenCalled();
+    releaseFirst();
+    await expect(firstWrite).resolves.toBeUndefined();
 
     const failed = join(directory, "failed.json");
     await expect(
-      writeLiveEvidenceExclusive(failed, evidence, async () => {
+      writeLiveEvidenceExclusive(failed, async () => {
         throw new Error("simulated");
       }),
     ).rejects.toThrow("simulated");
     await expect(stat(failed)).rejects.toBeDefined();
+  });
+
+  it("does not publish after post-capture SHA drift", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ocr-live-drift-"));
+    const output = join(directory, "evidence.json");
+    const capture = jest.fn(async () => evidence);
+    await expect(
+      writeLiveEvidenceExclusive(output, capture, async () => {
+        throw new Error("LIVE_CAPTURE_REPOSITORY_DRIFT");
+      }),
+    ).rejects.toThrow("LIVE_CAPTURE_REPOSITORY_DRIFT");
+    expect(capture).toHaveBeenCalledTimes(1);
+    await expect(stat(output)).rejects.toBeDefined();
+  });
+
+  it("leaves a replacement untouched when failure cleanup loses inode ownership", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ocr-live-inode-"));
+    const output = join(directory, "evidence.json");
+    await expect(
+      writeLiveEvidenceExclusive(output, async () => {
+        await unlink(output);
+        await writeFile(output, "replacement", { mode: 0o600 });
+        throw new Error("simulated");
+      }),
+    ).rejects.toThrow("simulated");
+    expect(await readFile(output, "utf8")).toBe("replacement");
   });
 
   it("keeps generated route evidence bound to the same synthetic bytes", async () => {
