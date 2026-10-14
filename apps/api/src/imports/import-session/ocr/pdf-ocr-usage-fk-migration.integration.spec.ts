@@ -18,6 +18,7 @@ const PROVENANCE_MIGRATION = "20261014004500_import_ocr_usage_provenance";
 const NOW = new Date("2026-10-13T23:30:00.000Z");
 
 function deploy(schema: string, database: string): void {
+  const { NODE_OPTIONS: _externalNodeOptions, ...environment } = process.env;
   execFileSync(
     process.execPath,
     [
@@ -28,7 +29,7 @@ function deploy(schema: string, database: string): void {
     ],
     {
       cwd: ROOT,
-      env: { ...process.env, DATABASE_URL: `file:${database}` },
+      env: { ...environment, DATABASE_URL: `file:${database}` },
       stdio: "pipe",
     },
   );
@@ -55,8 +56,7 @@ function legacyTarget(fixtures: string[]): LegacyTarget {
     .sort();
   expect(committed.at(-1)).toBe(PROVENANCE_MIGRATION);
   for (const migration of committed) {
-    if (migration === FK_MIGRATION || migration === PROVENANCE_MIGRATION)
-      continue;
+    if (migration >= FK_MIGRATION) continue;
     cpSync(
       join(ROOT, "prisma/migrations", migration),
       join(migrations, migration),

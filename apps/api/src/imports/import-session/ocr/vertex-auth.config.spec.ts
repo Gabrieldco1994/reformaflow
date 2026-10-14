@@ -28,6 +28,24 @@ describe("Vertex OCR auth configuration", () => {
     },
   );
 
+  it("does not inspect any credential setting while OCR is disabled", () => {
+    const environment = new Proxy(
+      { IMPORT_OCR_ENABLED: "false" } as Record<string, string>,
+      {
+        get(target, property, receiver) {
+          if (property !== "IMPORT_OCR_ENABLED")
+            throw new Error(
+              `credential setting was inspected: ${String(property)}`,
+            );
+          return Reflect.get(target, property, receiver);
+        },
+      },
+    );
+    expect(parseVertexAuthConfig(environment)).toEqual({
+      state: "OCR_DISABLED",
+    });
+  });
+
   it("admits only explicit local ADC outside production", () => {
     expect(
       parseVertexAuthConfig({
@@ -61,6 +79,14 @@ describe("Vertex OCR auth configuration", () => {
   it.each([
     [{ ...enabled, NODE_ENV: "development" }],
     [{ ...enabled, NODE_ENV: "development", VERTEX_AUTH_MODE: "fly-wif" }],
+    [
+      {
+        ...enabled,
+        NODE_ENV: "development",
+        VERTEX_AUTH_MODE: "local-adc",
+        GOOGLE_APPLICATION_CREDENTIALS: "/forbidden-even-locally",
+      },
+    ],
     [
       {
         ...enabled,

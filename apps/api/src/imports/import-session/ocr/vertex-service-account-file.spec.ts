@@ -83,12 +83,24 @@ function fileSystem(
 }
 
 describe("Vertex service-account file admission", () => {
-  it("admits the fixed root-mounted read-only file without returning secrets", async () => {
+  it("admits the backend contract for the fixed authorized OCR principal", async () => {
     const fs = fileSystem();
     await expect(admitVertexServiceAccountFile(PROJECT, fs)).resolves.toEqual({
       projectId: PROJECT,
       credentials: validDocument(),
     });
+    expect(fs.open).toHaveBeenCalledWith(
+      VERTEX_SERVICE_ACCOUNT_KEY_PATH,
+      expect.any(Number),
+    );
+  });
+
+  it("returns only the exact in-memory credentials for the authorized OCR principal", async () => {
+    const fs = fileSystem();
+    const admitted = await admitVertexServiceAccountFile(PROJECT, fs);
+    expect(admitted).toEqual({ credentials: validDocument() });
+    expect(admitted).not.toHaveProperty("keyFilename");
+    expect(admitted).not.toHaveProperty("path");
     expect(fs.open).toHaveBeenCalledWith(
       VERTEX_SERVICE_ACCOUNT_KEY_PATH,
       expect.any(Number),
@@ -112,6 +124,7 @@ describe("Vertex service-account file admission", () => {
     ["empty", Buffer.alloc(0)],
     ["oversize", Buffer.alloc(64 * 1024 + 1, 0x61)],
     ["invalid UTF-8", Buffer.from([0xc3, 0x28])],
+    ["invalid JSON", Buffer.from('{"type":')],
   ])("rejects %s content", async (_label, content) => {
     await expect(
       admitVertexServiceAccountFile(PROJECT, fileSystem(content)),
@@ -122,6 +135,10 @@ describe("Vertex service-account file admission", () => {
     ["wrong type", { type: "authorized_user" }],
     ["wrong project", { project_id: "other-project" }],
     ["wrong email", { client_email: "other@example.com" }],
+    [
+      "another valid same-project service account",
+      { client_email: `another-valid@${PROJECT}.iam.gserviceaccount.com` },
+    ],
     ["wrong key", { private_key: "secret-canary" }],
     ["wrong token URI", { token_uri: "https://example.com/token" }],
     ["client secret", { client_secret: "secret-canary" }],
@@ -129,8 +146,17 @@ describe("Vertex service-account file admission", () => {
     ["quota project", { quota_project_id: "secret-canary" }],
   ])("rejects %s without exposing values", async (_label, override) => {
     const content = Buffer.from(JSON.stringify(validDocument(override)));
-    await expect(
-      admitVertexServiceAccountFile(PROJECT, fileSystem(content)),
-    ).rejects.toThrow(VERTEX_SERVICE_ACCOUNT_STARTUP_ERROR);
+    const failure = await admitVertexServiceAccountFile(
+      PROJECT,
+      fileSystem(content),
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      VERTEX_SERVICE_ACCOUNT_STARTUP_ERROR,
+    );
+    expect((failure as Error).message).not.toContain("secret-canary");
+    expect((failure as Error).message).not.toContain(
+      String(Object.values(override)[0]),
+    );
   });
 });

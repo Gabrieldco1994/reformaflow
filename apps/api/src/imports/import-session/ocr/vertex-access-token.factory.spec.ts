@@ -1,11 +1,18 @@
 import { createVertexAccessToken } from "./vertex-access-token.factory";
 import { VERTEX_ADC_SCOPES } from "./vertex-pdf-ocr.provider";
-const credentials = {
+
+const localCredentials = Object.freeze({
   type: "authorized_user",
-  client_id: "client",
-  client_secret: "secret",
-  refresh_token: "refresh",
-};
+  client_id: "local-client.apps.googleusercontent.com",
+  client_secret: "local-secret-canary",
+  refresh_token: "local-refresh-canary",
+});
+const serviceCredentials = Object.freeze({
+  type: "service_account",
+  project_id: "project-719",
+  client_email: "reformaflow-ocr@project-719.iam.gserviceaccount.com",
+  private_key: "service-private-key-canary",
+});
 
 describe("Vertex access-token factory", () => {
   it.each([
@@ -17,7 +24,10 @@ describe("Vertex access-token factory", () => {
         authTrace: "LOCAL_ADC",
         projectId: "project-719",
       },
-      { credentials, scopes: [...VERTEX_ADC_SCOPES] },
+      {
+        credentials: localCredentials,
+        scopes: [...VERTEX_ADC_SCOPES],
+      },
     ],
     [
       "SERVICE_ACCOUNT_FILE_ADC",
@@ -28,7 +38,7 @@ describe("Vertex access-token factory", () => {
         projectId: "project-719",
       },
       {
-        credentials,
+        credentials: serviceCredentials,
         scopes: [...VERTEX_ADC_SCOPES],
       },
     ],
@@ -43,11 +53,18 @@ describe("Vertex access-token factory", () => {
       const GoogleAuthConstructor = jest.fn(() => auth);
       const token = createVertexAccessToken(
         config,
-        credentials,
+        expectedOptions.credentials,
         GoogleAuthConstructor as never,
       );
       expect(GoogleAuthConstructor).toHaveBeenCalledTimes(1);
       expect(GoogleAuthConstructor).toHaveBeenCalledWith(expectedOptions);
+      const constructed = (
+        GoogleAuthConstructor.mock.calls as unknown as Array<
+          [Record<string, unknown>]
+        >
+      )[0]![0];
+      expect(constructed.credentials).toBe(expectedOptions.credentials);
+      expect(constructed).not.toHaveProperty("keyFilename");
       expect(token?.authTrace).toBe(_trace);
     },
   );
@@ -76,7 +93,7 @@ describe("Vertex access-token factory", () => {
           authTrace: "SERVICE_ACCOUNT_FILE_ADC",
           projectId: "project-719",
         },
-        credentials,
+        serviceCredentials,
         GoogleAuthConstructor as never,
       ),
     ).toThrow("VERTEX_AUTH_CONFIG_INVALID");
