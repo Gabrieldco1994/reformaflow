@@ -1,10 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import {
-  assertReleaseQualified,
-  evaluateOcrSynth,
-  type OcrEvalInput,
-} from "./evaluator";
+import { assertReleaseQualified, evaluateOcrSynth } from "./evaluator";
+import { parseLiveEvidenceJson } from "./live-evidence-parser";
 
 async function main(): Promise<void> {
   const evidencePath = process.argv[2];
@@ -14,7 +11,7 @@ async function main(): Promise<void> {
     );
   }
   const raw = await readFile(resolve(process.cwd(), evidencePath), "utf8");
-  const input = JSON.parse(raw) as OcrEvalInput;
+  const input = parseLiveEvidenceJson(raw);
   const report = await evaluateOcrSynth(input);
   console.log(JSON.stringify(report, null, 2));
   assertReleaseQualified(report);

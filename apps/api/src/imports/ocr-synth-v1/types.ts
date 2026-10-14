@@ -161,11 +161,29 @@ export interface OcrConsentCapabilityEvidence {
   externalContentRetentionDays: 7;
 }
 
+export type OcrProviderSign = "NEGATIVE" | "ZERO" | "POSITIVE" | "UNKNOWN";
+
+/** Exact projection of provider-returned candidate fields plus derived sign. */
+export interface OcrProviderNativeCandidate {
+  pageNumber: number;
+  description: string | null;
+  amountCents: string | null;
+  sign: OcrProviderSign;
+  amountMeaning: "LINE_AMOUNT" | "UNKNOWN";
+  date: string | null;
+  installment: { index: number; total: number } | null;
+  evidenceText: string;
+}
+
+export type OcrProviderNativeOutcome =
+  | { kind: "SUCCESS"; candidates: OcrProviderNativeCandidate[] }
+  | { kind: "ERROR"; errorCode: string; retryable: boolean };
+
 export interface OcrEvalPrediction {
   caseId: string;
   tenantId: string;
   artifactSha256: string;
-  outcome: OcrEvalExpected;
+  outcome: OcrEvalExpected | OcrProviderNativeOutcome;
   provider: string | null;
   model: string | null;
   modelVersion: string | null;

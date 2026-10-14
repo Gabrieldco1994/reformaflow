@@ -22,6 +22,7 @@ const payload = () => ({
 });
 const wire = () => ({
   responseId: "vertex-response-719",
+  modelVersion: "gemini-2.5-flash-001",
   candidates: [
     {
       finishReason: "STOP",
@@ -119,12 +120,13 @@ describe("direct Vertex PDF OCR", () => {
       provenance: {
         provider: PDF_OCR_PROVIDER_ID,
         model: PDF_OCR_MODEL_ID,
+        modelVersion: "gemini-2.5-flash-001",
         region: "southamerica-east1",
       },
     });
   });
 
-  it("accepts known Vertex metadata without adding it to the DTO", async () => {
+  it("accepts known Vertex metadata and retains the opaque model version", async () => {
     const provider = new VertexPdfOcrProvider(
       "approved-project",
       { accessToken: async () => "adc-token" },
@@ -137,10 +139,46 @@ describe("direct Vertex PDF OCR", () => {
         }),
       ),
     );
-    await expect(provider.extractPdf(request())).resolves.not.toHaveProperty(
-      "modelVersion",
-    );
+    await expect(provider.extractPdf(request())).resolves.toMatchObject({
+      provenance: { modelVersion: "gemini-2.5-flash-001" },
+    });
   });
+
+  it.each([
+    ["missing", undefined],
+    ["empty", ""],
+    ["193 printable bytes", "v".repeat(193)],
+    ["control", "version\n2"],
+    ["wrong type", 2],
+  ])(
+    "fails ambiguously for %s modelVersion after dispatch",
+    async (_label, modelVersion) => {
+      const provider = new VertexPdfOcrProvider(
+        "approved-project",
+        { accessToken: async () => "adc-token" },
+        jest.fn().mockResolvedValue(response({ ...wire(), modelVersion })),
+      );
+
+      await expect(provider.extractPdf(request())).rejects.toMatchObject({
+        failure: "MALFORMED_RESPONSE",
+        dispatchState: "DISPATCHED_OR_UNKNOWN",
+      });
+    },
+  );
+
+  it.each(["v", "v".repeat(192)])(
+    "retains modelVersion at a valid provider boundary",
+    async (modelVersion) => {
+      const provider = new VertexPdfOcrProvider(
+        "approved-project",
+        { accessToken: async () => "adc-token" },
+        jest.fn().mockResolvedValue(response({ ...wire(), modelVersion })),
+      );
+      await expect(provider.extractPdf(request())).resolves.toMatchObject({
+        provenance: { modelVersion },
+      });
+    },
+  );
 
   it.each([
     ["unknown response field", () => ({ ...wire(), unknown: "extra" })],

@@ -1,4 +1,5 @@
 import { GoogleAuth } from "google-auth-library";
+import { createHash } from "node:crypto";
 import {
   IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_LIMITS,
@@ -18,6 +19,7 @@ export const VERTEX_OCR_REGION = PDF_OCR_REGION;
 export const VERTEX_OCR_ENDPOINT =
   "https://southamerica-east1-aiplatform.googleapis.com" as const;
 const VERTEX_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
+const VERTEX_ADC_SCOPES = Object.freeze([VERTEX_SCOPE]);
 const JSON_MIME = "application/json";
 const PDF_MIME = "application/pdf";
 const MAX_OUTPUT_TOKENS = 8192;
@@ -38,6 +40,7 @@ const PROMPT = [
   "Return zero candidates only when there are genuinely no visible line occurrences.",
   "Return only the requested JSON schema.",
 ].join(" ");
+const PROMPT_SHA256 = createHash("sha256").update(PROMPT).digest("hex");
 
 export type PdfOcrProviderFailure =
   | "AUTH"
@@ -338,6 +341,28 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
           PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
         );
       let response: Awaited<ReturnType<Fetcher>>;
+      const requestBody = JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: PROMPT },
+              {
+                inlineData: {
+                  mimeType: PDF_MIME,
+                  data: request.pdfBytes.toString("base64"),
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: JSON_MIME,
+          responseSchema,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+        },
+      });
       try {
         // From this point on, the provider may have accepted the request even
         // when this process never observes a response.
@@ -351,28 +376,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
               accept: JSON_MIME,
             },
             signal: controller.signal,
-            body: JSON.stringify({
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    { text: PROMPT },
-                    {
-                      inlineData: {
-                        mimeType: PDF_MIME,
-                        data: request.pdfBytes.toString("base64"),
-                      },
-                    },
-                  ],
-                },
-              ],
-              generationConfig: {
-                temperature: 0,
-                responseMimeType: JSON_MIME,
-                responseSchema,
-                maxOutputTokens: MAX_OUTPUT_TOKENS,
-              },
-            }),
+            body: requestBody,
           }),
           controller.signal,
           dispatchState,
@@ -408,7 +412,12 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         } catch {
           throw new PdfOcrProviderError("MALFORMED_RESPONSE", dispatchState);
         }
-        return this.parseWire(wire, request, startedAt);
+        return this.parseWire(
+          wire,
+          request,
+          startedAt,
+          Buffer.byteLength(requestBody, "utf8"),
+        );
       } catch (error) {
         if (error instanceof PdfOcrProviderError) throw error;
         throw new PdfOcrProviderError(
@@ -426,6 +435,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
     wire: unknown,
     request: FixedPdfOcrProviderRequest,
     startedAt: number,
+    requestBodyBytes: number,
   ): PdfOcrDocumentV2 {
     if (
       !record(wire) ||
@@ -503,8 +513,25 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       pageCount: request.pageCount,
       requestId: request.requestId,
       responseId: wire.responseId,
+      modelVersion: wire.modelVersion,
       usage: { inputTokens, outputTokens, totalTokens },
       latencyMs: Math.max(0, this.clock.now() - startedAt),
+      requestTrace: {
+        endpoint: VERTEX_OCR_ENDPOINT,
+        auth: "ADC_OAUTH",
+        adcScopes: VERTEX_ADC_SCOPES,
+        inputMimeType: PDF_MIME,
+        inputMode: "INLINE_ORIGINAL_BYTES",
+        originalBytesSha256: request.artifactSha256,
+        requestBodyBytes,
+        deadlineMs: PDF_OCR_LIMITS.providerLatencyMs,
+        finishReason: "STOP",
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+        promptSha256: PROMPT_SHA256,
+        toolsPresent: false,
+        fileUri: null,
+        cachedContent: null,
+      },
     });
     if (!parsed.ok) throw dispatchedFailure("MALFORMED_RESPONSE");
     return parsed.value;

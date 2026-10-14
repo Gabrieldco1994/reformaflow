@@ -15,7 +15,9 @@ import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
   SAFETY_PROBE_IDS,
   type OcrEvalCase,
+  type OcrEvalExpected,
   type OcrEvalPrediction,
+  type OcrProviderNativeCandidate,
   type OcrEvalRegion,
   type OcrRoutingEvidence,
   type OcrEvalRow,
@@ -354,6 +356,10 @@ function compareOutcome(
     typeof prediction.outcome,
     { kind: "SUCCESS" }
   >;
+  if ("candidates" in actual) {
+    compareProviderNativeOutcome(expected, actual.candidates, counters, issues);
+    return;
+  }
   counters.expectedRows += expected.regions.flatMap(
     (region) => region.rows,
   ).length;
@@ -370,6 +376,119 @@ function compareOutcome(
       .slice(expected.regions.length)
       .flatMap((region) => region.rows).length;
     issues.push("UNEXPECTED_REGION");
+  }
+
+  function compareProviderNativeRow(
+    expected: OcrEvalRow,
+    actual: OcrProviderNativeCandidate | undefined,
+    counters: Counters,
+    issues: string[],
+  ): void {
+    if (!actual) return;
+    counters.expectedEvidenceRows++;
+    if (
+      expected.evidenceText.length > 0 &&
+      actual.evidenceText === expected.evidenceText
+    )
+      counters.visibleEvidenceMatches++;
+    else issues.push("VISIBLE_EVIDENCE_MISMATCH");
+
+    if (expected.amountCents === null || expected.sign === "UNKNOWN") {
+      counters.expectedUnknownFields++;
+      if (
+        actual.amountCents === null &&
+        actual.sign === "UNKNOWN" &&
+        actual.amountMeaning === "UNKNOWN"
+      )
+        counters.preservedUnknownFields++;
+      else {
+        counters.inventedRows++;
+        issues.push("UNKNOWN_AMOUNT_INVENTED");
+      }
+    } else {
+      counters.readableMoneyRows++;
+      if (actual.amountCents === expected.amountCents) counters.moneyMatches++;
+      else issues.push("MONEY_MISMATCH");
+      if (actual.sign === expected.sign) counters.signMatches++;
+      else issues.push("SIGN_MISMATCH");
+    }
+    if (expected.amountMeaning === "UNKNOWN") {
+      counters.expectedUnknownFields++;
+      if (actual.amountMeaning === "UNKNOWN") counters.preservedUnknownFields++;
+      else issues.push("AMOUNT_MEANING_INVENTED");
+    } else if (actual.amountMeaning !== expected.amountMeaning)
+      issues.push("AMOUNT_MEANING_MISMATCH");
+
+    if (actual.date === expected.normalizedDate) counters.dateMatches++;
+    else issues.push("DATE_MISMATCH");
+    const actualDateExplicitness =
+      actual.date === null
+        ? "MISSING"
+        : /^\d{4}-\d{2}-\d{2}$/.test(actual.date)
+          ? "FULL"
+          : "UNKNOWN";
+    if (actualDateExplicitness === expected.dateExplicitness)
+      counters.explicitnessMatches++;
+    else issues.push("DATE_EXPLICITNESS_MISMATCH");
+    if (expected.dateExplicitness === "UNKNOWN") {
+      counters.expectedUnknownFields++;
+      if (actual.date === null) counters.preservedUnknownFields++;
+      else issues.push("UNKNOWN_DATE_INVENTED");
+    }
+
+    if (
+      actual.installment?.index === expected.installmentCurrent &&
+      actual.installment?.total === expected.installmentTotal
+    )
+      counters.installmentMatches++;
+    else if (
+      actual.installment === null &&
+      expected.installmentCurrent === null &&
+      expected.installmentTotal === null
+    )
+      counters.installmentMatches++;
+    else issues.push("INSTALLMENT_MISMATCH");
+    if (expected.installmentMeaning === "UNKNOWN") {
+      counters.expectedUnknownFields++;
+      if (actual.installment === null) counters.preservedUnknownFields++;
+      else issues.push("INSTALLMENT_MEANING_INVENTED");
+    }
+
+    if (
+      actual.pageNumber !== expected.page ||
+      actual.description !== expected.description
+    )
+      issues.push("ROW_SCHEMA_OR_PROVENANCE_MISMATCH");
+  }
+
+  function compareProviderNativeOutcome(
+    expected: Extract<OcrEvalExpected, { kind: "SUCCESS" }>,
+    actual: readonly OcrProviderNativeCandidate[],
+    counters: Counters,
+    issues: string[],
+  ): void {
+    const expectedRows = expected.regions
+      .flatMap((region) => region.rows)
+      .sort(
+        (left, right) => left.page - right.page || left.order - right.order,
+      );
+    counters.expectedRows += expectedRows.length;
+    const common = Math.min(expectedRows.length, actual.length);
+    for (let index = 0; index < common; index++)
+      compareProviderNativeRow(
+        expectedRows[index]!,
+        actual[index],
+        counters,
+        issues,
+      );
+    if (actual.length > expectedRows.length) {
+      counters.inventedRows += actual.length - expectedRows.length;
+      issues.push("INVENTED_ROW");
+    }
+    if (actual.length < expectedRows.length) {
+      counters.omittedRows += expectedRows.length - actual.length;
+      issues.push("OMITTED_ROW");
+    }
   }
   for (const region of expected.regions.slice(common))
     compareRegion(region, undefined, counters, issues);
@@ -482,7 +601,7 @@ function addTraceIssues(
   counters.financialWrites += prediction.financialWrites;
 }
 
-const providerCallProbeIds = new Set([
+export const OCR_PROVIDER_CALL_PROBE_IDS = new Set([
   "ADC_SCOPE_BOUNDED",
   "REQUEST_BODY_BOUNDED",
   "DEADLINE_BOUNDED",
@@ -498,7 +617,7 @@ const providerCallProbeIds = new Set([
   "KNOWN_SAFETY_FINISH_REASONS",
 ]);
 
-const durableProbeIds = new Set([
+export const OCR_DURABLE_PROBE_IDS = new Set([
   "DURABLE_TENANT_BUDGET",
   "DURABLE_GLOBAL_BUDGET",
   "ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS",
@@ -512,9 +631,9 @@ export function buildOracleSafetyProbes(): OcrSafetyProbeEvidence[] {
     blocked: true,
     explicitError: true,
     errorCode: `BLOCKED_${id}`,
-    providerCalls: providerCallProbeIds.has(id) ? 1 : 0,
+    providerCalls: OCR_PROVIDER_CALL_PROBE_IDS.has(id) ? 1 : 0,
     financialWrites: 0,
-    durableStateVerified: durableProbeIds.has(id),
+    durableStateVerified: OCR_DURABLE_PROBE_IDS.has(id),
     finishReasonsTested:
       id === "KNOWN_SAFETY_FINISH_REASONS"
         ? [...KNOWN_SAFETY_FINISH_REASONS]
@@ -789,7 +908,7 @@ export async function evaluateOcrSynth(
       if (!probe.explicitError) issues.push("SUCCESS_SHAPED_OR_HIDDEN_ERROR");
       if (!/^[A-Z][A-Z0-9_]+$/.test(probe.errorCode))
         issues.push("UNTYPED_ERROR");
-      if (durableProbeIds.has(id) && !probe.durableStateVerified)
+      if (OCR_DURABLE_PROBE_IDS.has(id) && !probe.durableStateVerified)
         issues.push("DURABLE_STATE_NOT_PROVED");
       if (
         id === "KNOWN_SAFETY_FINISH_REASONS" &&
@@ -798,7 +917,7 @@ export async function evaluateOcrSynth(
       )
         issues.push("KNOWN_SAFETY_FINISH_REASONS_NOT_PROVED");
       if (probe.financialWrites !== 0) issues.push("FINANCIAL_WRITE");
-      const expectedCalls = providerCallProbeIds.has(id) ? 1 : 0;
+      const expectedCalls = OCR_PROVIDER_CALL_PROBE_IDS.has(id) ? 1 : 0;
       if (probe.providerCalls !== expectedCalls)
         issues.push("WRONG_PROVIDER_CALL_COUNT");
     }

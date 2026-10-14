@@ -24,6 +24,13 @@ import { parsePdfOcrV2 } from "./pdf-ocr-parser";
 import { PdfOcrProviderError } from "./vertex-pdf-ocr.provider";
 import { PDF_OCR_RETENTION_MS } from "./pdf-ocr-state";
 import { VaultReaper } from "../vault/vault-reaper";
+import { extractPdfDocument } from "../../../credit-card/parsers/pdf-document";
+import { OCR_SYNTH_ROUTING_CASES } from "../../ocr-synth-v1/corpus";
+import {
+  artifactSha256,
+  generateArtifact,
+} from "../../ocr-synth-v1/fixture-generator";
+import type { DocumentExtractionV1 } from "../../../credit-card/parsers/types";
 
 const now = new Date("2026-10-13T18:00:00.000Z");
 const clock = { now: () => now };
@@ -51,6 +58,45 @@ describe("POST attachment analyze v2 direct OCR", () => {
     else process.env.GOOGLE_CLOUD_PROJECT = originalProject;
     await prisma.$disconnect();
   });
+
+  it.each(OCR_SYNTH_ROUTING_CASES)(
+    "routes real synthetic mixed case $id locally with zero OCR ledger or financial writes",
+    async (testCase) => {
+      const bytes = await generateArtifact(testCase);
+      const localResult = await extractPdfDocument(bytes).catch(
+        (error: unknown) =>
+          error instanceof Error ? error : new Error("LOCAL_ROUTE_FAILED"),
+      );
+      const owner = await fixture(prisma, `route-${testCase.id}`, bytes);
+      expect(owner.hash).toBe(artifactSha256(bytes));
+      const provider = {
+        provider: PDF_OCR_PROVIDER_ID,
+        model: PDF_OCR_MODEL_ID,
+        ready: () => true,
+        extractPdf: jest.fn(),
+      };
+      const service = extraction(prisma, bytes, provider, localResult);
+
+      const analysis = service.analyzeAttached(
+        owner.auth,
+        owner.sessionId,
+        owner.attachmentId,
+        { expectedRevision: 1 },
+        {},
+      );
+      if (localResult instanceof Error)
+        await expect(analysis).rejects.toBe(localResult);
+      else await expect(analysis).resolves.toBeDefined();
+
+      expect(provider.extractPdf).not.toHaveBeenCalled();
+      expect(
+        await prisma.importOcrUsage.count({
+          where: { sessionId: owner.sessionId },
+        }),
+      ).toBe(0);
+      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+    },
+  );
 
   it("persists server consent/fence, materializes unselected evidence, isolates tenant and replays once", async () => {
     const owner = await fixture(prisma, "happy");
@@ -739,7 +785,7 @@ function extraction(
     ready(): boolean;
     extractPdf: jest.Mock;
   },
-  pageCount: number,
+  result: number | DocumentExtractionV1 | Error,
 ): ImportSessionExtractionService {
   const runtime = {};
   const gate = {
@@ -765,7 +811,14 @@ function extraction(
     admit: jest.fn(() => admission),
     assertLive: jest.fn(),
     startPdf: jest.fn(() => ({
-      result: Promise.resolve({ kind: "OCR_ELIGIBLE", pageCount }),
+      result:
+        result instanceof Error
+          ? Promise.reject(result)
+          : Promise.resolve(
+              typeof result === "number"
+                ? { kind: "OCR_ELIGIBLE", pageCount: result }
+                : { kind: "SUCCESS", document: result },
+            ),
       settled: Promise.resolve({ cleanup: "CLEAN" }),
     })),
     startCsv: jest.fn(),
@@ -782,7 +835,11 @@ function extraction(
   );
 }
 
-async function fixture(prisma: PrismaService, label: string) {
+async function fixture(
+  prisma: PrismaService,
+  label: string,
+  fixtureBytes?: Buffer,
+) {
   const tenantId = (
     await prisma.tenant.create({ data: { name: `OCR ${label}` } })
   ).id;
@@ -819,7 +876,7 @@ async function fixture(prisma: PrismaService, label: string) {
   const sessionId = randomUUID();
   const attachmentId = randomUUID();
   const artifactId = randomUUID();
-  const bytes = Buffer.from(`%PDF-1.4 direct-ocr-${label}`);
+  const bytes = fixtureBytes ?? Buffer.from(`%PDF-1.4 direct-ocr-${label}`);
   const hash = createHash("sha256").update(bytes).digest("hex");
   await prisma.importSession.create({
     data: {
@@ -919,6 +976,7 @@ function document(
       pageCount: 1,
       requestId,
       responseId: `vertex-${suffix}`,
+      modelVersion: "integration-fixture-v1",
       usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
       latencyMs: 25,
     },

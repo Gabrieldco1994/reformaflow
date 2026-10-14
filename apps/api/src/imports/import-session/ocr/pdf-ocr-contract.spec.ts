@@ -8,6 +8,7 @@ const context = {
   pageCount: 2,
   requestId: "10000000-0000-4000-8000-000000000001",
   responseId: "vertex-response-719",
+  modelVersion: "gemini-2.5-flash-001",
   usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
   latencyMs: 25,
 };
@@ -26,6 +27,30 @@ const payload = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("strict review-only OCR parser", () => {
+  it.each([
+    ["empty", ""],
+    ["193 printable bytes", "v".repeat(193)],
+    ["control", "version\n2"],
+    ["wrong type", 2],
+  ])("rejects an invalid %s model version", (_label, modelVersion) => {
+    expect(parsePdfOcrV2(payload(), { ...context, modelVersion })).toEqual({
+      ok: false,
+      error: { code: PdfOcrFailureCode.INVALID_PAYLOAD },
+    });
+  });
+
+  it.each(["v", "v".repeat(192)])(
+    "accepts an opaque printable model version at its bounds",
+    (modelVersion) => {
+      expect(
+        parsePdfOcrV2(payload(), { ...context, modelVersion }),
+      ).toMatchObject({
+        ok: true,
+        value: { provenance: { modelVersion } },
+      });
+    },
+  );
+
   it("keeps signed visible evidence without financial classification", () => {
     expect(parsePdfOcrV2(payload(), context)).toMatchObject({
       ok: true,

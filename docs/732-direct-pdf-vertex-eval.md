@@ -1,7 +1,8 @@
 # #732 — `ocr-synth-v1` scanned-PDF Vertex qualification
 
-Status: **test/eval/docs only; GAPS (fail closed) for release**. This branch does not enable OCR,
-change production code, call Vertex in ordinary CI, or write financial data.
+Status: **audited live-capture tooling available; GAPS (fail closed) until a qualifying run**. The
+capture command does not enable OCR, use an application database, expose ingress, or write
+financial data. Ordinary CI still makes no Vertex call.
 
 ## User promise and safety boundary
 
@@ -91,6 +92,11 @@ Each of the 18 quality cases carries a unique Vertex response ID and a trace cap
 `VertexPdfOcrProvider.extractPdf`. Reimplementing request construction in the eval, feeding oracle
 rows to the adapter, or testing a copied fetch client is not evidence.
 
+The adapter requires Vertex's opaque `modelVersion` on every successful response. It accepts only
+1–192 printable ASCII bytes and does not infer, normalize, prefix-match, or compare it with the
+configured model ID. Missing or invalid versions are `MALFORMED_RESPONSE` after an ambiguous
+dispatch. A live run stops if versions differ between cases.
+
 The adapter trace proves original inline `application/pdf` bytes, exact artifact SHA, bounded body
 and deadline, exact ADC scope, no API key/global fallback/tools/file URI/cache, one request, no
 UNKNOWN retry, prior exact image-only OCR consent declaration/capability, required attestation and
@@ -146,18 +152,57 @@ Ordinary deterministic CI, with no provider call:
 ```bash
 cd apps/api
 npx jest --config src/imports/ocr-synth-v1/jest.config.cjs --runInBand
+npx jest src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts --runInBand
 ```
 
-Release qualification of evidence captured through production adapter/service seams:
+Before capture, prepare an audited manifest JSON with the exact candidate/configuration/adapter
+pins, declared limits, pricing, durable budget policy, review hashes, all 35 service-probe results,
+and all 10 routing results. Routing rows must be the results of the parameterized
+`ImportSessionExtractionService` test above, with
+`source=REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED`, the generated artifact SHA, zero provider
+calls, zero OCR-usage rows and zero financial writes. Probe rows must likewise cite their real
+`apps/api/src/imports/**/*.spec.ts` source. The capture parser rejects missing, extra, duplicate,
+unknown-enum, byte-bearing, offline-oracle, cross-tenant, stale-hash, or incomplete evidence before
+the first provider request.
+
+Run capture from a clean checkout at the manifest's exact `candidateSha`. The first argument is the
+new evidence output; the second is the audited manifest. The only cloud configuration is ADC plus
+the project environment variable; endpoint, region and model are fixed in the production adapter.
 
 ```bash
 cd apps/api
-npx ts-node src/imports/ocr-synth-v1/qualify-live.ts <live-evidence.json>
+GOOGLE_CLOUD_PROJECT='<approved-project>' \
+  npx ts-node src/imports/ocr-synth-v1/capture-live.ts \
+  /absolute/path/ocr-live-evidence.json \
+  /absolute/path/ocr-live-manifest.json
 ```
 
-No file, offline oracle data, incomplete 18-case quality or 10-case routing evidence, synthetic
-service provenance, missing budgets/pricing/limits, or missing provider metadata fails closed. The
-qualifier consumes evidence; it does not contain a second provider implementation.
+The command generates only the in-repository synthetic `scan-001` through `scan-018` PDFs in
+memory, hashes and admits all of them before dispatch, then calls
+`VertexPdfOcrProvider.extractPdf` sequentially exactly once per case. It never accepts an input PDF
+path. Mixed/textual cases come only from the bounded service evidence and make no provider call.
+The dense `scan-010` result retains all returned occurrences in order; qualification requires its
+24 expected occurrences.
+
+The output is created with exclusive/no-follow semantics and mode `0600`; an existing file,
+symlink, concurrent writer, write failure, repository-SHA drift, duplicate response ID, mixed model
+version, adapter failure, or incomplete trace stops the command and leaves no partial new output.
+Stderr contains only a fixed `LIVE_CAPTURE_*` code. The evidence contains typed candidates and
+sanitized request provenance, never PDF bytes, base64 payloads, access tokens, credentials, raw
+wire responses or raw provider errors.
+
+Then qualify that immutable evidence:
+
+```bash
+cd apps/api
+npx ts-node src/imports/ocr-synth-v1/qualify-live.ts \
+  /absolute/path/ocr-live-evidence.json
+```
+
+No file, overwrite, offline oracle data, incomplete 18-case quality or 10-case routing evidence,
+synthetic service provenance, missing budgets/pricing/limits, or missing provider metadata fails
+closed. The qualifier performs exact runtime parsing rather than a TypeScript cast. It consumes
+evidence and does not contain a second provider implementation.
 
 ## Evidence status
 

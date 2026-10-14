@@ -19,6 +19,7 @@ import {
 import { extractPdfDocument } from "../../credit-card/parsers/pdf-document";
 import { artifactSha256, generateArtifact } from "./fixture-generator";
 import type { OcrEvalPrediction, OcrRoutingEvidence } from "./types";
+import type { OcrEvalExpected } from "./types";
 import Ajv2020 from "ajv/dist/2020";
 import reportSchema from "./report.schema.json";
 
@@ -119,7 +120,7 @@ function successful(items: OcrEvalPrediction[], caseId: string) {
   if (!item || item.outcome.kind !== "SUCCESS")
     throw new Error(`Missing success ${caseId}`);
   return item as OcrEvalPrediction & {
-    outcome: Extract<OcrEvalPrediction["outcome"], { kind: "SUCCESS" }>;
+    outcome: Extract<OcrEvalExpected, { kind: "SUCCESS" }>;
   };
 }
 

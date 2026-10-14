@@ -2,12 +2,14 @@ import {
   IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_LIMITS,
   PDF_OCR_MODEL_ID,
+  PDF_OCR_MODEL_VERSION_PATTERN,
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
   PDF_OCR_VERSION,
   parseInstallmentDateOnlyUtc,
   type PdfOcrDocumentV2,
   type PdfOcrProviderProvenanceV2,
+  type PdfOcrProviderRequestTraceV2,
 } from "@reformaflow/domain";
 
 export const PdfOcrFailureCode = {
@@ -34,12 +36,14 @@ export interface PdfOcrParseContext {
   readonly pageCount: number;
   readonly requestId: string;
   readonly responseId: string;
+  readonly modelVersion: unknown;
   readonly usage: Readonly<{
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
   }>;
   readonly latencyMs: number;
+  readonly requestTrace?: PdfOcrProviderRequestTraceV2;
 }
 
 const ROOT_KEYS = ["candidates"] as const;
@@ -55,6 +59,7 @@ const CANDIDATE_KEYS = [
 const INSTALLMENT_KEYS = ["index", "total"] as const;
 const HASH = new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern);
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
+const MODEL_VERSION = new RegExp(PDF_OCR_MODEL_VERSION_PATTERN);
 const CENTS = /^(?:0|-?[1-9][0-9]*)$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 
@@ -94,6 +99,8 @@ function validContext(value: PdfOcrParseContext): boolean {
     value.pageCount <= PDF_OCR_LIMITS.pagesPerFile &&
     REQUEST_ID.test(value.requestId) &&
     cleanText(value.responseId, PDF_OCR_LIMITS.providerRequestIdLength) &&
+    typeof value.modelVersion === "string" &&
+    MODEL_VERSION.test(value.modelVersion) &&
     boundedCounter(value.usage.inputTokens) &&
     boundedCounter(value.usage.outputTokens) &&
     boundedCounter(value.usage.totalTokens) &&
@@ -186,11 +193,13 @@ export function parsePdfOcrV2(
   const provenance: PdfOcrProviderProvenanceV2 = {
     provider: PDF_OCR_PROVIDER_ID,
     model: PDF_OCR_MODEL_ID,
+    modelVersion: context.modelVersion as string,
     region: PDF_OCR_REGION,
     requestId: context.requestId,
     responseId: context.responseId,
     usage: { ...context.usage },
     latencyMs: context.latencyMs,
+    ...(context.requestTrace ? { requestTrace: context.requestTrace } : {}),
   };
   return {
     ok: true,

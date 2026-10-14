@@ -51,6 +51,7 @@ const CONTEXT = {
   pageCount: PDF_OCR_LIMITS.pagesPerFile,
   requestId: REQUEST.requestId,
   responseId: "vertex-response-final-719",
+  modelVersion: "release-barrier-fixture-v1",
   usage: { inputTokens: 30, outputTokens: 18, totalTokens: 48 },
   latencyMs: 25,
 };

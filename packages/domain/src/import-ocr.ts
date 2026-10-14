@@ -14,6 +14,7 @@ export const PDF_OCR_CONSENT_POLICY_VERSION = 1 as const;
 export const PDF_OCR_CONSENT_PURPOSE =
   "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW" as const;
 export const PDF_OCR_RETENTION_DAYS = 7 as const;
+export const PDF_OCR_MODEL_VERSION_PATTERN = "^[\\x21-\\x7e]{1,192}$" as const;
 
 export const PDF_OCR_LIMITS = Object.freeze({
   pagesPerFile: 10,
@@ -34,14 +35,35 @@ export interface PdfOcrUsageV2 {
   readonly totalTokens: number;
 }
 
+export interface PdfOcrProviderRequestTraceV2 {
+  readonly endpoint: string;
+  readonly auth: "ADC_OAUTH";
+  readonly adcScopes: readonly string[];
+  readonly inputMimeType: "application/pdf";
+  readonly inputMode: "INLINE_ORIGINAL_BYTES";
+  readonly originalBytesSha256: string;
+  readonly requestBodyBytes: number;
+  readonly deadlineMs: number;
+  readonly finishReason: "STOP";
+  readonly maxOutputTokens: number;
+  readonly promptSha256: string;
+  readonly toolsPresent: false;
+  readonly fileUri: null;
+  readonly cachedContent: null;
+}
+
 export interface PdfOcrProviderProvenanceV2 {
   readonly provider: typeof PDF_OCR_PROVIDER_ID;
   readonly model: typeof PDF_OCR_MODEL_ID;
+  /** Opaque provider-returned revision; it is not a compatibility signal. */
+  readonly modelVersion: string;
   readonly region: typeof PDF_OCR_REGION;
   readonly requestId: string;
   readonly responseId: string;
   readonly usage: PdfOcrUsageV2;
   readonly latencyMs: number;
+  /** Sanitized adapter evidence; never contains request bytes or credentials. */
+  readonly requestTrace?: PdfOcrProviderRequestTraceV2;
 }
 
 export interface PdfOcrInstallmentV2 {
