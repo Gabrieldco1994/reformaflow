@@ -708,6 +708,7 @@ function projectSessionUnchecked(
             includesMetadataAndEmbeddedContent: true,
             includesPotentiallyNonVisibleContent: true,
             attachments: [],
+            terminalOutcomes: [],
           }
         : options.ocrCapability,
     searchComplete,

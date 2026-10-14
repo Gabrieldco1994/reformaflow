@@ -227,6 +227,7 @@ async function declareConsent(
         consentedRevision: 2,
       },
     ],
+    terminalOutcomes: [],
   });
   return {
     version: 2,

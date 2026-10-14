@@ -93,6 +93,7 @@ import {
   reconcilePdfOcrBudget,
   reservePdfOcrBudget,
 } from "./ocr/pdf-ocr-budget";
+import { pdfOcrTerminalCodeForLedgerOutcome } from "./ocr/pdf-ocr-outcome";
 
 type Tx = Prisma.TransactionClient;
 type Runtime = NonNullable<ReturnType<ImportVaultGate["boot"]["runtime"]>>;
@@ -102,20 +103,10 @@ const problem = (code: Code, row?: ImportSession) =>
     row ? { sessionId: row.id, currentRevision: row.revision } : {},
   );
 const ocrOutcomeProblem = (outcome: string, row: ImportSession) => {
-  if (outcome === PDF_OCR_USAGE_OUTCOME.SAFETY)
-    return problem(Code.OCR_SAFETY_BLOCKED, row);
-  if (outcome === PDF_OCR_USAGE_OUTCOME.MALFORMED_RESPONSE)
-    return problem(Code.OCR_MALFORMED_RESPONSE, row);
-  if (outcome === PDF_OCR_USAGE_OUTCOME.LIMIT_EXCEEDED)
-    return problem(Code.LIMIT_EXCEEDED, row);
-  if (outcome === PDF_OCR_USAGE_OUTCOME.DOCUMENT_UNREADABLE)
-    return problem(Code.DOCUMENT_UNREADABLE, row);
-  if (
-    outcome === PDF_OCR_USAGE_OUTCOME.AUTH ||
-    outcome === PDF_OCR_USAGE_OUTCOME.NOT_DISPATCHED
-  )
-    return problem(Code.OCR_UNAVAILABLE, row);
-  return problem(Code.OCR_ATTEMPT_UNKNOWN, row);
+  return problem(
+    pdfOcrTerminalCodeForLedgerOutcome(outcome) ?? Code.OCR_ATTEMPT_UNKNOWN,
+    row,
+  );
 };
 type TerminalPdfOcrUsageOutcome = Exclude<
   (typeof PDF_OCR_USAGE_OUTCOME)[keyof typeof PDF_OCR_USAGE_OUTCOME],

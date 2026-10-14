@@ -7,6 +7,7 @@ import {
   PDF_OCR_CONSENT_POLICY_VERSION,
   PDF_OCR_CONSENT_PURPOSE,
   PDF_OCR_RETENTION_DAYS,
+  PDF_OCR_VERSION,
   ExpenseType,
   ProjectType,
   type PdfOcrDocumentV2,
@@ -20,7 +21,11 @@ import { DefaultImportSessionCapability } from "../import-session.capability";
 import { ImportSessionExtractionService } from "../import-session.extraction.service";
 import { ImportSessionService } from "../import-session.service";
 import { ImportSessionWorkflowService } from "../import-session-workflow.service";
-import { parseStoredPdfOcrState } from "./pdf-ocr-state";
+import {
+  parseStoredPdfOcrState,
+  serializePdfOcrState,
+  type StoredPdfOcrConsentV2,
+} from "./pdf-ocr-state";
 import {
   PDF_OCR_CONSENT_DECISION,
   pdfOcrConsentQuestionId,
@@ -133,6 +138,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
       request,
       {},
     );
+    expect(analyzed.ocrCapability?.terminalOutcomes).toEqual([]);
 
     expect(provider.extractPdf).toHaveBeenCalledTimes(1);
     expect(provider.extractPdf).toHaveBeenCalledWith({
@@ -599,6 +605,15 @@ describe("POST attachment analyze v2 direct OCR", () => {
       owner.auth,
       receipt.continuationSessionId!,
     );
+    expect(continuation.ocrCapability?.terminalOutcomes).toEqual([]);
+    expect(await exactFinancialSnapshot(prisma, owner.tenantId)).toEqual({
+      expenses: { count: 1, sumCents: 12_345 },
+      cashFlow: { count: 1, sumCents: 12_345 },
+      receipts: { count: 0, sumCents: 0 },
+      allocations: { count: 0, sumCents: 0 },
+      settlements: 0,
+      invoiceLiquidations: 0,
+    });
     expect({
       selectedLineIds: continuation.selectedLineIds,
       lines: continuation.lines.map((line) => ({
@@ -1594,6 +1609,318 @@ describe("POST attachment analyze v2 direct OCR", () => {
   );
 
   it.each([
+    ["DOCUMENT_UNREADABLE", "DOCUMENT_UNREADABLE"],
+    ["LIMIT_EXCEEDED", "LIMIT_EXCEEDED"],
+  ] as const)(
+    "projects immediate, replay and cold %s exactly with OCR on and off",
+    async (failure, code) => {
+      const owner = await fixture(prisma, `terminal-projection-${failure}`);
+      const request = await declareConsent(prisma, owner);
+      const beforeFinance = await exactFinancialSnapshot(
+        prisma,
+        owner.tenantId,
+      );
+      const provenance = terminalProvenance(owner, request.requestId, failure);
+      const TerminalProviderError = PdfOcrProviderError as unknown as new (
+        failure: string,
+        dispatchState: string,
+        provenance?: unknown,
+      ) => PdfOcrProviderError;
+      const provider = {
+        provider: PDF_OCR_PROVIDER_ID,
+        model: PDF_OCR_MODEL_ID,
+        ready: () => true,
+        extractPdf: jest
+          .fn()
+          .mockRejectedValue(
+            new TerminalProviderError(
+              failure,
+              PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+              provenance,
+            ),
+          ),
+      };
+      const service = extraction(prisma, owner.bytes, provider, 1);
+
+      for (let invocation = 0; invocation < 2; invocation += 1)
+        await expect(
+          service.analyzeAttached(
+            owner.auth,
+            owner.sessionId,
+            owner.attachmentId,
+            request,
+            {},
+          ),
+        ).rejects.toMatchObject({ code });
+
+      const reader = sessionReader(prisma);
+      const available = await reader.getSession(owner.auth, owner.sessionId);
+      expect(available.ocrCapability?.terminalOutcomes).toEqual([
+        { attachmentId: owner.attachmentId, code },
+      ]);
+      expect(available.ocrCapability?.attachments).toEqual([]);
+      expect(available.attachments).toEqual([
+        expect.objectContaining({
+          id: owner.attachmentId,
+          canAnalyze: false,
+        }),
+      ]);
+      expect(available.actions).not.toContain("ANALYZE");
+
+      process.env.IMPORT_OCR_ENABLED = "false";
+      try {
+        const disabled = await reader.getSession(owner.auth, owner.sessionId);
+        expect(disabled.ocrCapability).toMatchObject({
+          status: "DISABLED",
+          attachments: [],
+          terminalOutcomes: [{ attachmentId: owner.attachmentId, code }],
+        });
+      } finally {
+        process.env.IMPORT_OCR_ENABLED = "true";
+      }
+
+      const attacker = await fixture(
+        prisma,
+        `terminal-projection-attacker-${failure}`,
+      );
+      await expect(
+        reader.getSession(attacker.auth, owner.sessionId),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+      expect(await exactFinancialSnapshot(prisma, owner.tenantId)).toEqual(
+        beforeFinance,
+      );
+    },
+  );
+
+  it("projects an in-flight ATTEMPTED row as unknown, then converges exactly without redispatch", async () => {
+    const owner = await fixture(prisma, "attempted-cold-projection");
+    const request = await declareConsent(prisma, owner);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const providerEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const TerminalProviderError = PdfOcrProviderError as unknown as new (
+      failure: string,
+      dispatchState: string,
+      provenance?: unknown,
+    ) => PdfOcrProviderError;
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn().mockImplementation(async () => {
+        entered();
+        await held;
+        throw new TerminalProviderError(
+          "LIMIT_EXCEEDED",
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+          terminalProvenance(owner, request.requestId, "LIMIT_EXCEEDED"),
+        );
+      }),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+    const first = service.analyzeAttached(
+      owner.auth,
+      owner.sessionId,
+      owner.attachmentId,
+      request,
+      {},
+    );
+    await providerEntered;
+
+    const reader = sessionReader(prisma);
+    const attempted = await reader.getSession(owner.auth, owner.sessionId);
+    expect(attempted.ocrCapability?.terminalOutcomes).toEqual([
+      {
+        attachmentId: owner.attachmentId,
+        code: "OCR_ATTEMPT_UNKNOWN",
+      },
+    ]);
+    expect(attempted.attachments[0]).toMatchObject({ canAnalyze: false });
+    expect(attempted.actions).not.toContain("ANALYZE");
+
+    release();
+    await expect(first).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
+    const reconciled = await reader.getSession(owner.auth, owner.sessionId);
+    expect(reconciled.ocrCapability?.terminalOutcomes).toEqual([
+      { attachmentId: owner.attachmentId, code: "LIMIT_EXCEEDED" },
+    ]);
+    await expect(
+      service.analyzeAttached(
+        owner.auth,
+        owner.sessionId,
+        owner.attachmentId,
+        request,
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
+    expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+    expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+  });
+
+  it.each(["MISSING_USAGE", "MISMATCHED_USAGE"] as const)(
+    "fails closed for %s OCR ledger binding without exposing diagnostics",
+    async (bindingFailure) => {
+      const owner = await fixture(prisma, `binding-${bindingFailure}`);
+      const request = await declareConsent(prisma, owner);
+      const provider = {
+        provider: PDF_OCR_PROVIDER_ID,
+        model: PDF_OCR_MODEL_ID,
+        ready: () => true,
+        extractPdf: jest
+          .fn()
+          .mockRejectedValue(providerError("SAFETY", "DISPATCHED_OR_UNKNOWN")),
+      };
+      const service = extraction(prisma, owner.bytes, provider, 1);
+      await expect(
+        service.analyzeAttached(
+          owner.auth,
+          owner.sessionId,
+          owner.attachmentId,
+          request,
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "OCR_SAFETY_BLOCKED" });
+
+      if (bindingFailure === "MISSING_USAGE") {
+        const row = await prisma.importSession.findUniqueOrThrow({
+          where: { id: owner.sessionId },
+        });
+        const state = parseStoredPdfOcrState(row.ocrJson);
+        await prisma.importSession.update({
+          where: { id: owner.sessionId },
+          data: {
+            ocrJson: JSON.stringify({
+              ...state,
+              consents: state.consents.map((consent) => ({
+                ...consent,
+                usageId: randomUUID(),
+              })),
+            }),
+          },
+        });
+      } else {
+        await prisma.importOcrUsage.updateMany({
+          where: { sessionId: owner.sessionId },
+          data: { requestId: randomUUID() },
+        });
+      }
+
+      const view = await sessionReader(prisma).getSession(
+        owner.auth,
+        owner.sessionId,
+      );
+      expect(view.ocrCapability?.terminalOutcomes).toEqual([
+        {
+          attachmentId: owner.attachmentId,
+          code: "OCR_ATTEMPT_UNKNOWN",
+        },
+      ]);
+      expect(view.attachments[0]).toMatchObject({ canAnalyze: false });
+      expect(view.actions).not.toContain("ANALYZE");
+      expect(JSON.stringify(view)).not.toContain("MISSING_USAGE");
+      expect(JSON.stringify(view)).not.toContain("MISMATCHED_USAGE");
+      expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("orders multiple terminal attachments, omits spent actions and keeps an unspent consent resumable", async () => {
+    const owner = await fixture(prisma, "multi-terminal-projection");
+    const second = await addPendingPdfAttachment(prisma, owner, 1, "second");
+    const resumable = await addPendingPdfAttachment(
+      prisma,
+      owner,
+      2,
+      "resumable",
+    );
+    const firstRequestId = randomUUID();
+    const secondRequestId = randomUUID();
+    const resumableRequestId = randomUUID();
+    const firstUsageId = randomUUID();
+    const secondUsageId = randomUUID();
+    const consents = [
+      storedConsent(owner, resumable, resumableRequestId, null),
+      storedConsent(owner, second, secondRequestId, secondUsageId),
+      storedConsent(
+        owner,
+        {
+          attachmentId: owner.attachmentId,
+          artifactId: owner.artifactId,
+          hash: owner.hash,
+        },
+        firstRequestId,
+        firstUsageId,
+      ),
+    ];
+    await prisma.importSession.update({
+      where: { id: owner.sessionId },
+      data: {
+        ocrJson: serializePdfOcrState({
+          version: PDF_OCR_VERSION,
+          consents,
+        }),
+      },
+    });
+    await createTerminalUsage(
+      prisma,
+      owner,
+      {
+        attachmentId: owner.attachmentId,
+        artifactId: owner.artifactId,
+        hash: owner.hash,
+      },
+      firstUsageId,
+      firstRequestId,
+      "LIMIT_EXCEEDED",
+    );
+    await createTerminalUsage(
+      prisma,
+      owner,
+      second,
+      secondUsageId,
+      secondRequestId,
+      "DOCUMENT_UNREADABLE",
+    );
+
+    const view = await sessionReader(prisma).getSession(
+      owner.auth,
+      owner.sessionId,
+    );
+    expect(view.ocrCapability?.terminalOutcomes).toEqual([
+      {
+        attachmentId: owner.attachmentId,
+        code: "LIMIT_EXCEEDED",
+      },
+      {
+        attachmentId: second.attachmentId,
+        code: "DOCUMENT_UNREADABLE",
+      },
+    ]);
+    expect(view.ocrCapability?.attachments).toEqual([
+      expect.objectContaining({
+        attachmentId: resumable.attachmentId,
+        consentedRequestId: resumableRequestId,
+        consentedRevision: 1,
+      }),
+    ]);
+    expect(
+      view.attachments.map(({ id, canAnalyze }) => ({ id, canAnalyze })),
+    ).toEqual([
+      { id: owner.attachmentId, canAnalyze: false },
+      { id: second.attachmentId, canAnalyze: false },
+      { id: resumable.attachmentId, canAnalyze: true },
+    ]);
+    expect(view.actions).toContain("ANALYZE");
+    expect(JSON.stringify(view)).not.toContain(firstUsageId);
+    expect(JSON.stringify(view)).not.toContain(secondUsageId);
+  });
+
+  it.each([
     ["RATE_LIMITED", "OCR_ATTEMPT_UNKNOWN"],
     ["UPSTREAM", "OCR_ATTEMPT_UNKNOWN"],
     ["ATTEMPTED", "OCR_ATTEMPT_UNKNOWN"],
@@ -1949,6 +2276,180 @@ function extraction(
   );
 }
 
+function sessionReader(prisma: PrismaService): ImportSessionService {
+  return new ImportSessionService(
+    prisma,
+    clock,
+    capability,
+    verifier as never,
+    {
+      boot: {
+        runtime: () => ({}),
+        stopped: new AbortController().signal,
+        recheckLock: async () => ({ ok: true, runtime: {} }),
+      },
+    } as never,
+    { abortOwned: jest.fn() } as never,
+  );
+}
+
+function terminalProvenance(
+  owner: Awaited<ReturnType<typeof fixture>>,
+  requestId: string,
+  failure: "DOCUMENT_UNREADABLE" | "LIMIT_EXCEEDED",
+) {
+  return {
+    provider: PDF_OCR_PROVIDER_ID,
+    model: PDF_OCR_MODEL_ID,
+    modelVersion: "terminal-projection-v1",
+    region: PDF_OCR_REGION,
+    requestId,
+    responseId: `terminal-projection-${failure}`,
+    usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+    latencyMs: 25,
+    requestTrace: {
+      requestId,
+      endpoint: "https://southamerica-east1-aiplatform.googleapis.com",
+      authTrace: "LOCAL_ADC" as const,
+      adcScopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      inputMimeType: "application/pdf" as const,
+      inputMode: "INLINE_ORIGINAL_BYTES" as const,
+      originalBytesSha256: owner.hash,
+      requestBodyBytes: owner.bytes.length,
+      deadlineMs: 60_000,
+      finishReason: "STOP" as const,
+      maxOutputTokens: 8192,
+      promptSha256: "a".repeat(64),
+      toolsPresent: false,
+      fileUri: null,
+      cachedContent: null,
+    },
+  };
+}
+
+type PendingPdfFixture = Readonly<{
+  attachmentId: string;
+  artifactId: string;
+  hash: string;
+}>;
+
+function storedConsent(
+  owner: Awaited<ReturnType<typeof fixture>>,
+  attachment: PendingPdfFixture,
+  requestId: string,
+  usageId: string | null,
+): StoredPdfOcrConsentV2 {
+  const analyzeRequest = {
+    version: PDF_OCR_VERSION,
+    expectedRevision: owner.revision,
+    requestId,
+    consentExternalProcessing: true as const,
+  };
+  return {
+    attachmentId: attachment.attachmentId,
+    artifactSha256: attachment.hash,
+    requestId,
+    requestPayloadHash: pdfOcrRequestPayloadHash(analyzeRequest),
+    expectedRevision: owner.revision,
+    actorId: owner.userId,
+    consentPolicyVersion: PDF_OCR_CONSENT_POLICY_VERSION,
+    consentDecision: PDF_OCR_CONSENT_DECISION,
+    consentedAt: now.toISOString(),
+    provider: PDF_OCR_PROVIDER_ID,
+    model: PDF_OCR_MODEL_ID,
+    purpose: PDF_OCR_CONSENT_PURPOSE,
+    region: PDF_OCR_REGION,
+    retentionDays: PDF_OCR_RETENTION_DAYS,
+    sendsFullOriginal: true,
+    includesMetadataAndEmbeddedContent: true,
+    includesPotentiallyNonVisibleContent: true,
+    usageId,
+  };
+}
+
+async function addPendingPdfAttachment(
+  prisma: PrismaService,
+  owner: Awaited<ReturnType<typeof fixture>>,
+  position: number,
+  suffix: string,
+): Promise<PendingPdfFixture> {
+  const attachmentId = randomUUID();
+  const artifactId = randomUUID();
+  const bytes = Buffer.from(`%PDF-1.4 ${suffix}`);
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  await prisma.importArtifact.create({
+    data: {
+      id: artifactId,
+      tenantId: owner.tenantId,
+      ownerProjectId: owner.projectId,
+      documentSha256: hash,
+      verifiedBytes: bytes.length,
+      detectedFormat: "PDF",
+      state: "RAW_READY",
+      storageKey: `t/${artifactId}`,
+    },
+  });
+  await prisma.importSessionArtifact.create({
+    data: {
+      id: attachmentId,
+      tenantId: owner.tenantId,
+      ownerProjectId: owner.projectId,
+      sessionId: owner.sessionId,
+      artifactId,
+      position,
+      fileName: `${suffix}.pdf`,
+      declaredMime: "application/pdf",
+      declaredBytes: bytes.length,
+      state: "ATTACHED",
+      reservedBytes: bytes.length,
+      verifiedAt: now,
+    },
+  });
+  const row = await prisma.importSession.findUniqueOrThrow({
+    where: { id: owner.sessionId },
+  });
+  const draft = JSON.parse(row.draftJson);
+  draft.scope.pendingAttachmentIds.push(attachmentId);
+  await prisma.importSession.update({
+    where: { id: owner.sessionId },
+    data: { draftJson: JSON.stringify(draft) },
+  });
+  return { attachmentId, artifactId, hash };
+}
+
+async function createTerminalUsage(
+  prisma: PrismaService,
+  owner: Awaited<ReturnType<typeof fixture>>,
+  attachment: PendingPdfFixture,
+  id: string,
+  requestId: string,
+  outcome: "LIMIT_EXCEEDED" | "DOCUMENT_UNREADABLE",
+): Promise<void> {
+  await prisma.importOcrUsage.create({
+    data: {
+      id,
+      day: now.toISOString().slice(0, 10),
+      tenantId: owner.tenantId,
+      ownerProjectId: owner.projectId,
+      actorId: owner.userId,
+      sessionId: owner.sessionId,
+      attachmentId: attachment.attachmentId,
+      artifactId: attachment.artifactId,
+      artifactSha256: attachment.hash,
+      requestId,
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      reservedCalls: 1,
+      reservedPages: 1,
+      reservedBytes: 1,
+      reservedCostUnits: 1,
+      outcome,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+}
+
 async function fixture(
   prisma: PrismaService,
   label: string,
@@ -2056,8 +2557,10 @@ async function fixture(
     projectId,
     sessionId,
     attachmentId,
+    artifactId,
     bytes,
     hash,
+    revision: 1,
     auth: mintImportAuthContext({
       tenantId,
       userId,

@@ -18,6 +18,7 @@ import {
   PDF_OCR_CONSENT_POLICY_VERSION,
   PDF_OCR_CONSENT_PURPOSE,
   PDF_OCR_RETENTION_DAYS,
+  PDF_OCR_VERSION,
   ImportSessionDocumentFormat,
   ImportSessionErrorCode,
   ImportSessionState,
@@ -54,6 +55,7 @@ import {
 import {
   pdfOcrConsentQuestionId,
   parseStoredPdfOcrState,
+  pdfOcrRequestPayloadHash,
 } from "./ocr/pdf-ocr-state";
 import { isPdfOcrProjectConfigured } from "./ocr/pdf-ocr-capability";
 import { parseStoredImportSearch } from "./import-session.search";
@@ -126,6 +128,7 @@ import { ImportRawExecutions } from "./import-session.raw-executions";
 import { supportsImportExtraction } from "./import-session.extraction";
 import { enforcePdfOcrRetention } from "./ocr/pdf-ocr-retention";
 import { PDF_OCR_USAGE_OUTCOME } from "./ocr/pdf-ocr-budget";
+import { pdfOcrTerminalCodeForLedgerOutcome } from "./ocr/pdf-ocr-outcome";
 
 type Tx = Prisma.TransactionClient;
 type Db = PrismaService | Tx;
@@ -1673,6 +1676,79 @@ async function renderImportSessionUnchecked(
           },
         });
   const ocrState = parseStoredPdfOcrState(row.ocrJson);
+  const spentOcrAttachmentIds = new Set(
+    ocrState.consents.flatMap((consent) =>
+      consent.usageId === null ? [] : [consent.attachmentId],
+    ),
+  );
+  const terminalUsageIds = ocrState.consents.flatMap((consent) =>
+    consent.usageId === null ? [] : [consent.usageId],
+  );
+  const terminalOcrUsages =
+    terminalUsageIds.length === 0
+      ? []
+      : await db.importOcrUsage.findMany({
+          where: {
+            id: { in: terminalUsageIds },
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+            sessionId: row.id,
+          },
+        });
+  const boundArtifactIds = attachments.flatMap((ref) =>
+    spentOcrAttachmentIds.has(ref.id) && ref.artifactId !== null
+      ? [ref.artifactId]
+      : [],
+  );
+  const boundArtifacts =
+    boundArtifactIds.length === 0
+      ? []
+      : await db.importArtifact.findMany({
+          where: {
+            id: { in: boundArtifactIds },
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+          },
+          select: { id: true, documentSha256: true },
+        });
+  const terminalOutcomes = [...attachments]
+    .sort((left, right) => left.position - right.position)
+    .flatMap((ref) => {
+      const consent = ocrState.consents.find(
+        (item) => item.attachmentId === ref.id && item.usageId !== null,
+      );
+      if (!consent) return [];
+      const usage = terminalOcrUsages.find(
+        (item) => item.id === consent.usageId,
+      );
+      const artifact = boundArtifacts.find(
+        (item) => item.id === ref.artifactId,
+      );
+      const correctlyBound =
+        usage !== undefined &&
+        artifact !== undefined &&
+        artifact.documentSha256 !== null &&
+        consent.actorId === row.ownerUserId &&
+        consent.artifactSha256 === artifact.documentSha256 &&
+        consent.requestPayloadHash ===
+          pdfOcrRequestPayloadHash({
+            version: PDF_OCR_VERSION,
+            expectedRevision: consent.expectedRevision,
+            requestId: consent.requestId,
+            consentExternalProcessing: true,
+          }) &&
+        usage.actorId === consent.actorId &&
+        usage.attachmentId === consent.attachmentId &&
+        usage.artifactId === artifact.id &&
+        usage.artifactSha256 === consent.artifactSha256 &&
+        usage.requestId === consent.requestId &&
+        usage.provider === consent.provider &&
+        usage.model === consent.model;
+      const code = correctlyBound
+        ? pdfOcrTerminalCodeForLedgerOutcome(usage.outcome)
+        : ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN;
+      return code === null ? [] : [{ attachmentId: ref.id, code }];
+    });
   const ocrStatus =
     options.ocrReleaseEnabled !== true
       ? "DISABLED"
@@ -1696,7 +1772,8 @@ async function renderImportSessionUnchecked(
             if (
               ref.state !== "ATTACHED" ||
               !draft.scope.pendingAttachmentIds.includes(ref.id) ||
-              ref.artifactId === null
+              ref.artifactId === null ||
+              spentOcrAttachmentIds.has(ref.id)
             )
               return [];
             const artifact = artifacts.find(
@@ -1728,6 +1805,7 @@ async function renderImportSessionUnchecked(
               },
             ];
           }),
+    terminalOutcomes,
   };
   return projectSession(row, attachments, now, {
     ...options,
@@ -1741,24 +1819,26 @@ async function renderImportSessionUnchecked(
       reviewBlockers: projectedDeclarations.reviewBlockers,
       ocrEvidenceByLine,
       executableAttachmentIds: attachments
-        .filter((ref) =>
-          artifacts.some(
-            (artifact) =>
-              artifact.id === ref.artifactId &&
-              (options.qualifiedAnalysisFormats
-                ? options.qualifiedAnalysisFormats.includes(
-                    artifact.detectedFormat ?? "",
-                  )
-                : options.csvOnlyAnalysis !== true ||
-                  artifact.detectedFormat === "CSV") &&
-              (supportsImportExtraction(artifact) ||
-                (options.analysisEnabled === true &&
-                  (artifact.detectedFormat === "CSV" ||
-                    artifact.detectedFormat === "PDF") &&
-                  artifact.state === "RAW_READY" &&
-                  artifact.storageKey !== null &&
-                  artifact.verifiedBytes > 0)),
-          ),
+        .filter(
+          (ref) =>
+            !spentOcrAttachmentIds.has(ref.id) &&
+            artifacts.some(
+              (artifact) =>
+                artifact.id === ref.artifactId &&
+                (options.qualifiedAnalysisFormats
+                  ? options.qualifiedAnalysisFormats.includes(
+                      artifact.detectedFormat ?? "",
+                    )
+                  : options.csvOnlyAnalysis !== true ||
+                    artifact.detectedFormat === "CSV") &&
+                (supportsImportExtraction(artifact) ||
+                  (options.analysisEnabled === true &&
+                    (artifact.detectedFormat === "CSV" ||
+                      artifact.detectedFormat === "PDF") &&
+                    artifact.state === "RAW_READY" &&
+                    artifact.storageKey !== null &&
+                    artifact.verifiedBytes > 0)),
+            ),
         )
         .map((ref) => ref.id),
     },

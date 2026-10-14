@@ -177,6 +177,13 @@ export const ImportSessionErrorCode = {
 } as const;
 export type ImportSessionErrorCode =
   (typeof ImportSessionErrorCode)[keyof typeof ImportSessionErrorCode];
+export type ImportSessionOcrTerminalCodeV1 =
+  | typeof ImportSessionErrorCode.OCR_UNAVAILABLE
+  | typeof ImportSessionErrorCode.OCR_SAFETY_BLOCKED
+  | typeof ImportSessionErrorCode.OCR_MALFORMED_RESPONSE
+  | typeof ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN
+  | typeof ImportSessionErrorCode.LIMIT_EXCEEDED
+  | typeof ImportSessionErrorCode.DOCUMENT_UNREADABLE;
 
 /** Existing parent CUIDs remain valid. Only NEW server IDs and request IDs require UUIDv4. */
 export type ImportSessionId = string;
@@ -574,6 +581,10 @@ export interface ImportSessionViewV1 extends Omit<
       questionId: ImportSessionId;
       consentedRequestId: ImportSessionRequestId | null;
       consentedRevision: ImportSessionRevision | null;
+    }>;
+    terminalOutcomes: Array<{
+      attachmentId: ImportSessionId;
+      code: ImportSessionOcrTerminalCodeV1;
     }>;
   };
   searchComplete: boolean;
