@@ -15,6 +15,7 @@ import {
 import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
   SAFETY_PROBE_IDS,
+  SAFETY_PROBE_SCENARIOS,
   type OcrEvalCase,
   type OcrEvalExpected,
   type OcrEvalPrediction,
@@ -117,6 +118,15 @@ export interface OcrEvalInput {
   predictions: OcrEvalPrediction[];
   routingCases: OcrRoutingEvidence[];
   safetyProbes: OcrSafetyProbeEvidence[];
+  qualityClosure?: {
+    gitSha: string;
+    policySha256: string;
+    corpusSha256: string;
+    runtimeSha256: string;
+    initialCandidateSha: string;
+    rerunCandidateSha: string;
+    tests: Array<{ name: string; status: "PASS" }>;
+  };
 }
 
 interface Counters {
@@ -353,7 +363,18 @@ function compareOutcome(
     }
     return;
   }
-  if (testCase.expected.kind === "ERROR") return;
+  if (testCase.expected.kind === "ERROR") {
+    const actual = prediction.outcome as Extract<
+      typeof prediction.outcome,
+      { kind: "ERROR" }
+    >;
+    if (
+      actual.errorCode !== testCase.expected.errorCode ||
+      actual.retryable !== testCase.expected.retryable
+    )
+      issues.push("TERMINAL_OUTCOME_MISMATCH");
+    return;
+  }
   const expected = testCase.expected;
   const actual = prediction.outcome as Extract<
     typeof prediction.outcome,
@@ -660,6 +681,15 @@ export function buildOracleSafetyProbes(): OcrSafetyProbeEvidence[] {
       id === "KNOWN_SAFETY_FINISH_REASONS"
         ? [...KNOWN_SAFETY_FINISH_REASONS]
         : [],
+    ...(id === "PARTIAL_RESPONSE"
+      ? {
+          scenarios: [...SAFETY_PROBE_SCENARIOS.PARTIAL_RESPONSE],
+        }
+      : id === "MALFORMED_RESPONSE"
+        ? {
+            scenarios: [...SAFETY_PROBE_SCENARIOS.MALFORMED_RESPONSE],
+          }
+        : {}),
     testFile:
       "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts",
   }));

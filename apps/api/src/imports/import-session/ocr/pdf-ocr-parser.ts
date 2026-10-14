@@ -15,6 +15,7 @@ import {
 export const PdfOcrFailureCode = {
   INVALID_PAYLOAD: "INVALID_PAYLOAD",
   PAGE_ACCOUNTING_MISMATCH: "PAGE_ACCOUNTING_MISMATCH",
+  CANDIDATE_ACCOUNTING_MISMATCH: "CANDIDATE_ACCOUNTING_MISMATCH",
   INVALID_AMOUNT_CENTS: "INVALID_AMOUNT_CENTS",
   INVALID_DATE: "INVALID_DATE",
   INVALID_INSTALLMENT: "INVALID_INSTALLMENT",
@@ -104,8 +105,8 @@ const record = (value: unknown): value is Record<string, unknown> =>
   value !== null &&
   typeof value === "object" &&
   !Array.isArray(value) &&
-  (Object.getPrototypeOf(value) === Object.prototype ||
-    Object.getPrototypeOf(value) === null);
+  (Object.getPrototypeOf(value) === null ||
+    Object.getPrototypeOf(Object.getPrototypeOf(value)) === null);
 const exact = (
   value: unknown,
   keys: readonly string[],
@@ -242,12 +243,13 @@ export function parsePdfOcrV2(
     const count = page.visibleOccurrenceCount;
     for (let pageOccurrenceIndex = 1; pageOccurrenceIndex <= count; ) {
       const raw = payload.candidates[candidateOffset];
+      if (!exact(raw, CANDIDATE_KEYS))
+        return failure(PdfOcrFailureCode.PAGE_ACCOUNTING_MISMATCH);
       if (
-        !exact(raw, CANDIDATE_KEYS) ||
         raw.pageNumber !== page.pageNumber ||
         raw.pageOccurrenceIndex !== pageOccurrenceIndex
       )
-        return failure(PdfOcrFailureCode.PAGE_ACCOUNTING_MISMATCH);
+        return failure(PdfOcrFailureCode.CANDIDATE_ACCOUNTING_MISMATCH);
       pageOccurrenceIndex++;
       candidateOffset++;
       if (
@@ -311,7 +313,7 @@ export function parsePdfOcrV2(
     }
   }
   if (candidateOffset !== payload.candidates.length)
-    return failure(PdfOcrFailureCode.PAGE_ACCOUNTING_MISMATCH);
+    return failure(PdfOcrFailureCode.CANDIDATE_ACCOUNTING_MISMATCH);
   return {
     ok: true,
     value: {

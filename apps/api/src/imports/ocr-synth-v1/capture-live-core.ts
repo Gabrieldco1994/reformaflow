@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import {
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
 } from "@reformaflow/domain";
-import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
+import {
+  PdfOcrProviderError,
+  VertexPdfOcrProvider,
+} from "../import-session/ocr/vertex-pdf-ocr.provider";
 import { OCR_SYNTH_DATASET, OCR_SYNTH_ROUTING_CASES } from "./corpus";
 import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
@@ -74,6 +78,7 @@ export interface CaptureLiveOptions {
   readonly manifest: CaptureLiveManifest;
   readonly currentRepoSha: string;
   readonly memoryRss?: () => number;
+  readonly readProcSelfStatus?: (path: string) => Promise<string>;
 }
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -101,9 +106,9 @@ export function parseCaptureLiveManifestJson(raw: string): CaptureLiveManifest {
     Reflect.ownKeys(value).length !== keys.length ||
     !keys.every((key) => Object.prototype.hasOwnProperty.call(value, key)) ||
     !Array.isArray(value.routingCases) ||
-    !value.routingCases.every(isValidLiveRoute) ||
+    !value.routingCases.every((item) => isValidLiveRoute(item)) ||
     !Array.isArray(value.safetyProbes) ||
-    !value.safetyProbes.every(isValidLiveProbe)
+    !value.safetyProbes.every((item) => isValidLiveProbe(item))
   )
     throw new Error("LIVE_CAPTURE_CONFIG_INVALID");
   const run = {
@@ -243,6 +248,25 @@ async function preflight(
   return artifacts;
 }
 
+const PROC_SELF_STATUS = "/proc/self/status";
+const VM_HWM = /^VmHWM:\s+([0-9]+)\s+kB$/m;
+
+async function linuxVmHwmBytes(
+  readStatus: (path: string) => Promise<string>,
+): Promise<number> {
+  try {
+    const status = await readStatus(PROC_SELF_STATUS);
+    const match = VM_HWM.exec(status);
+    const kibibytes = match ? Number(match[1]) : Number.NaN;
+    const bytes = kibibytes * 1024;
+    if (!Number.isSafeInteger(bytes) || bytes < 0)
+      throw new Error("invalid VmHWM");
+    return bytes;
+  } catch {
+    throw new Error("LIVE_CAPTURE_VMHWM_UNAVAILABLE");
+  }
+}
+
 export async function captureLiveEvidence(
   options: CaptureLiveOptions,
 ): Promise<OcrEvalInput> {
@@ -252,7 +276,16 @@ export async function captureLiveEvidence(
   )
     throw new Error("LIVE_CAPTURE_PROVIDER_INVALID");
   const artifacts = await preflight(options.manifest, options.currentRepoSha);
-  const rss = options.memoryRss ?? (() => process.memoryUsage().rss);
+  const memoryHighWaterMark = options.memoryRss
+    ? async () => options.memoryRss!()
+    : options.readProcSelfStatus || process.platform === "linux"
+      ? async () =>
+          linuxVmHwmBytes(
+            options.readProcSelfStatus ??
+              ((path) => readFile(path, { encoding: "utf8" })),
+          )
+      : async () => process.memoryUsage().rss;
+  await memoryHighWaterMark();
   const predictions: OcrEvalInput["predictions"] = [];
   const responseIds = new Set<string>();
   const requestIds = new Set<string>();
@@ -261,21 +294,38 @@ export async function captureLiveEvidence(
 
   for (const { testCase, bytes, hash } of artifacts) {
     const caseRequestId = requestId(options.manifest.candidateSha, testCase.id);
-    const document = await options.provider.extractPdf({
-      artifactSha256: hash,
-      pageCount: testCase.artifact.pageCount,
-      requestId: caseRequestId,
-      pdfBytes: bytes,
-      signal: new AbortController().signal,
-    });
-    const trace = document.provenance.requestTrace;
+    let document: Awaited<
+      ReturnType<VertexPdfOcrProvider["extractPdf"]>
+    > | null = null;
+    let terminalError: PdfOcrProviderError | null = null;
+    try {
+      document = await options.provider.extractPdf({
+        artifactSha256: hash,
+        pageCount: testCase.artifact.pageCount,
+        requestId: caseRequestId,
+        pdfBytes: bytes,
+        signal: new AbortController().signal,
+      });
+    } catch (error) {
+      if (
+        error instanceof PdfOcrProviderError &&
+        (error.failure === "DOCUMENT_UNREADABLE" ||
+          error.failure === "LIMIT_EXCEEDED") &&
+        error.provenance
+      )
+        terminalError = error;
+      else throw error;
+    }
+    const provenance = document?.provenance ?? terminalError!.provenance!;
+    const trace = provenance.requestTrace;
     if (
-      document.artifactSha256 !== hash ||
-      document.pageCount !== testCase.artifact.pageCount ||
-      document.provenance.provider !== PDF_OCR_PROVIDER_ID ||
-      document.provenance.model !== PDF_OCR_MODEL_ID ||
-      document.provenance.region !== PDF_OCR_REGION ||
-      document.provenance.requestId !== caseRequestId ||
+      (document !== null &&
+        (document.artifactSha256 !== hash ||
+          document.pageCount !== testCase.artifact.pageCount)) ||
+      provenance.provider !== PDF_OCR_PROVIDER_ID ||
+      provenance.model !== PDF_OCR_MODEL_ID ||
+      provenance.region !== PDF_OCR_REGION ||
+      provenance.requestId !== caseRequestId ||
       !trace ||
       trace.requestId !== caseRequestId ||
       trace.originalBytesSha256 !== hash ||
@@ -285,17 +335,17 @@ export async function captureLiveEvidence(
       throw new Error("LIVE_CAPTURE_PROVIDER_CONTRACT_FAILED");
     if (
       requestIds.has(caseRequestId) ||
-      responseIds.has(document.provenance.responseId) ||
+      responseIds.has(provenance.responseId) ||
       (modelVersion !== undefined &&
-        modelVersion !== document.provenance.modelVersion) ||
+        modelVersion !== provenance.modelVersion) ||
       (promptSha256 !== undefined && promptSha256 !== trace.promptSha256)
     )
       throw new Error("LIVE_CAPTURE_PROVENANCE_MISMATCH");
     requestIds.add(caseRequestId);
-    responseIds.add(document.provenance.responseId);
-    modelVersion = document.provenance.modelVersion;
+    responseIds.add(provenance.responseId);
+    modelVersion = provenance.modelVersion;
     promptSha256 = trace.promptSha256;
-    const usage = document.provenance.usage;
+    const usage = provenance.usage;
     const costMicros = Math.ceil(
       (usage.inputTokens *
         options.manifest.pricing.inputMicrosPerMillionTokens +
@@ -307,22 +357,29 @@ export async function captureLiveEvidence(
       caseId: testCase.id,
       tenantId: testCase.tenantId,
       artifactSha256: hash,
-      outcome: providerNativeOutcome(document),
-      provider: document.provenance.provider,
-      model: document.provenance.model,
-      modelVersion: document.provenance.modelVersion,
+      outcome:
+        document === null
+          ? {
+              kind: "ERROR",
+              errorCode: terminalError!.failure,
+              retryable: false,
+            }
+          : providerNativeOutcome(document),
+      provider: provenance.provider,
+      model: provenance.model,
+      modelVersion: provenance.modelVersion,
       promptSha256: trace.promptSha256,
       schemaValid: true,
-      latencyMs: document.provenance.latencyMs,
-      peakRssBytes: rss(),
+      latencyMs: provenance.latencyMs,
+      peakRssBytes: await memoryHighWaterMark(),
       usage: { ...usage },
       cost: { currency: "USD", amountMicros: costMicros },
       adapterTrace: {
         seam: DIRECT_PDF_VERTEX_CONFIG.seam,
         requestId: caseRequestId,
         endpoint: trace.endpoint,
-        region: document.provenance.region,
-        model: document.provenance.model,
+        region: provenance.region,
+        model: provenance.model,
         authTrace: trace.authTrace,
         adcScopes: [...trace.adcScopes],
         apiKeyUsed: false,
@@ -346,7 +403,7 @@ export async function captureLiveEvidence(
         fileUri: trace.fileUri,
         cachedContent: trace.cachedContent,
         providerCallCount: 1,
-        responseId: document.provenance.responseId,
+        responseId: provenance.responseId,
         attempts: 1,
         ambiguousTimeoutRetried: false,
         textualPdf: false,

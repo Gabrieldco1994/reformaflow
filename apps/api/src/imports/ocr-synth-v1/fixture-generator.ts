@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
-import type { OcrEvalCase, OcrEvalRow } from "./types";
+import type { OcrEvalCase } from "./types";
 
 const WIDTH = 600;
 const HEIGHT = 800;
@@ -10,7 +10,15 @@ function seedNumber(value: string): number {
   return createHash("sha256").update(value).digest().readUInt32BE(0);
 }
 
-function pageRows(testCase: OcrEvalCase, page: number): OcrEvalRow[] {
+function pageRows(
+  testCase: OcrEvalCase,
+  page: number,
+): Array<{ order: number; evidenceText: string }> {
+  if (testCase.fixtureRows)
+    return testCase.fixtureRows
+      .map((row, order) => ({ ...row, order }))
+      .filter((row) => row.page === page)
+      .sort((left, right) => left.order - right.order);
   if (testCase.expected.kind !== "SUCCESS") return [];
   return testCase.expected.regions
     .filter((region) => region.page === page)
@@ -18,7 +26,7 @@ function pageRows(testCase: OcrEvalCase, page: number): OcrEvalRow[] {
     .sort((left, right) => left.order - right.order);
 }
 
-function lineFor(row: OcrEvalRow): string {
+function lineFor(row: { evidenceText: string }): string {
   return row.evidenceText;
 }
 
@@ -29,18 +37,20 @@ function drawDocument(
 ): void {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, WIDTH, HEIGHT);
-  if (
-    testCase.expected.kind === "SUCCESS" &&
-    testCase.expected.unreadablePages.includes(page)
-  ) {
+  const unreadablePages =
+    testCase.expected.kind === "SUCCESS"
+      ? testCase.expected.unreadablePages
+      : (testCase.fixtureUnreadablePages ?? []);
+  if (unreadablePages.includes(page)) {
     context.fillStyle = "#777777";
     context.fillRect(0, 0, WIDTH, HEIGHT);
     return;
   }
-  if (
-    testCase.expected.kind === "SUCCESS" &&
-    testCase.expected.blankPages.includes(page)
-  ) {
+  const blankPages =
+    testCase.expected.kind === "SUCCESS"
+      ? testCase.expected.blankPages
+      : (testCase.fixtureBlankPages ?? []);
+  if (blankPages.includes(page)) {
     return;
   }
 

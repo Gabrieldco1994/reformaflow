@@ -81,6 +81,12 @@ export interface OcrEvalCase {
   };
   providerScenario?: string;
   adversarialText?: string;
+  fixtureRows?: Array<{
+    page: number;
+    evidenceText: string;
+  }>;
+  fixtureBlankPages?: number[];
+  fixtureUnreadablePages?: number[];
   expected: OcrEvalExpected;
 }
 
@@ -271,6 +277,22 @@ export const SAFETY_PROBE_IDS = [
 
 export type SafetyProbeId = (typeof SAFETY_PROBE_IDS)[number];
 
+export const SAFETY_PROBE_SCENARIOS = Object.freeze({
+  PARTIAL_RESPONSE: Object.freeze([
+    "EMPTY_DECEPTION",
+    "OMITTED_PAGE",
+    "DUPLICATE_PAGE",
+    "DECREASING_PAGE",
+    "PAGE_COUNT_MISMATCH",
+    "PAGE_OCCURRENCE_INDEX_GAP",
+    "PAGE_OCCURRENCE_ORDER",
+  ]),
+  MALFORMED_RESPONSE: Object.freeze([
+    "OUTER_DUPLICATE_KEY",
+    "EMBEDDED_DUPLICATE_KEY",
+  ]),
+});
+
 export interface OcrSafetyProbeEvidence {
   id: SafetyProbeId;
   source:
@@ -283,5 +305,6 @@ export interface OcrSafetyProbeEvidence {
   financialWrites: number;
   durableStateVerified: boolean;
   finishReasonsTested: string[];
+  scenarios?: string[];
   testFile: string;
 }

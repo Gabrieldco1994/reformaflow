@@ -1,28 +1,44 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_MODEL_VERSION_PATTERN,
 } from "@reformaflow/domain";
+import { parseStrictJson } from "../import-session/ocr/strict-json";
 import {
   OCR_SYNTH_DATASET,
   OCR_SYNTH_ROUTING_CASES,
   OCR_SYNTH_SCANNED_RELEASE_CASES,
 } from "./corpus";
 import type { OcrEvalInput } from "./evaluator";
-import { SAFETY_PROBE_IDS } from "./types";
+import policy from "./quality-closure-policy.json";
+import { SAFETY_PROBE_IDS, SAFETY_PROBE_SCENARIOS } from "./types";
 
 const HASH = new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern);
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
 const MODEL_VERSION = new RegExp(PDF_OCR_MODEL_VERSION_PATTERN);
 const SAFE_CODE = /^[A-Z][A-Z0-9_]+$/;
+const ROOT = resolve(__dirname, "../../../../..");
+const POLICY_PATH =
+  "apps/api/src/imports/ocr-synth-v1/quality-closure-policy.json";
+const CORPUS_PATH = "apps/api/src/imports/ocr-synth-v1/ground-truth.json";
 
 const fail = (): never => {
   throw new Error("LIVE_EVIDENCE_INVALID");
 };
 const object = (value: unknown): value is Record<string, unknown> =>
-  value !== null &&
-  typeof value === "object" &&
-  !Array.isArray(value) &&
-  Object.getPrototypeOf(value) === Object.prototype;
+  (() => {
+    if (value === null || typeof value !== "object" || Array.isArray(value))
+      return false;
+    const prototype = Object.getPrototypeOf(value);
+    return (
+      prototype === null ||
+      (typeof prototype === "object" &&
+        prototype !== null &&
+        Object.getPrototypeOf(prototype) === null)
+    );
+  })();
 const exact = (
   value: unknown,
   keys: readonly string[],
@@ -163,6 +179,15 @@ export function isValidLiveRun(value: unknown): boolean {
 
 function validNativeOutcome(value: unknown): boolean {
   if (
+    exact(value, ["kind", "errorCode", "retryable"]) &&
+    value.kind === "ERROR"
+  )
+    return (
+      (value.errorCode === "DOCUMENT_UNREADABLE" ||
+        value.errorCode === "LIMIT_EXCEEDED") &&
+      value.retryable === false
+    );
+  if (
     !exact(value, ["kind", "candidates"]) ||
     value.kind !== "SUCCESS" ||
     !Array.isArray(value.candidates)
@@ -195,6 +220,43 @@ function validNativeOutcome(value: unknown): boolean {
           candidate.installment.total > 0)) &&
       string(candidate.evidenceText),
   );
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) || Array.isArray(right))
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((item, index) => sameJsonValue(item, right[index]))
+    );
+  if (object(left) || object(right))
+    return (
+      object(left) &&
+      object(right) &&
+      Reflect.ownKeys(left).length === Reflect.ownKeys(right).length &&
+      Object.keys(left).every(
+        (key) =>
+          Object.prototype.hasOwnProperty.call(right, key) &&
+          sameJsonValue(left[key], right[key]),
+      )
+    );
+  return left === right;
+}
+
+function validQualificationOutcome(caseId: unknown, value: unknown): boolean {
+  if (!string(caseId)) return false;
+  const testCase = OCR_SYNTH_SCANNED_RELEASE_CASES.find(
+    (item) => item.id === caseId,
+  );
+  if (!testCase) return false;
+  const expected = structuredClone(testCase.expected);
+  if (expected.kind === "SUCCESS")
+    for (const row of expected.regions.flatMap((region) => region.rows)) {
+      row.selected = false;
+      row.verificationStatus = "UNVERIFIED";
+    }
+  return sameJsonValue(value, expected);
 }
 
 function validTrace(value: unknown): boolean {
@@ -330,7 +392,10 @@ function validCaptureContext(value: Record<string, unknown>): boolean {
   return value.consentCapability.requestId === value.adapterTrace.requestId;
 }
 
-function validPrediction(value: unknown): boolean {
+function validPrediction(
+  value: unknown,
+  allowQualificationOutcome = false,
+): boolean {
   return (
     exact(value, [
       "caseId",
@@ -357,7 +422,9 @@ function validPrediction(value: unknown): boolean {
     string(value.tenantId) &&
     string(value.artifactSha256) &&
     HASH.test(value.artifactSha256) &&
-    validNativeOutcome(value.outcome) &&
+    (validNativeOutcome(value.outcome) ||
+      (allowQualificationOutcome &&
+        validQualificationOutcome(value.caseId, value.outcome))) &&
     string(value.provider) &&
     string(value.model) &&
     string(value.modelVersion) &&
@@ -380,7 +447,10 @@ function validPrediction(value: unknown): boolean {
   );
 }
 
-export function isValidLiveRoute(value: unknown): boolean {
+export function isValidLiveRoute(
+  value: unknown,
+  allowOfflineEvidence = false,
+): boolean {
   return (
     exact(value, [
       "caseId",
@@ -398,7 +468,9 @@ export function isValidLiveRoute(value: unknown): boolean {
     string(value.tenantId) &&
     string(value.artifactSha256) &&
     HASH.test(value.artifactSha256) &&
-    value.source === "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" &&
+    (value.source === "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" ||
+      (allowOfflineEvidence &&
+        value.source === "OFFLINE_EVALUATOR_SELF_TEST")) &&
     Array.isArray(value.detectedReasons) &&
     value.detectedReasons.every((item) =>
       oneOf(item, ["MIXED", "SEARCHABLE", "RASTER_LOGO", "HIDDEN_TEXT"]),
@@ -411,22 +483,28 @@ export function isValidLiveRoute(value: unknown): boolean {
   );
 }
 
-export function isValidLiveProbe(value: unknown): boolean {
+export function isValidLiveProbe(
+  value: unknown,
+  allowOfflineEvidence = false,
+): boolean {
+  const baseKeys = [
+    "id",
+    "source",
+    "blocked",
+    "explicitError",
+    "errorCode",
+    "providerCalls",
+    "financialWrites",
+    "durableStateVerified",
+    "finishReasonsTested",
+    "testFile",
+  ] as const;
   return (
-    exact(value, [
-      "id",
-      "source",
-      "blocked",
-      "explicitError",
-      "errorCode",
-      "providerCalls",
-      "financialWrites",
-      "durableStateVerified",
-      "finishReasonsTested",
-      "testFile",
-    ]) &&
+    (exact(value, baseKeys) || exact(value, [...baseKeys, "scenarios"])) &&
     oneOf(value.id, SAFETY_PROBE_IDS) &&
-    value.source === "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" &&
+    (value.source === "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" ||
+      (allowOfflineEvidence &&
+        value.source === "OFFLINE_EVALUATOR_SELF_TEST")) &&
     bool(value.blocked) &&
     bool(value.explicitError) &&
     string(value.errorCode) &&
@@ -435,6 +513,7 @@ export function isValidLiveProbe(value: unknown): boolean {
     number(value.financialWrites) &&
     bool(value.durableStateVerified) &&
     strings(value.finishReasonsTested) &&
+    validProbeScenarios(value) &&
     string(value.testFile)
   );
 }
@@ -448,24 +527,110 @@ function exactIdSet(values: readonly string[], expected: readonly string[]) {
 }
 const unique = (values: readonly string[]): boolean =>
   new Set(values).size === values.length;
+const exactStrings = (value: unknown, expected: readonly string[]): boolean =>
+  strings(value) &&
+  value.length === expected.length &&
+  value.every((item, index) => item === expected[index]);
+
+function validProbeScenarios(value: Record<string, unknown>): boolean {
+  if (value.id === "PARTIAL_RESPONSE")
+    return exactStrings(
+      value.scenarios,
+      SAFETY_PROBE_SCENARIOS.PARTIAL_RESPONSE,
+    );
+  if (value.id === "MALFORMED_RESPONSE")
+    return exactStrings(
+      value.scenarios,
+      SAFETY_PROBE_SCENARIOS.MALFORMED_RESPONSE,
+    );
+  return !("scenarios" in value);
+}
+
+const sha256 = (bytes: Buffer | string): string =>
+  createHash("sha256").update(bytes).digest("hex");
+const fileSha256 = (path: string): string =>
+  sha256(readFileSync(resolve(ROOT, path)));
+const runtimeSha256 = (): string => {
+  const hash = createHash("sha256");
+  for (const path of [...policy.runtimeBindingFiles].sort()) {
+    hash.update(path);
+    hash.update("\0");
+    hash.update(readFileSync(resolve(ROOT, path)));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+};
+const qualificationTestNames = (): string[] => [
+  ...OCR_SYNTH_ROUTING_CASES.map((item) => `[ROUTE] ${item.id}`),
+  ...SAFETY_PROBE_IDS.map((id) => `[PROBE] ${id}`),
+];
+
+function validQualityClosure(value: unknown, candidateSha: unknown): boolean {
+  if (
+    !exact(value, [
+      "gitSha",
+      "policySha256",
+      "corpusSha256",
+      "runtimeSha256",
+      "initialCandidateSha",
+      "rerunCandidateSha",
+      "tests",
+    ]) ||
+    !string(candidateSha) ||
+    value.gitSha !== candidateSha ||
+    value.initialCandidateSha !== candidateSha ||
+    value.rerunCandidateSha !== candidateSha ||
+    value.policySha256 !== fileSha256(POLICY_PATH) ||
+    value.corpusSha256 !== fileSha256(CORPUS_PATH) ||
+    value.runtimeSha256 !== runtimeSha256() ||
+    !Array.isArray(value.tests)
+  )
+    return false;
+  const names = qualificationTestNames();
+  return (
+    value.tests.length === names.length &&
+    value.tests.every(
+      (item, index) =>
+        exact(item, ["name", "status"]) &&
+        item.name === names[index] &&
+        item.status === "PASS",
+    )
+  );
+}
 
 export function parseLiveEvidence(value: unknown): OcrEvalInput {
   if (
-    !exact(value, [
-      "datasetVersion",
-      "run",
-      "predictions",
-      "routingCases",
-      "safetyProbes",
-    ]) ||
+    !(
+      exact(value, [
+        "datasetVersion",
+        "run",
+        "predictions",
+        "routingCases",
+        "safetyProbes",
+      ]) ||
+      exact(value, [
+        "datasetVersion",
+        "run",
+        "predictions",
+        "routingCases",
+        "safetyProbes",
+        "qualityClosure",
+      ])
+    ) ||
     value.datasetVersion !== OCR_SYNTH_DATASET.datasetVersion ||
     !isValidLiveRun(value.run) ||
     !Array.isArray(value.predictions) ||
-    !value.predictions.every(validPrediction) ||
+    !value.predictions.every((item) =>
+      validPrediction(item, "qualityClosure" in value),
+    ) ||
     !Array.isArray(value.routingCases) ||
-    !value.routingCases.every(isValidLiveRoute) ||
+    !value.routingCases.every((item) =>
+      isValidLiveRoute(item, "qualityClosure" in value),
+    ) ||
     !Array.isArray(value.safetyProbes) ||
-    !value.safetyProbes.every(isValidLiveProbe) ||
+    !value.safetyProbes.every((item) =>
+      isValidLiveProbe(item, "qualityClosure" in value),
+    ) ||
     !exactIdSet(
       value.predictions.map((item) => item.caseId),
       OCR_SYNTH_SCANNED_RELEASE_CASES.map((item) => item.id),
@@ -478,7 +643,10 @@ export function parseLiveEvidence(value: unknown): OcrEvalInput {
       value.safetyProbes.map((item) => item.id),
       SAFETY_PROBE_IDS,
     ) ||
-    !unique(value.predictions.map((item) => item.adapterTrace.requestId))
+    !unique(value.predictions.map((item) => item.adapterTrace.requestId)) ||
+    ("qualityClosure" in value &&
+      (!object(value.run) ||
+        !validQualityClosure(value.qualityClosure, value.run.candidateSha)))
   )
     fail();
   return value as unknown as OcrEvalInput;
@@ -491,7 +659,9 @@ export function parseLiveEvidenceJson(raw: string): OcrEvalInput {
 export function parseJson(raw: string): unknown {
   let value: unknown;
   try {
-    value = JSON.parse(raw);
+    value = JSON.parse(raw) as unknown;
+    if (object(value) && "qualityClosure" in value)
+      value = parseStrictJson(raw);
   } catch {
     fail();
   }

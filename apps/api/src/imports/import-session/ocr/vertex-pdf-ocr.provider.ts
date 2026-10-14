@@ -39,7 +39,7 @@ const PROMPT = [
   "Preserve order, duplicates, negative signs, and zero values exactly; do not classify, combine, deduplicate, exclude, or decide financial meaning.",
   "Include credits, payments, fees, interest, subtotals, and totals as visible lines without classifying them.",
   "Use LINE_AMOUNT when a signed line amount is visible, UNKNOWN when its meaning is uncertain, and null for unreadable description, cents, date, or installment.",
-  `Return COMPLETE only after accounting for every page and at most ${PDF_OCR_LIMITS.candidatesPerFile} visible occurrences; EMPTY pages have zero occurrences and READABLE pages have contiguous pageOccurrenceIndex values starting at 1.`,
+  `Return COMPLETE only after accounting for every page and at most ${PDF_OCR_LIMITS.candidatesPerFile} visible occurrences; EMPTY pages have visibleOccurrenceCount 0 and READABLE pages have an exact visibleOccurrenceCount with contiguous pageOccurrenceIndex values starting at 1.`,
   `If more than ${PDF_OCR_LIMITS.candidatesPerFile} visible occurrences exist, return OCCURRENCE_LIMIT_EXCEEDED with exact page accounting and an empty candidates array.`,
   "If any page is unreadable, return INCOMPLETE with that page marked UNREADABLE and an empty candidates array.",
   "Return only the requested JSON schema.",

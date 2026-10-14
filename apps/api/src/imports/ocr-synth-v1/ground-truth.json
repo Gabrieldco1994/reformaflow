@@ -1233,41 +1233,12 @@
         },
         "decorativeRasterLogo": false
       },
+      "fixtureRows": [{ "page": 1, "evidenceText": "CAMPO ILEGIVEL" }],
+      "fixtureUnreadablePages": [2],
       "expected": {
-        "kind": "SUCCESS",
-        "regions": [
-          {
-            "regionId": "page-01-region-01",
-            "page": 1,
-            "order": 0,
-            "bbox": [50, 120, 850, 1100],
-            "rows": [
-              {
-                "rowId": "row-012-0",
-                "page": 1,
-                "order": 0,
-                "bbox": [80, 180, 820, 232],
-                "description": "CAMPO ILEGIVEL",
-                "amountText": null,
-                "amountCents": null,
-                "sign": "UNKNOWN",
-                "dateText": null,
-                "normalizedDate": null,
-                "dateExplicitness": "UNKNOWN",
-                "installmentText": null,
-                "installmentCurrent": null,
-                "installmentTotal": null,
-                "amountMeaning": "UNKNOWN",
-                "installmentMeaning": "UNKNOWN",
-                "evidenceText": "CAMPO ILEGIVEL",
-                "candidateDisposition": "RAW_UNCLASSIFIED"
-              }
-            ]
-          }
-        ],
-        "blankPages": [],
-        "unreadablePages": [2],
-        "ignoredText": []
+        "kind": "ERROR",
+        "errorCode": "DOCUMENT_UNREADABLE",
+        "retryable": false
       }
     },
     {
@@ -1670,69 +1641,37 @@
         },
         "decorativeRasterLogo": false
       },
+      "fixtureRows": [
+        { "page": 1, "evidenceText": "01/01 ITEM LIMITE 001 R$ 1,01" },
+        { "page": 1, "evidenceText": "01/01 ITEM LIMITE 002 R$ 1,02" },
+        { "page": 1, "evidenceText": "01/01 ITEM LIMITE 003 R$ 1,03" },
+        { "page": 2, "evidenceText": "02/01 ITEM LIMITE 004 R$ 1,04" },
+        { "page": 2, "evidenceText": "02/01 ITEM LIMITE 005 R$ 1,05" },
+        { "page": 2, "evidenceText": "02/01 ITEM LIMITE 006 R$ 1,06" },
+        { "page": 3, "evidenceText": "03/01 ITEM LIMITE 007 R$ 1,07" },
+        { "page": 3, "evidenceText": "03/01 ITEM LIMITE 008 R$ 1,08" },
+        { "page": 3, "evidenceText": "03/01 ITEM LIMITE 009 R$ 1,09" },
+        { "page": 4, "evidenceText": "04/01 ITEM LIMITE 010 R$ 1,10" },
+        { "page": 4, "evidenceText": "04/01 ITEM LIMITE 011 R$ 1,11" },
+        { "page": 4, "evidenceText": "04/01 ITEM LIMITE 012 R$ 1,12" },
+        { "page": 5, "evidenceText": "05/01 ITEM LIMITE 013 R$ 1,13" },
+        { "page": 5, "evidenceText": "05/01 ITEM LIMITE 014 R$ 1,14" },
+        { "page": 5, "evidenceText": "05/01 ITEM LIMITE 015 R$ 1,15" },
+        { "page": 6, "evidenceText": "06/01 ITEM LIMITE 016 R$ 1,16" },
+        { "page": 6, "evidenceText": "06/01 ITEM LIMITE 017 R$ 1,17" },
+        { "page": 7, "evidenceText": "07/01 ITEM LIMITE 018 R$ 1,18" },
+        { "page": 7, "evidenceText": "07/01 ITEM LIMITE 019 R$ 1,19" },
+        { "page": 8, "evidenceText": "08/01 ITEM LIMITE 020 R$ 1,20" },
+        { "page": 8, "evidenceText": "08/01 ITEM LIMITE 021 R$ 1,21" },
+        { "page": 9, "evidenceText": "09/01 ITEM LIMITE 022 R$ 1,22" },
+        { "page": 9, "evidenceText": "09/01 ITEM LIMITE 023 R$ 1,23" },
+        { "page": 10, "evidenceText": "10/01 ITEM LIMITE 024 R$ 1,24" },
+        { "page": 10, "evidenceText": "10/01 ITEM LIMITE 025 R$ 1,25" }
+      ],
       "expected": {
-        "kind": "SUCCESS",
-        "regions": [
-          {
-            "regionId": "page-01-region-01",
-            "page": 1,
-            "order": 0,
-            "bbox": [50, 120, 850, 1100],
-            "rows": [
-              {
-                "rowId": "row-018-0",
-                "page": 1,
-                "order": 0,
-                "bbox": [80, 180, 820, 232],
-                "description": "ITEM SINTETICO 018-0",
-                "amountText": "R$ 10,05",
-                "amountCents": "1005",
-                "sign": "POSITIVE",
-                "dateText": "29/02",
-                "normalizedDate": "29/02",
-                "dateExplicitness": "YEARLESS",
-                "installmentText": "1/1",
-                "installmentCurrent": 1,
-                "installmentTotal": 1,
-                "evidenceText": "29/02  ITEM SINTETICO 018-0  1/1  R$ 10,05",
-                "candidateDisposition": "RAW_UNCLASSIFIED",
-                "amountMeaning": "LINE_AMOUNT",
-                "installmentMeaning": "EXPLICIT"
-              }
-            ]
-          },
-          {
-            "regionId": "page-10-region-01",
-            "page": 10,
-            "order": 1,
-            "bbox": [50, 120, 850, 1100],
-            "rows": [
-              {
-                "rowId": "row-018-1",
-                "page": 10,
-                "order": 1,
-                "bbox": [80, 252, 820, 304],
-                "description": "ITEM SINTETICO 018-1",
-                "amountText": "R$ 1.234,56",
-                "amountCents": "123456",
-                "sign": "POSITIVE",
-                "dateText": "01/03/2032",
-                "normalizedDate": "2032-03-01",
-                "dateExplicitness": "FULL",
-                "installmentText": "24/24",
-                "installmentCurrent": 24,
-                "installmentTotal": 24,
-                "evidenceText": "01/03/2032  ITEM SINTETICO 018-1  24/24  R$ 1.234,56",
-                "candidateDisposition": "RAW_UNCLASSIFIED",
-                "amountMeaning": "LINE_AMOUNT",
-                "installmentMeaning": "EXPLICIT"
-              }
-            ]
-          }
-        ],
-        "blankPages": [2, 3, 4, 5, 6, 7, 8, 9],
-        "unreadablePages": [],
-        "ignoredText": []
+        "kind": "ERROR",
+        "errorCode": "LIMIT_EXCEEDED",
+        "retryable": false
       }
     },
     {
