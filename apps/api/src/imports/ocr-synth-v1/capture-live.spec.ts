@@ -63,7 +63,8 @@ function provider(
   > = {},
 ) {
   let index = 0;
-  const fetcher = jest.fn(async () => {
+  const fetcher = jest.fn(async (url: string) => {
+    if (url.endsWith(":countTokens")) return response({ totalTokens: 20 });
     const testCase = OCR_SYNTH_SCANNED_RELEASE_CASES[index]!;
     const rows = successfulRows(testCase);
     const current = index++;
@@ -291,6 +292,7 @@ describe("cumulative capture hard spend", () => {
 describe("audited synthetic Vertex capture", () => {
   let evidence: Awaited<ReturnType<typeof captureLiveEvidence>>;
   let dispatchedRequestIds: string[];
+  let captureFetcher: jest.Mock;
   let platform: PropertyDescriptor;
 
   beforeAll(async () => {
@@ -301,6 +303,7 @@ describe("audited synthetic Vertex capture", () => {
     });
 
     const adapter = provider();
+    captureFetcher = adapter.fetcher;
     const extract = jest.spyOn(adapter.value, "extractPdf");
     evidence = await captureLiveEvidence(
       canonicalCaptureOptions(adapter.value, { memoryRss: () => 100 }),
@@ -309,11 +312,11 @@ describe("audited synthetic Vertex capture", () => {
       ([request]) => request.requestId,
     );
     expect(extract).toHaveBeenCalledTimes(18);
-    expect(adapter.fetcher).toHaveBeenCalledTimes(18);
   });
   afterAll(() => Object.defineProperty(process, "platform", platform));
 
   it("calls the real adapter once for each literal scanned case only", () => {
+    expect(captureFetcher).toHaveBeenCalledTimes(36);
     expect(evidence.predictions.map((item) => item.caseId)).toEqual(
       OCR_SYNTH_SCANNED_RELEASE_CASES.map((item) => item.id),
     );
@@ -360,7 +363,7 @@ describe("audited synthetic Vertex capture", () => {
       errorCode: "LIMIT_EXCEEDED",
       retryable: false,
     });
-    expect(adapter.fetcher).toHaveBeenCalledTimes(18);
+    expect(adapter.fetcher).toHaveBeenCalledTimes(36);
     expect(
       captured.predictions.map((item) => item.adapterTrace?.providerCallCount),
     ).toEqual(Array.from({ length: 18 }, () => 1));
@@ -431,21 +434,34 @@ describe("audited synthetic Vertex capture", () => {
     expect(captured.predictions.map((item) => item.peakRssBytes)).toEqual(
       Array.from({ length: 18 }, () => policy.maxVmHwmBytes),
     );
-    expect(adapter.fetcher).toHaveBeenCalledTimes(18);
+    expect(adapter.fetcher).toHaveBeenCalledTimes(36);
   });
 
-  it("emits only provider-native outcome fields and derives sign locally", () => {
+  it("preserves the complete provider-native V3 facts and explicit review defaults", () => {
     const serialized = JSON.stringify(evidence.predictions[0]!.outcome);
-    for (const forbidden of [
-      "bbox",
-      "rowId",
-      "amountText",
-      "dateText",
-      "selected",
-      "verificationStatus",
-    ])
+    for (const forbidden of ["bbox", "rowId", "amountText"])
       expect(serialized).not.toContain(`"${forbidden}"`);
-    expect(serialized).toContain('"sign"');
+    expect(evidence.predictions[0]!.outcome).toMatchObject({
+      kind: "SUCCESS",
+      candidates: [
+        {
+          pageNumber: 1,
+          pageOccurrenceIndex: 1,
+          description: "ITEM SINTETICO 001-0",
+          amountCents: "1",
+          sign: "POSITIVE",
+          amountMeaning: "LINE_AMOUNT",
+          dateText: "29/02/2024",
+          normalizedDate: "2024-02-29",
+          dateExplicitness: "FULL",
+          installment: null,
+          evidenceText: "29/02/2024  ITEM SINTETICO 001-0  R$ 0,01",
+          selected: false,
+          verificationStatus: "UNVERIFIED",
+          candidateDisposition: "RAW_UNCLASSIFIED",
+        },
+      ],
+    });
     expect(evidence.predictions[0]).toMatchObject({
       provider: PDF_OCR_PROVIDER_ID,
       model: PDF_OCR_MODEL_ID,

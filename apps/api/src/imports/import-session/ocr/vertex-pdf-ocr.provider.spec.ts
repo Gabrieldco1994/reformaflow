@@ -134,7 +134,10 @@ function strictGenerationWire(candidate: Record<string, unknown>) {
 }
 
 async function qualificationExtraction(candidate: Record<string, unknown>) {
-  const fetcher = jest.fn().mockResolvedValue(strictGenerationWire(candidate));
+  const fetcher = jest
+    .fn()
+    .mockResolvedValueOnce(response({ totalTokens: 123 }))
+    .mockResolvedValueOnce(strictGenerationWire(candidate));
   const legacyParser = jest.spyOn(pdfOcrParser, "parsePdfOcrV2");
   let result:
     | Awaited<ReturnType<VertexPdfOcrProvider["extractPdf"]>>
@@ -245,7 +248,7 @@ describe("Vertex countTokens request plan", () => {
     });
 
     expect(observed.legacyParser).not.toHaveBeenCalled();
-    expect(observed.fetcher).toHaveBeenCalledTimes(1);
+    expect(observed.fetcher).toHaveBeenCalledTimes(2);
     expect(observed.result).toMatchObject({
       candidates: [
         {
@@ -270,7 +273,7 @@ describe("Vertex countTokens request plan", () => {
     });
 
     expect(observed.legacyParser).not.toHaveBeenCalled();
-    expect(observed.fetcher).toHaveBeenCalledTimes(1);
+    expect(observed.fetcher).toHaveBeenCalledTimes(2);
     expect(observed.result).toMatchObject({
       failure: "MALFORMED_RESPONSE",
       dispatchState: "DISPATCHED_OR_UNKNOWN",
