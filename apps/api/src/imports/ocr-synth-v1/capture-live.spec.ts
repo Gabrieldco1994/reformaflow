@@ -22,7 +22,6 @@ import {
   successfulRows,
 } from "./corpus";
 import { evaluateOcrSynth, type OcrEvalInput } from "./evaluator";
-import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
   parseLiveEvidence,
   parseLiveEvidenceJson,
@@ -331,10 +330,8 @@ describe("audited synthetic Vertex capture", () => {
     expect(evidence.predictions.map((item) => item.caseId)).toEqual(
       OCR_SYNTH_SCANNED_RELEASE_CASES.map((item) => item.id),
     );
-    expect(evidence.routingCases).toHaveLength(OCR_SYNTH_ROUTING_CASES.length);
-    expect(
-      evidence.routingCases.every((item) => item.providerCalls === 0),
-    ).toBe(true);
+    expect(evidence).not.toHaveProperty("routingCases");
+    expect(evidence).not.toHaveProperty("safetyProbes");
     const dense = evidence.predictions.find(
       (item) => item.caseId === "scan-010",
     )!;
@@ -915,12 +912,18 @@ describe("audited synthetic Vertex capture", () => {
   });
 
   it("requires exact real-service consent probe provenance", async () => {
-    const changed = structuredClone(evidence);
-    changed.safetyProbes.find(
-      (probe) => probe.id === "EXACT_CONSENT_CAPABILITY",
-    )!.testFile =
+    const changed = structuredClone(evidence) as unknown as Record<string, any>;
+    const observations =
+      changed.qualityClosure.observations ?? changed.qualityClosure.tests;
+    observations.find(
+      (observation: Record<string, unknown>) =>
+        observation.name === "[PROBE] EXACT_CONSENT_CAPABILITY",
+    )!.sourcePath =
       "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
-    const report = await evaluateOcrSynth(changed);
+    expect(() => parseLiveEvidence(changed as unknown as OcrEvalInput)).toThrow(
+      /^(?:LIVE_EVIDENCE_INVALID|LIVE_EVIDENCE_BINDING_INVALID)$/,
+    );
+    const report = await evaluateOcrSynth(changed as unknown as OcrEvalInput);
     expect(report.liveEvidenceGaps).toContain(
       "MISSING_REAL_SERVICE_CONSENT_EVIDENCE",
     );
@@ -1066,15 +1069,35 @@ describe("audited synthetic Vertex capture", () => {
     expect(await readFile(output, "utf8")).toBe("replacement");
   });
 
-  it("keeps generated route evidence bound to the same synthetic bytes", async () => {
-    for (const route of evidence.routingCases) {
-      const testCase = OCR_SYNTH_ROUTING_CASES.find(
-        (item) => item.id === route.caseId,
-      )!;
-      expect(route.artifactSha256).toBe(
-        artifactSha256(await generateArtifact(testCase)),
-      );
-    }
+  it("keeps all route and probe authority bound to mechanical closure results", () => {
+    const qualificationTests = (
+      policy as unknown as {
+        qualificationTests: Array<{ name: string; sourcePath: string }>;
+      }
+    ).qualificationTests;
+    const closure = evidence.qualityClosure as unknown as {
+      observations?: Array<Record<string, unknown>>;
+      tests?: Array<Record<string, unknown>>;
+    };
+    const observations = closure.observations ?? closure.tests ?? [];
+
+    expect(observations).toEqual(
+      qualificationTests.map(({ name, sourcePath }) => ({
+        name,
+        title: name,
+        fullName: expect.stringContaining(name),
+        status: "PASS",
+        sourcePath,
+        assertionRecordSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        suiteResultSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      })),
+    );
+    expect(
+      observations.filter(({ name }) => String(name).startsWith("[ROUTE] ")),
+    ).toHaveLength(OCR_SYNTH_ROUTING_CASES.length);
+    expect(
+      observations.filter(({ name }) => String(name).startsWith("[PROBE] ")),
+    ).toHaveLength(35);
   });
 });
 
