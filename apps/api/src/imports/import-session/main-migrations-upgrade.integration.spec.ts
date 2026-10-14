@@ -19,6 +19,10 @@ const IMPORT_MIGRATIONS = [
   "20260929010000_import_session_bootstrap",
   "20261009193000_canonical_import_linkage_retention",
   "20261010100000_retire_unlinked_import_artifacts",
+  "20261013180000_import_pdf_ocr_runtime",
+  "20261013183000_import_ocr_usage_budget",
+  "20261013233000_import_ocr_usage_foreign_keys",
+  "20261014004500_import_ocr_usage_provenance",
 ] as const;
 const ROOT = resolve(__dirname, "../../../../..");
 
@@ -271,7 +275,7 @@ it("main → import migrations preserves IDs, documentary schedules, invoice tra
  * pointing at two absent projects (14 each, no expenses) plus 4 soft-deleted
  * cash-flow entries pointing at four distinct absent expenses. The orphans are
  * seeded FK OFF into a disposable fixture, committed, FK ON restored, and then
- * the real Prisma 69→72 upgrade must leave all of them (and the valid control
+ * the real Prisma 69→76 upgrade must leave all of them (and the valid control
  * rows) byte-identical. Nothing here repairs or deletes orphans.
  */
 it("main → import migrations preserves the legacy 32 FK orphans without new violations or financial changes", async () => {
@@ -458,7 +462,12 @@ it("main → import migrations preserves the legacy 32 FK orphans without new vi
     }
     deploy();
 
-    expect(sqlite("SELECT count(*) FROM _prisma_migrations")).toBe("72");
+    expect(sqlite("SELECT count(*) FROM _prisma_migrations")).toBe("76");
+    expect(
+      sqlite(
+        `SELECT migration_name FROM _prisma_migrations WHERE migration_name > '${MAIN_LAST_MIGRATION}' ORDER BY migration_name`,
+      ),
+    ).toBe(IMPORT_MIGRATIONS.join("\n"));
     expect(
       sqlite(
         "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL",
