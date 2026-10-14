@@ -27,7 +27,10 @@ import {
   pdfOcrRequestPayloadHash,
 } from "./pdf-ocr-state";
 import { parsePdfOcrV2 } from "./pdf-ocr-parser";
-import { PdfOcrProviderError } from "./vertex-pdf-ocr.provider";
+import {
+  PDF_OCR_DISPATCH_STATE,
+  PdfOcrProviderError,
+} from "./vertex-pdf-ocr.provider";
 import { PDF_OCR_RETENTION_MS } from "./pdf-ocr-state";
 import { VaultReaper } from "../vault/vault-reaper";
 import { extractPdfDocument } from "../../../credit-card/parsers/pdf-document";
@@ -1494,6 +1497,55 @@ describe("POST attachment analyze v2 direct OCR", () => {
   );
 
   it.each([
+    ["INCOMPLETE", "OCR_INCOMPLETE"],
+    ["OVERFLOW", "OCR_OVERFLOW"],
+  ] as const)(
+    "persists and replays typed terminal %s with one dispatch and zero writes",
+    async (failure, code) => {
+      const owner = await fixture(prisma, `quality-closure-${failure}`);
+      const provider = {
+        provider: PDF_OCR_PROVIDER_ID,
+        model: PDF_OCR_MODEL_ID,
+        ready: () => true,
+        extractPdf: jest
+          .fn()
+          .mockRejectedValue(
+            new PdfOcrProviderError(
+              failure as never,
+              PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+            ),
+          ),
+      };
+      const service = extraction(prisma, owner.bytes, provider, 1);
+      const request = await declareConsent(prisma, owner);
+
+      for (let invocation = 0; invocation < 2; invocation += 1)
+        await expect(
+          service.analyzeAttached(
+            owner.auth,
+            owner.sessionId,
+            owner.attachmentId,
+            request,
+            {},
+          ),
+        ).rejects.toMatchObject({ code });
+
+      expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+      expect(
+        await prisma.importOcrUsage.findFirstOrThrow({
+          where: { sessionId: owner.sessionId },
+        }),
+      ).toMatchObject({ outcome: failure });
+      expect(
+        await prisma.importObservation.count({
+          where: { tenantId: owner.tenantId },
+        }),
+      ).toBe(0);
+      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+    },
+  );
+
+  it.each([
     ["RATE_LIMITED", "OCR_ATTEMPT_UNKNOWN"],
     ["UPSTREAM", "OCR_ATTEMPT_UNKNOWN"],
     ["ATTEMPTED", "OCR_ATTEMPT_UNKNOWN"],
@@ -1650,7 +1702,9 @@ describe("POST attachment analyze v2 direct OCR", () => {
       request,
       {},
     );
-    await expect(second).rejects.toMatchObject({ code: expect.any(String) });
+    await expect(second).rejects.toMatchObject({
+      code: "OCR_ATTEMPT_UNKNOWN",
+    });
     release();
     await expect(first).resolves.toMatchObject({ selectedLineIds: [] });
     expect(provider.extractPdf).toHaveBeenCalledTimes(1);

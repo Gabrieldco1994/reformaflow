@@ -31,6 +31,7 @@ import {
   parseLiveEvidence,
   parseLiveEvidenceJson,
 } from "./live-evidence-parser";
+import policy from "./quality-closure-policy.json";
 
 jest.setTimeout(120_000);
 
@@ -71,12 +72,42 @@ function response(value: unknown) {
 function provider(
   versions: readonly string[] = [VERSION],
   responseIds?: readonly string[],
+  terminalOutcomes: Readonly<Record<string, "INCOMPLETE" | "OVERFLOW">> = {},
 ) {
   let index = 0;
   const fetcher = jest.fn(async () => {
     const testCase = OCR_SYNTH_SCANNED_RELEASE_CASES[index]!;
     const rows = successfulRows(testCase);
     const current = index++;
+    const terminalOutcome = terminalOutcomes[testCase.id];
+    const payload =
+      terminalOutcome === undefined
+        ? {
+            candidates: rows.map((row) => ({
+              pageNumber: row.page,
+              description: row.description,
+              amountCents: row.amountCents,
+              amountMeaning: row.amountMeaning,
+              date:
+                row.normalizedDate &&
+                /^\d{4}-\d{2}-\d{2}$/.test(row.normalizedDate)
+                  ? row.normalizedDate
+                  : null,
+              installment:
+                row.installmentCurrent !== null && row.installmentTotal !== null
+                  ? {
+                      index: row.installmentCurrent,
+                      total: row.installmentTotal,
+                    }
+                  : null,
+              evidenceText: row.evidenceText,
+            })),
+          }
+        : {
+            outcome: terminalOutcome,
+            pageCount: testCase.artifact.pageCount,
+            pages: [],
+          };
     return response({
       responseId: responseIds?.[current] ?? `response-${testCase.id}`,
       modelVersion: versions[current] ?? versions[0],
@@ -86,28 +117,7 @@ function provider(
           content: {
             parts: [
               {
-                text: JSON.stringify({
-                  candidates: rows.map((row) => ({
-                    pageNumber: row.page,
-                    description: row.description,
-                    amountCents: row.amountCents,
-                    amountMeaning: row.amountMeaning,
-                    date:
-                      row.normalizedDate &&
-                      /^\d{4}-\d{2}-\d{2}$/.test(row.normalizedDate)
-                        ? row.normalizedDate
-                        : null,
-                    installment:
-                      row.installmentCurrent !== null &&
-                      row.installmentTotal !== null
-                        ? {
-                            index: row.installmentCurrent,
-                            total: row.installmentTotal,
-                          }
-                        : null,
-                    evidenceText: row.evidenceText,
-                  })),
-                }),
+                text: JSON.stringify(payload),
               },
             ],
           },
@@ -151,10 +161,10 @@ async function manifest(): Promise<CaptureLiveManifest> {
     configurationSha256: "a".repeat(64),
     adapterSha256: "b".repeat(64),
     declaredLimits: {
-      maxP95LatencyMs: 30_000,
-      maxTotalCostMicros: 1_000_000,
-      maxRequestBodyBytes: 20_000_000,
-      maxProviderDeadlineMs: 30_000,
+      maxP95LatencyMs: policy.maxP95LatencyMs,
+      maxTotalCostMicros: policy.maxTotalCostMicros,
+      maxRequestBodyBytes: policy.maxRequestBodyBytes,
+      maxProviderDeadlineMs: policy.maxProviderDeadlineMs,
     },
     durableBudgets: {
       policySha256: "d".repeat(64),
@@ -173,10 +183,10 @@ async function manifest(): Promise<CaptureLiveManifest> {
       dataOwnerReviewSha256: "3".repeat(64),
     },
     pricing: {
-      source: "test pricing",
-      effectiveDate: "2026-10-13",
-      inputMicrosPerMillionTokens: 1_000_000,
-      outputMicrosPerMillionTokens: 1_000_000,
+      source: policy.pricing.source,
+      effectiveDate: policy.pricing.observedOn,
+      inputMicrosPerMillionTokens: policy.pricing.inputMicrosPerMillionTokens,
+      outputMicrosPerMillionTokens: policy.pricing.outputMicrosPerMillionTokens,
     },
     routingCases,
     safetyProbes,
@@ -219,6 +229,84 @@ describe("audited synthetic Vertex capture", () => {
         ? dense.outcome.candidates
         : [],
     ).toHaveLength(24);
+  });
+
+  it("captures all 18 expected outcomes with one dispatch each and no terminal retry", async () => {
+    const adapter = provider([VERSION], undefined, {
+      "scan-012": "INCOMPLETE",
+      "scan-018": "OVERFLOW",
+    });
+    const captured = await captureLiveEvidence({
+      provider: adapter.value,
+      manifest: await manifest(),
+      currentRepoSha: SHA,
+      memoryRss: () => 256_000_000,
+    });
+
+    expect(captured.predictions).toHaveLength(18);
+    expect(captured.predictions.map((item) => item.caseId)).toEqual(
+      OCR_SYNTH_SCANNED_RELEASE_CASES.map((item) => item.id),
+    );
+    expect(
+      captured.predictions.find((item) => item.caseId === "scan-012")!.outcome,
+    ).toEqual({
+      kind: "ERROR",
+      errorCode: "INCOMPLETE",
+      retryable: false,
+    });
+    expect(
+      captured.predictions.find((item) => item.caseId === "scan-018")!.outcome,
+    ).toEqual({
+      kind: "ERROR",
+      errorCode: "OVERFLOW",
+      retryable: false,
+    });
+    expect(adapter.fetcher).toHaveBeenCalledTimes(18);
+    expect(
+      captured.predictions.map((item) => item.adapterTrace?.providerCallCount),
+    ).toEqual(Array.from({ length: 18 }, () => 1));
+    expect(
+      captured.predictions.map((item) => item.adapterTrace?.attempts),
+    ).toEqual(Array.from({ length: 18 }, () => 1));
+  });
+
+  it("fails before dispatch when Linux VmHWM evidence is unavailable", async () => {
+    const adapter = provider();
+    await expect(
+      captureLiveEvidence({
+        provider: adapter.value,
+        manifest: await manifest(),
+        currentRepoSha: SHA,
+        readProcSelfStatus: async () => {
+          throw new Error("proc unavailable");
+        },
+      } as Parameters<typeof captureLiveEvidence>[0]),
+    ).rejects.toThrow("LIVE_CAPTURE_VMHWM_UNAVAILABLE");
+    expect(adapter.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("records one pre-dispatch and eighteen post-response Linux VmHWM checkpoints", async () => {
+    const adapter = provider();
+    const readProcSelfStatus = jest.fn(
+      async (_path: string) => "Name:\tnode\nVmHWM:\t524288 kB\n",
+    );
+    const captured = await captureLiveEvidence({
+      provider: adapter.value,
+      manifest: await manifest(),
+      currentRepoSha: SHA,
+      readProcSelfStatus,
+    } as Parameters<typeof captureLiveEvidence>[0]);
+
+    expect(readProcSelfStatus).toHaveBeenCalledTimes(19);
+    expect(
+      readProcSelfStatus.mock.calls.every(
+        ([path]) => path === "/proc/self/status",
+      ),
+    ).toBe(true);
+    expect(captured.predictions.map((item) => item.peakRssBytes)).toEqual(
+      Array.from({ length: 18 }, () => policy.maxVmHwmBytes),
+    );
+    expect(adapter.fetcher).toHaveBeenCalledTimes(18);
   });
 
   it("emits only provider-native outcome fields and derives sign locally", () => {

@@ -1,0 +1,25 @@
+{
+  "policyVersion": "ocr-quality-closure-v1",
+  "maxOutputTokens": 8192,
+  "maxP95LatencyMs": 30000,
+  "maxProviderDeadlineMs": 60000,
+  "maxRequestBodyBytes": 20000000,
+  "maxTotalCostMicros": 500000,
+  "maxVmHwmBytes": 536870912,
+  "pricing": {
+    "currency": "USD",
+    "source": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+    "observedOn": "2026-10-14",
+    "recheckThroughUtc": "2026-10-21",
+    "inputMicrosPerMillionTokens": 300000,
+    "outputMicrosPerMillionTokens": 2500000
+  },
+  "runtimeBindingFiles": [
+    "apps/api/src/imports/import-session/ocr/pdf-ocr-parser.ts",
+    "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.ts",
+    "apps/api/src/imports/import-session/import-session.extraction.service.ts",
+    "apps/api/src/imports/ocr-synth-v1/capture-live-core.ts",
+    "apps/api/src/imports/ocr-synth-v1/evaluator.ts",
+    "apps/api/src/imports/ocr-synth-v1/live-evidence-parser.ts"
+  ]
+}

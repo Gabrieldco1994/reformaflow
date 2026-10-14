@@ -13,6 +13,7 @@ import {
   type OcrEvalPrediction,
   type OcrPromptContractEvidence,
   type OcrRoutingEvidence,
+  type OcrSafetyProbeEvidence,
   type SafetyProbeId,
 } from "./types";
 
@@ -89,6 +90,38 @@ describe("scanned PDF Vertex adapter and service mutation gates", () => {
   beforeAll(async () => {
     baseline = await buildOraclePredictions(true);
     routes = await buildOracleRoutingCases();
+  });
+
+  it("keeps exactly 35 unique safety IDs", () => {
+    expect(SAFETY_PROBE_IDS).toHaveLength(35);
+    expect(new Set(SAFETY_PROBE_IDS).size).toBe(35);
+  });
+
+  it("expands existing partial and malformed probes instead of adding IDs", () => {
+    const probes = buildOracleSafetyProbes() as Array<
+      OcrSafetyProbeEvidence & { scenarios?: string[] }
+    >;
+    expect(probes).toHaveLength(35);
+    expect(probes.find((item) => item.id === "PARTIAL_RESPONSE")).toMatchObject(
+      {
+        id: "PARTIAL_RESPONSE",
+        scenarios: [
+          "EMPTY_DECEPTION",
+          "OMITTED_PAGE",
+          "DUPLICATE_PAGE",
+          "DECREASING_PAGE",
+          "PAGE_COUNT_MISMATCH",
+          "CANDIDATE_INDEX_GAP",
+          "CANDIDATE_ORDER",
+        ],
+      },
+    );
+    expect(
+      probes.find((item) => item.id === "MALFORMED_RESPONSE"),
+    ).toMatchObject({
+      id: "MALFORMED_RESPONSE",
+      scenarios: ["OUTER_DUPLICATE_KEY", "EMBEDDED_DUPLICATE_KEY"],
+    });
   });
 
   it.each([
