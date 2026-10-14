@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   cpSync,
   mkdirSync,
@@ -13,14 +13,95 @@ import { PrismaClient } from "@prisma/client";
 import { ExpenseType, PaymentForm, ProjectType } from "@reformaflow/domain";
 import type { StoredSourceScheduleV1 } from "../../expense/documented-schedule.types";
 
-const LEGACY_MIGRATION_COUNT = 68;
-const CURRENT_MIGRATION_COUNT = 72;
-const CURRENT_MIGRATION_TAIL = [
+const LEGACY_BOUNDARY_MIGRATION = "20260923190000_additive_partial_settlements";
+const CURRENT_MIGRATION_COUNT = 76;
+const CURRENT_MIGRATION_SUFFIX = [
   "20260923210000_documented_expense_schedule",
   "20260929010000_import_session_bootstrap",
   "20261009193000_canonical_import_linkage_retention",
   "20261010100000_retire_unlinked_import_artifacts",
+  "20261013180000_import_pdf_ocr_runtime",
+  "20261013183000_import_ocr_usage_budget",
+  "20261013233000_import_ocr_usage_foreign_keys",
+  "20261014004500_import_ocr_usage_provenance",
 ];
+const IMPORT_SESSION_BOOTSTRAP_MIGRATION =
+  "20260929010000_import_session_bootstrap";
+const CANONICAL_RETENTION_MIGRATION =
+  "20261009193000_canonical_import_linkage_retention";
+const RETIREMENT_MIGRATION = "20261010100000_retire_unlinked_import_artifacts";
+
+type HistoricalSessionInput = {
+  tenantId: string;
+  ownerProjectId: string;
+  ownerUserId: string;
+  cardId: string;
+  state: "DRAFT" | "APPLIED";
+  revision: number;
+  createRequestId: string;
+  createPayloadHash: string;
+  instant: Date;
+  expiresAt: Date;
+  draftJson: string;
+  proposalHash?: string;
+  financialRequestId?: string;
+  confirmedRevision?: number;
+  confirmedSessionVersion?: number;
+  confirmedAt?: Date;
+  receiptJson?: string;
+  closedAt?: Date;
+};
+
+async function insertHistoricalSession(
+  prisma: PrismaClient,
+  input: HistoricalSessionInput,
+): Promise<{ id: string }> {
+  const id = randomUUID();
+  const kind = "CREATE_CARD_PURCHASES";
+  const consentPolicyVersion = 1;
+  await prisma.$executeRaw`
+    INSERT INTO import_sessions (
+      id, tenant_id, owner_user_id, owner_project_id, card_id, kind, state,
+      revision, create_request_id, create_payload_hash,
+      consent_policy_version, consented_at, updated_at, last_user_edit_at,
+      expires_at, draft_json, proposal_hash, financial_request_id,
+      confirmed_revision, confirmed_session_version, confirmed_at,
+      receipt_json, closed_at
+    ) VALUES (
+      ${id}, ${input.tenantId}, ${input.ownerUserId}, ${input.ownerProjectId},
+      ${input.cardId}, ${kind}, ${input.state}, ${input.revision},
+      ${input.createRequestId}, ${input.createPayloadHash},
+      ${consentPolicyVersion}, ${input.instant}, ${input.instant},
+      ${input.instant}, ${input.expiresAt}, ${input.draftJson},
+      ${input.proposalHash ?? null}, ${input.financialRequestId ?? null},
+      ${input.confirmedRevision ?? null},
+      ${input.confirmedSessionVersion ?? null}, ${input.confirmedAt ?? null},
+      ${input.receiptJson ?? null}, ${input.closedAt ?? null}
+    )`;
+  return { id };
+}
+
+async function readHistoricalSession(
+  prisma: PrismaClient,
+  id: string,
+): Promise<Record<string, unknown>> {
+  const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+    SELECT
+      id, tenant_id, owner_user_id, owner_project_id, card_id,
+      protocol_version, kind, state, revision, create_request_id,
+      create_payload_hash, consent_policy_version, consented_at, created_at,
+      updated_at, last_user_edit_at, expires_at, draft_json, search_json,
+      proposal_json, proposal_hash, preflight_hash, challenge_json,
+      prepare_generation, prepare_lease_json, financial_request_id,
+      confirmed_revision, confirmed_session_version, confirmed_at,
+      receipt_json, closed_at
+    FROM import_sessions
+    WHERE id = ${id}`;
+  if (rows.length !== 1) {
+    throw new Error(`historical import session ${id} was not found`);
+  }
+  return rows[0];
+}
 type TestDbGuard = {
   REPO_ROOT: string;
   forbiddenReason(url: string): string | null;
@@ -49,7 +130,7 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
     expect(database.toLowerCase()).not.toContain("dev.db");
   }
 
-  it("upgrades 68 to 72 migrations without changing legacy financial rows or foreign keys", async () => {
+  it("upgrades the named 68-migration boundary through all 76 migrations without changing legacy financial rows or foreign keys", async () => {
     const root = resolve(__dirname, "../../../../..");
     const fixture = mkdtempSync(
       join(root, "prisma", ".tmp-maria-csv-upgrade-"),
@@ -62,7 +143,7 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
     mkdirSync(migrationRoot);
     // Like claimed-purging-upgrade.integration.spec.ts, deploy a committed
     // migration prefix. migrate deploy executes SQL, not the schema models:
-    // the first 68 migrations reconstruct the actual legacy structure even
+    // the named 68-migration prefix reconstructs the actual legacy structure even
     // in a depth-one CI checkout, without requiring a historical git object.
     cpSync(join(root, "prisma/schema.prisma"), schema);
     const committed = join(root, "prisma/migrations");
@@ -70,14 +151,17 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
       .filter((name) => /^\d/.test(name))
       .sort();
     expect(migrations).toHaveLength(CURRENT_MIGRATION_COUNT);
-    expect(migrations.slice(-CURRENT_MIGRATION_TAIL.length)).toEqual(
-      CURRENT_MIGRATION_TAIL,
+    const legacyBoundaryIndex = migrations.indexOf(LEGACY_BOUNDARY_MIGRATION);
+    expect(legacyBoundaryIndex).toBe(67);
+    expect(migrations.slice(legacyBoundaryIndex + 1)).toEqual(
+      CURRENT_MIGRATION_SUFFIX,
     );
     cpSync(
       join(committed, "migration_lock.toml"),
       join(migrationRoot, "migration_lock.toml"),
     );
-    for (const name of migrations.slice(0, LEGACY_MIGRATION_COUNT))
+    const legacyMigrations = migrations.slice(0, legacyBoundaryIndex + 1);
+    for (const name of legacyMigrations)
       cpSync(join(committed, name), join(migrationRoot, name), {
         recursive: true,
       });
@@ -159,11 +243,11 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
         WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
         ORDER BY migration_name ASC`;
       expect(appliedBefore.map(({ migration_name }) => migration_name)).toEqual(
-        migrations.slice(0, LEGACY_MIGRATION_COUNT),
+        legacyMigrations,
       );
       await prisma.$disconnect();
       cpSync(join(root, "prisma/schema.prisma"), schema);
-      for (const name of migrations.slice(LEGACY_MIGRATION_COUNT))
+      for (const name of migrations.slice(legacyBoundaryIndex + 1))
         cpSync(join(committed, name), join(migrationRoot, name), {
           recursive: true,
         });
@@ -227,13 +311,24 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
     const migrations = readdirSync(committed)
       .filter((name) => /^\d/.test(name))
       .sort();
+    const bootstrapIndex = migrations.indexOf(
+      IMPORT_SESSION_BOOTSTRAP_MIGRATION,
+    );
+    expect(bootstrapIndex).toBe(69);
+    expect(migrations[bootstrapIndex + 1]).toBe(CANONICAL_RETENTION_MIGRATION);
+    expect(migrations[bootstrapIndex + 2]).toBe(RETIREMENT_MIGRATION);
+    const historicalMigrations = migrations.slice(0, bootstrapIndex + 1);
+    const policyMigrations = [
+      CANONICAL_RETENTION_MIGRATION,
+      RETIREMENT_MIGRATION,
+    ];
     mkdirSync(migrationRoot);
     cpSync(join(root, "prisma/schema.prisma"), schema);
     cpSync(
       join(committed, "migration_lock.toml"),
       join(migrationRoot, "migration_lock.toml"),
     );
-    for (const name of migrations.slice(0, 70))
+    for (const name of historicalMigrations)
       cpSync(join(committed, name), join(migrationRoot, name), {
         recursive: true,
       });
@@ -376,31 +471,27 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
           formaPagamento: PaymentForm.A_VISTA,
         },
       });
-      const session = await prisma.importSession.create({
-        data: {
-          tenantId: tenant.id,
-          ownerProjectId: project.id,
-          ownerUserId: user.id,
-          cardId: card.id,
-          kind: "CREATE_CARD_PURCHASES",
-          state: "APPLIED",
-          revision: 2,
-          createRequestId: "legacy-create",
-          createPayloadHash: "a".repeat(64),
-          consentPolicyVersion: 1,
-          consentedAt: instant,
-          lastUserEditAt: instant,
-          expiresAt: new Date("2026-10-16T20:00:00.000Z"),
-          draftJson: '{"legacy":"terminal"}',
-          proposalHash: "b".repeat(64),
-          financialRequestId: "legacy-financial-request",
-          confirmedRevision: 2,
-          confirmedSessionVersion: 0,
-          confirmedAt: instant,
-          closedAt: instant,
-          receiptJson: '{"version":1,"legacy":"immutable APPLIED bytes"}',
-        },
+      const session = await insertHistoricalSession(prisma, {
+        tenantId: tenant.id,
+        ownerProjectId: project.id,
+        ownerUserId: user.id,
+        cardId: card.id,
+        state: "APPLIED",
+        revision: 2,
+        createRequestId: "legacy-create",
+        createPayloadHash: "a".repeat(64),
+        instant,
+        expiresAt: new Date("2026-10-16T20:00:00.000Z"),
+        draftJson: '{"legacy":"terminal"}',
+        proposalHash: "b".repeat(64),
+        financialRequestId: "legacy-financial-request",
+        confirmedRevision: 2,
+        confirmedSessionVersion: 0,
+        confirmedAt: instant,
+        closedAt: instant,
+        receiptJson: '{"version":1,"legacy":"immutable APPLIED bytes"}',
       });
+      const sessionBefore = await readHistoricalSession(prisma, session.id);
       const source = await prisma.importArtifact.create({
         data: {
           tenantId: tenant.id,
@@ -469,24 +560,23 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
         "f",
         "t/10000000-0000-4000-8000-000000000002/g2/blob",
       );
-      const liveSession = await prisma.importSession.create({
-        data: {
-          tenantId: tenant.id,
-          ownerProjectId: project.id,
-          ownerUserId: user.id,
-          cardId: card.id,
-          kind: "CREATE_CARD_PURCHASES",
-          state: "DRAFT",
-          revision: 1,
-          createRequestId: "legacy-active-reference",
-          createPayloadHash: "1".repeat(64),
-          consentPolicyVersion: 1,
-          consentedAt: instant,
-          lastUserEditAt: instant,
-          expiresAt: new Date("2026-10-16T20:00:00.000Z"),
-          draftJson: '{"legacy":"active-consent"}',
-        },
+      const liveSession = await insertHistoricalSession(prisma, {
+        tenantId: tenant.id,
+        ownerProjectId: project.id,
+        ownerUserId: user.id,
+        cardId: card.id,
+        state: "DRAFT",
+        revision: 1,
+        createRequestId: "legacy-active-reference",
+        createPayloadHash: "1".repeat(64),
+        instant,
+        expiresAt: new Date("2026-10-16T20:00:00.000Z"),
+        draftJson: '{"legacy":"active-consent"}',
       });
+      const liveSessionBefore = await readHistoricalSession(
+        prisma,
+        liveSession.id,
+      );
       const ref = async (
         artifactId: string,
         position: number,
@@ -533,8 +623,16 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
       const receiptsBefore = await prisma.$queryRaw`
         SELECT * FROM receipts WHERE tenant_id = ${tenant.id} ORDER BY id`;
       expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+      const appliedBefore = await prisma.$queryRaw<
+        Array<{ migration_name: string }>
+      >`SELECT migration_name FROM _prisma_migrations
+        WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+        ORDER BY migration_name`;
+      expect(appliedBefore.map(({ migration_name }) => migration_name)).toEqual(
+        historicalMigrations,
+      );
       await prisma.$disconnect();
-      for (const name of migrations.slice(70))
+      for (const name of policyMigrations)
         cpSync(join(committed, name), join(migrationRoot, name), {
           recursive: true,
         });
@@ -547,9 +645,9 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
         await prisma.$queryRaw`
         SELECT * FROM receipts WHERE tenant_id = ${tenant.id} ORDER BY id`,
       ).toEqual(receiptsBefore);
-      expect(
-        await prisma.importSession.findUnique({ where: { id: session.id } }),
-      ).toEqual(session);
+      expect(await readHistoricalSession(prisma, session.id)).toEqual(
+        sessionBefore,
+      );
       expect(
         await prisma.importObservation.findMany({
           where: { artifactId: source.id },
@@ -627,11 +725,9 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
           where: { id: protectedEmpty.id },
         }),
       ).toEqual(protectedEmpty);
-      expect(
-        await prisma.importSession.findUnique({
-          where: { id: liveSession.id },
-        }),
-      ).toEqual(liveSession);
+      expect(await readHistoricalSession(prisma, liveSession.id)).toEqual(
+        liveSessionBefore,
+      );
       expect(await prisma.$queryRaw`PRAGMA foreign_keys`).toEqual([
         { foreign_keys: 1n },
       ]);
@@ -640,10 +736,12 @@ describe("CSV schema upgrade from the committed legacy structure", () => {
         { migration_name: string; checksum: string }[]
       >`SELECT migration_name, checksum FROM _prisma_migrations
         WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name`;
-      expect(applied.map((row) => row.migration_name)).toEqual(migrations);
-      expect(migrations).toContain(
-        "20261009193000_canonical_import_linkage_retention",
-      );
+      expect(applied.map((row) => row.migration_name)).toEqual([
+        ...historicalMigrations,
+        ...policyMigrations,
+      ]);
+      expect(applied).toHaveLength(72);
+      expect(policyMigrations).toContain(CANONICAL_RETENTION_MIGRATION);
       for (const row of applied)
         expect(row.checksum).toBe(
           createHash("sha256")

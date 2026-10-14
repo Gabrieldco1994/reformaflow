@@ -12,7 +12,8 @@ module.exports = {
   ],
   transform: { "^.+\\.ts$": "ts-jest" },
   moduleFileExtensions: ["ts", "js", "json"],
-  globalSetup: "<rootDir>/test/jest.global-setup.cjs",
+  globalSetup: "<rootDir>/test/jest.quality-global-setup.cjs",
+  globalTeardown: "<rootDir>/test/jest.quality-global-teardown.cjs",
   setupFiles: ["<rootDir>/../../scripts/test-db-env.cjs"],
   moduleNameMapper: {
     "^@reformaflow/domain/dist/(.*)$":

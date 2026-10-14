@@ -164,17 +164,21 @@ describe("PDF QA: isolated purchase-document extraction", () => {
     ]);
   });
 
-  it.each([
-    ["scanned-only", generateScannedOnlyPdf],
-    ["mixed text/image", generateMixedInvoicePdf],
-  ])(
-    "rejects %s rather than returning empty or partial occurrences",
-    async (_label, generate) => {
-      await expect(extractPdfDocument(generate())).rejects.toMatchObject({
-        code: "OCR_REQUIRED",
-      });
-    },
-  );
+  it("rejects scanned-only PDFs with OCR_REQUIRED", async () => {
+    await expect(
+      extractPdfDocument(generateScannedOnlyPdf()),
+    ).rejects.toMatchObject({
+      code: "OCR_REQUIRED",
+    });
+  });
+
+  it("rejects mixed searchable/raster PDFs with DOCUMENT_UNREADABLE", async () => {
+    await expect(
+      extractPdfDocument(generateMixedInvoicePdf()),
+    ).rejects.toMatchObject({
+      code: "DOCUMENT_UNREADABLE",
+    });
+  });
 
   it("rejects malformed PDF bytes at the real adapter boundary", async () => {
     // The adapter maps PDF.js failures to this typed code; it deliberately

@@ -16,6 +16,8 @@ const OCR_COLUMN_MIGRATION = "20261013180000_import_pdf_ocr_runtime";
 const OCR_LEDGER_MIGRATION = "20261013183000_import_ocr_usage_budget";
 const OCR_LEDGER_FK_MIGRATION = "20261013233000_import_ocr_usage_foreign_keys";
 const OCR_PROVENANCE_MIGRATION = "20261014004500_import_ocr_usage_provenance";
+const REVIEWED_OCR_RUNTIME_SHA256 =
+  "3416eb9128ae35519d59302cd90891b00aab126b99725d6ae18b8658d115f3c3";
 
 function deploy(schema: string, database: string): void {
   execFileSync(
@@ -42,16 +44,13 @@ describe("PDF OCR migration fresh and populated upgrade", () => {
       rmSync(fixture, { recursive: true, force: true });
   });
 
-  it("keeps the previously committed OCR migration byte-identical", () => {
-    const historical = execFileSync("git", [
-      "show",
-      `c9791f5c7:prisma/migrations/${OCR_COLUMN_MIGRATION}/migration.sql`,
-    ]);
-    expect(
-      readFileSync(
-        join(ROOT, "prisma/migrations", OCR_COLUMN_MIGRATION, "migration.sql"),
-      ),
-    ).toEqual(historical);
+  it("keeps the reviewed OCR runtime migration at its exact SHA-256", () => {
+    const migration = readFileSync(
+      join(ROOT, "prisma/migrations", OCR_COLUMN_MIGRATION, "migration.sql"),
+    );
+    expect(createHash("sha256").update(migration).digest("hex")).toBe(
+      REVIEWED_OCR_RUNTIME_SHA256,
+    );
   });
 
   function setup(includeLedger: boolean) {

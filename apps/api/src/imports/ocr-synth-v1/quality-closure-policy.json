@@ -273,7 +273,9 @@
     "tsconfig.json",
     "apps/api/package.json",
     "apps/api/tsconfig.json",
-    "apps/api/src/imports/ocr-synth-v1/quality-closure-jest.config.cjs"
+    "apps/api/src/imports/ocr-synth-v1/quality-closure-jest.config.cjs",
+    "apps/api/test/jest.quality-global-setup.cjs",
+    "apps/api/test/jest.quality-global-teardown.cjs"
   ],
   "adapterBindingFiles": [
     "apps/api/src/imports/import-session/ocr/pdf-ocr-parser.ts",

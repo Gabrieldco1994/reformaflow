@@ -44,7 +44,7 @@ describe("Maria CSV additive schema baseline", () => {
     expect(importCoordinationTables.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("adds exactly three ordered import migrations after the unchanged 69-migration main baseline", async () => {
+  it("adds exactly seven ordered import/OCR migrations after the unchanged 69-migration main baseline", async () => {
     const migrations = await readdir(
       resolve(__dirname, "../../../../prisma/migrations"),
       { withFileTypes: true },
@@ -56,11 +56,15 @@ describe("Maria CSV additive schema baseline", () => {
     const scheduleMigration = "20260923210000_documented_expense_schedule";
     const sessionMigration = "20260929010000_import_session_bootstrap";
 
-    expect(migrationNames).toHaveLength(72);
+    expect(migrationNames).toHaveLength(76);
     expect(migrationNames.slice(69)).toEqual([
       sessionMigration,
       "20261009193000_canonical_import_linkage_retention",
       "20261010100000_retire_unlinked_import_artifacts",
+      "20261013180000_import_pdf_ocr_runtime",
+      "20261013183000_import_ocr_usage_budget",
+      "20261013233000_import_ocr_usage_foreign_keys",
+      "20261014004500_import_ocr_usage_provenance",
     ]);
     expect(migrationNames).toEqual(
       expect.arrayContaining([scheduleMigration, sessionMigration]),
@@ -72,15 +76,20 @@ describe("Maria CSV additive schema baseline", () => {
 
   it("preserves the contents of every pre-existing main migration", async () => {
     const migrationsRoot = resolve(__dirname, "../../../../prisma/migrations");
-    const mariaMigrations = new Set([
+    const appendedImportOcrMigrations = new Set([
       "20260929010000_import_session_bootstrap",
       "20261009193000_canonical_import_linkage_retention",
       "20261010100000_retire_unlinked_import_artifacts",
+      "20261013180000_import_pdf_ocr_runtime",
+      "20261013183000_import_ocr_usage_budget",
+      "20261013233000_import_ocr_usage_foreign_keys",
+      "20261014004500_import_ocr_usage_provenance",
     ]);
     const directories = await readdir(migrationsRoot, { withFileTypes: true });
     const priorMigrations = directories
       .filter(
-        (entry) => entry.isDirectory() && !mariaMigrations.has(entry.name),
+        (entry) =>
+          entry.isDirectory() && !appendedImportOcrMigrations.has(entry.name),
       )
       .map((entry) => entry.name)
       .sort();

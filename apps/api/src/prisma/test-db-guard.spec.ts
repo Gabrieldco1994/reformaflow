@@ -216,15 +216,29 @@ describe("isolamento de banco por worker do jest (#486)", () => {
     expect(fs.statSync(guard.ACTIVE_DB_PATH).size).toBeGreaterThan(0);
   });
 
-  it("o banco do worker retém as 69 migrations main mais as três migrations de importação", async () => {
+  it("o banco do worker retém as 69 migrations-base mais as sete migrations de importação/OCR", async () => {
     // Prova que a cópia é do template migrado — o modo de falha silencioso
     // seria um arquivo novo e vazio, com "no such table" em todo query.
     const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
       SELECT COUNT(*) AS total FROM _prisma_migrations
       WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
-    expect(Number(rows[0].total)).toBe(72);
-    const ledger = await prisma.$queryRaw<Array<{ migration_name: string }>>`
-      SELECT migration_name FROM _prisma_migrations ORDER BY migration_name`;
+    expect(Number(rows[0].total)).toBe(76);
+    const ledger = await prisma.$queryRaw<
+      Array<{
+        migration_name: string;
+        finished_at: Date | null;
+        rolled_back_at: Date | null;
+      }>
+    >`
+      SELECT migration_name, finished_at, rolled_back_at
+      FROM _prisma_migrations ORDER BY migration_name`;
+    expect(ledger).toHaveLength(76);
+    expect(
+      ledger.every(
+        ({ finished_at, rolled_back_at }) =>
+          finished_at !== null && rolled_back_at === null,
+      ),
+    ).toBe(true);
     expect(ledger[68].migration_name).toBe(
       "20260923210000_documented_expense_schedule",
     );
@@ -234,6 +248,10 @@ describe("isolamento de banco por worker do jest (#486)", () => {
       "20260929010000_import_session_bootstrap",
       "20261009193000_canonical_import_linkage_retention",
       "20261010100000_retire_unlinked_import_artifacts",
+      "20261013180000_import_pdf_ocr_runtime",
+      "20261013183000_import_ocr_usage_budget",
+      "20261013233000_import_ocr_usage_foreign_keys",
+      "20261014004500_import_ocr_usage_provenance",
     ]);
   });
 

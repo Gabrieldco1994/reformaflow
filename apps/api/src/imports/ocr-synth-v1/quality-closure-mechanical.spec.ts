@@ -18,6 +18,15 @@ jest.setTimeout(120_000);
 
 const execFile = promisify(execFileCallback);
 const ROOT = resolve(__dirname, "../../../../..");
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const guard = require("../../../../../scripts/test-db-env.cjs") as {
+  ACTIVE_DB_PATH: string;
+  ACTIVE_DB_URL: string;
+};
+// Load the database guard before loading the real Prisma client.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { PrismaClient } =
+  require("@prisma/client") as typeof import("@prisma/client");
 const POLICY_PATH =
   "apps/api/src/imports/ocr-synth-v1/quality-closure-policy.json";
 const CORPUS_PATH = "apps/api/src/imports/ocr-synth-v1/ground-truth.json";
@@ -1429,38 +1438,82 @@ describe("canonical quality closure mechanical binding", () => {
     ).resolves.toEqual(expectedHashedObservations(machineResult));
   });
 
-  it("[B3] executes and attests exactly 10 ROUTE plus 35 PROBE tests from the three causal boundary suites", async () => {
+  it("[B3] executes exactly 10 ROUTE plus 35 PROBE tests without replacing the parent Jest worker database", async () => {
     const loadedPolicy = await api().loadQualityClosurePolicy({
       root: ROOT,
       now: new Date("2026-10-14T12:00:00.000Z"),
     });
     const policy = causalPolicy(loadedPolicy);
+    const sentinel = {
+      id: "quality-closure-parent-worker-sentinel",
+      name: "quality closure parent worker sentinel",
+    };
+    expect(process.env.DATABASE_URL).toBe(guard.ACTIVE_DB_URL);
 
-    const observations = await api().runQualityClosureSuite(policy, {
-      root: ROOT,
-      exec: actualCausalJestExec(),
-    });
+    const arrangeClient = new PrismaClient();
+    await arrangeClient.$connect();
+    await arrangeClient.tenant.deleteMany({ where: { id: sentinel.id } });
+    await arrangeClient.tenant.create({ data: sentinel });
+    const parentDatabaseIdentity = await stat(guard.ACTIVE_DB_PATH);
+    await arrangeClient.$disconnect();
 
-    expect(observations).toHaveLength(45);
-    expect(observations.map((item) => item.name)).toEqual(
-      EXPECTED_TOPOLOGY.map((item) => item.name),
-    );
-    expect(
-      observations.filter((item) => item.name.startsWith("[ROUTE] ")),
-    ).toHaveLength(10);
-    expect(
-      observations.filter((item) => item.name.startsWith("[PROBE] ")),
-    ).toHaveLength(35);
-    for (const [index, observation] of observations.entries()) {
-      expect(observation).toMatchObject({
-        name: EXPECTED_TOPOLOGY[index]!.name,
-        title: EXPECTED_TOPOLOGY[index]!.name,
-        fullName: expect.stringContaining(EXPECTED_TOPOLOGY[index]!.name),
-        sourcePath: EXPECTED_TOPOLOGY[index]!.sourcePath,
-        status: "PASS",
-        assertionRecordSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-        suiteResultSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    try {
+      const observations = await api().runQualityClosureSuite(policy, {
+        root: ROOT,
+        exec: actualCausalJestExec(),
       });
+
+      expect(observations).toHaveLength(45);
+      expect(observations.map((item) => item.name)).toEqual(
+        EXPECTED_TOPOLOGY.map((item) => item.name),
+      );
+      expect(
+        observations.filter((item) => item.name.startsWith("[ROUTE] ")),
+      ).toHaveLength(10);
+      expect(
+        observations.filter((item) => item.name.startsWith("[PROBE] ")),
+      ).toHaveLength(35);
+      for (const [index, observation] of observations.entries()) {
+        expect(observation).toMatchObject({
+          name: EXPECTED_TOPOLOGY[index]!.name,
+          title: EXPECTED_TOPOLOGY[index]!.name,
+          fullName: expect.stringContaining(EXPECTED_TOPOLOGY[index]!.name),
+          sourcePath: EXPECTED_TOPOLOGY[index]!.sourcePath,
+          status: "PASS",
+          assertionRecordSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          suiteResultSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        });
+      }
+
+      const preservedIdentity = await stat(guard.ACTIVE_DB_PATH);
+      expect({
+        dev: preservedIdentity.dev,
+        ino: preservedIdentity.ino,
+      }).toEqual({
+        dev: parentDatabaseIdentity.dev,
+        ino: parentDatabaseIdentity.ino,
+      });
+
+      const assertClient = new PrismaClient();
+      await assertClient.$connect();
+      try {
+        await expect(
+          assertClient.tenant.findUnique({
+            where: { id: sentinel.id },
+            select: { id: true, name: true },
+          }),
+        ).resolves.toEqual(sentinel);
+      } finally {
+        await assertClient.$disconnect();
+      }
+    } finally {
+      const cleanupClient = new PrismaClient();
+      await cleanupClient.$connect();
+      try {
+        await cleanupClient.tenant.deleteMany({ where: { id: sentinel.id } });
+      } finally {
+        await cleanupClient.$disconnect();
+      }
     }
   });
 
