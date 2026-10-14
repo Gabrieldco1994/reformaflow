@@ -677,7 +677,15 @@ it("shows provider evidence text and origin on an externally extracted candidate
     /Texto extraído para conferência: MERCADO ORIGINAL/i,
   );
   expect(evidence).toHaveTextContent(
-    /PDF original.*SERVER_OCR_ORIGIN.*server-model.*server-region/i,
+    /Origem: PDF original.*SERVER_OCR_ORIGIN/i,
+  );
+  expect(evidence).toHaveTextContent(/Modelo configurado: server-model/i);
+  expect(evidence).toHaveTextContent(
+    /Versão informada pelo provedor: fixture-model-v1/i,
+  );
+  expect(evidence).toHaveTextContent(/Região: server-region/i);
+  expect(evidence).toHaveTextContent(
+    /Rastro de autenticação: LOCAL_ADC.*credenciais padrão locais/i,
   );
   expect(evidence).toHaveTextContent(/revise no documento original/i);
 

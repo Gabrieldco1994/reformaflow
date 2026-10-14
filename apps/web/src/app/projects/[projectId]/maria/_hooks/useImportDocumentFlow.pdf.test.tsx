@@ -282,7 +282,9 @@ describe("textual PDF documentary coordinator", () => {
           ocrEvidence: {
             origin: "GOOGLE_VERTEX_AI",
             model: "gemini-2.5-flash",
+            modelVersion: "provider-build-20261013",
             region: "southamerica-east1",
+            authTrace: "LOCAL_ADC",
             attachmentId: "a1",
             artifactFingerprint: "b".repeat(64),
             candidateFingerprint: "c".repeat(64),
@@ -723,7 +725,9 @@ describe("textual PDF documentary coordinator", () => {
             ocrEvidence: {
               origin: "GOOGLE_VERTEX_AI",
               model: "gemini-2.5-flash",
+              modelVersion: "provider-build-20261013",
               region: "southamerica-east1",
+              authTrace: "SERVICE_ACCOUNT_FILE_ADC",
               attachmentId: "a1",
               artifactFingerprint: "b".repeat(64),
               candidateFingerprint: "c".repeat(64),

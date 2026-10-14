@@ -10,6 +10,7 @@ import {
   IMPORT_SESSION_PROTOCOL_VERSION as VERSION,
   ImportSessionAmountMeaning,
   ImportSessionState,
+  PDF_OCR_MODEL_VERSION_PATTERN,
   isInvoiceDueMonth,
   parseExpenseSchedule,
   parseInstallmentDateOnlyUtc,
@@ -318,7 +319,9 @@ function ocrEvidence(v: unknown): v is OcrReviewEvidenceV1 {
     exact(v, [
       "origin",
       "model",
+      "modelVersion",
       "region",
+      "authTrace",
       "attachmentId",
       "artifactFingerprint",
       "candidateFingerprint",
@@ -327,7 +330,9 @@ function ocrEvidence(v: unknown): v is OcrReviewEvidenceV1 {
     ]) &&
     v.origin === "GOOGLE_VERTEX_AI" &&
     v.model === "gemini-2.5-flash" &&
+    matches(v.modelVersion, PDF_OCR_MODEL_VERSION_PATTERN) &&
     v.region === "southamerica-east1" &&
+    oneOf(v.authTrace, ["LOCAL_ADC", "SERVICE_ACCOUNT_FILE_ADC"]) &&
     id(v.attachmentId) &&
     hash(v.artifactFingerprint) &&
     hash(v.candidateFingerprint) &&

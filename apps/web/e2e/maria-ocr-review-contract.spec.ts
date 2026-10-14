@@ -44,7 +44,9 @@ test.beforeAll(async () => {
                   evidence={{
                     origin: "GOOGLE_VERTEX_AI",
                     model: "gemini-2.5-flash",
+                    modelVersion: "provider-build-20261013",
                     region: "southamerica-east1",
+                    authTrace: "SERVICE_ACCOUNT_FILE_ADC",
                     attachmentId: "private-attachment",
                     artifactFingerprint: "a".repeat(64),
                     candidateFingerprint: "b".repeat(64),
@@ -162,8 +164,20 @@ for (const width of [375, 390, 1280]) {
     );
     await expect(
       page.getByRole("note", { name: "Evidência da extração externa" }),
+    ).toContainText("Origem: PDF original · GOOGLE_VERTEX_AI");
+    await expect(
+      page.getByRole("note", { name: "Evidência da extração externa" }),
+    ).toContainText("Modelo configurado: gemini-2.5-flash");
+    await expect(
+      page.getByRole("note", { name: "Evidência da extração externa" }),
+    ).toContainText("Versão informada pelo provedor: provider-build-20261013");
+    await expect(
+      page.getByRole("note", { name: "Evidência da extração externa" }),
+    ).toContainText("Região: southamerica-east1");
+    await expect(
+      page.getByRole("note", { name: "Evidência da extração externa" }),
     ).toContainText(
-      "PDF original · GOOGLE_VERTEX_AI · gemini-2.5-flash · southamerica-east1",
+      "Rastro de autenticação: SERVICE_ACCOUNT_FILE_ADC · arquivo de conta de serviço",
     );
     await expect(page.getByText(/Entrada manual:/i)).toBeVisible();
     await expect(page.getByText(/Substituir o arquivo:/i)).toBeVisible();

@@ -34,7 +34,9 @@ const line = (index: number) => ({
   ocrEvidence: {
     origin: "GOOGLE_VERTEX_AI",
     model: "gemini-2.5-flash",
+    modelVersion: "provider-build-20261013",
     region: "southamerica-east1",
+    authTrace: index % 2 === 0 ? "LOCAL_ADC" : "SERVICE_ACCOUNT_FILE_ADC",
     attachmentId: "scan-attachment",
     artifactFingerprint: "a".repeat(64),
     candidateFingerprint: index.toString(16).padStart(64, "0"),
@@ -81,6 +83,21 @@ describe("final #719 strict browser OCR envelope", () => {
 
     expect(parsed.ocrCapability).toEqual(COMPLETE_CAPABILITY);
     expect(parsed.lines).toHaveLength(24);
+    expect(
+      parsed.lines.slice(0, 2).map((candidate) => ({
+        modelVersion: candidate.ocrEvidence?.modelVersion,
+        authTrace: candidate.ocrEvidence?.authTrace,
+      })),
+    ).toEqual([
+      {
+        modelVersion: "provider-build-20261013",
+        authTrace: "LOCAL_ADC",
+      },
+      {
+        modelVersion: "provider-build-20261013",
+        authTrace: "SERVICE_ACCOUNT_FILE_ADC",
+      },
+    ]);
     expect(
       parsed.lines.slice(0, 3).map(({ amountMeaning, amountCents }) => ({
         amountMeaning,

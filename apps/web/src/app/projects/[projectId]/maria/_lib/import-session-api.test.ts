@@ -79,6 +79,8 @@ describe("readImportWorkflowView OCR reload contract", () => {
   ] as const)(
     "keeps signed, zero, and unknown amount %s with server evidence",
     (amountCents, evidenceText) => {
+      const authTrace =
+        amountCents === 0 ? "SERVICE_ACCOUNT_FILE_ADC" : "LOCAL_ADC";
       const response = {
         ...view,
         attachments: [
@@ -109,7 +111,9 @@ describe("readImportWorkflowView OCR reload contract", () => {
             ocrEvidence: {
               origin: "GOOGLE_VERTEX_AI",
               model: "gemini-2.5-flash",
+              modelVersion: "provider-build-20261013",
               region: "southamerica-east1",
+              authTrace,
               attachmentId: "scan",
               artifactFingerprint: "a".repeat(64),
               candidateFingerprint: "b".repeat(64),
@@ -136,7 +140,11 @@ describe("readImportWorkflowView OCR reload contract", () => {
       expect(parsed.lines[0]).toMatchObject({
         amountMeaning: "UNKNOWN",
         amountCents,
-        ocrEvidence: { text: evidenceText },
+        ocrEvidence: {
+          text: evidenceText,
+          modelVersion: "provider-build-20261013",
+          authTrace,
+        },
       });
       expect(parsed.lines[0]?.amountCents).toBe(amountCents);
     },
@@ -176,7 +184,9 @@ describe("readImportWorkflowView OCR reload contract", () => {
     const evidence = {
       origin: "GOOGLE_VERTEX_AI",
       model: "gemini-2.5-flash",
+      modelVersion: "provider-build-20261013",
       region: "southamerica-east1",
+      authTrace: "LOCAL_ADC",
       attachmentId: "scan",
       artifactFingerprint: "a".repeat(64),
       candidateFingerprint: "b".repeat(64),
@@ -224,6 +234,46 @@ describe("readImportWorkflowView OCR reload contract", () => {
         ],
       }),
     ).toThrow(ImportWorkflowResponseError);
+    const { modelVersion: _modelVersion, ...withoutModelVersion } = evidence;
+    const { authTrace: _authTrace, ...withoutAuthTrace } = evidence;
+    for (const malformedEvidence of [
+      withoutModelVersion,
+      withoutAuthTrace,
+      { ...evidence, modelVersion: "" },
+      { ...evidence, authTrace: "UNKNOWN_ADC" },
+    ]) {
+      expect(() =>
+        readImportWorkflowView({
+          ...response,
+          lines: [{ ...line, ocrEvidence: malformedEvidence }],
+        }),
+      ).toThrow(ImportWorkflowResponseError);
+    }
+    for (const extraField of [
+      "requestId",
+      "responseId",
+      "serviceAccountIdentity",
+      "serviceAccountEmail",
+      "credentialPath",
+      "credentialEmail",
+      "credentialKey",
+      "accessToken",
+    ]) {
+      expect(() =>
+        readImportWorkflowView({
+          ...response,
+          lines: [
+            {
+              ...line,
+              ocrEvidence: {
+                ...evidence,
+                [extraField]: "must-not-be-accepted",
+              },
+            },
+          ],
+        }),
+      ).toThrow(ImportWorkflowResponseError);
+    }
     expect(
       readImportWorkflowView({ ...response, lines: [line] }).lines[0],
     ).not.toHaveProperty("ocrEvidence");

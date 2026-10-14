@@ -417,10 +417,11 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   chama uma única vez o mesmo endpoint de análise com o contrato v2 mínimo.
   Esse segundo corpo não contém ator, tenant, projeto, hash, provedor, modelo,
   região ou outros campos de autoridade. O resultado volta como o rascunho
-  normal: cada compra mostra `line.ocrEvidence.text`, `origin`, `model` e
-  `region` fornecidos e validados pela própria visão da sessão, sem sintetizar
-  proveniência; evidência ausente ou malformada não recebe selo de origem
-  autoritativa. Isso permanece após recarregar. Cada compra começa fora da
+  normal: cada compra mostra `line.ocrEvidence.text`, a origem, o modelo
+  configurado, a versão informada pelo provedor, a região e o rastro de
+  autenticação fornecidos e validados pela própria visão da sessão, sem
+  sintetizar proveniência; evidência ausente ou malformada não recebe selo de
+  origem autoritativa. Isso permanece após recarregar. Cada compra começa fora da
   seleção e com verificação pendente, e exige revisão humana nos controles já
   existentes antes de preparar, confirmar e executar. Valores OCR brutos podem
   ser negativos, zero ou desconhecidos; `LINE_AMOUNT` não classifica o valor
