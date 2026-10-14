@@ -257,7 +257,7 @@ function document(value: unknown): value is DocumentExtractionV1 {
     return false;
   if (
     binary &&
-    (metrics.rows === 0 ||
+    ((value.parserVersion !== PDF_OCR_PARSER_VERSION && metrics.rows === 0) ||
       metrics.imagePixels !== 0 ||
       metrics.frames !== 0 ||
       (value.parserVersion === "card-local-pdf-v1" ||

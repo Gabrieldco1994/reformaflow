@@ -140,7 +140,9 @@ describe("POST attachment analyze v2 direct OCR", () => {
     expect(analyzed.lines[0]!.ocrEvidence).toEqual({
       origin: PDF_OCR_PROVIDER_ID,
       model: PDF_OCR_MODEL_ID,
+      modelVersion: "integration-fixture-v1",
       region: PDF_OCR_REGION,
+      authTrace: "LOCAL_ADC",
       attachmentId: owner.attachmentId,
       artifactFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       candidateFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -185,6 +187,9 @@ describe("POST attachment analyze v2 direct OCR", () => {
       requestId: request.requestId,
       provider: PDF_OCR_PROVIDER_ID,
       model: PDF_OCR_MODEL_ID,
+      modelVersion: "integration-fixture-v1",
+      region: PDF_OCR_REGION,
+      authTrace: "LOCAL_ADC",
       reservedPages: 1,
       outcome: "SUCCEEDED",
       responseId: "vertex-happy",
@@ -197,8 +202,17 @@ describe("POST attachment analyze v2 direct OCR", () => {
     });
     expect(JSON.parse(observations[0]!.evidenceJson)).toMatchObject({
       ocr: {
+        provenanceVersion: 2,
+        usageId: expect.any(String),
         attachmentId: owner.attachmentId,
         artifactSha256: owner.hash,
+        provider: PDF_OCR_PROVIDER_ID,
+        model: PDF_OCR_MODEL_ID,
+        modelVersion: "integration-fixture-v1",
+        region: PDF_OCR_REGION,
+        authTrace: "LOCAL_ADC",
+        requestId: request.requestId,
+        responseId: "vertex-happy",
       },
       text: "13/10/2026 MERCADO 10,01",
     });
@@ -987,6 +1001,23 @@ function document(
       modelVersion: "integration-fixture-v1",
       usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
       latencyMs: 25,
+      requestTrace: {
+        requestId,
+        endpoint: "https://southamerica-east1-aiplatform.googleapis.com",
+        authTrace: "LOCAL_ADC",
+        adcScopes: ["https://www.googleapis.com/auth/cloud-platform"],
+        inputMimeType: "application/pdf",
+        inputMode: "INLINE_ORIGINAL_BYTES",
+        originalBytesSha256: hash,
+        requestBodyBytes: 1,
+        deadlineMs: 60_000,
+        finishReason: "STOP",
+        maxOutputTokens: 8192,
+        promptSha256: "a".repeat(64),
+        toolsPresent: false,
+        fileUri: null,
+        cachedContent: null,
+      },
     },
   );
   if (!parsed.ok) throw new Error(parsed.error.code);

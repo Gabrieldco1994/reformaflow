@@ -15,6 +15,7 @@ const ROOT = resolve(__dirname, "../../../../../..");
 const OCR_COLUMN_MIGRATION = "20261013180000_import_pdf_ocr_runtime";
 const OCR_LEDGER_MIGRATION = "20261013183000_import_ocr_usage_budget";
 const OCR_LEDGER_FK_MIGRATION = "20261013233000_import_ocr_usage_foreign_keys";
+const OCR_PROVENANCE_MIGRATION = "20261014004500_import_ocr_usage_provenance";
 
 function deploy(schema: string, database: string): void {
   execFileSync(
@@ -65,12 +66,13 @@ describe("PDF OCR migration fresh and populated upgrade", () => {
     const committed = readdirSync(join(ROOT, "prisma/migrations"))
       .filter((name) => /^\d/.test(name))
       .sort();
-    expect(committed.at(-1)).toBe(OCR_LEDGER_FK_MIGRATION);
+    expect(committed.at(-1)).toBe(OCR_PROVENANCE_MIGRATION);
     for (const migration of committed) {
       if (
         !includeLedger &&
         (migration === OCR_LEDGER_MIGRATION ||
-          migration === OCR_LEDGER_FK_MIGRATION)
+          migration === OCR_LEDGER_FK_MIGRATION ||
+          migration === OCR_PROVENANCE_MIGRATION)
       )
         continue;
       cpSync(
@@ -108,10 +110,19 @@ describe("PDF OCR migration fresh and populated upgrade", () => {
         await db.$queryRaw<Array<{ name: string; notnull: number }>>`
           SELECT name, "notnull"
           FROM pragma_table_info('import_ocr_usage')
-          WHERE name IN ('response_id', 'content_purged_at')
+          WHERE name IN (
+            'response_id',
+            'content_purged_at',
+            'region',
+            'model_version',
+            'auth_trace'
+          )
           ORDER BY name`,
       ).toEqual([
+        { name: "auth_trace", notnull: 0n },
         { name: "content_purged_at", notnull: 0n },
+        { name: "model_version", notnull: 0n },
+        { name: "region", notnull: 0n },
         { name: "response_id", notnull: 0n },
       ]);
       const checksum = createHash("sha256")

@@ -189,9 +189,14 @@ GOOGLE_CLOUD_PROJECT='<approved-project>' \
 ```
 
 For non-qualifying local diagnostics only, use `NODE_ENV=development` and
-`VERTEX_AUTH_MODE=local-adc` with already-admitted ambient ADC. Do not set an API key or credential
-path. There is no auth fallback: missing/invalid config or service-account file stops before the
-first provider call, and a token failure remains `NOT_DISPATCHED`.
+`VERTEX_AUTH_MODE=local-adc`. The API securely reads only
+`~/.config/gcloud/application_default_credentials.json` as an owner-only regular
+`authorized_user` file and passes the admitted in-memory credentials directly to
+GoogleAuth. Production accepts only `/secrets/vertex-sa.json` for
+`reformaflow-ocr@<GOOGLE_CLOUD_PROJECT>.iam.gserviceaccount.com`. Do not set an
+API key, `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_CONFIG`, or a metadata-host
+override. There is no auth fallback: missing or invalid credentials stop before
+the first provider call, and a token failure remains `NOT_DISPATCHED`.
 
 The command generates only the in-repository synthetic `scan-001` through `scan-018` PDFs in
 memory, hashes and admits all of them before dispatch, then calls

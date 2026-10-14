@@ -33,6 +33,7 @@ import {
   type ImportRawClaim,
 } from "../import-session.raw-executions";
 import { PDF_OCR_RETENTION_MS } from "../ocr/pdf-ocr-state";
+import { enforcePdfOcrRetention } from "../ocr/pdf-ocr-retention";
 import { PDF_OCR_USAGE_OUTCOME } from "../ocr/pdf-ocr-budget";
 import { parseStoredDraft } from "../import-session.projection";
 import { validateStoredDraft } from "../import-session.validation";
@@ -112,9 +113,20 @@ export class VaultReaper {
           ownerProjectId: scope.ownerProjectId,
           outcome: PDF_OCR_USAGE_OUTCOME.SUCCEEDED,
           contentPurgedAt: null,
-          createdAt: {
-            lte: new Date(now.getTime() - PDF_OCR_RETENTION_MS),
-          },
+          OR: [
+            {
+              createdAt: {
+                lte: new Date(now.getTime() - PDF_OCR_RETENTION_MS),
+              },
+            },
+            { region: null },
+            { modelVersion: null },
+            { authTrace: null },
+            { responseId: null },
+            { inputTokens: null },
+            { outputTokens: null },
+            { totalTokens: null },
+          ],
         },
         orderBy: { createdAt: "asc" },
         take: limit,
@@ -143,6 +155,9 @@ export class VaultReaper {
             },
           });
           if (!row) return { value: undefined, invalidatedClaims: [] };
+          const retainedSession = await enforcePdfOcrRetention(tx, row, now);
+          if (retainedSession !== row)
+            return { value: undefined, invalidatedClaims: [] };
           const due = await tx.importOcrUsage.findMany({
             where: {
               id: { in: candidate.usageIds },

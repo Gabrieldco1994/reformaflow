@@ -71,7 +71,7 @@ export class ImportContentService {
     now: Date,
   ) {
     const actor = await reauthorize(tx, auth, now);
-    const row = await loadOwnedImportSession(tx, actor, id);
+    const row = await loadOwnedImportSession(tx, actor, id, now);
     await assertImportSessionAccess(tx, actor, row, now);
     const state = effectiveState(row, now);
     if (

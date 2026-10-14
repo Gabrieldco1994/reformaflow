@@ -229,7 +229,9 @@ export interface ImportSessionDraftLineV1 {
 export interface ImportOcrReviewEvidenceV1 {
   origin: "GOOGLE_VERTEX_AI";
   model: "gemini-2.5-flash";
+  modelVersion: string;
   region: "southamerica-east1";
+  authTrace: "LOCAL_ADC" | "SERVICE_ACCOUNT_FILE_ADC";
   attachmentId: ImportSessionId;
   artifactFingerprint: ImportSessionHash;
   candidateFingerprint: ImportSessionHash;

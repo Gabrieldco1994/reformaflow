@@ -14,6 +14,7 @@ import { PrismaClient } from "@prisma/client";
 const ROOT = resolve(__dirname, "../../../../../..");
 const LEDGER_MIGRATION = "20261013183000_import_ocr_usage_budget";
 const FK_MIGRATION = "20261013233000_import_ocr_usage_foreign_keys";
+const PROVENANCE_MIGRATION = "20261014004500_import_ocr_usage_provenance";
 const NOW = new Date("2026-10-13T23:30:00.000Z");
 
 function deploy(schema: string, database: string): void {
@@ -52,16 +53,18 @@ function legacyTarget(fixtures: string[]): LegacyTarget {
   const committed = readdirSync(join(ROOT, "prisma/migrations"))
     .filter((name) => /^\d/.test(name))
     .sort();
-  expect(committed.at(-1)).toBe(FK_MIGRATION);
+  expect(committed.at(-1)).toBe(PROVENANCE_MIGRATION);
   for (const migration of committed) {
-    if (migration === FK_MIGRATION) continue;
+    if (migration === FK_MIGRATION || migration === PROVENANCE_MIGRATION)
+      continue;
     cpSync(
       join(ROOT, "prisma/migrations", migration),
       join(migrations, migration),
       { recursive: true },
     );
   }
-  expect(committed.at(-2)).toBe(LEDGER_MIGRATION);
+  expect(committed.at(-2)).toBe(FK_MIGRATION);
+  expect(committed.at(-3)).toBe(LEDGER_MIGRATION);
   const schema = join(root, "schema.prisma");
   cpSync(join(ROOT, "prisma/schema.prisma"), schema);
   const database = join(root, "ocr-fk-upgrade.db");
@@ -74,6 +77,15 @@ function installFkMigration(target: LegacyTarget): void {
   cpSync(
     join(ROOT, "prisma/migrations", FK_MIGRATION),
     join(target.migrations, FK_MIGRATION),
+    { recursive: true },
+  );
+  deploy(target.schema, target.database);
+}
+
+function installProvenanceMigration(target: LegacyTarget): void {
+  cpSync(
+    join(ROOT, "prisma/migrations", PROVENANCE_MIGRATION),
+    join(target.migrations, PROVENANCE_MIGRATION),
     { recursive: true },
   );
   deploy(target.schema, target.database);
@@ -200,6 +212,45 @@ function usageData(
     updatedAt: NOW,
     ...overrides,
   };
+}
+
+async function insertLegacyUsage(
+  db: PrismaClient,
+  data: ReturnType<typeof usageData>,
+): Promise<void> {
+  await db.$executeRawUnsafe(
+    `INSERT INTO import_ocr_usage (
+      id, day, tenant_id, owner_project_id, actor_id, session_id,
+      attachment_id, artifact_id, artifact_sha256, request_id, provider,
+      model, reserved_calls, reserved_pages, reserved_bytes,
+      reserved_cost_units, input_tokens, output_tokens, total_tokens,
+      response_id, outcome, content_purged_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    data.id,
+    data.day,
+    data.tenantId,
+    data.ownerProjectId,
+    data.actorId,
+    data.sessionId,
+    data.attachmentId,
+    data.artifactId,
+    data.artifactSha256,
+    data.requestId,
+    data.provider,
+    data.model,
+    data.reservedCalls,
+    data.reservedPages,
+    data.reservedBytes,
+    data.reservedCostUnits,
+    data.inputTokens,
+    data.outputTokens,
+    data.totalTokens,
+    data.responseId,
+    data.outcome,
+    data.contentPurgedAt,
+    data.createdAt,
+    data.updatedAt,
+  );
 }
 
 async function rawUsageRows(db: PrismaClient) {
@@ -335,19 +386,40 @@ describe("ImportOcrUsage additive foreign-key migration", () => {
     }
   });
 
-  it("upgrades a populated valid ledger without changing any row or column", async () => {
+  it("upgrades a populated post-FK ledger with nullable provenance", async () => {
     const target = legacyTarget(fixtures);
     const db = new PrismaClient({
       datasources: { db: { url: `file:${target.database}` } },
     });
     try {
       const parent = await parents(db, "valid");
-      await db.importOcrUsage.create({ data: usageData(parent) });
+      await insertLegacyUsage(db, usageData(parent));
       const before = await rawUsageRows(db);
       await db.$disconnect();
       installFkMigration(target);
       await db.$connect();
       expect(await rawUsageRows(db)).toEqual(before);
+      expect(await db.$queryRawUnsafe("PRAGMA foreign_key_check")).toEqual([]);
+      await db.$disconnect();
+      installProvenanceMigration(target);
+      await db.$connect();
+      expect(
+        await db.$queryRawUnsafe<
+          Array<{
+            id: string;
+            region: string | null;
+            model_version: string | null;
+            auth_trace: string | null;
+          }>
+        >("SELECT id, region, model_version, auth_trace FROM import_ocr_usage"),
+      ).toEqual([
+        {
+          id: before[0]!.id,
+          region: null,
+          model_version: null,
+          auth_trace: null,
+        },
+      ]);
       expect(await db.$queryRawUnsafe("PRAGMA foreign_key_check")).toEqual([]);
       const migrationSql = readFileSync(
         join(ROOT, "prisma/migrations", FK_MIGRATION, "migration.sql"),
@@ -376,7 +448,7 @@ describe("ImportOcrUsage additive foreign-key migration", () => {
               attachmentId: other.attachmentId,
               artifactId: other.artifactId,
             });
-      await db.importOcrUsage.create({ data: invalid });
+      await insertLegacyUsage(db, invalid);
       const before = await rawUsageRows(db);
       await db.$disconnect();
       cpSync(
@@ -405,7 +477,7 @@ describe("ImportOcrUsage additive foreign-key migration", () => {
       datasources: { db: { url: `file:${target.database}` } },
     });
     const parent = await parents(db, "delete-restrict");
-    await db.importOcrUsage.create({ data: usageData(parent) });
+    await insertLegacyUsage(db, usageData(parent));
     await db.$disconnect();
     installFkMigration(target);
     await db.$connect();

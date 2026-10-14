@@ -16,7 +16,7 @@ const validDocument = (overrides: Record<string, unknown> = {}) => ({
   project_id: PROJECT,
   private_key_id: "a".repeat(40),
   private_key: privateKey,
-  client_email: `vertex-ocr@${PROJECT}.iam.gserviceaccount.com`,
+  client_email: `reformaflow-ocr@${PROJECT}.iam.gserviceaccount.com`,
   client_id: "123456789012345678901",
   auth_uri: "https://accounts.google.com/o/oauth2/auth",
   token_uri: "https://oauth2.googleapis.com/token",
@@ -46,6 +46,7 @@ function fileSystem(
   const directory = {
     dev: 1,
     ino: 1,
+    uid: typeof process.getuid === "function" ? process.getuid() : 0,
     mode: 0o40500,
     size: 0,
     isDirectory: () => true,
@@ -56,6 +57,7 @@ function fileSystem(
   const baseFile = {
     dev: 1,
     ino: 2,
+    uid: typeof process.getuid === "function" ? process.getuid() : 0,
     mode: 0o100400,
     size: content.length,
     isDirectory: () => false,
@@ -84,8 +86,8 @@ describe("Vertex service-account file admission", () => {
   it("admits the fixed root-mounted read-only file without returning secrets", async () => {
     const fs = fileSystem();
     await expect(admitVertexServiceAccountFile(PROJECT, fs)).resolves.toEqual({
-      keyFilename: VERTEX_SERVICE_ACCOUNT_KEY_PATH,
       projectId: PROJECT,
+      credentials: validDocument(),
     });
     expect(fs.open).toHaveBeenCalledWith(
       VERTEX_SERVICE_ACCOUNT_KEY_PATH,

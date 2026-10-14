@@ -33,6 +33,7 @@ describe("private document retention behavior", () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       importObservation: {
+        findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
@@ -177,10 +178,12 @@ describe("private document retention behavior", () => {
         attachmentId: "attachment-retention",
         artifactId: "artifact-retention",
         artifactSha256: "a".repeat(64),
+        createdAt: new Date(now.getTime() - 7 * 86_400_000),
       },
     ] as never);
     tx.importSession.findFirst.mockResolvedValue({
       id: "terminal-session",
+      ...scope,
       state: "CANCELLED",
       revision: 2,
       ocrJson: null,

@@ -8,6 +8,7 @@ export const VERTEX_SERVICE_ACCOUNT_STARTUP_ERROR =
 const VERTEX_SECRETS_DIRECTORY = "/secrets";
 const MAX_KEY_FILE_BYTES = 64 * 1024;
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
+const GOOGLE_PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 const REQUIRED_KEYS = [
   "type",
   "project_id",
@@ -22,6 +23,7 @@ const REQUIRED_KEYS = [
 ] as const;
 
 type FileStats = Pick<Stats, "dev" | "ino" | "mode" | "size"> &
+  Partial<Pick<Stats, "uid">> &
   Pick<Stats, "isDirectory" | "isFile" | "isSymbolicLink">;
 
 export interface VertexServiceAccountFileSystem {
@@ -37,8 +39,19 @@ export interface VertexServiceAccountFileSystem {
 }
 
 export interface AdmittedVertexServiceAccount {
-  readonly keyFilename: typeof VERTEX_SERVICE_ACCOUNT_KEY_PATH;
   readonly projectId: string;
+  readonly credentials: Readonly<{
+    type: "service_account";
+    project_id: string;
+    private_key_id: string;
+    private_key: string;
+    client_email: string;
+    client_id: string;
+    auth_uri: string;
+    token_uri: string;
+    auth_provider_x509_cert_url: string;
+    client_x509_cert_url: string;
+  }>;
 }
 
 const nodeFileSystem: VertexServiceAccountFileSystem = {
@@ -52,6 +65,15 @@ function fail(): never {
 
 function isProtected(mode: number): boolean {
   return (mode & 0o022) === 0;
+}
+
+function isOwnerOnlyFile(stats: FileStats): boolean {
+  const processUid =
+    typeof process.getuid === "function" ? process.getuid() : null;
+  return (
+    (stats.mode & 0o077) === 0 &&
+    (processUid === null || stats.uid === undefined || stats.uid === processUid)
+  );
 }
 
 function sameFile(left: FileStats, right: FileStats): boolean {
@@ -96,6 +118,7 @@ function validateDocument(
   if (
     value.type !== "service_account" ||
     value.project_id !== projectId ||
+    !GOOGLE_PROJECT_ID.test(projectId) ||
     value.token_uri !== GOOGLE_TOKEN_URI ||
     !isBoundedString(value.private_key_id, 1, 256) ||
     !/^[\x21-\x7e]+$/.test(value.private_key_id) ||
@@ -110,12 +133,8 @@ function validateDocument(
     fail();
   }
 
-  const escapedProject = projectId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  if (
-    !new RegExp(
-      `^[a-z][a-z0-9-]{4,28}[a-z0-9]@${escapedProject}\\.iam\\.gserviceaccount\\.com$`,
-    ).test(value.client_email)
-  ) {
+  const expectedEmail = `reformaflow-ocr@${projectId}.iam.gserviceaccount.com`;
+  if (value.client_email !== expectedEmail) {
     fail();
   }
 
@@ -127,8 +146,19 @@ function validateDocument(
   }
 
   return Object.freeze({
-    keyFilename: VERTEX_SERVICE_ACCOUNT_KEY_PATH,
     projectId,
+    credentials: Object.freeze({
+      type: "service_account" as const,
+      project_id: projectId,
+      private_key_id: value.private_key_id,
+      private_key: value.private_key,
+      client_email: expectedEmail,
+      client_id: value.client_id,
+      auth_uri: value.auth_uri,
+      token_uri: GOOGLE_TOKEN_URI,
+      auth_provider_x509_cert_url: value.auth_provider_x509_cert_url,
+      client_x509_cert_url: value.client_x509_cert_url,
+    }),
   });
 }
 
@@ -164,7 +194,7 @@ export async function admitVertexServiceAccountFile(
     if (
       !opened.isFile() ||
       opened.isSymbolicLink() ||
-      !isProtected(opened.mode) ||
+      !isOwnerOnlyFile(opened) ||
       opened.size <= 0 ||
       opened.size > MAX_KEY_FILE_BYTES ||
       !sameFile(before, opened)

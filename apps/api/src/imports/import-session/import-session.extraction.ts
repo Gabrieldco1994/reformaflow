@@ -9,6 +9,7 @@ import {
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PRIMITIVES as P,
   PDF_OCR_PARSER_VERSION,
+  PDF_OCR_VERSION,
   ImportSessionErrorCode as Code,
   isInvoiceDueMonth,
   type ExpenseScheduleV1,
@@ -16,6 +17,7 @@ import {
   type ImportSessionDraftQuestionV1,
   type ImportSessionStoredDraftV1,
   type ImportSessionViewV1,
+  type PdfOcrDocumentV2,
 } from "@reformaflow/domain";
 import { canonical } from "../../common/canonical";
 import { hasUnknownCardOccurrenceFacts } from "./card-import-identity";
@@ -242,6 +244,11 @@ export interface ImportMaterializationInput {
   draft: ImportSessionStoredDraftV1;
   observations: readonly ImportObservation[];
   newIds: ReadonlyMap<string, { observationId: string; lineId: string }>;
+  ocr?: Readonly<{
+    usageId: string;
+    document: PdfOcrDocumentV2;
+    authTrace: "LOCAL_ADC" | "SERVICE_ACCOUNT_FILE_ADC";
+  }> | null;
 }
 export interface ImportMaterializationPlan {
   draft: ImportSessionStoredDraftV1;
@@ -304,24 +311,31 @@ export function buildImportMaterialization(
       continue;
     const ids = newIds.get(occurrence.reference);
     if (!ids) throw new ImportSessionCorruptStateError("extraction_ids");
-    if (
-      extraction.parserVersion === PDF_OCR_PARSER_VERSION &&
-      (typeof occurrence.raw.description !== "string" ||
-        occurrence.raw.description.length === 0)
-    )
-      throw new ImportSessionCorruptStateError("ocr_evidence");
+    const ocrCandidate =
+      extraction.parserVersion === PDF_OCR_PARSER_VERSION
+        ? input.ocr?.document.candidates[occurrence.sourceOrdinal]
+        : undefined;
     const ocrPage =
       extraction.parserVersion === PDF_OCR_PARSER_VERSION
         ? /^ocr:page:(\d+):candidate:\d+$/.exec(occurrence.reference)
         : null;
     if (
       extraction.parserVersion === PDF_OCR_PARSER_VERSION &&
-      (!ocrPage || !Number.isSafeInteger(Number(ocrPage[1])))
+      (!input.ocr ||
+        !ocrCandidate ||
+        !ocrPage ||
+        !Number.isSafeInteger(Number(ocrPage[1])) ||
+        Number(ocrPage[1]) !== ocrCandidate.pageNumber)
+    )
+      throw new ImportSessionCorruptStateError("ocr_reference");
+    if (
+      extraction.parserVersion !== PDF_OCR_PARSER_VERSION &&
+      input.ocr != null
     )
       throw new ImportSessionCorruptStateError("ocr_reference");
     const text =
       extraction.parserVersion === PDF_OCR_PARSER_VERSION
-        ? occurrence.raw.description!
+        ? ocrCandidate!.evidence.text
         : [
             occurrence.dateOnly,
             occurrence.merchant,
@@ -354,20 +368,23 @@ export function buildImportMaterialization(
       ...(extraction.parserVersion === PDF_OCR_PARSER_VERSION
         ? {
             ocr: {
+              provenanceVersion: PDF_OCR_VERSION,
+              usageId: input.ocr!.usageId,
               attachmentId: attachment.id,
               artifactSha256: artifact.documentSha256,
+              provider: input.ocr!.document.provenance.provider,
+              model: input.ocr!.document.provenance.model,
+              modelVersion: input.ocr!.document.provenance.modelVersion,
+              region: input.ocr!.document.provenance.region,
+              authTrace: input.ocr!.authTrace,
+              requestId: input.ocr!.document.provenance.requestId,
+              responseId: input.ocr!.document.provenance.responseId,
               candidateFingerprint: createHash("sha256")
                 .update(
                   canonical({
                     artifactSha256: artifact.documentSha256,
                     reference: occurrence.reference,
-                    evidenceText: occurrence.raw.description,
-                    dataCompra: occurrence.dateOnly,
-                    merchant: occurrence.merchant,
-                    amountCents: occurrence.amountCents,
-                    amountMeaning: occurrence.amountMeaning,
-                    installmentCount: occurrence.installmentCount,
-                    installmentIndex: occurrence.installmentIndex,
+                    candidate: ocrCandidate,
                   }),
                 )
                 .digest("hex"),

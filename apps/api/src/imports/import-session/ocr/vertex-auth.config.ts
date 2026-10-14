@@ -16,6 +16,12 @@ const API_KEY_ENVIRONMENT_KEYS = [
   "GOOGLE_API_KEY",
   "VERTEX_API_KEY",
 ] as const;
+const AMBIENT_CREDENTIAL_ENVIRONMENT_KEYS = [
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "CLOUDSDK_CONFIG",
+  "GCE_METADATA_HOST",
+  "GCE_METADATA_IP",
+] as const;
 
 function isPresent(value: string | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
@@ -39,7 +45,10 @@ export function parseVertexAuthConfig(
   const projectId = environment.GOOGLE_CLOUD_PROJECT?.trim();
   if (
     !projectId ||
-    API_KEY_ENVIRONMENT_KEYS.some((key) => isPresent(environment[key]))
+    API_KEY_ENVIRONMENT_KEYS.some((key) => isPresent(environment[key])) ||
+    AMBIENT_CREDENTIAL_ENVIRONMENT_KEYS.some((key) =>
+      isPresent(environment[key]),
+    )
   ) {
     return invalid();
   }
@@ -57,10 +66,7 @@ export function parseVertexAuthConfig(
     });
   }
 
-  if (
-    environment.VERTEX_AUTH_MODE !== "service-account-file" ||
-    isPresent(environment.GOOGLE_APPLICATION_CREDENTIALS)
-  ) {
+  if (environment.VERTEX_AUTH_MODE !== "service-account-file") {
     return invalid();
   }
 

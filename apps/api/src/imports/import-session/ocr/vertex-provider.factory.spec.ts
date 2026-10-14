@@ -27,8 +27,21 @@ describe("configured Vertex provider", () => {
     const admitServiceAccountFile = jest.fn(async (projectId: string) => {
       calls.push(`admit:${projectId}`);
       return {
-        keyFilename: "/secrets/vertex-sa.json" as const,
         projectId,
+        credentials: {
+          type: "service_account" as const,
+          project_id: projectId,
+          private_key_id: "key",
+          private_key: "private",
+          client_email: `reformaflow-ocr@${projectId}.iam.gserviceaccount.com`,
+          client_id: "client",
+          auth_uri: "https://accounts.google.com/o/oauth2/auth",
+          token_uri: "https://oauth2.googleapis.com/token",
+          auth_provider_x509_cert_url:
+            "https://www.googleapis.com/oauth2/v1/certs",
+          client_x509_cert_url:
+            "https://www.googleapis.com/robot/v1/metadata/x509/reformaflow-ocr",
+        },
       };
     });
     const GoogleAuthClass = jest.fn(() => {

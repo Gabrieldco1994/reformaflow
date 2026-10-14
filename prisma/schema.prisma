@@ -1397,6 +1397,9 @@ model ImportOcrUsage {
   requestId         String   @map("request_id")
   provider          String
   model             String
+  region            String?
+  modelVersion      String?  @map("model_version")
+  authTrace         String?  @map("auth_trace")
   reservedCalls     Int      @map("reserved_calls")
   reservedPages     Int      @map("reserved_pages")
   reservedBytes     Int      @map("reserved_bytes")

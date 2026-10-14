@@ -1,6 +1,11 @@
 import { createVertexAccessToken } from "./vertex-access-token.factory";
 import { VERTEX_ADC_SCOPES } from "./vertex-pdf-ocr.provider";
-import { VERTEX_SERVICE_ACCOUNT_KEY_PATH } from "./vertex-service-account-file";
+const credentials = {
+  type: "authorized_user",
+  client_id: "client",
+  client_secret: "secret",
+  refresh_token: "refresh",
+};
 
 describe("Vertex access-token factory", () => {
   it.each([
@@ -12,7 +17,7 @@ describe("Vertex access-token factory", () => {
         authTrace: "LOCAL_ADC",
         projectId: "project-719",
       },
-      { scopes: [...VERTEX_ADC_SCOPES] },
+      { credentials, scopes: [...VERTEX_ADC_SCOPES] },
     ],
     [
       "SERVICE_ACCOUNT_FILE_ADC",
@@ -23,7 +28,7 @@ describe("Vertex access-token factory", () => {
         projectId: "project-719",
       },
       {
-        keyFilename: VERTEX_SERVICE_ACCOUNT_KEY_PATH,
+        credentials,
         scopes: [...VERTEX_ADC_SCOPES],
       },
     ],
@@ -38,6 +43,7 @@ describe("Vertex access-token factory", () => {
       const GoogleAuthConstructor = jest.fn(() => auth);
       const token = createVertexAccessToken(
         config,
+        credentials,
         GoogleAuthConstructor as never,
       );
       expect(GoogleAuthConstructor).toHaveBeenCalledTimes(1);
@@ -51,6 +57,7 @@ describe("Vertex access-token factory", () => {
     expect(
       createVertexAccessToken(
         { state: "OCR_DISABLED" },
+        null,
         GoogleAuthConstructor as never,
       ),
     ).toBeNull();
@@ -69,6 +76,7 @@ describe("Vertex access-token factory", () => {
           authTrace: "SERVICE_ACCOUNT_FILE_ADC",
           projectId: "project-719",
         },
+        credentials,
         GoogleAuthConstructor as never,
       ),
     ).toThrow("VERTEX_AUTH_CONFIG_INVALID");

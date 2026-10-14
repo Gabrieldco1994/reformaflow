@@ -469,7 +469,7 @@ export class ImportSessionWorkflowService {
         return (
           await renderImportSession(
             tx,
-            await loadOwnedImportSession(tx, actor, row.id),
+            await loadOwnedImportSession(tx, actor, row.id, now),
             now,
             {
               includeReceipt: false,
@@ -866,7 +866,7 @@ export class ImportSessionWorkflowService {
         const rendered = (
           await renderImportSession(
             tx,
-            await loadOwnedImportSession(tx, actor, row.id),
+            await loadOwnedImportSession(tx, actor, row.id, now),
             now,
             {
               includeReceipt: false,
@@ -974,7 +974,7 @@ export class ImportSessionWorkflowService {
           rendered = (
             await renderImportSession(
               tx,
-              await loadOwnedImportSession(tx, actor, row.id),
+              await loadOwnedImportSession(tx, actor, row.id, now),
               now,
               {
                 includeReceipt: false,
@@ -1488,7 +1488,7 @@ export class ImportSessionWorkflowService {
     now: Date,
   ) {
     const actor = await reauthorize(tx, auth, now);
-    const row = await loadOwnedImportSession(tx, actor, sessionId);
+    const row = await loadOwnedImportSession(tx, actor, sessionId, now);
     await assertImportSessionAccess(tx, actor, row, now);
     await assertReceiptParticipantAccess(tx, actor, [row.ownerProjectId]);
     const { view } = await renderImportSession(tx, row, now, {

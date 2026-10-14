@@ -4,6 +4,7 @@ import {
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
   ImportSessionErrorCode,
+  type PdfOcrProviderProvenanceV2,
   type PdfOcrUsageV2,
 } from "@reformaflow/domain";
 import { ImportSessionError } from "../import-session.errors";
@@ -148,15 +149,38 @@ export async function reconcilePdfOcrBudget(
   now: Date,
   usage: PdfOcrUsageV2 | null,
   responseId: string | null = null,
+  provenance: PdfOcrProviderProvenanceV2 | null = null,
 ): Promise<void> {
+  const successful = outcome === PDF_OCR_USAGE_OUTCOME.SUCCEEDED;
+  if (
+    successful !== (provenance !== null) ||
+    (provenance !== null &&
+      (usage === null ||
+        responseId !== provenance.responseId ||
+        provenance.requestTrace === undefined))
+  )
+    throw new ImportSessionError(ImportSessionErrorCode.OCR_MALFORMED_RESPONSE);
   const changed = await tx.importOcrUsage.updateMany({
-    where: { id, outcome: PDF_OCR_USAGE_OUTCOME.ATTEMPTED },
+    where: {
+      id,
+      outcome: PDF_OCR_USAGE_OUTCOME.ATTEMPTED,
+      ...(provenance
+        ? {
+            requestId: provenance.requestId,
+            provider: provenance.provider,
+            model: provenance.model,
+          }
+        : {}),
+    },
     data: {
       outcome,
       inputTokens: usage?.inputTokens ?? null,
       outputTokens: usage?.outputTokens ?? null,
       totalTokens: usage?.totalTokens ?? null,
       responseId,
+      region: provenance?.region ?? null,
+      modelVersion: provenance?.modelVersion ?? null,
+      authTrace: provenance?.requestTrace?.authTrace ?? null,
       updatedAt: now,
     },
   });

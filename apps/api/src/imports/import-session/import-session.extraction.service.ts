@@ -9,12 +9,14 @@ import {
   PDF_OCR_LIMITS,
   PDF_OCR_CONSENT_POLICY_VERSION,
   PDF_OCR_MODEL_ID,
+  PDF_OCR_MODEL_VERSION_PATTERN,
   PDF_OCR_PARSER_VERSION,
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
   PDF_OCR_VERSION,
   ImportSessionErrorCode as Code,
   type PdfOcrDocumentV2,
+  type VertexAuthTraceV2,
   type ImportSessionRevisionRequestV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
@@ -63,6 +65,7 @@ import {
   type ImportRawAdmission,
 } from "./import-session.raw-executions";
 import type { DocumentExtractionV1 } from "../../credit-card/parsers/types";
+import { validateDocumentExtraction } from "../../credit-card/parsers/statement-document";
 import { computeImportOrdinals } from "../../credit-card/parsers/dedupe-key";
 import {
   PDF_OCR_PROVIDER,
@@ -206,7 +209,7 @@ function ocrExtraction(document: PdfOcrDocumentV2): DocumentExtractionV1 {
       section: "UNKNOWN",
       raw: {
         date: candidate.date,
-        description: candidate.evidence.text,
+        description: candidate.description,
         amount: candidate.amountCents,
         installment:
           candidate.installment === null
@@ -226,6 +229,56 @@ function ocrExtraction(document: PdfOcrDocumentV2): DocumentExtractionV1 {
     })),
     diagnostics: [],
   };
+}
+
+function boundOcrAuthTrace(
+  document: PdfOcrDocumentV2,
+  expected: Readonly<{
+    artifactSha256: string;
+    pageCount: number;
+    requestId: string;
+    provider: string;
+    model: string;
+  }>,
+): VertexAuthTraceV2 {
+  const provenance = document?.provenance;
+  const trace = provenance?.requestTrace;
+  const usage = provenance?.usage;
+  const validCounter = (value: unknown): value is number =>
+    Number.isSafeInteger(value) &&
+    (value as number) >= 0 &&
+    (value as number) <= P.maxRevision;
+  if (
+    document?.version !== PDF_OCR_VERSION ||
+    document.artifactSha256 !== expected.artifactSha256 ||
+    document.pageCount !== expected.pageCount ||
+    expected.provider !== PDF_OCR_PROVIDER_ID ||
+    expected.model !== PDF_OCR_MODEL_ID ||
+    provenance?.provider !== expected.provider ||
+    provenance.model !== expected.model ||
+    provenance.region !== PDF_OCR_REGION ||
+    provenance.requestId !== expected.requestId ||
+    typeof provenance.responseId !== "string" ||
+    provenance.responseId.length < 1 ||
+    provenance.responseId.length > P.maxReferenceLength ||
+    typeof provenance.modelVersion !== "string" ||
+    !new RegExp(PDF_OCR_MODEL_VERSION_PATTERN).test(provenance.modelVersion) ||
+    !usage ||
+    !validCounter(usage.inputTokens) ||
+    !validCounter(usage.outputTokens) ||
+    !validCounter(usage.totalTokens) ||
+    usage.inputTokens + usage.outputTokens !== usage.totalTokens ||
+    !trace ||
+    trace.requestId !== expected.requestId ||
+    trace.originalBytesSha256 !== expected.artifactSha256 ||
+    (trace.authTrace !== "LOCAL_ADC" &&
+      trace.authTrace !== "SERVICE_ACCOUNT_FILE_ADC")
+  )
+    throw new PdfOcrProviderError(
+      "MALFORMED_RESPONSE",
+      PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+    );
+  return trace.authTrace;
 }
 
 @Injectable()
@@ -268,7 +321,7 @@ export class ImportSessionExtractionService {
     now: Date,
   ) {
     const actor = await reauthorize(tx, auth, now);
-    const row = await loadOwnedImportSession(tx, actor, id);
+    const row = await loadOwnedImportSession(tx, actor, id, now);
     await assertImportSessionAccess(tx, actor, row, now);
     if (effectiveState(row, now) === "EXPIRED")
       throw problem(Code.SESSION_EXPIRED, row);
@@ -648,6 +701,7 @@ export class ImportSessionExtractionService {
     let ocrBudgetReservationId: string | null = null;
     let ocrFailureOutcome: TerminalPdfOcrUsageOutcome | null = null;
     let ocrDocument: PdfOcrDocumentV2 | null = null;
+    let ocrAuthTrace: VertexAuthTraceV2 | null = null;
     const publicationLive = (): undefined => {
       live();
       if (
@@ -913,8 +967,22 @@ export class ImportSessionExtractionService {
               signal: rawSignal,
             });
             publicationLive();
+            ocrAuthTrace = boundOcrAuthTrace(document, {
+              artifactSha256: attempt.artifactSha256,
+              pageCount: result.pageCount,
+              requestId: attempt.requestId,
+              provider: this.ocrProvider.provider,
+              model: this.ocrProvider.model,
+            });
             ocrDocument = document;
-            extraction = ocrExtraction(document);
+            try {
+              extraction = validateDocumentExtraction(ocrExtraction(document));
+            } catch {
+              throw new PdfOcrProviderError(
+                "MALFORMED_RESPONSE",
+                PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+              );
+            }
           } catch (error) {
             ocrFailureOutcome =
               error instanceof PdfOcrProviderError
@@ -936,20 +1004,35 @@ export class ImportSessionExtractionService {
       } else {
         extraction = readStoredImportExtraction(capture.artifact);
       }
-      const plan = buildImportMaterialization({
-        session: capture.row,
-        attachment: capture.ref,
-        artifact: projectedArtifact,
-        extraction,
-        draft: capture.draft,
-        observations: capture.observations,
-        newIds: new Map(
-          extraction.occurrences.map((o) => [
-            o.reference,
-            { observationId: randomUUID(), lineId: randomUUID() },
-          ]),
-        ),
-      });
+      let plan: ReturnType<typeof buildImportMaterialization>;
+      try {
+        plan = buildImportMaterialization({
+          session: capture.row,
+          attachment: capture.ref,
+          artifact: projectedArtifact,
+          extraction,
+          draft: capture.draft,
+          observations: capture.observations,
+          newIds: new Map(
+            extraction.occurrences.map((o) => [
+              o.reference,
+              { observationId: randomUUID(), lineId: randomUUID() },
+            ]),
+          ),
+          ocr:
+            ocrDocument && ocrBudgetReservationId && ocrAuthTrace
+              ? {
+                  usageId: ocrBudgetReservationId,
+                  document: ocrDocument,
+                  authTrace: ocrAuthTrace,
+                }
+              : null,
+        });
+      } catch (error) {
+        if (!ocrDocument) throw error;
+        ocrFailureOutcome = PDF_OCR_USAGE_OUTCOME.MALFORMED_RESPONSE;
+        throw problem(Code.OCR_MALFORMED_RESPONSE, capture.row);
+      }
       return await write(async (tx, now) => {
         const row = await recheck(tx, now);
         const attached = await tx.importSessionArtifact.findMany({
@@ -985,6 +1068,7 @@ export class ImportSessionExtractionService {
             now,
             ocrDocument.provenance.usage,
             ocrDocument.provenance.responseId,
+            ocrDocument.provenance,
           );
         }
         for (const observation of plan.observations) {

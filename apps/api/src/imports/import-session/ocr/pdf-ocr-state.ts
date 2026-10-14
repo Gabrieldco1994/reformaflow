@@ -21,8 +21,7 @@ export type PdfOcrAnalyzeRequestV2 = Readonly<{
 }>;
 
 export const PDF_OCR_CONSENT_DECISION = "ALLOW_EXTERNAL_PROCESSING" as const;
-export const PDF_OCR_RETENTION_MS =
-  PDF_OCR_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+export { PDF_OCR_RETENTION_MS } from "./pdf-ocr-retention";
 
 /**
  * Durable affirmative declaration plus a reference to the canonical usage

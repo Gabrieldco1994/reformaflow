@@ -647,7 +647,9 @@ it("shows provider evidence text and origin on an externally extracted candidate
   const ocrEvidence: ImportOcrReviewEvidenceV1 = {
     origin: "GOOGLE_VERTEX_AI",
     model: "gemini-2.5-flash",
+    modelVersion: "fixture-model-v1",
     region: "southamerica-east1",
+    authTrace: "LOCAL_ADC",
     attachmentId: "attachment",
     artifactFingerprint: "a".repeat(64),
     candidateFingerprint: "b".repeat(64),

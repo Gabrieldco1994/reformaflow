@@ -124,6 +124,8 @@ import {
 import { IMPORT_VAULT_GATE, type ImportVaultGate } from "./vault/vault-state";
 import { ImportRawExecutions } from "./import-session.raw-executions";
 import { supportsImportExtraction } from "./import-session.extraction";
+import { enforcePdfOcrRetention } from "./ocr/pdf-ocr-retention";
+import { PDF_OCR_USAGE_OUTCOME } from "./ocr/pdf-ocr-budget";
 
 type Tx = Prisma.TransactionClient;
 type Db = PrismaService | Tx;
@@ -607,7 +609,7 @@ export class ImportSessionService {
         );
         grantSpent = true;
       }
-      const session = await this.loadOwned(tx, actor, id);
+      const session = await this.loadOwned(tx, actor, id, now);
       // D3: cancel re-runs the full ACL; a revoked actor sees the same opaque NOT_FOUND.
       await assertCardAccess(tx, actor, session.cardId);
 
@@ -657,7 +659,7 @@ export class ImportSessionService {
         },
       });
       if (closed.count === 0) {
-        const latest = await this.loadOwned(tx, actor, id);
+        const latest = await this.loadOwned(tx, actor, id, now);
         if (latest.state === ImportSessionState.APPLIED)
           throw this.alreadyApplied(latest);
         if (
@@ -686,7 +688,10 @@ export class ImportSessionService {
       // artifacts remain while any other live reference still needs them.
       await releaseCompletedSessionAttachments(tx, terminalScope, now);
       await purgeCompletedSessionObservationEvidence(tx, terminalScope);
-      return { row: await this.loadOwned(tx, actor, id), invalidatedClaims };
+      return {
+        row: await this.loadOwned(tx, actor, id, now),
+        invalidatedClaims,
+      };
     });
     this.raw.abortOwned(outcome.invalidatedClaims, "CANCEL");
     // Read the persisted result back through the same projection (no authority needed for the
@@ -716,7 +721,7 @@ export class ImportSessionService {
     assertSessionId(id);
     return this.readTransaction(async (tx, now) => {
       const actor = await reauthorize(tx, auth, now);
-      const row = await this.loadOwned(tx, actor, id);
+      const row = await this.loadOwned(tx, actor, id, now);
       await assertImportSessionAccess(tx, actor, row, now);
       const state = effectiveState(row, now);
       if (
@@ -1250,7 +1255,7 @@ export class ImportSessionService {
     // same snapshot. No explicit tenant-row mutation; SQLite may still reserve the writer.
     return this.readTransaction(async (tx, now) => {
       const actor = await reauthorize(tx, auth, now);
-      const row = await this.loadOwned(tx, actor, id);
+      const row = await this.loadOwned(tx, actor, id, now);
       await assertImportSessionAccess(tx, actor, row, now);
       const canMutate = await canMutateImportSession(
         tx,
@@ -1278,8 +1283,9 @@ export class ImportSessionService {
     row: ImportSession,
     now: Date,
   ) {
-    await assertImportSessionAccess(db, actor, row, now);
-    return this.render(db, row, now, { includeReceipt: true });
+    const retained = await enforcePdfOcrRetention(db, row, now);
+    await assertImportSessionAccess(db, actor, retained, now);
+    return this.render(db, retained, now, { includeReceipt: true });
   }
 
   private async readTransaction<T>(
@@ -1310,8 +1316,9 @@ export class ImportSessionService {
     db: Db,
     actor: ImportActor,
     id: string,
+    now: Date,
   ): Promise<ImportSession> {
-    return loadOwnedImportSession(db, actor, id);
+    return loadOwnedImportSession(db, actor, id, now);
   }
 
   private async render(
@@ -1355,12 +1362,13 @@ export async function loadOwnedImportSession(
   db: Db,
   actor: ImportActor,
   id: string,
+  now: Date,
 ): Promise<ImportSession> {
   const row = await db.importSession.findFirst({
     where: { id, tenantId: actor.tenantId, ownerUserId: actor.userId },
   });
   if (!row) throw notFound();
-  return row;
+  return enforcePdfOcrRetention(db as Tx, row, now);
 }
 
 export async function assertImportSessionAccess(
@@ -1404,7 +1412,8 @@ export async function renderImportSession(
   options: ProjectionOptions,
 ) {
   try {
-    return await renderImportSessionUnchecked(db, row, now, options);
+    const retained = await enforcePdfOcrRetention(db as Tx, row, now);
+    return await renderImportSessionUnchecked(db, retained, now, options);
   } catch (error) {
     rethrowImportSessionProjectionError(error, row.id);
   }
@@ -1466,17 +1475,60 @@ async function renderImportSessionUnchecked(
         });
   if (metadata.length !== materialIds.length)
     throw new ImportSessionCorruptStateError("declaration_material");
-  const declarations = resolveImportDeclarations(row, draft, {
-    observations,
-    references: attachments.map((ref) => ({
-      ref,
-      artifact:
-        metadata.find((artifact) => artifact.id === ref.artifactId) ?? null,
-    })),
-  });
   const observationById = new Map(
     observations.map((observation) => [observation.id, observation]),
   );
+  const parsedEvidenceByObservation = new Map(
+    observations.map((observation) => {
+      try {
+        return [
+          observation.id,
+          parseStoredImportObservationEvidence(observation.evidenceJson),
+        ] as const;
+      } catch (error) {
+        let ocr = false;
+        try {
+          if (
+            Buffer.byteLength(observation.evidenceJson, "utf8") <=
+            IMPORT_SESSION_LIMITS.jsonBytesPerDraftOrProposal
+          ) {
+            const value: unknown = JSON.parse(observation.evidenceJson);
+            ocr =
+              value !== null &&
+              typeof value === "object" &&
+              !Array.isArray(value) &&
+              "ocr" in value;
+          }
+        } catch {
+          // The ordinary corrupt-state path below remains intentionally opaque.
+        }
+        if (ocr)
+          throw new ImportSessionError(
+            ImportSessionErrorCode.OCR_MALFORMED_RESPONSE,
+            { sessionId: row.id, currentRevision: row.revision },
+          );
+        throw error;
+      }
+    }),
+  );
+  const ocrUsageIds = [
+    ...new Set(
+      [...parsedEvidenceByObservation.values()].flatMap((evidence) =>
+        evidence.ocr ? [evidence.ocr.usageId] : [],
+      ),
+    ),
+  ];
+  const ocrUsages =
+    ocrUsageIds.length === 0
+      ? []
+      : await db.importOcrUsage.findMany({
+          where: {
+            id: { in: ocrUsageIds },
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+            sessionId: row.id,
+          },
+        });
   const ocrEvidenceByLine = new Map<
     string,
     NonNullable<ImportSessionViewV1["lines"][number]["ocrEvidence"]>
@@ -1485,14 +1537,35 @@ async function renderImportSessionUnchecked(
     if (line.observationIds.length !== 1) continue;
     const observation = observationById.get(line.observationIds[0]);
     if (!observation) continue;
-    const evidence = parseStoredImportObservationEvidence(
-      observation.evidenceJson,
-    );
+    const evidence = parsedEvidenceByObservation.get(observation.id);
+    if (!evidence) throw new ImportSessionCorruptStateError("evidence_json");
     if (!evidence.ocr) continue;
+    const usage = ocrUsages.find((item) => item.id === evidence.ocr!.usageId);
+    if (
+      !usage ||
+      usage.outcome !== PDF_OCR_USAGE_OUTCOME.SUCCEEDED ||
+      usage.contentPurgedAt !== null ||
+      usage.attachmentId !== evidence.ocr.attachmentId ||
+      usage.artifactId !== observation.artifactId ||
+      usage.artifactSha256 !== evidence.ocr.artifactSha256 ||
+      usage.provider !== evidence.ocr.provider ||
+      usage.model !== evidence.ocr.model ||
+      usage.modelVersion !== evidence.ocr.modelVersion ||
+      usage.region !== evidence.ocr.region ||
+      usage.authTrace !== evidence.ocr.authTrace ||
+      usage.requestId !== evidence.ocr.requestId ||
+      usage.responseId !== evidence.ocr.responseId
+    )
+      throw new ImportSessionError(
+        ImportSessionErrorCode.OCR_MALFORMED_RESPONSE,
+        { sessionId: row.id, currentRevision: row.revision },
+      );
     ocrEvidenceByLine.set(line.id, {
-      origin: PDF_OCR_PROVIDER_ID,
-      model: PDF_OCR_MODEL_ID,
-      region: PDF_OCR_REGION,
+      origin: evidence.ocr.provider,
+      model: evidence.ocr.model,
+      modelVersion: evidence.ocr.modelVersion,
+      region: evidence.ocr.region,
+      authTrace: evidence.ocr.authTrace,
       attachmentId: evidence.ocr.attachmentId,
       artifactFingerprint: createHash("sha256")
         .update(`ocr-artifact-view-v1|${evidence.ocr.artifactSha256}`)
@@ -1502,6 +1575,14 @@ async function renderImportSessionUnchecked(
       text: evidence.text,
     });
   }
+  const declarations = resolveImportDeclarations(row, draft, {
+    observations,
+    references: attachments.map((ref) => ({
+      ref,
+      artifact:
+        metadata.find((artifact) => artifact.id === ref.artifactId) ?? null,
+    })),
+  });
   const eligible =
     options.analysisEnabled === true &&
     row.closedAt === null &&

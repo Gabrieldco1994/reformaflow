@@ -7,7 +7,6 @@ import {
   VERTEX_ADC_SCOPES,
   type VertexAccessTokenPort,
 } from "./vertex-pdf-ocr.provider";
-import { VERTEX_SERVICE_ACCOUNT_KEY_PATH } from "./vertex-service-account-file";
 
 interface GoogleAuthClientPort {
   getClient(): Promise<{
@@ -16,7 +15,7 @@ interface GoogleAuthClientPort {
 }
 
 export type GoogleAuthConstructor = new (options: {
-  keyFilename?: string;
+  credentials: Readonly<Record<string, string>>;
   scopes: string[];
 }) => GoogleAuthClientPort;
 
@@ -70,21 +69,19 @@ export class GoogleAuthVertexAccessToken implements VertexAccessTokenPort {
 /** Creates one explicit credential source, with no probing or fallback. */
 export function createVertexAccessToken(
   config: VertexAuthConfig,
+  credentials: Readonly<Record<string, string>> | null,
   GoogleAuthClass: GoogleAuthConstructor = GoogleAuth,
 ): VertexAccessTokenPort | null {
   if (config.state === "OCR_DISABLED") return null;
 
-  const options =
-    config.authMode === "service-account-file"
-      ? {
-          keyFilename: VERTEX_SERVICE_ACCOUNT_KEY_PATH,
-          scopes: [...VERTEX_ADC_SCOPES],
-        }
-      : { scopes: [...VERTEX_ADC_SCOPES] };
+  if (credentials === null) throw new Error(VERTEX_AUTH_STARTUP_ERROR);
   try {
     return new GoogleAuthVertexAccessToken(
       config.authTrace,
-      new GoogleAuthClass(options),
+      new GoogleAuthClass({
+        credentials,
+        scopes: [...VERTEX_ADC_SCOPES],
+      }),
     );
   } catch {
     throw new Error(VERTEX_AUTH_STARTUP_ERROR);
