@@ -1,5 +1,5 @@
 import { PDF_OCR_LIMITS } from "@reformaflow/domain";
-import { parsePdfOcrV2 } from "./pdf-ocr-parser";
+import { parsePdfOcrV3 } from "./pdf-ocr-parser";
 import { VertexPdfOcrProvider } from "./vertex-pdf-ocr.provider";
 
 const ARTIFACT_SHA = "a".repeat(64);
@@ -18,8 +18,11 @@ const candidate = (pageOccurrenceIndex: number, pageNumber = 1) => ({
   pageNumber,
   description: `LINHA ${pageNumber}-${pageOccurrenceIndex}`,
   amountCents: String((pageNumber * 10 + pageOccurrenceIndex) * 100),
+  sign: "POSITIVE",
   amountMeaning: "LINE_AMOUNT",
-  date: "2026-10-14",
+  dateText: "14/10/2026",
+  normalizedDate: "2026-10-14",
+  dateExplicitness: "FULL",
   installment: null,
   evidenceText: `${pageNumber}.${pageOccurrenceIndex} LINHA`,
 });
@@ -89,6 +92,13 @@ function responseFromRaw(raw: string) {
   };
 }
 
+function fetchGeneration(raw: string) {
+  return jest
+    .fn()
+    .mockResolvedValueOnce(responseFromRaw(JSON.stringify({ totalTokens: 20 })))
+    .mockResolvedValueOnce(responseFromRaw(raw));
+}
+
 const request = () => ({
   artifactSha256: ARTIFACT_SHA,
   pageCount: 2,
@@ -101,7 +111,7 @@ describe("OCR quality-closure exact accounting contract", () => {
   it("accepts COMPLETE only with exact ordered accounting for every page", () => {
     const candidates = [candidate(1, 1), candidate(1, 2)];
     expect(
-      parsePdfOcrV2(
+      parsePdfOcrV3(
         complete(candidates, [
           accountedPage(1, [candidates[0]!]),
           accountedPage(2, [candidates[1]!]),
@@ -117,11 +127,19 @@ describe("OCR quality-closure exact accounting contract", () => {
             pageNumber: 1,
             description: "LINHA 1-1",
             amountCents: "1100",
+            sign: "POSITIVE",
+            dateText: "14/10/2026",
+            normalizedDate: "2026-10-14",
+            dateExplicitness: "FULL",
           },
           {
             pageNumber: 2,
             description: "LINHA 2-1",
             amountCents: "2100",
+            sign: "POSITIVE",
+            dateText: "14/10/2026",
+            normalizedDate: "2026-10-14",
+            dateExplicitness: "FULL",
           },
         ],
       },
@@ -130,7 +148,7 @@ describe("OCR quality-closure exact accounting contract", () => {
 
   it("accepts a legitimate all-EMPTY COMPLETE document with zero candidates", () => {
     expect(
-      parsePdfOcrV2(
+      parsePdfOcrV3(
         complete([], [accountedPage(1, []), accountedPage(2, [])]),
         context(),
       ),
@@ -206,7 +224,7 @@ describe("OCR quality-closure exact accounting contract", () => {
     (_label, input, mutate, code) => {
       const wire = structuredClone(input);
       mutate(wire);
-      expect(parsePdfOcrV2(wire, context())).toEqual({
+      expect(parsePdfOcrV3(wire, context())).toEqual({
         ok: false,
         error: { code },
       });
@@ -218,7 +236,7 @@ describe("OCR quality-closure exact accounting contract", () => {
     const dense24 = Array.from({ length: 24 }, (_, index) =>
       candidate(index + 1),
     );
-    const accepted = parsePdfOcrV2(
+    const accepted = parsePdfOcrV3(
       complete(dense24, [accountedPage(1, dense24), accountedPage(2, [])]),
       context(),
     );
@@ -239,7 +257,7 @@ describe("OCR quality-closure exact accounting contract", () => {
       ]),
     );
     expect(
-      parsePdfOcrV2(
+      parsePdfOcrV3(
         {
           completionStatus: "OCCURRENCE_LIMIT_EXCEEDED",
           reportedPageCount: 2,
@@ -262,7 +280,7 @@ describe("OCR quality-closure exact accounting contract", () => {
   });
 
   it("rejects an unreadable page as document-level INCOMPLETE", () => {
-    const result = parsePdfOcrV2(
+    const result = parsePdfOcrV3(
       {
         completionStatus: "INCOMPLETE",
         reportedPageCount: 2,
@@ -288,11 +306,9 @@ describe("OCR quality-closure exact accounting contract", () => {
 
 describe("OCR quality-closure Vertex wire contract", () => {
   it("pins the exact accounting schema, prompt, and 8192-token bound", async () => {
-    const fetcher = jest
-      .fn()
-      .mockResolvedValue(
-        responseFromRaw(JSON.stringify(vertexWire(JSON.stringify(complete())))),
-      );
+    const fetcher = fetchGeneration(
+      JSON.stringify(vertexWire(JSON.stringify(complete()))),
+    );
     const provider = new VertexPdfOcrProvider(
       "quality-closure-project",
       { authTrace: "LOCAL_ADC", accessToken: async () => "token" },
@@ -302,7 +318,12 @@ describe("OCR quality-closure Vertex wire contract", () => {
     const settled = await provider
       .extractPdf(request())
       .catch((error) => error);
-    const body = JSON.parse(fetcher.mock.calls[0]![1].body);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      expect.stringMatching(/:countTokens$/),
+      expect.stringMatching(/:generateContent$/),
+    ]);
+    const body = JSON.parse(fetcher.mock.calls[1]![1].body);
     const schema = body.generationConfig.responseSchema;
     expect(body.generationConfig.maxOutputTokens).toBe(8192);
     expect(schema).toEqual({
@@ -363,7 +384,10 @@ describe("OCR quality-closure Vertex wire contract", () => {
               "description",
               "amountCents",
               "amountMeaning",
-              "date",
+              "sign",
+              "dateText",
+              "normalizedDate",
+              "dateExplicitness",
               "installment",
               "evidenceText",
             ],
@@ -393,10 +417,24 @@ describe("OCR quality-closure Vertex wire contract", () => {
                 type: "STRING",
                 enum: ["LINE_AMOUNT", "UNKNOWN"],
               },
-              date: {
+              sign: {
+                type: "STRING",
+                enum: ["NEGATIVE", "ZERO", "POSITIVE", "UNKNOWN"],
+              },
+              dateText: {
+                type: "STRING",
+                nullable: true,
+                minLength: 1,
+                maxLength: 10,
+              },
+              normalizedDate: {
                 type: "STRING",
                 nullable: true,
                 pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              },
+              dateExplicitness: {
+                type: "STRING",
+                enum: ["FULL", "YEARLESS", "MISSING", "UNKNOWN"],
               },
               installment: {
                 anyOf: [
@@ -443,56 +481,52 @@ describe("OCR quality-closure Vertex wire contract", () => {
 
   it("maps structural accounting divergence to MALFORMED_RESPONSE", async () => {
     const validPayload = complete();
+    const baselineFetcher = fetchGeneration(
+      JSON.stringify(vertexWire(JSON.stringify(validPayload))),
+    );
     const baselineProvider = new VertexPdfOcrProvider(
       "quality-closure-project",
       { authTrace: "LOCAL_ADC", accessToken: async () => "token" },
-      jest
-        .fn()
-        .mockResolvedValue(
-          responseFromRaw(
-            JSON.stringify(vertexWire(JSON.stringify(validPayload))),
-          ),
-        ),
+      baselineFetcher,
     );
     await expect(baselineProvider.extractPdf(request())).resolves.toEqual(
       expect.objectContaining({ pageCount: 2 }),
     );
+    expect(baselineFetcher).toHaveBeenCalledTimes(2);
 
     const divergent = structuredClone(validPayload);
     divergent.pageAccounting[0]!.visibleOccurrenceCount = 2;
+    const fetcher = fetchGeneration(
+      JSON.stringify(vertexWire(JSON.stringify(divergent))),
+    );
     const provider = new VertexPdfOcrProvider(
       "quality-closure-project",
       { authTrace: "LOCAL_ADC", accessToken: async () => "token" },
-      jest
-        .fn()
-        .mockResolvedValue(
-          responseFromRaw(
-            JSON.stringify(vertexWire(JSON.stringify(divergent))),
-          ),
-        ),
+      fetcher,
     );
     await expect(provider.extractPdf(request())).rejects.toMatchObject({
       failure: "MALFORMED_RESPONSE",
       dispatchState: "DISPATCHED_OR_UNKNOWN",
     });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it.each(["outer", "embedded"] as const)(
     "rejects duplicate JSON keys in the %s envelope",
     async (target) => {
       const canonicalPayload = JSON.stringify(complete());
+      const baselineFetcher = fetchGeneration(
+        JSON.stringify(vertexWire(canonicalPayload)),
+      );
       const baselineProvider = new VertexPdfOcrProvider(
         "quality-closure-project",
         { authTrace: "LOCAL_ADC", accessToken: async () => "token" },
-        jest
-          .fn()
-          .mockResolvedValue(
-            responseFromRaw(JSON.stringify(vertexWire(canonicalPayload))),
-          ),
+        baselineFetcher,
       );
       await expect(baselineProvider.extractPdf(request())).resolves.toEqual(
         expect.objectContaining({ pageCount: 2 }),
       );
+      expect(baselineFetcher).toHaveBeenCalledTimes(2);
       const embedded =
         target === "embedded"
           ? canonicalPayload.replace(
@@ -508,16 +542,18 @@ describe("OCR quality-closure Vertex wire contract", () => {
               '"responseId":"vertex-quality-closure-719","responseId":"vertex-quality-closure-719",',
             )
           : wire;
+      const fetcher = fetchGeneration(raw);
       const provider = new VertexPdfOcrProvider(
         "quality-closure-project",
         { authTrace: "LOCAL_ADC", accessToken: async () => "token" },
-        jest.fn().mockResolvedValue(responseFromRaw(raw)),
+        fetcher,
       );
 
       await expect(provider.extractPdf(request())).rejects.toMatchObject({
         failure: "MALFORMED_RESPONSE",
         dispatchState: "DISPATCHED_OR_UNKNOWN",
       });
+      expect(fetcher).toHaveBeenCalledTimes(2);
     },
   );
 });

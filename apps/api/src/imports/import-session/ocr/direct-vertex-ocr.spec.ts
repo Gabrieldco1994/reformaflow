@@ -19,8 +19,11 @@ const payload = () => ({
       pageOccurrenceIndex: 1,
       description: "LOJA",
       amountCents: "-1001",
+      sign: "NEGATIVE",
       amountMeaning: "LINE_AMOUNT",
-      date: "2026-10-01",
+      dateText: "01/10/2026",
+      normalizedDate: "2026-10-01",
+      dateExplicitness: "FULL",
       installment: null,
       evidenceText: "01/10/2026 LOJA 10,01",
     },
@@ -61,6 +64,11 @@ const response = (value: unknown) => {
     },
   };
 };
+const fetchGeneration = (value: unknown) =>
+  jest
+    .fn()
+    .mockResolvedValueOnce(response({ totalTokens: 20 }))
+    .mockResolvedValueOnce(response(value));
 const request = (signal = new AbortController().signal) => ({
   artifactSha256: ARTIFACT_SHA,
   pageCount: 1,
@@ -70,8 +78,8 @@ const request = (signal = new AbortController().signal) => ({
 });
 
 describe("direct Vertex PDF OCR", () => {
-  it("sends one original PDF regionally and treats embedded prompts as data", async () => {
-    const fetcher = jest.fn().mockResolvedValue(response(wire()));
+  it("sends only the original PDF regionally and treats embedded prompts as data", async () => {
+    const fetcher = fetchGeneration(wire());
     const provider = new VertexPdfOcrProvider(
       "approved-project",
       { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
@@ -81,13 +89,20 @@ describe("direct Vertex PDF OCR", () => {
     const input = request();
     const result = await provider.extractPdf(input);
 
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    const [url, init] = fetcher.mock.calls[0]!;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const [countUrl, countInit] = fetcher.mock.calls[0]!;
+    const [url, init] = fetcher.mock.calls[1]!;
+    expect(countUrl).toBe(
+      "https://southamerica-east1-aiplatform.googleapis.com/v1/projects/approved-project/locations/southamerica-east1/publishers/google/models/gemini-2.5-flash:countTokens",
+    );
     expect(url).toBe(
       "https://southamerica-east1-aiplatform.googleapis.com/v1/projects/approved-project/locations/southamerica-east1/publishers/google/models/gemini-2.5-flash:generateContent",
     );
+    const countBody = JSON.parse(countInit.body);
     const body = JSON.parse(init.body);
+    expect(Object.keys(countBody)).toEqual(["contents"]);
     expect(Object.keys(body)).toEqual(["contents", "generationConfig"]);
+    expect(countBody.contents).toEqual(body.contents);
     expect(
       body.contents[0].parts.filter(
         (part: Record<string, unknown>) => "inlineData" in part,
@@ -117,9 +132,11 @@ describe("direct Vertex PDF OCR", () => {
       "content-type": "application/json",
       accept: "application/json",
     });
+    expect(countInit.headers).toEqual(init.headers);
     expect(init.headers.authorization).toMatch(/^Bearer \S+$/);
     expect(body).not.toHaveProperty("tools");
     expect(body).not.toHaveProperty("cachedContent");
+    expect(countInit.body).not.toContain(ARTIFACT_SHA);
     expect(init.body).not.toContain(ARTIFACT_SHA);
     expect(result).toMatchObject({
       artifactSha256: ARTIFACT_SHA,
@@ -141,14 +158,12 @@ describe("direct Vertex PDF OCR", () => {
     const provider = new VertexPdfOcrProvider(
       "approved-project",
       { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
-      jest.fn().mockResolvedValue(
-        response({
-          ...wire(),
-          modelVersion: "gemini-2.5-flash-001",
-          createTime: "2026-10-13T20:00:00Z",
-          promptFeedback: {},
-        }),
-      ),
+      fetchGeneration({
+        ...wire(),
+        modelVersion: "gemini-2.5-flash-001",
+        createTime: "2026-10-13T20:00:00Z",
+        promptFeedback: {},
+      }),
     );
     await expect(provider.extractPdf(request())).resolves.toMatchObject({
       provenance: { modelVersion: "gemini-2.5-flash-001" },
@@ -164,30 +179,34 @@ describe("direct Vertex PDF OCR", () => {
   ])(
     "fails ambiguously for %s modelVersion after dispatch",
     async (_label, modelVersion) => {
+      const fetcher = fetchGeneration({ ...wire(), modelVersion });
       const provider = new VertexPdfOcrProvider(
         "approved-project",
         { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
-        jest.fn().mockResolvedValue(response({ ...wire(), modelVersion })),
+        fetcher,
       );
 
       await expect(provider.extractPdf(request())).rejects.toMatchObject({
         failure: "MALFORMED_RESPONSE",
         dispatchState: "DISPATCHED_OR_UNKNOWN",
       });
+      expect(fetcher).toHaveBeenCalledTimes(2);
     },
   );
 
   it.each(["v", "v".repeat(192)])(
     "retains modelVersion at a valid provider boundary",
     async (modelVersion) => {
+      const fetcher = fetchGeneration({ ...wire(), modelVersion });
       const provider = new VertexPdfOcrProvider(
         "approved-project",
         { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
-        jest.fn().mockResolvedValue(response({ ...wire(), modelVersion })),
+        fetcher,
       );
       await expect(provider.extractPdf(request())).resolves.toMatchObject({
         provenance: { modelVersion },
       });
+      expect(fetcher).toHaveBeenCalledTimes(2);
     },
   );
 
@@ -232,14 +251,16 @@ describe("direct Vertex PDF OCR", () => {
       }),
     ],
   ])("fails closed for %s", async (_case, value) => {
+    const fetcher = fetchGeneration(value());
     const provider = new VertexPdfOcrProvider(
       "approved-project",
       { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
-      jest.fn().mockResolvedValue(response(value())),
+      fetcher,
     );
     await expect(provider.extractPdf(request())).rejects.toMatchObject({
       failure: "MALFORMED_RESPONSE",
     });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -271,35 +292,42 @@ describe("direct Vertex PDF OCR", () => {
       candidates: [{ ...wire().candidates[0], finishReason: "IMAGE_SAFETY" }],
     },
   ])("classifies blocked prompt/candidate honestly", async (blocked) => {
+    const fetcher = fetchGeneration(blocked);
     const provider = new VertexPdfOcrProvider(
       "approved-project",
       { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
-      jest.fn().mockResolvedValue(response(blocked)),
+      fetcher,
     );
     await expect(provider.extractPdf(request())).rejects.toMatchObject({
       failure: "SAFETY",
     });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("rejects oversized response headers before reading the body", async () => {
     const bodyRead = jest.fn();
-    const provider = new VertexPdfOcrProvider(
-      "approved-project",
-      { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
-      jest.fn().mockResolvedValue({
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce(response({ totalTokens: 20 }))
+      .mockResolvedValueOnce({
         ...response(wire()),
         headers: {
           get: (name: string) =>
-            name === "content-type"
+            name.toLowerCase() === "content-type"
               ? "application/json"
               : String(PDF_OCR_LIMITS.providerResponseBytes + 1),
         },
         body: { [Symbol.asyncIterator]: bodyRead },
-      }),
+      });
+    const provider = new VertexPdfOcrProvider(
+      "approved-project",
+      { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
+      fetcher,
     );
     await expect(provider.extractPdf(request())).rejects.toMatchObject({
       failure: "MALFORMED_RESPONSE",
     });
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(bodyRead).not.toHaveBeenCalled();
   });
 
@@ -377,11 +405,14 @@ describe("direct Vertex PDF OCR", () => {
   ] as const)(
     "keeps HTTP %s ambiguous after fetch invocation",
     async (status, failure) => {
-      const fetcher = jest.fn().mockResolvedValue({
-        ...response(wire()),
-        ok: false,
-        status,
-      });
+      const fetcher = jest
+        .fn()
+        .mockResolvedValueOnce(response({ totalTokens: 20 }))
+        .mockResolvedValueOnce({
+          ...response(wire()),
+          ok: false,
+          status,
+        });
       const provider = new VertexPdfOcrProvider(
         "approved-project",
         { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
@@ -393,7 +424,7 @@ describe("direct Vertex PDF OCR", () => {
         dispatchState: "DISPATCHED_OR_UNKNOWN",
         message: failure,
       });
-      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(fetcher).toHaveBeenCalledTimes(2);
     },
   );
 

@@ -45,11 +45,14 @@ describe("Vertex OCR auth configuration", () => {
 
   it("admits only explicit local ADC outside production", () => {
     expect(
-      parseVertexAuthConfig({
-        ...enabled,
-        NODE_ENV: "development",
-        VERTEX_AUTH_MODE: "local-adc",
-      }),
+      parseVertexAuthConfig(
+        {
+          ...enabled,
+          NODE_ENV: "development",
+          VERTEX_AUTH_MODE: "local-adc",
+        },
+        { releaseVerified: true },
+      ),
     ).toEqual({
       state: "OCR_ENABLED",
       authMode: "local-adc",
@@ -60,17 +63,31 @@ describe("Vertex OCR auth configuration", () => {
 
   it("admits only the service-account file mode in production", () => {
     expect(
-      parseVertexAuthConfig({
-        ...enabled,
-        NODE_ENV: "production",
-        VERTEX_AUTH_MODE: "service-account-file",
-      }),
+      parseVertexAuthConfig(
+        {
+          ...enabled,
+          NODE_ENV: "production",
+          VERTEX_AUTH_MODE: "service-account-file",
+        },
+        { releaseVerified: true },
+      ),
     ).toEqual({
       state: "OCR_ENABLED",
       authMode: "service-account-file",
       authTrace: "SERVICE_ACCOUNT_FILE_ADC",
       projectId: "project-719",
     });
+  });
+
+  it("keeps an otherwise valid credential mode disabled without verified release authority", () => {
+    const config = parseVertexAuthConfig({
+      ...enabled,
+      NODE_ENV: "production",
+      VERTEX_AUTH_MODE: "service-account-file",
+    });
+
+    expect(config).toEqual({ state: "OCR_DISABLED" });
+    expect(Object.isFrozen(config)).toBe(true);
   });
 
   it.each([
@@ -130,9 +147,13 @@ describe("Vertex OCR auth configuration", () => {
         VERTEX_API_KEY: "secret-canary",
       },
     ],
-  ])("rejects an enabled invalid auth configuration", (environment) => {
-    expect(() => parseVertexAuthConfig(environment)).toThrow(
-      "VERTEX_AUTH_CONFIG_INVALID",
-    );
+  ])("disables an enabled invalid auth configuration", (environment) => {
+    const config = parseVertexAuthConfig(environment, {
+      releaseVerified: true,
+    });
+
+    expect(config).toEqual({ state: "OCR_DISABLED" });
+    expect(Reflect.ownKeys(config)).toEqual(["state"]);
+    expect(Object.isFrozen(config)).toBe(true);
   });
 });
