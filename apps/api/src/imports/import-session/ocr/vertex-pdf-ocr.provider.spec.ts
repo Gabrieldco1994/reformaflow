@@ -4,6 +4,7 @@ import {
   VertexPdfOcrProvider,
   type VertexAccessTokenPort,
 } from "./vertex-pdf-ocr.provider";
+import * as pdfOcrParser from "./pdf-ocr-parser";
 
 const PDF_BYTES = Buffer.from("%PDF-1.4\nfixed-request-plan\n%%EOF");
 const REQUEST = Object.freeze({
@@ -17,6 +18,8 @@ const TOKENS: VertexAccessTokenPort = Object.freeze({
   authTrace: "LOCAL_ADC",
   accessToken: async () => "test-only-token",
 });
+
+afterEach(() => jest.restoreAllMocks());
 
 function response(value: unknown) {
   const bytes = Buffer.from(JSON.stringify(value));
@@ -95,6 +98,59 @@ function provider(fetcher: jest.Mock) {
   );
 }
 
+function strictGenerationWire(candidate: Record<string, unknown>) {
+  return response({
+    responseId: "response-strict-v3",
+    modelVersion: "gemini-2.5-flash-001",
+    candidates: [
+      {
+        finishReason: "STOP",
+        content: {
+          parts: [
+            {
+              text: JSON.stringify({
+                completionStatus: "COMPLETE",
+                reportedPageCount: 1,
+                pageAccounting: [
+                  {
+                    pageNumber: 1,
+                    status: "READABLE",
+                    visibleOccurrenceCount: 1,
+                  },
+                ],
+                candidates: [candidate],
+              }),
+            },
+          ],
+        },
+      },
+    ],
+    usageMetadata: {
+      promptTokenCount: 123,
+      candidatesTokenCount: 10,
+      totalTokenCount: 133,
+    },
+  });
+}
+
+async function qualificationExtraction(candidate: Record<string, unknown>) {
+  const fetcher = jest.fn().mockResolvedValue(strictGenerationWire(candidate));
+  const legacyParser = jest.spyOn(pdfOcrParser, "parsePdfOcrV2");
+  let result:
+    | Awaited<ReturnType<VertexPdfOcrProvider["extractPdf"]>>
+    | PdfOcrProviderError;
+  try {
+    result = await provider(fetcher).extractPdf({
+      ...REQUEST,
+      qualificationCapture: true,
+    });
+  } catch (error) {
+    if (!(error instanceof PdfOcrProviderError)) throw error;
+    result = error;
+  }
+  return { fetcher, legacyParser, result };
+}
+
 async function observeExtraction(
   countWire: unknown,
   mutateBetweenCalls?: (calls: jest.Mock["mock"]["calls"]) => void,
@@ -171,6 +227,54 @@ describe("Vertex countTokens request plan", () => {
     expect(JSON.parse(observed.calls[0]!.body)).not.toHaveProperty(
       "requestBindingSha256",
     );
+  });
+
+  it("qualificationCapture parses strict V3 without ever invoking the legacy V2 parser", async () => {
+    const observed = await qualificationExtraction({
+      pageNumber: 1,
+      pageOccurrenceIndex: 1,
+      description: "MERCADO",
+      amountCents: "20696",
+      sign: "POSITIVE",
+      amountMeaning: "LINE_AMOUNT",
+      dateText: "13/10/2026",
+      normalizedDate: "2026-10-13",
+      dateExplicitness: "FULL",
+      installment: null,
+      evidenceText: "13/10/2026 MERCADO 206,96",
+    });
+
+    expect(observed.legacyParser).not.toHaveBeenCalled();
+    expect(observed.fetcher).toHaveBeenCalledTimes(1);
+    expect(observed.result).toMatchObject({
+      candidates: [
+        {
+          dateText: "13/10/2026",
+          normalizedDate: "2026-10-13",
+          dateExplicitness: "FULL",
+        },
+      ],
+    });
+  });
+
+  it("qualificationCapture rejects the legacy date key without falling back to V2", async () => {
+    const observed = await qualificationExtraction({
+      pageNumber: 1,
+      pageOccurrenceIndex: 1,
+      description: "MERCADO",
+      amountCents: "20696",
+      amountMeaning: "LINE_AMOUNT",
+      date: "2026-10-13",
+      installment: null,
+      evidenceText: "13/10/2026 MERCADO 206,96",
+    });
+
+    expect(observed.legacyParser).not.toHaveBeenCalled();
+    expect(observed.fetcher).toHaveBeenCalledTimes(1);
+    expect(observed.result).toMatchObject({
+      failure: "MALFORMED_RESPONSE",
+      dispatchState: "DISPATCHED_OR_UNKNOWN",
+    });
   });
 
   it.each([

@@ -31,6 +31,13 @@ type ObserverModule = Readonly<{
       Readonly<{ countTokensCalls: number; generationCalls: number }>
     >
   >;
+  observeOcrBoundary(
+    identity: string,
+    assignedBoundary: string,
+    scenarioSha256: string,
+    execute: () => Promise<Record<string, unknown>>,
+  ): Promise<Record<string, any>>;
+  assertOcrFinancialStateUnchanged(value: unknown): void;
 }>;
 
 function loadObserverBoundary():
@@ -49,7 +56,9 @@ function loadObserverBoundary():
     typeof loaded.observeQualificationBoundaries !== "function" ||
     typeof loaded.parseLiveCaptureInput !== "function" ||
     typeof loaded.evaluateBoundaryObservations !== "function" ||
-    typeof loaded.CANONICAL_PROBE_CALL_EXPECTATIONS !== "object"
+    typeof loaded.CANONICAL_PROBE_CALL_EXPECTATIONS !== "object" ||
+    typeof loaded.observeOcrBoundary !== "function" ||
+    typeof loaded.assertOcrFinancialStateUnchanged !== "function"
   )
     return {
       kind: "BOUNDARY_UNAVAILABLE",
@@ -287,6 +296,112 @@ describe("45 causal production boundary observations", () => {
           });
         }
       }
+    });
+
+    it("captures row-level PrismaService snapshots including deletedAt instead of aggregate-only claims", async () => {
+      const observations = await boundary().observeQualificationBoundaries();
+
+      for (const value of observations) {
+        const observation = observationRecord(value);
+        expect(observation.financial.prismaService).toBe("PrismaService");
+        expect(observation.financial.assertionPath).toEqual(
+          expect.arrayContaining([expect.stringMatching(/\S/)]),
+        );
+        expect(observation.financial.mutationCalls).toEqual({
+          count: 0,
+          operations: [],
+        });
+        for (const phase of ["before", "after"] as const) {
+          for (const table of FINANCIAL_TABLES) {
+            const snapshot = observation.financial[phase][table];
+            expect(snapshot).toHaveProperty("rows");
+            expect(Array.isArray(snapshot.rows)).toBe(true);
+            expect(snapshot.columns).toEqual(
+              expect.arrayContaining(["id", "deletedAt"]),
+            );
+            for (const row of snapshot.rows) {
+              expect(row).toEqual(
+                expect.objectContaining({ id: expect.any(String) }),
+              );
+              expect(row).toHaveProperty("deletedAt");
+              expect(
+                row.deletedAt === null || typeof row.deletedAt === "string",
+              ).toBe(true);
+            }
+          }
+        }
+      }
+    });
+
+    it("observeOcrBoundary executes and binds the assigned identity, boundary, scenario and measured tuple", async () => {
+      const identity = "[PROBE] ADC_SCOPE_BOUNDED";
+      const assignedBoundary = "VertexPdfOcrProvider.extractPdf";
+      const scenarioSha256 = createHash("sha256")
+        .update("assigned-real-scenario")
+        .digest("hex");
+      const execute = jest.fn(async () => ({
+        outcome: "GUARDED",
+        countTokensCalls: 1,
+        generationCalls: 1,
+        mutationOperations: [],
+        assertionPath: [
+          "VertexPdfOcrProvider.extractPdf",
+          "countTokens",
+          "generateContent",
+        ],
+      }));
+
+      const observed = await boundary().observeOcrBoundary(
+        identity,
+        assignedBoundary,
+        scenarioSha256,
+        execute,
+      );
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(observed).toMatchObject({
+        identity,
+        boundary: assignedBoundary,
+        scenarioSha256,
+        outcome: "GUARDED",
+        countTokensCalls: 1,
+        generationCalls: 1,
+        mutationOperations: [],
+        assertionPath: expect.arrayContaining([
+          "VertexPdfOcrProvider.extractPdf",
+          "countTokens",
+          "generateContent",
+        ]),
+      });
+    });
+
+    it("assertOcrFinancialStateUnchanged rejects row replacement and observed mutation calls", () => {
+      const snapshot = {
+        mutationCalls: {
+          count: 1,
+          operations: ["Expense.update"],
+        },
+        before: {
+          Expense: {
+            rows: [{ id: "expense-1", deletedAt: null, centValue: 100 }],
+          },
+        },
+        after: {
+          Expense: {
+            rows: [
+              {
+                id: "expense-1",
+                deletedAt: "2026-10-14T12:00:00.000Z",
+                centValue: 100,
+              },
+            ],
+          },
+        },
+      };
+
+      expect(() =>
+        boundary().assertOcrFinancialStateUnchanged(snapshot),
+      ).toThrow("FINANCIAL_WRITE_OBSERVED");
     });
 
     it.each([

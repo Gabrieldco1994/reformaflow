@@ -9,7 +9,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import { PDF_OCR_MODEL_ID, PDF_OCR_PROVIDER_ID } from "@reformaflow/domain";
+import * as ts from "typescript";
 import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
 import { captureLiveEvidence } from "./capture-live-core";
 import * as captureLiveCore from "./capture-live-core";
@@ -365,6 +367,36 @@ describe("audited synthetic Vertex capture", () => {
     expect(
       captured.predictions.map((item) => item.adapterTrace?.attempts),
     ).toEqual(Array.from({ length: 18 }, () => 1));
+  });
+
+  it("captures exact raw response bytes through executeCapturedAttempt and persists the bound ledger", async () => {
+    const adapter = provider();
+    const extract = jest.spyOn(adapter.value, "extractPdf");
+    const captured = (await captureLiveEvidence(
+      canonicalCaptureOptions(adapter.value, {
+        memoryRss: () => 256_000_000,
+      }),
+    )) as unknown as Record<string, any>;
+
+    expect(extract).toHaveBeenCalledTimes(18);
+    for (const [request] of extract.mock.calls)
+      expect(
+        (request as unknown as { captureResponseBytes?: unknown })
+          .captureResponseBytes,
+      ).toEqual(expect.any(Function));
+    expect(captured.rawResponses).toHaveLength(18);
+    expect(captured.rawResponses.map((item: any) => item.caseId)).toEqual(
+      OCR_SYNTH_SCANNED_RELEASE_CASES.map(({ id }) => id),
+    );
+    expect(captured.attemptLedger).toEqual(
+      expect.objectContaining({
+        runAttempt: 1,
+        ledger: expect.any(Array),
+      }),
+    );
+    expect(() =>
+      capturedAttemptAuthority().verifyAttemptLedger(captured.attemptLedger),
+    ).not.toThrow();
   });
 
   it("fails before dispatch when Linux VmHWM evidence is unavailable", async () => {
@@ -786,10 +818,10 @@ function countTokensResponse(totalTokens = 100) {
   return Buffer.from(JSON.stringify({ totalTokens }));
 }
 
-function generationResponseBytes() {
+function generationResponseBytes(caseId = "scan-001") {
   return Buffer.from(
     JSON.stringify({
-      responseId: "response-scan-001",
+      responseId: `response-${caseId}`,
       modelVersion: VERSION,
       candidates: [
         {
@@ -828,14 +860,21 @@ function attemptInput(
   };
 }
 
-function admittedLedgerCase(caseId: string, sequenceStart: number) {
+function admittedLedgerCase(
+  caseId: string,
+  sequenceStart: number,
+  caseIndex: number,
+) {
   const countBytes = countTokensResponse();
-  const generationBytes = generationResponseBytes();
+  const generationBytes = generationResponseBytes(caseId);
   const common = {
     runId: "qualification-run-1001",
     runAttempt: 1,
     caseId,
-    requestId: `request-${caseId}`,
+    requestId: `10000000-0000-4000-8000-${String(caseIndex + 1).padStart(
+      12,
+      "0",
+    )}`,
     requestPlanSha256: "a".repeat(64),
   };
   return [
@@ -863,9 +902,9 @@ function admittedLedgerCase(caseId: string, sequenceStart: number) {
       reservedOutputTokens: 8192,
       inputMicrosPerMillionTokens: 300_000,
       outputMicrosPerMillionTokens: 2_500_000,
-      spentKnownBeforeMicros: sequenceStart === 1 ? 0 : 20_510,
+      spentKnownBeforeMicros: caseIndex * 20_510,
       worstCaseCurrentMicros: 20_510,
-      cumulativeWorstCaseMicros: sequenceStart === 1 ? 20_510 : 41_020,
+      cumulativeWorstCaseMicros: (caseIndex + 1) * 20_510,
       hardLimitMicros: 500_000,
       decision: "ADMITTED",
     },
@@ -888,8 +927,8 @@ function admittedLedgerCase(caseId: string, sequenceStart: number) {
       sequence: sequenceStart + 5,
       kind: "SPEND_RECONCILED",
       measuredCurrentMicros: 80,
-      cumulativeMeasuredMicros: sequenceStart === 1 ? 80 : 160,
-      cumulativeWorstCaseMicros: sequenceStart === 1 ? 20_510 : 41_020,
+      cumulativeMeasuredMicros: (caseIndex + 1) * 80,
+      cumulativeWorstCaseMicros: (caseIndex + 1) * 20_510,
     },
   ] as Array<Record<string, any>>;
 }
@@ -898,10 +937,9 @@ function capturedAttemptFixture() {
   return {
     runId: "qualification-run-1001",
     runAttempt: 1,
-    ledger: [
-      ...admittedLedgerCase("scan-001", 1),
-      ...admittedLedgerCase("scan-002", 7),
-    ],
+    ledger: OCR_SYNTH_SCANNED_RELEASE_CASES.flatMap(({ id }, index) =>
+      admittedLedgerCase(id, index * 6 + 1, index),
+    ),
   };
 }
 
@@ -953,6 +991,141 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
     },
   );
 
+  it("rejects extra countTokens response fields even when totalTokens is valid", async () => {
+    const countTokens = jest.fn(async () =>
+      Buffer.from(JSON.stringify({ totalTokens: 100, unboundClaim: true })),
+    );
+    const generation = jest.fn(async () => generationResponseBytes());
+
+    await expect(
+      capturedAttemptAuthority().executeCapturedAttempt(
+        attemptInput(0, countTokens, generation),
+      ),
+    ).rejects.toThrow("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+    expect(countTokens).toHaveBeenCalledTimes(1);
+    expect(generation).not.toHaveBeenCalled();
+  });
+
+  it("accepts only the complete ordered 18-case canonical ledger", () => {
+    const evidence = capturedAttemptFixture();
+
+    expect(
+      evidence.ledger
+        .filter(({ kind }) => kind === "COUNT_TOKENS_REQUEST")
+        .map(({ caseId }) => caseId),
+    ).toEqual(OCR_SYNTH_SCANNED_RELEASE_CASES.map(({ id }) => id));
+    expect(
+      evidence.ledger
+        .filter(({ kind }) => kind === "ADMISSION_DECISION")
+        .map((event) => ({
+          reservedOutputTokens: event.reservedOutputTokens,
+          inputMicrosPerMillionTokens: event.inputMicrosPerMillionTokens,
+          outputMicrosPerMillionTokens: event.outputMicrosPerMillionTokens,
+          hardLimitMicros: event.hardLimitMicros,
+          decision: event.decision,
+        })),
+    ).toEqual(
+      Array.from({ length: 18 }, () => ({
+        reservedOutputTokens: 8192,
+        inputMicrosPerMillionTokens: 300_000,
+        outputMicrosPerMillionTokens: 2_500_000,
+        hardLimitMicros: 500_000,
+        decision: "ADMITTED",
+      })),
+    );
+    expect(capturedAttemptAuthority().verifyAttemptLedger(evidence)).toBe(true);
+  });
+
+  it.each([
+    [
+      "missing canonical scan-018",
+      (evidence: ReturnType<typeof capturedAttemptFixture>) => {
+        evidence.ledger.splice(-6);
+      },
+      "ATTEMPT_LEDGER_IDENTITIES_INVALID",
+    ],
+    [
+      "a duplicated request identity",
+      (evidence: ReturnType<typeof capturedAttemptFixture>) => {
+        const duplicate = evidence.ledger[0]!.requestId;
+        for (const event of evidence.ledger.filter(
+          ({ caseId }) => caseId === "scan-002",
+        ))
+          event.requestId = duplicate;
+      },
+      "ATTEMPT_LEDGER_REQUEST_BINDING_INVALID",
+    ],
+    [
+      "a per-case request-plan substitution",
+      (evidence: ReturnType<typeof capturedAttemptFixture>) => {
+        for (const event of evidence.ledger.filter(
+          ({ caseId }) => caseId === "scan-009",
+        ))
+          event.requestPlanSha256 = "9".repeat(64);
+      },
+      "ATTEMPT_LEDGER_REQUEST_BINDING_INVALID",
+    ],
+    [
+      "a generation response hash substitution",
+      (evidence: ReturnType<typeof capturedAttemptFixture>) => {
+        const response = evidence.ledger.find(
+          ({ caseId, kind }) =>
+            caseId === "scan-010" && kind === "GENERATION_RESPONSE",
+        )!;
+        response.responseSha256 = "8".repeat(64);
+      },
+      "GENERATION_RESPONSE_BINDING_INVALID",
+    ],
+    [
+      "a measured current-cost substitution",
+      (evidence: ReturnType<typeof capturedAttemptFixture>) => {
+        const reconciled = evidence.ledger.find(
+          ({ caseId, kind }) =>
+            caseId === "scan-011" && kind === "SPEND_RECONCILED",
+        )!;
+        reconciled.measuredCurrentMicros = 81;
+      },
+      "MEASURED_SPEND_RECONCILIATION_INVALID",
+    ],
+    [
+      "a running measured cumulative-cost reset",
+      (evidence: ReturnType<typeof capturedAttemptFixture>) => {
+        const reconciled = evidence.ledger.find(
+          ({ caseId, kind }) =>
+            caseId === "scan-012" && kind === "SPEND_RECONCILED",
+        )!;
+        reconciled.cumulativeMeasuredMicros = 80;
+      },
+      "CUMULATIVE_MEASURED_SPEND_INVALID",
+    ],
+    [
+      "noncanonical fixed input pricing",
+      (evidence: ReturnType<typeof capturedAttemptFixture>) => {
+        for (const event of evidence.ledger) {
+          if (event.kind === "ADMISSION_DECISION") {
+            event.inputMicrosPerMillionTokens = 301_000;
+            event.worstCaseCurrentMicros = 20_511;
+            const caseIndex = Number(event.caseId.slice(-3)) - 1;
+            event.spentKnownBeforeMicros = caseIndex * 20_511;
+            event.cumulativeWorstCaseMicros = (caseIndex + 1) * 20_511;
+          }
+          if (event.kind === "SPEND_RECONCILED") {
+            const caseIndex = Number(event.caseId.slice(-3)) - 1;
+            event.cumulativeWorstCaseMicros = (caseIndex + 1) * 20_511;
+          }
+        }
+      },
+      "ATTEMPT_LEDGER_PRICING_INVALID",
+    ],
+  ] as const)("rejects %s", (_label, mutate, code) => {
+    const evidence = capturedAttemptFixture();
+    mutate(evidence);
+
+    expect(() =>
+      capturedAttemptAuthority().verifyAttemptLedger(evidence),
+    ).toThrow(code);
+  });
+
   it("does not trust an unbound countedInputTokens claim", () => {
     const evidence = capturedAttemptFixture();
     const admission = evidence.ledger.find(
@@ -963,6 +1136,65 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
     expect(() =>
       capturedAttemptAuthority().verifyAttemptLedger(evidence),
     ).toThrow("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+  });
+
+  describe("protected live-capture executable boundary", () => {
+    it("exports an executable runner that remains closed without explicit protected dependencies and credentials", async () => {
+      const source = await readFile(join(__dirname, "capture-live.ts"), "utf8");
+      const importSafeSource = source.replace(
+        /\nvoid main\(\)\.catch[\s\S]*$/,
+        "\n",
+      );
+      const javascript = ts.transpileModule(importSafeSource, {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+          esModuleInterop: true,
+        },
+      }).outputText;
+      const moduleRecord: { exports: Record<string, unknown> } = {
+        exports: {},
+      };
+      const requireStub = (id: string): unknown => {
+        if (id === "node:path")
+          return { resolve: (...parts: string[]) => join(...parts) };
+        if (id === "./capture-live-file")
+          return { writeQualifiedLiveEvidenceExclusive: jest.fn() };
+        if (id === "./quality-closure-attestation")
+          return {
+            assertOutputOutsideRepository: jest.fn(),
+            assertQualityRepositorySnapshot: jest.fn(),
+            attestQualityClosure: jest.fn(),
+            qualityCaptureLockPath: jest.fn(),
+            readFinalReviewHashes: jest.fn(),
+          };
+        return {};
+      };
+      runInNewContext(
+        `(function (require, module, exports) { ${javascript}\n})`,
+      )(requireStub, moduleRecord, moduleRecord.exports);
+      const runner = moduleRecord.exports.runProtectedLiveCapture;
+      const observation = {
+        kind: typeof runner === "function" ? "READY" : "BOUNDARY_UNAVAILABLE",
+        code: "LIVE_CAPTURE_PROTECTED_RUNNER_NOT_IMPLEMENTED",
+      };
+
+      expect(observation).toMatchObject({ kind: "READY" });
+      expect(source).not.toContain(
+        'throw new Error("LIVE_CAPTURE_BOUNDARY_RUNNER_UNAVAILABLE")',
+      );
+      if (typeof runner !== "function") throw new Error(observation.code);
+      const missingDependencies = await (
+        runner as (input: unknown) => Promise<unknown>
+      )({}).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(missingDependencies).toBeInstanceOf(Error);
+      expect((missingDependencies as Error).message).toMatch(
+        /^LIVE_CAPTURE_(?:PROTECTED_DEPENDENCIES|DEPENDENCIES|CREDENTIALS)_MISSING$/,
+      );
+    });
   });
 
   it.each([

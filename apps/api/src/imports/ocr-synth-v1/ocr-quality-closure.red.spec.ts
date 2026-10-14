@@ -22,6 +22,7 @@ import {
   parseLiveEvidence,
   parseLiveEvidenceJson,
 } from "./live-evidence-parser";
+import { providerNativeOutcome } from "./provider-native-outcome";
 import policy from "./quality-closure-policy.json";
 import { SAFETY_PROBE_IDS } from "./types";
 
@@ -149,32 +150,46 @@ async function liveEvidence(): Promise<OcrEvalInput> {
   const predictions = await buildOraclePredictions(true);
   for (const prediction of predictions) {
     const outcome = prediction.outcome;
-    if (outcome.kind === "SUCCESS" && "regions" in outcome)
-      prediction.outcome = {
-        kind: "SUCCESS",
+    if (outcome.kind === "SUCCESS" && "regions" in outcome) {
+      const pageOccurrences = new Map<number, number>();
+      prediction.outcome = providerNativeOutcome({
         candidates: outcome.regions.flatMap((region) =>
-          region.rows.map((row) => ({
-            pageNumber: row.page,
-            description: row.description,
-            amountCents: row.amountCents,
-            sign: row.sign,
-            amountMeaning: row.amountMeaning,
-            date:
-              row.normalizedDate &&
-              /^\d{4}-\d{2}-\d{2}$/.test(row.normalizedDate)
-                ? row.normalizedDate
-                : null,
-            installment:
-              row.installmentCurrent !== null && row.installmentTotal !== null
-                ? {
-                    index: row.installmentCurrent,
-                    total: row.installmentTotal,
-                  }
-                : null,
-            evidenceText: row.evidenceText,
-          })),
+          region.rows.map((row) => {
+            const pageOccurrenceIndex =
+              (pageOccurrences.get(row.page) ?? 0) + 1;
+            pageOccurrences.set(row.page, pageOccurrenceIndex);
+            return {
+              pageNumber: row.page,
+              pageOccurrenceIndex,
+              description: row.description,
+              amountCents: row.amountCents,
+              sign: row.sign,
+              amountMeaning: row.amountMeaning,
+              dateText: row.dateText,
+              normalizedDate: row.normalizedDate,
+              dateExplicitness: row.dateExplicitness,
+              date: row.dateExplicitness === "FULL" ? row.normalizedDate : null,
+              dateOnly:
+                row.dateExplicitness === "FULL" ? row.normalizedDate : null,
+              installment:
+                row.installmentCurrent !== null && row.installmentTotal !== null
+                  ? {
+                      index: row.installmentCurrent,
+                      total: row.installmentTotal,
+                    }
+                  : null,
+              evidenceText: row.evidenceText,
+              evidence: {
+                pageNumber: row.page,
+                text: row.evidenceText,
+              },
+              selected: false,
+              verificationStatus: "UNVERIFIED",
+            };
+          }),
         ),
-      };
+      } as never);
+    }
     prediction.modelVersion = "quality-closure-fixture";
     prediction.peakRssBytes = policy.maxVmHwmBytes;
     prediction.latencyMs = policy.maxP95LatencyMs;
@@ -295,6 +310,90 @@ describe("quality-closure corpus terminal outcomes", () => {
 });
 
 describe("quality-closure mechanical evidence binding", () => {
+  it("preserves strict V3 provider facts and explicit defaults through live evidence", async () => {
+    const evidence = await liveEvidence();
+    const parsed = parseLiveEvidence(evidence);
+    const candidate = (caseId: string) => {
+      const outcome = parsed.predictions.find((item) => item.caseId === caseId)!
+        .outcome as any;
+      return outcome.candidates[0];
+    };
+
+    expect(candidate("scan-001")).toMatchObject({
+      pageNumber: 1,
+      pageOccurrenceIndex: 1,
+      description: "ITEM SINTETICO 001-0",
+      amountCents: "1",
+      sign: "POSITIVE",
+      amountMeaning: "LINE_AMOUNT",
+      dateText: "29/02/2024",
+      normalizedDate: "2024-02-29",
+      dateExplicitness: "FULL",
+      installment: null,
+      evidenceText: "29/02/2024  ITEM SINTETICO 001-0  R$ 0,01",
+      selected: false,
+      verificationStatus: "UNVERIFIED",
+      candidateDisposition: "RAW_UNCLASSIFIED",
+    });
+    expect(candidate("scan-002")).toMatchObject({
+      dateText: "29/02",
+      normalizedDate: "29/02",
+      dateExplicitness: "YEARLESS",
+    });
+    expect(candidate("scan-003")).toMatchObject({
+      dateText: null,
+      normalizedDate: null,
+      dateExplicitness: "MISSING",
+    });
+  });
+
+  it("keeps UNKNOWN date evidence distinct from YEARLESS and MISSING", () => {
+    const projected = providerNativeOutcome({
+      candidates: [
+        {
+          pageNumber: 2,
+          pageOccurrenceIndex: 3,
+          description: null,
+          amountCents: null,
+          sign: "UNKNOWN",
+          amountMeaning: "UNKNOWN",
+          dateText: "data ilegível",
+          normalizedDate: null,
+          dateExplicitness: "UNKNOWN",
+          date: null,
+          dateOnly: null,
+          installment: null,
+          evidenceText: "data ilegível valor ilegível",
+          evidence: {
+            pageNumber: 2,
+            text: "data ilegível valor ilegível",
+          },
+          selected: false,
+          verificationStatus: "UNVERIFIED",
+        },
+      ],
+    } as never) as any;
+
+    expect(projected.candidates).toEqual([
+      {
+        pageNumber: 2,
+        pageOccurrenceIndex: 3,
+        description: null,
+        amountCents: null,
+        sign: "UNKNOWN",
+        amountMeaning: "UNKNOWN",
+        dateText: "data ilegível",
+        normalizedDate: null,
+        dateExplicitness: "UNKNOWN",
+        installment: null,
+        evidenceText: "data ilegível valor ilegível",
+        selected: false,
+        verificationStatus: "UNVERIFIED",
+        candidateDisposition: "RAW_UNCLASSIFIED",
+      },
+    ]);
+  });
+
   it("pins the approved policy and pricing boundaries literally", () => {
     expect(policy).toMatchObject({
       maxOutputTokens: 8192,
@@ -404,7 +503,7 @@ describe("quality-closure mechanical evidence binding", () => {
   it("binds Git, policy, corpus and runtime hashes to exactly 10 routes and 35 probes", async () => {
     expect(SAFETY_PROBE_IDS).toHaveLength(35);
     const evidence = await liveEvidence();
-    expect(() => parseLiveEvidence(evidence)).toThrow("LIVE_EVIDENCE_INVALID");
+    expect(parseLiveEvidence(evidence)).toEqual(evidence);
     const proof = qualificationProof(evidence.run.candidateSha!);
     expect(proof.tests).toHaveLength(45);
     expect([

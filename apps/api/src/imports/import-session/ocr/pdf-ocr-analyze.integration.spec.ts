@@ -815,6 +815,66 @@ describe("POST attachment analyze v2 direct OCR", () => {
     expect(await financialCount(prisma, owner.tenantId)).toBe(0);
   });
 
+  it("rejects a newly returned V2 provider document before runtime materialization", async () => {
+    const owner = await fixture(prisma, "new-provider-v2-rejected");
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn().mockImplementation(async (request) => {
+        const current = provenanceDocument(
+          owner.hash,
+          request.requestId,
+          "LOCAL_ADC",
+          [],
+        );
+        return {
+          ...current,
+          version: PDF_OCR_VERSION,
+        } satisfies PdfOcrDocumentV2;
+      }),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+    const request = await declareConsent(prisma, owner);
+
+    await expect(
+      service.analyzeAttached(
+        owner.auth,
+        owner.sessionId,
+        owner.attachmentId,
+        request,
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "OCR_MALFORMED_RESPONSE" });
+    expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+    expect(
+      await prisma.importOcrUsage.findFirstOrThrow({
+        where: { sessionId: owner.sessionId },
+      }),
+    ).toMatchObject({
+      outcome: "MALFORMED_RESPONSE",
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      responseId: null,
+    });
+    expect(
+      await prisma.importObservation.count({
+        where: { tenantId: owner.tenantId },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.importArtifact.findFirstOrThrow({
+        where: { tenantId: owner.tenantId },
+      }),
+    ).toMatchObject({
+      state: "RAW_READY",
+      parserVersion: null,
+      extractionJson: null,
+    });
+    expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+  });
+
   it.each([
     [
       "modelVersion",
