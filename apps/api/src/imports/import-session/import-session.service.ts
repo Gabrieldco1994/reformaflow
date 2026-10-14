@@ -1583,6 +1583,36 @@ async function renderImportSessionUnchecked(
         metadata.find((artifact) => artifact.id === ref.artifactId) ?? null,
     })),
   });
+  const purgedOcrArtifacts =
+    row.state !== ImportSessionState.REVIEW_REQUIRED
+      ? []
+      : await db.importOcrUsage.findMany({
+          where: {
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+            sessionId: row.id,
+            contentPurgedAt: { not: null },
+          },
+          select: { artifactId: true },
+        });
+  const purgedOcrArtifactIds = new Set(
+    purgedOcrArtifacts.map(({ artifactId }) => artifactId),
+  );
+  const projectedDeclarations =
+    purgedOcrArtifactIds.size === 0
+      ? declarations
+      : {
+          ...declarations,
+          questions: declarations.questions.filter((question) => {
+            const observation = observationById.get(
+              question.subject.observationId,
+            );
+            return (
+              observation === undefined ||
+              !purgedOcrArtifactIds.has(observation.artifactId)
+            );
+          }),
+        };
   const eligible =
     options.analysisEnabled === true &&
     row.closedAt === null &&
@@ -1702,13 +1732,13 @@ async function renderImportSessionUnchecked(
   return projectSession(row, attachments, now, {
     ...options,
     documentary: {
-      questions: declarations.questions,
+      questions: projectedDeclarations.questions,
       coalescedQuestions: coalesceImportDeclarationQuestions(
         draft,
-        declarations,
+        projectedDeclarations,
       ),
-      declaredFacts: declarations.declaredFacts,
-      reviewBlockers: declarations.reviewBlockers,
+      declaredFacts: projectedDeclarations.declaredFacts,
+      reviewBlockers: projectedDeclarations.reviewBlockers,
       ocrEvidenceByLine,
       executableAttachmentIds: attachments
         .filter((ref) =>

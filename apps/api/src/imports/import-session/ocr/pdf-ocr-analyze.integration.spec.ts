@@ -450,39 +450,49 @@ describe("POST attachment analyze v2 direct OCR", () => {
     const purchaseLineId = analyzed.lines[0]!.id;
     const purchaseObservationId = analyzed.lines[0]!.observationIds[0]!;
     let review = analyzed;
-    for (const question of analyzed.questions.filter(
-      (item) =>
-        "subject" in item &&
-        item.subject.kind === "OBSERVATION" &&
-        item.subject.observationId === purchaseObservationId,
-    )) {
-      if (!("subject" in question)) throw new Error("observation question");
+    for (const field of [
+      "dataCompra",
+      "merchant",
+      "amountMeaning",
+      "amountCents",
+      "installmentCount",
+      "installmentIndex",
+    ] as const) {
+      const currentQuestion = review.questions.find(
+        (item) =>
+          "subject" in item &&
+          item.subject.kind === "OBSERVATION" &&
+          item.subject.observationId === purchaseObservationId &&
+          item.field === field,
+      );
+      if (!currentQuestion || !("subject" in currentQuestion))
+        throw new Error("current observation question");
       const answer =
-        question.field === "dataCompra"
+        currentQuestion.field === "dataCompra"
           ? {
               field: "dataCompra",
               value: "2026-10-13",
               meaningContext: null,
             }
-          : question.field === "merchant"
+          : currentQuestion.field === "merchant"
             ? {
                 field: "merchant",
                 value: "PURCHASE",
                 meaningContext: null,
               }
-            : question.field === "amountMeaning"
+            : currentQuestion.field === "amountMeaning"
               ? {
                   field: "amountMeaning",
                   value: "TOTAL_PURCHASE",
                   meaningContext: null,
                 }
-              : question.field === "amountCents"
+              : currentQuestion.field === "amountCents"
                 ? {
                     field: "amountCents",
                     value: 12_345,
                     meaningContext: "TOTAL_PURCHASE",
                   }
-                : question.field === "installmentCount"
+                : currentQuestion.field === "installmentCount"
                   ? {
                       field: "installmentCount",
                       value: 1,
@@ -500,9 +510,17 @@ describe("POST attachment analyze v2 direct OCR", () => {
           version: 1,
           answerRequestId: randomUUID(),
           expectedRevision: review.revision,
-          questionId: question.id,
+          questionId: currentQuestion.id,
           channel: "TEXT",
-          input: { kind: "VALUE", text: String(answer.value) },
+          input: {
+            kind: "VALUE",
+            text:
+              currentQuestion.field === "amountMeaning"
+                ? "total da compra"
+                : currentQuestion.field === "amountCents"
+                  ? "123,45"
+                  : String(answer.value),
+          },
           answer,
         } as never,
         {},
@@ -1810,6 +1828,8 @@ async function fixture(
         nickname: `OCR ${label}`,
         institution: "fixture",
         last4: "0719",
+        closingDay: 15,
+        dueDay: 20,
       },
     })
   ).id;

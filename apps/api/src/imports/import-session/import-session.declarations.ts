@@ -415,7 +415,7 @@ export function resolveImportDeclarations(
         !(
           effective.installmentCount === 1 &&
           (line.decision.kind === "KEEP_EXISTING" ||
-            effective.amountMeaning === "INSTALLMENT_CHARGE")
+            effective.amountMeaning === Meaning.INSTALLMENT_CHARGE)
         )
       )
         wanted.add("installmentIndex");

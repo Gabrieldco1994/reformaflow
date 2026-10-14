@@ -1,10 +1,11 @@
 import { constants as fsConstants, promises as fs, type Stats } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-export const VERTEX_AUTHORIZED_USER_STARTUP_ERROR =
-  "VERTEX_AUTHORIZED_USER_FILE_INVALID";
+export const VERTEX_LOCAL_ADC_STARTUP_ERROR = "VERTEX_LOCAL_ADC_FILE_INVALID";
 const MAX_CREDENTIAL_FILE_BYTES = 64 * 1024;
+const GCLOUD_DIRECTORY_PARTS = [".config", "gcloud"] as const;
+const ADC_FILE_NAME = "application_default_credentials.json";
 const AUTHORIZED_USER_KEYS = [
   "type",
   "client_id",
@@ -12,10 +13,11 @@ const AUTHORIZED_USER_KEYS = [
   "refresh_token",
 ] as const;
 
-type FileStats = Pick<Stats, "dev" | "ino" | "mode" | "size" | "uid"> &
-  Pick<Stats, "isFile" | "isSymbolicLink">;
+type FileStats = Pick<Stats, "dev" | "ino" | "mode" | "size"> &
+  Partial<Pick<Stats, "uid">> &
+  Pick<Stats, "isDirectory" | "isFile" | "isSymbolicLink">;
 
-export interface VertexAuthorizedUserFileSystem {
+export interface VertexLocalAdcFileSystem {
   lstat(path: string): Promise<FileStats>;
   open(
     path: string,
@@ -27,7 +29,7 @@ export interface VertexAuthorizedUserFileSystem {
   }>;
 }
 
-export interface AdmittedVertexAuthorizedUser {
+export interface AdmittedVertexLocalAdc {
   readonly credentials: Readonly<{
     type: "authorized_user";
     client_id: string;
@@ -36,13 +38,13 @@ export interface AdmittedVertexAuthorizedUser {
   }>;
 }
 
-const nodeFileSystem: VertexAuthorizedUserFileSystem = {
+const nodeFileSystem: VertexLocalAdcFileSystem = {
   lstat: (path) => fs.lstat(path),
   open: (path, flags) => fs.open(path, flags),
 };
 
 const fail = (): never => {
-  throw new Error(VERTEX_AUTHORIZED_USER_STARTUP_ERROR);
+  throw new Error(VERTEX_LOCAL_ADC_STARTUP_ERROR);
 };
 const sameFile = (left: FileStats, right: FileStats): boolean =>
   left.dev === right.dev && left.ino === right.ino;
@@ -68,28 +70,42 @@ const ownerOnly = (stats: FileStats): boolean => {
     typeof process.getuid === "function" ? process.getuid() : null;
   return (
     (stats.mode & 0o077) === 0 &&
-    (processUid === null || stats.uid === processUid)
+    (processUid === null || stats.uid === undefined || stats.uid === processUid)
   );
 };
+const protectedDirectory = (stats: FileStats): boolean =>
+  !stats.isSymbolicLink() && stats.isDirectory() && (stats.mode & 0o022) === 0;
+
+export function vertexLocalAdcPath(
+  _platform: "darwin" | "linux",
+  homeDirectory: string,
+): string {
+  return join(homeDirectory, ...GCLOUD_DIRECTORY_PARTS, ADC_FILE_NAME);
+}
 
 /**
  * Loads only gcloud's deterministic local ADC file into memory. The caller
  * passes the admitted object to GoogleAuth, so no ambient path probing occurs.
  */
-export async function admitVertexAuthorizedUserFile(
-  fileSystem: VertexAuthorizedUserFileSystem = nodeFileSystem,
-  homeDirectory: string = homedir(),
-): Promise<AdmittedVertexAuthorizedUser> {
-  const path = join(
-    homeDirectory,
-    ".config",
-    "gcloud",
-    "application_default_credentials.json",
-  );
-  let handle: Awaited<
-    ReturnType<VertexAuthorizedUserFileSystem["open"]>
-  > | null = null;
+export async function admitVertexLocalAdcFile(
+  input: Readonly<{
+    platform: "darwin" | "linux";
+    homeDirectory: string;
+    fileSystem: VertexLocalAdcFileSystem;
+  }> = {
+    platform: platform() as "darwin" | "linux",
+    homeDirectory: homedir(),
+    fileSystem: nodeFileSystem,
+  },
+): Promise<AdmittedVertexLocalAdc> {
+  const { fileSystem, homeDirectory } = input;
+  const directory = join(homeDirectory, ...GCLOUD_DIRECTORY_PARTS);
+  const path = vertexLocalAdcPath(input.platform, homeDirectory);
+  let handle: Awaited<ReturnType<VertexLocalAdcFileSystem["open"]>> | null =
+    null;
   try {
+    const directoryStats = await fileSystem.lstat(directory);
+    if (!protectedDirectory(directoryStats)) fail();
     const before = await fileSystem.lstat(path);
     if (before.isSymbolicLink() || !before.isFile()) fail();
     handle = await fileSystem.open(

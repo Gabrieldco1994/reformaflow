@@ -141,12 +141,6 @@ function retainedDraft(
         : [],
     ),
   );
-  const removedObservationIds = new Set(contaminatedObservationIds);
-  for (const line of draft.lines) {
-    if (!removedLineIds.has(line.id)) continue;
-    for (const observationId of line.observationIds)
-      removedObservationIds.add(observationId);
-  }
   return validateStoredDraft({
     ...draft,
     lines: draft.lines.filter((line) => !removedLineIds.has(line.id)),
@@ -162,7 +156,7 @@ function retainedDraft(
     scope: {
       ...draft.scope,
       observationIds: draft.scope.observationIds.filter(
-        (id) => !removedObservationIds.has(id),
+        (id) => !contaminatedObservationIds.has(id),
       ),
     },
     ...(draft.declarations
@@ -225,6 +219,36 @@ export async function enforcePdfOcrRetention(
     const contaminatedIds = new Set(contaminated.map(({ id }) => id));
     const active = ACTIVE_STATES.includes(row.state);
     const draft = active ? retainedDraft(row, contaminatedIds) : null;
+
+    // Update the draft before deleting observations. The database's defensive
+    // observation-delete trigger otherwise prunes only the deleted member of a
+    // composite line and consumes the single revision increment.
+    if (active) {
+      if (row.revision >= IMPORT_SESSION_PRIMITIVES.maxRevision)
+        throw unavailable();
+      const changed = await tx.importSession.updateMany({
+        where: {
+          id: row.id,
+          tenantId: row.tenantId,
+          ownerProjectId: row.ownerProjectId,
+          revision: row.revision,
+          state: row.state,
+        },
+        data: {
+          draftJson: canonical(draft),
+          state: ImportSessionState.REVIEW_REQUIRED,
+          revision: { increment: 1 },
+          searchJson: null,
+          proposalJson: null,
+          proposalHash: null,
+          preflightHash: null,
+          challengeJson: null,
+          prepareLeaseJson: null,
+          prepareGeneration: { increment: 1 },
+        },
+      });
+      if (changed.count !== 1) throw unavailable();
+    }
 
     const unclaimed = contaminated.filter(
       (observation) =>
@@ -290,43 +314,6 @@ export async function enforcePdfOcrRetention(
     });
     if (marked.count !== due.length) throw unavailable();
 
-    if (active) {
-      if (row.revision >= IMPORT_SESSION_PRIMITIVES.maxRevision)
-        throw unavailable();
-      const changed = await tx.importSession.updateMany({
-        where: {
-          id: row.id,
-          tenantId: row.tenantId,
-          ownerProjectId: row.ownerProjectId,
-          revision: row.revision,
-          state: row.state,
-        },
-        data: {
-          draftJson: canonical(draft),
-          state: ImportSessionState.REVIEW_REQUIRED,
-          revision: { increment: 1 },
-          searchJson: null,
-          proposalJson: null,
-          proposalHash: null,
-          preflightHash: null,
-          challengeJson: null,
-          prepareLeaseJson: null,
-          prepareGeneration: { increment: 1 },
-        },
-      });
-      if (changed.count !== 1) {
-        const applied = await tx.importSession.count({
-          where: {
-            id: row.id,
-            tenantId: row.tenantId,
-            ownerProjectId: row.ownerProjectId,
-            revision: row.revision + 1,
-            state: ImportSessionState.REVIEW_REQUIRED,
-          },
-        });
-        if (applied !== 1) throw unavailable();
-      }
-    }
     const current = await tx.importSession.findFirst({
       where: {
         id: row.id,

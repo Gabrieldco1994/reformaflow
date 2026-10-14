@@ -20,9 +20,9 @@ import {
   type AdmittedVertexServiceAccount,
 } from "./vertex-service-account-file";
 import {
-  admitVertexAuthorizedUserFile,
-  type AdmittedVertexAuthorizedUser,
-} from "./vertex-authorized-user-file";
+  admitVertexLocalAdcFile,
+  type AdmittedVertexLocalAdc,
+} from "./vertex-local-adc-file";
 import {
   PDF_OCR_DISPATCH_STATE,
   PdfOcrProviderError,
@@ -33,7 +33,7 @@ interface VertexProviderFactoryDependencies {
   readonly admitServiceAccountFile?: (
     projectId: string,
   ) => Promise<AdmittedVertexServiceAccount>;
-  readonly admitAuthorizedUserFile?: () => Promise<AdmittedVertexAuthorizedUser>;
+  readonly admitAuthorizedUserFile?: () => Promise<AdmittedVertexLocalAdc>;
   readonly GoogleAuthClass?: GoogleAuthConstructor;
 }
 
@@ -70,7 +70,7 @@ export async function createConfiguredVertexPdfOcrProvider(
           dependencies.admitServiceAccountFile ?? admitVertexServiceAccountFile
         )(config.projectId)
       : await (
-          dependencies.admitAuthorizedUserFile ?? admitVertexAuthorizedUserFile
+          dependencies.admitAuthorizedUserFile ?? admitVertexLocalAdcFile
         )();
   const token = createVertexAccessToken(
     config,

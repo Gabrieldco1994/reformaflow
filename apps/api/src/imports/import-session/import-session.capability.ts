@@ -1,4 +1,7 @@
-import type { ImportSessionEntryV1 } from "@reformaflow/domain";
+import {
+  PDF_OCR_PARSER_VERSION,
+  type ImportSessionEntryV1,
+} from "@reformaflow/domain";
 import { IMPORT_SESSION_WRITES_ENABLED } from "./import-session.disabled";
 import type { ImportSession, Prisma } from "@prisma/client";
 import { parseStoredImportObservationEvidence } from "./import-session.observation";
@@ -112,10 +115,13 @@ export async function importSessionWritesEnabled(
         return (
           (artifact.state === "EXTRACTED" &&
             artifact.parserVersion === "card-local-pdf-v1") ||
-          (artifact.state === "RAW_READY" &&
-            artifact.parserVersion === null &&
-            artifact.extractionJson === null &&
-            ocrAttempt !== undefined)
+          (ocrAttempt !== undefined &&
+            ((artifact.state === "EXTRACTED" &&
+              artifact.parserVersion === PDF_OCR_PARSER_VERSION &&
+              artifact.extractionJson !== null) ||
+              (artifact.state === "RAW_READY" &&
+                artifact.parserVersion === null &&
+                artifact.extractionJson === null)))
         );
       })
     )

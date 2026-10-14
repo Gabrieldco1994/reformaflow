@@ -1109,9 +1109,9 @@ export class ImportSessionExtractionService {
                 ...release,
                 ...(ocrDocument
                   ? {
-                      state: "RAW_READY",
-                      parserVersion: null,
-                      extractionJson: null,
+                      state: "EXTRACTED",
+                      parserVersion: projectedArtifact.parserVersion,
+                      extractionJson: projectedArtifact.extractionJson,
                     }
                   : capture.kind === "RAW"
                     ? {

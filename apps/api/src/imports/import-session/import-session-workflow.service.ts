@@ -157,10 +157,15 @@ const CONTINUATION_PAYLOAD_KIND = "CONTINUATION_V1";
 const OCR_EDITABLE_DRAFT_FIELDS: ReadonlySet<string> = new Set([
   "titulo",
   "fornecedor",
+  "tipoDespesa",
+  "categoriaMaoDeObra",
   "amountMeaning",
   "amountCents",
   "installmentCount",
   "dataCompra",
+  "firstDueDate",
+  "targets",
+  "decision",
 ]);
 const editableStates: ReadonlySet<string> = new Set([
   State.DRAFT,
@@ -753,6 +758,10 @@ export class ImportSessionWorkflowService {
             request.questionId !== null || request.replaceLines.length === 0
               ? null
               : await this.material(tx, row, draft, true);
+          const replacementResolution =
+            replacementMaterial === null
+              ? null
+              : resolveImportDeclarations(row, draft, replacementMaterial);
           const ocrObservationIds = new Set(
             replacementMaterial?.observations.flatMap((observation) =>
               parseStoredImportObservationEvidence(observation.evidenceJson).ocr
@@ -808,7 +817,20 @@ export class ImportSessionWorkflowService {
                         if (request.questionId !== null) return true;
                         const changed = replacement.get(item.lineId);
                         const original = existing.get(item.lineId);
-                        return !changed || !original || same(changed, original);
+                        if (!changed || !original || same(changed, original))
+                          return true;
+                        const facts = replacementResolution?.byLine
+                          .get(item.lineId)
+                          ?.get(item.observationId)?.effective;
+                        return (
+                          facts !== undefined &&
+                          changed.titulo === facts.merchant &&
+                          changed.fornecedor === facts.merchant &&
+                          changed.dataCompra === facts.dataCompra &&
+                          changed.amountMeaning === facts.amountMeaning &&
+                          changed.installmentCount === facts.installmentCount &&
+                          changed.amountCents === facts.amountCents
+                        );
                       }),
                     },
                   }
@@ -1914,6 +1936,19 @@ export class ImportSessionWorkflowService {
           draftJson: canonical(plan.continuationDraft),
         },
       });
+      const transferredOcrUsages =
+        plan.transferRefIds.length === 0
+          ? []
+          : await tx.importOcrUsage.findMany({
+              where: {
+                tenantId: row.tenantId,
+                ownerProjectId: row.ownerProjectId,
+                sessionId: row.id,
+                attachmentId: { in: [...plan.transferRefIds] },
+              },
+            });
+      if (transferredOcrUsages.length > 0)
+        await tx.$executeRaw`PRAGMA defer_foreign_keys = ON`;
       for (const refId of plan.transferRefIds) {
         const expected = material.references.find(
           (item) => item.ref.id === refId,
@@ -1943,6 +1978,23 @@ export class ImportSessionWorkflowService {
           },
         });
         if (result.count !== 1) throw problem(Code.REVISION_CONFLICT, row);
+        const usages = transferredOcrUsages.filter(
+          (usage) => usage.attachmentId === refId,
+        );
+        if (usages.length > 0) {
+          const moved = await tx.importOcrUsage.updateMany({
+            where: {
+              id: { in: usages.map(({ id }) => id) },
+              tenantId: row.tenantId,
+              ownerProjectId: row.ownerProjectId,
+              sessionId: row.id,
+              attachmentId: refId,
+            },
+            data: { sessionId: continuationId },
+          });
+          if (moved.count !== usages.length)
+            throw problem(Code.REVISION_CONFLICT, row);
+        }
       }
     }
     const invalidatedClaims: ImportRawClaim[] = [];
