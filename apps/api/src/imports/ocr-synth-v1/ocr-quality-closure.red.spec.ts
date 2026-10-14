@@ -31,6 +31,18 @@ const ROOT = resolve(__dirname, "../../../../..");
 const POLICY_PATH =
   "apps/api/src/imports/ocr-synth-v1/quality-closure-policy.json";
 const CORPUS_PATH = "apps/api/src/imports/ocr-synth-v1/ground-truth.json";
+const SERVICE_QUALIFICATION_PATH =
+  "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts";
+const SAFETY_QUALIFICATION_PATH =
+  "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
+const SERVICE_PROBE_NAMES = new Set([
+  "[PROBE] EXACT_CONSENT_CAPABILITY",
+  "[PROBE] SELECTED_TRUE_DEFAULT",
+  "[PROBE] VERIFIED_DEFAULT",
+  "[PROBE] MISSING_CONSENT",
+  "[PROBE] MISSING_ATTESTATION",
+  "[PROBE] PRIOR_CONSENT_DECLARATION",
+]);
 const QUALIFICATION_TEST_NAMES = Object.freeze([
   "[ROUTE] mixed-001",
   "[ROUTE] mixed-002",
@@ -136,6 +148,33 @@ function liveRun(): OcrEvalRunConfig {
 async function liveEvidence(): Promise<OcrEvalInput> {
   const predictions = await buildOraclePredictions(true);
   for (const prediction of predictions) {
+    const outcome = prediction.outcome;
+    if (outcome.kind === "SUCCESS" && "regions" in outcome)
+      prediction.outcome = {
+        kind: "SUCCESS",
+        candidates: outcome.regions.flatMap((region) =>
+          region.rows.map((row) => ({
+            pageNumber: row.page,
+            description: row.description,
+            amountCents: row.amountCents,
+            sign: row.sign,
+            amountMeaning: row.amountMeaning,
+            date:
+              row.normalizedDate &&
+              /^\d{4}-\d{2}-\d{2}$/.test(row.normalizedDate)
+                ? row.normalizedDate
+                : null,
+            installment:
+              row.installmentCurrent !== null && row.installmentTotal !== null
+                ? {
+                    index: row.installmentCurrent,
+                    total: row.installmentTotal,
+                  }
+                : null,
+            evidenceText: row.evidenceText,
+          })),
+        ),
+      };
     prediction.modelVersion = "quality-closure-fixture";
     prediction.peakRssBytes = policy.maxVmHwmBytes;
     prediction.latencyMs = policy.maxP95LatencyMs;
@@ -149,12 +188,24 @@ async function liveEvidence(): Promise<OcrEvalInput> {
     prediction.adapterTrace!.deadlineMs = policy.maxProviderDeadlineMs;
     prediction.adapterTrace!.requestBodyBytes = policy.maxRequestBodyBytes;
   }
+  const routingCases = await buildOracleRoutingCases();
+  for (const route of routingCases) {
+    route.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
+    route.testFile = SERVICE_QUALIFICATION_PATH;
+  }
+  const safetyProbes = buildOracleSafetyProbes();
+  for (const probe of safetyProbes) {
+    probe.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
+    probe.testFile = SERVICE_PROBE_NAMES.has(`[PROBE] ${probe.id}`)
+      ? SERVICE_QUALIFICATION_PATH
+      : SAFETY_QUALIFICATION_PATH;
+  }
   return {
     datasetVersion: OCR_SYNTH_DATASET.datasetVersion,
     run: liveRun(),
     predictions,
-    routingCases: await buildOracleRoutingCases(),
-    safetyProbes: buildOracleSafetyProbes(),
+    routingCases,
+    safetyProbes,
   };
 }
 
@@ -171,15 +222,26 @@ function runtimeSha256(): string {
 
 function qualificationProof(candidateSha: string) {
   return {
-    gitSha: candidateSha,
-    policySha256: fileSha256(POLICY_PATH),
-    corpusSha256: fileSha256(CORPUS_PATH),
-    runtimeSha256: runtimeSha256(),
-    initialCandidateSha: candidateSha,
-    rerunCandidateSha: candidateSha,
+    version: 2 as const,
+    policyVersion: String(policy.policyVersion),
+    snapshot: {
+      headSha: candidateSha,
+      treeSha: candidateSha,
+      clean: true as const,
+      policySha256: fileSha256(POLICY_PATH),
+      corpusSha256: fileSha256(CORPUS_PATH),
+      configurationSha256: "4".repeat(64),
+      adapterSha256: "5".repeat(64),
+      runtimeSha256: runtimeSha256(),
+      suiteSha256: "6".repeat(64),
+    },
     tests: QUALIFICATION_TEST_NAMES.map((name) => ({
       name,
-      status: "PASS",
+      status: "PASS" as const,
+      sourcePath:
+        name.startsWith("[ROUTE] ") || SERVICE_PROBE_NAMES.has(name)
+          ? SERVICE_QUALIFICATION_PATH
+          : SAFETY_QUALIFICATION_PATH,
     })),
   };
 }
@@ -342,6 +404,7 @@ describe("quality-closure mechanical evidence binding", () => {
   it("binds Git, policy, corpus and runtime hashes to exactly 10 routes and 35 probes", async () => {
     expect(SAFETY_PROBE_IDS).toHaveLength(35);
     const evidence = await liveEvidence();
+    expect(() => parseLiveEvidence(evidence)).toThrow("LIVE_EVIDENCE_INVALID");
     const proof = qualificationProof(evidence.run.candidateSha!);
     expect(proof.tests).toHaveLength(45);
     expect([
@@ -357,6 +420,14 @@ describe("quality-closure mechanical evidence binding", () => {
         qualityClosure: proof,
       }),
     ).toMatchObject({ qualityClosure: proof });
+    const unverified = await evaluateOcrSynth({
+      ...evidence,
+      qualityClosure: proof,
+    } as unknown as OcrEvalInput);
+    expect(unverified.releaseStatus).toBe("GAPS");
+    expect(unverified.liveEvidenceGaps).toContain(
+      "QUALITY_CLOSURE_NOT_VERIFIED",
+    );
   });
 
   it.each([
@@ -374,6 +445,20 @@ describe("quality-closure mechanical evidence binding", () => {
       (tests: any[]) =>
         tests.map((item, index) =>
           index === 0 ? { ...item, status: "PENDING" } : item,
+        ),
+    ],
+    [
+      "todo",
+      (tests: any[]) =>
+        tests.map((item, index) =>
+          index === 0 ? { ...item, status: "TODO" } : item,
+        ),
+    ],
+    [
+      "skipped",
+      (tests: any[]) =>
+        tests.map((item, index) =>
+          index === 0 ? { ...item, status: "SKIPPED" } : item,
         ),
     ],
     [
@@ -399,22 +484,37 @@ describe("quality-closure mechanical evidence binding", () => {
     ).toThrow("LIVE_EVIDENCE_INVALID");
   });
 
-  it.each(["gitSha", "policySha256", "corpusSha256", "runtimeSha256"] as const)(
-    "rejects a mismatched mechanically-derived %s",
-    async (field) => {
+  it("rejects every malformed mechanically-derived snapshot hash", async () => {
+    for (const field of [
+      "policySha256",
+      "corpusSha256",
+      "configurationSha256",
+      "adapterSha256",
+      "runtimeSha256",
+      "suiteSha256",
+    ] as const) {
       const evidence = await liveEvidence();
       const proof = qualificationProof(evidence.run.candidateSha!);
-      proof[field] = field === "gitSha" ? "f".repeat(40) : "f".repeat(64);
+      proof.snapshot[field] = "not-a-hash";
       expect(() =>
         parseLiveEvidence({ ...evidence, qualityClosure: proof }),
       ).toThrow("LIVE_EVIDENCE_INVALID");
-    },
-  );
+    }
+  });
 
-  it("rejects a rerun performed on a different candidate", async () => {
+  it("rejects a closure snapshot from a different candidate", async () => {
     const evidence = await liveEvidence();
     const proof = qualificationProof(evidence.run.candidateSha!);
-    proof.rerunCandidateSha = "f".repeat(40);
+    proof.snapshot.headSha = "f".repeat(40);
+    expect(() =>
+      parseLiveEvidence({ ...evidence, qualityClosure: proof }),
+    ).toThrow("LIVE_EVIDENCE_INVALID");
+  });
+
+  it("requires sourcePath on every canonical v2 test result", async () => {
+    const evidence = await liveEvidence();
+    const proof = qualificationProof(evidence.run.candidateSha!);
+    delete (proof.tests[0] as Partial<(typeof proof.tests)[number]>).sourcePath;
     expect(() =>
       parseLiveEvidence({ ...evidence, qualityClosure: proof }),
     ).toThrow("LIVE_EVIDENCE_INVALID");
@@ -422,10 +522,19 @@ describe("quality-closure mechanical evidence binding", () => {
 
   it("rejects duplicate evidence JSON keys before object validation", async () => {
     const evidence = await liveEvidence();
-    const raw = JSON.stringify(evidence).replace(
-      `"datasetVersion":"${evidence.datasetVersion}"`,
-      `"datasetVersion":"${evidence.datasetVersion}","datasetVersion":"${evidence.datasetVersion}"`,
-    );
-    expect(() => parseLiveEvidenceJson(raw)).toThrow("LIVE_EVIDENCE_INVALID");
+    const bound = {
+      ...evidence,
+      qualityClosure: qualificationProof(evidence.run.candidateSha!),
+    };
+    const serialized = JSON.stringify(bound);
+    const duplicates = [
+      serialized.replace(
+        `"datasetVersion":"${evidence.datasetVersion}"`,
+        `"datasetVersion":"${evidence.datasetVersion}","datasetVersion":"${evidence.datasetVersion}"`,
+      ),
+      serialized.replace(`"clean":true`, `"clean":true,"clean":true`),
+    ];
+    for (const raw of duplicates)
+      expect(() => parseLiveEvidenceJson(raw)).toThrow("LIVE_EVIDENCE_INVALID");
   });
 });

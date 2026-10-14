@@ -75,46 +75,43 @@ describe("POST attachment analyze v2 direct OCR", () => {
     await prisma.$disconnect();
   });
 
-  it.each(OCR_SYNTH_ROUTING_CASES)(
-    "routes real synthetic mixed case $id locally with zero OCR ledger or financial writes",
-    async (testCase) => {
-      const bytes = await generateArtifact(testCase);
-      const localResult = await extractPdfDocument(bytes).catch(
-        (error: unknown) =>
-          error instanceof Error ? error : new Error("LOCAL_ROUTE_FAILED"),
-      );
-      const owner = await fixture(prisma, `route-${testCase.id}`, bytes);
-      expect(owner.hash).toBe(artifactSha256(bytes));
-      const provider = {
-        provider: PDF_OCR_PROVIDER_ID,
-        model: PDF_OCR_MODEL_ID,
-        ready: () => true,
-        extractPdf: jest.fn(),
-      };
-      const service = extraction(prisma, bytes, provider, localResult);
+  it.each(OCR_SYNTH_ROUTING_CASES)("[ROUTE] $id", async (testCase) => {
+    const bytes = await generateArtifact(testCase);
+    const localResult = await extractPdfDocument(bytes).catch(
+      (error: unknown) =>
+        error instanceof Error ? error : new Error("LOCAL_ROUTE_FAILED"),
+    );
+    const owner = await fixture(prisma, `route-${testCase.id}`, bytes);
+    expect(owner.hash).toBe(artifactSha256(bytes));
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn(),
+    };
+    const service = extraction(prisma, bytes, provider, localResult);
 
-      const analysis = service.analyzeAttached(
-        owner.auth,
-        owner.sessionId,
-        owner.attachmentId,
-        { expectedRevision: 1 },
-        {},
-      );
-      if (localResult instanceof Error)
-        await expect(analysis).rejects.toBe(localResult);
-      else await expect(analysis).resolves.toBeDefined();
+    const analysis = service.analyzeAttached(
+      owner.auth,
+      owner.sessionId,
+      owner.attachmentId,
+      { expectedRevision: 1 },
+      {},
+    );
+    if (localResult instanceof Error)
+      await expect(analysis).rejects.toBe(localResult);
+    else await expect(analysis).resolves.toBeDefined();
 
-      expect(provider.extractPdf).not.toHaveBeenCalled();
-      expect(
-        await prisma.importOcrUsage.count({
-          where: { sessionId: owner.sessionId },
-        }),
-      ).toBe(0);
-      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
-    },
-  );
+    expect(provider.extractPdf).not.toHaveBeenCalled();
+    expect(
+      await prisma.importOcrUsage.count({
+        where: { sessionId: owner.sessionId },
+      }),
+    ).toBe(0);
+    expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+  });
 
-  it("persists server consent/fence, materializes unselected evidence, isolates tenant and replays once", async () => {
+  it("[PROBE] EXACT_CONSENT_CAPABILITY", async () => {
     const owner = await fixture(prisma, "happy");
     const provider = {
       provider: PDF_OCR_PROVIDER_ID,
@@ -637,44 +634,51 @@ describe("POST attachment analyze v2 direct OCR", () => {
     });
   });
 
-  it.each(["LOCAL_ADC", "SERVICE_ACCOUNT_FILE_ADC"] as const)(
-    "persists and projects exact %s provenance without exposing private transport identifiers",
-    async (authTrace) => {
-      const owner = await fixture(prisma, `provenance-${authTrace}`);
-      const provider = {
-        provider: PDF_OCR_PROVIDER_ID,
-        model: PDF_OCR_MODEL_ID,
-        ready: () => true,
-        extractPdf: jest
-          .fn()
-          .mockImplementation(async (request) =>
-            provenanceDocument(owner.hash, request.requestId, authTrace),
-          ),
-      };
-      const service = extraction(prisma, owner.bytes, provider, 1);
-      const request = await declareConsent(prisma, owner);
+  it.each([
+    {
+      authTrace: "LOCAL_ADC",
+      title: "[PROBE] SELECTED_TRUE_DEFAULT",
+    },
+    {
+      authTrace: "SERVICE_ACCOUNT_FILE_ADC",
+      title: "[PROBE] VERIFIED_DEFAULT",
+    },
+  ] as const)("$title", async ({ authTrace }) => {
+    const owner = await fixture(prisma, `provenance-${authTrace}`);
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest
+        .fn()
+        .mockImplementation(async (request) =>
+          provenanceDocument(owner.hash, request.requestId, authTrace),
+        ),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+    const request = await declareConsent(prisma, owner);
 
-      const analyzed = await service.analyzeAttached(
-        owner.auth,
-        owner.sessionId,
-        owner.attachmentId,
-        request,
-        {},
-      );
-      const usage = await prisma.$queryRawUnsafe<
-        Array<{
-          model: string;
-          modelVersion: string | null;
-          region: string | null;
-          authTrace: string | null;
-          requestId: string;
-          responseId: string | null;
-          inputTokens: bigint | number | null;
-          outputTokens: bigint | number | null;
-          totalTokens: bigint | number | null;
-        }>
-      >(
-        `SELECT model,
+    const analyzed = await service.analyzeAttached(
+      owner.auth,
+      owner.sessionId,
+      owner.attachmentId,
+      request,
+      {},
+    );
+    const usage = await prisma.$queryRawUnsafe<
+      Array<{
+        model: string;
+        modelVersion: string | null;
+        region: string | null;
+        authTrace: string | null;
+        requestId: string;
+        responseId: string | null;
+        inputTokens: bigint | number | null;
+        outputTokens: bigint | number | null;
+        totalTokens: bigint | number | null;
+      }>
+    >(
+      `SELECT model,
                   model_version AS modelVersion,
                   region,
                   auth_trace AS authTrace,
@@ -685,53 +689,59 @@ describe("POST attachment analyze v2 direct OCR", () => {
                   total_tokens AS totalTokens
            FROM import_ocr_usage
            WHERE session_id = ?`,
-        owner.sessionId,
-      );
-      expect(usage).toEqual([
-        {
-          model: PDF_OCR_MODEL_ID,
-          modelVersion: "gemini-2.5-flash-719-release",
-          region: PDF_OCR_REGION,
-          authTrace,
-          requestId: request.requestId,
-          responseId: `vertex-provenance-${authTrace}`,
-          inputTokens: 20,
-          outputTokens: 10,
-          totalTokens: 30,
-        },
-      ]);
-      const storedEvidence = JSON.parse(
-        (
-          await prisma.importObservation.findFirstOrThrow({
-            where: { tenantId: owner.tenantId },
-          })
-        ).evidenceJson,
-      );
-      expect(storedEvidence.ocr).toMatchObject({
-        attachmentId: owner.attachmentId,
-        artifactSha256: owner.hash,
-        provider: PDF_OCR_PROVIDER_ID,
+      owner.sessionId,
+    );
+    expect(usage).toEqual([
+      {
         model: PDF_OCR_MODEL_ID,
         modelVersion: "gemini-2.5-flash-719-release",
         region: PDF_OCR_REGION,
         authTrace,
         requestId: request.requestId,
         responseId: `vertex-provenance-${authTrace}`,
-      });
-      expect(analyzed.lines[0]!.ocrEvidence).toMatchObject({
-        origin: PDF_OCR_PROVIDER_ID,
-        model: PDF_OCR_MODEL_ID,
-        modelVersion: "gemini-2.5-flash-719-release",
-        region: PDF_OCR_REGION,
-        authTrace,
-      });
-      expect(analyzed.lines[0]!.ocrEvidence).not.toHaveProperty("requestId");
-      expect(analyzed.lines[0]!.ocrEvidence).not.toHaveProperty("responseId");
-      expect(analyzed.lines[0]!.ocrEvidence).not.toHaveProperty("credentials");
-      expect(JSON.stringify(analyzed)).not.toContain("credential-canary-719");
-      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
-    },
-  );
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 30,
+      },
+    ]);
+    const storedEvidence = JSON.parse(
+      (
+        await prisma.importObservation.findFirstOrThrow({
+          where: { tenantId: owner.tenantId },
+        })
+      ).evidenceJson,
+    );
+    expect(storedEvidence.ocr).toMatchObject({
+      attachmentId: owner.attachmentId,
+      artifactSha256: owner.hash,
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      modelVersion: "gemini-2.5-flash-719-release",
+      region: PDF_OCR_REGION,
+      authTrace,
+      requestId: request.requestId,
+      responseId: `vertex-provenance-${authTrace}`,
+    });
+    expect(analyzed.lines[0]!.ocrEvidence).toMatchObject({
+      origin: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      modelVersion: "gemini-2.5-flash-719-release",
+      region: PDF_OCR_REGION,
+      authTrace,
+    });
+    expect(analyzed.lines[0]!.ocrEvidence).not.toHaveProperty("requestId");
+    expect(analyzed.lines[0]!.ocrEvidence).not.toHaveProperty("responseId");
+    expect(analyzed.lines[0]!.ocrEvidence).not.toHaveProperty("credentials");
+    expect(JSON.stringify(analyzed)).not.toContain("credential-canary-719");
+    expect(analyzed.lines).toHaveLength(1);
+    expect(analyzed.selectedLineIds).toEqual([]);
+    expect(analyzed.lines[0]).toMatchObject({
+      amountMeaning: "UNKNOWN",
+      amountCents: null,
+      decision: { kind: "UNRESOLVED" },
+    });
+    expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+  });
 
   it("persists complete successful provenance even when OCR returns zero candidates", async () => {
     const owner = await fixture(prisma, "zero-candidates");
@@ -1171,7 +1181,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     expect(JSON.stringify(retry)).not.toContain("gemini-2.5-flash-719-release");
     expect(await financialCount(prisma, owner.tenantId)).toBe(0);
   });
-  it("requires attestation before replaying immutable OCR evidence", async () => {
+  it("[PROBE] MISSING_ATTESTATION", async () => {
     const owner = await fixture(prisma, "happy-attestation");
     const provider = {
       provider: PDF_OCR_PROVIDER_ID,
@@ -1673,7 +1683,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     ).toMatchObject({ ocrJson: null });
   });
 
-  it("rejects a handcrafted v2 boolean without prior durable consent", async () => {
+  it("[PROBE] MISSING_CONSENT", async () => {
     const owner = await fixture(prisma, "no-consent");
     const provider = {
       provider: PDF_OCR_PROVIDER_ID,
@@ -1703,7 +1713,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     ).toBe(0);
   });
 
-  it("admits only one provider call for concurrent v2 analysis", async () => {
+  it("[PROBE] PRIOR_CONSENT_DECLARATION", async () => {
     const owner = await fixture(prisma, "concurrent");
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
@@ -1725,6 +1735,22 @@ describe("POST attachment analyze v2 direct OCR", () => {
     };
     const service = extraction(prisma, owner.bytes, provider, 1);
     const request = await declareConsent(prisma, owner);
+    expect(provider.extractPdf).not.toHaveBeenCalled();
+    expect(
+      parseStoredPdfOcrState(
+        (
+          await prisma.importSession.findUniqueOrThrow({
+            where: { id: owner.sessionId },
+          })
+        ).ocrJson,
+      ).consents,
+    ).toMatchObject([
+      {
+        requestId: request.requestId,
+        artifactSha256: owner.hash,
+        actorId: owner.userId,
+      },
+    ]);
     const first = service.analyzeAttached(
       owner.auth,
       owner.sessionId,

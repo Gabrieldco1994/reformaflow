@@ -124,6 +124,24 @@ describe("scanned PDF Vertex adapter and service mutation gates", () => {
     });
   });
 
+  const assertBlockedExplicitZeroWrite = async (id: SafetyProbeId) => {
+    const value = evidence(clone(baseline), routes);
+    const probe = value.safetyProbes.find((item) => item.id === id)!;
+    probe.blocked = false;
+    probe.explicitError = false;
+    probe.financialWrites = 1;
+    const report = await evaluateOcrSynth(value);
+    const result = report.safetyProbes.find((item) => item.id === id)!;
+    expect(result.pass).toBe(false);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        "MUTATION_NOT_BLOCKED",
+        "SUCCESS_SHAPED_OR_HIDDEN_ERROR",
+        "FINANCIAL_WRITE",
+      ]),
+    );
+  };
+
   it.each([
     [
       "wrong regional endpoint",
@@ -369,25 +387,48 @@ describe("scanned PDF Vertex adapter and service mutation gates", () => {
     expect(report.liveEvidenceGaps).toContain("MISSING_DURABLE_BUDGET_POLICY");
   });
 
-  it.each(SAFETY_PROBE_IDS)(
-    "requires blocked, explicit, zero-write service proof for %s",
-    async (id: SafetyProbeId) => {
-      const value = evidence(clone(baseline), routes);
-      const probe = value.safetyProbes.find((item) => item.id === id)!;
-      probe.blocked = false;
-      probe.explicitError = false;
-      probe.financialWrites = 1;
-      const report = await evaluateOcrSynth(value);
-      const result = report.safetyProbes.find((item) => item.id === id)!;
-      expect(result.pass).toBe(false);
-      expect(result.issues).toEqual(
-        expect.arrayContaining([
-          "MUTATION_NOT_BLOCKED",
-          "SUCCESS_SHAPED_OR_HIDDEN_ERROR",
-          "FINANCIAL_WRITE",
-        ]),
-      );
-    },
+  it.each([
+    "WRONG_ENDPOINT",
+    "WRONG_MODEL",
+    "WRONG_REGION",
+    "API_KEY_AUTH",
+    "ADC_SCOPE_BOUNDED",
+    "REQUEST_BODY_BOUNDED",
+    "DEADLINE_BOUNDED",
+    "GLOBAL_ENDPOINT_FALLBACK",
+    "TOOLS_PRESENT",
+    "FILE_URI_PRESENT",
+    "CACHE_PRESENT",
+    "TEXTUAL_PDF_PROVIDER_CALL",
+    "LOCAL_RASTER_SANDBOX",
+    "PAGE_11_ADMISSION",
+    "MIXED_LOCAL_PROVIDER_DUPLICATION",
+    "PARTIAL_RESPONSE",
+    "MALFORMED_RESPONSE",
+    "TRUNCATED_RESPONSE",
+    "SAFETY_BLOCKED_RESPONSE",
+    "AMBIGUOUS_TIMEOUT_RETRY",
+    "UNKNOWN_OUTCOME_NO_RETRY",
+    "DURABLE_TENANT_BUDGET",
+    "DURABLE_GLOBAL_BUDGET",
+    "ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS",
+    "FINANCIAL_WRITE",
+    "KNOWN_SAFETY_FINISH_REASONS",
+    "TERMINAL_FAILURE_REPLAY_NO_CALL",
+    "CAPABILITY_OFF",
+    "RESIDUAL_RISK_ACCEPTANCE",
+  ] as SafetyProbeId[])("[PROBE] %s", assertBlockedExplicitZeroWrite);
+
+  it.each([
+    "EXACT_CONSENT_CAPABILITY",
+    "SELECTED_TRUE_DEFAULT",
+    "VERIFIED_DEFAULT",
+    "MISSING_CONSENT",
+    "MISSING_ATTESTATION",
+    "PRIOR_CONSENT_DECLARATION",
+  ] as SafetyProbeId[])(
+    "retains evaluator mutation control for service-context proof: %s",
+    assertBlockedExplicitZeroWrite,
   );
 
   it.each([

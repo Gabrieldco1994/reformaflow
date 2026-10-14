@@ -10,22 +10,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDF_OCR_MODEL_ID, PDF_OCR_PROVIDER_ID } from "@reformaflow/domain";
 import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
-import {
-  captureLiveEvidence,
-  type CaptureLiveManifest,
-} from "./capture-live-core";
+import { captureLiveEvidence } from "./capture-live-core";
 import { writeLiveEvidenceExclusive } from "./capture-live-file";
 import {
   OCR_SYNTH_ROUTING_CASES,
   OCR_SYNTH_SCANNED_RELEASE_CASES,
   successfulRows,
 } from "./corpus";
-import {
-  buildOracleRoutingCases,
-  buildOracleSafetyProbes,
-  evaluateOcrSynth,
-  type OcrEvalInput,
-} from "./evaluator";
+import { evaluateOcrSynth, type OcrEvalInput } from "./evaluator";
 import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
   parseLiveEvidence,
@@ -37,16 +29,6 @@ jest.setTimeout(120_000);
 
 const SHA = "c".repeat(40);
 const VERSION = "gemini-2.5-flash-001";
-const SERVICE_EVIDENCE_TEST =
-  "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts";
-const SERVICE_CONTEXT_PROBES = new Set([
-  "EXACT_CONSENT_CAPABILITY",
-  "PRIOR_CONSENT_DECLARATION",
-  "MISSING_CONSENT",
-  "MISSING_ATTESTATION",
-  "SELECTED_TRUE_DEFAULT",
-  "VERIFIED_DEFAULT",
-]);
 
 function response(value: unknown) {
   const bytes = Buffer.from(JSON.stringify(value));
@@ -184,75 +166,79 @@ function provider(
   };
 }
 
-async function manifest(): Promise<CaptureLiveManifest> {
-  const routingCases = await buildOracleRoutingCases();
-  for (const route of routingCases) {
-    route.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
-    route.testFile =
-      "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts";
-  }
-  const safetyProbes = buildOracleSafetyProbes();
-  for (const probe of safetyProbes) {
-    probe.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
-    if (SERVICE_CONTEXT_PROBES.has(probe.id))
-      probe.testFile = SERVICE_EVIDENCE_TEST;
-  }
-  return {
-    candidateSha: SHA,
-    configurationSha256: "a".repeat(64),
-    adapterSha256: "b".repeat(64),
-    declaredLimits: {
-      maxP95LatencyMs: policy.maxP95LatencyMs,
-      maxTotalCostMicros: policy.maxTotalCostMicros,
-      maxRequestBodyBytes: policy.maxRequestBodyBytes,
-      maxProviderDeadlineMs: policy.maxProviderDeadlineMs,
-    },
-    durableBudgets: {
-      policySha256: "d".repeat(64),
-      tenantLimitMicros: 1_000_000,
-      globalLimitMicros: 2_000_000,
-      storage: "DATABASE",
-    },
-    residualRiskAcceptance: {
-      decision: "OPTION_1_COMPLETE_ORIGINAL_PDF",
-      dataOwnerAcceptanceSha256: "e".repeat(64),
-      noLocalDerivative: true,
-    },
-    finalReviews: {
-      securityReviewSha256: "1".repeat(64),
-      privacyReviewSha256: "2".repeat(64),
-      dataOwnerReviewSha256: "3".repeat(64),
-    },
-    pricing: {
-      source: policy.pricing.source,
-      effectiveDate: policy.pricing.observedOn,
-      inputMicrosPerMillionTokens: policy.pricing.inputMicrosPerMillionTokens,
-      outputMicrosPerMillionTokens: policy.pricing.outputMicrosPerMillionTokens,
-    },
-    routingCases,
-    safetyProbes,
+type CaptureOptions = Parameters<typeof captureLiveEvidence>[0];
+
+function canonicalQualityClosure() {
+  const canonicalPolicy = policy as unknown as {
+    policyVersion: string;
+    qualificationTests: Array<{ name: string; sourcePath: string }>;
   };
+  return {
+    version: 2,
+    policyVersion: canonicalPolicy.policyVersion,
+    snapshot: {
+      headSha: SHA,
+      treeSha: SHA,
+      clean: true,
+      policySha256: "d".repeat(64),
+      corpusSha256: "a".repeat(64),
+      configurationSha256: "a".repeat(64),
+      adapterSha256: "b".repeat(64),
+      runtimeSha256: "b".repeat(64),
+      suiteSha256: "f".repeat(64),
+    },
+    tests: canonicalPolicy.qualificationTests.map((item) => ({
+      ...item,
+      status: "PASS",
+    })),
+  };
+}
+
+function canonicalCaptureOptions(
+  value: VertexPdfOcrProvider,
+  overrides: Record<string, unknown> = {},
+): CaptureOptions {
+  return {
+    provider: value,
+    mechanical: {
+      policy,
+      qualityClosure: canonicalQualityClosure(),
+      finalReviewHashes: {
+        residualRiskAcceptance: "e".repeat(64),
+        securityReview: "1".repeat(64),
+        privacyReview: "2".repeat(64),
+        dataOwnerReview: "3".repeat(64),
+      },
+      verifySnapshot: jest.fn(async () => undefined),
+    },
+    readProcSelfStatus: async () => "Name:\tnode\nVmHWM:\t100 kB\n",
+    ...overrides,
+  } as unknown as CaptureOptions;
 }
 
 describe("audited synthetic Vertex capture", () => {
   let evidence: Awaited<ReturnType<typeof captureLiveEvidence>>;
   let dispatchedRequestIds: string[];
+  let platform: PropertyDescriptor;
 
   beforeAll(async () => {
+    platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", {
+      ...platform,
+      value: "linux",
+    });
     const adapter = provider();
     const extract = jest.spyOn(adapter.value, "extractPdf");
-    evidence = await captureLiveEvidence({
-      provider: adapter.value,
-      manifest: await manifest(),
-      currentRepoSha: SHA,
-      memoryRss: () => 100,
-    });
+    evidence = await captureLiveEvidence(
+      canonicalCaptureOptions(adapter.value, { memoryRss: () => 100 }),
+    );
     dispatchedRequestIds = extract.mock.calls.map(
       ([request]) => request.requestId,
     );
     expect(extract).toHaveBeenCalledTimes(18);
     expect(adapter.fetcher).toHaveBeenCalledTimes(18);
   });
+  afterAll(() => Object.defineProperty(process, "platform", platform));
 
   it("calls the real adapter once for each literal scanned case only", () => {
     expect(evidence.predictions.map((item) => item.caseId)).toEqual(
@@ -277,12 +263,11 @@ describe("audited synthetic Vertex capture", () => {
       "scan-012": "DOCUMENT_UNREADABLE",
       "scan-018": "LIMIT_EXCEEDED",
     });
-    const captured = await captureLiveEvidence({
-      provider: adapter.value,
-      manifest: await manifest(),
-      currentRepoSha: SHA,
-      memoryRss: () => 256_000_000,
-    });
+    const captured = await captureLiveEvidence(
+      canonicalCaptureOptions(adapter.value, {
+        memoryRss: () => 256_000_000,
+      }),
+    );
 
     expect(captured.predictions).toHaveLength(18);
     expect(captured.predictions.map((item) => item.caseId)).toEqual(
@@ -314,14 +299,13 @@ describe("audited synthetic Vertex capture", () => {
   it("fails before dispatch when Linux VmHWM evidence is unavailable", async () => {
     const adapter = provider();
     await expect(
-      captureLiveEvidence({
-        provider: adapter.value,
-        manifest: await manifest(),
-        currentRepoSha: SHA,
-        readProcSelfStatus: async () => {
-          throw new Error("proc unavailable");
-        },
-      } as Parameters<typeof captureLiveEvidence>[0]),
+      captureLiveEvidence(
+        canonicalCaptureOptions(adapter.value, {
+          readProcSelfStatus: async () => {
+            throw new Error("proc unavailable");
+          },
+        }),
+      ),
     ).rejects.toThrow("LIVE_CAPTURE_VMHWM_UNAVAILABLE");
     expect(adapter.fetcher).not.toHaveBeenCalled();
   });
@@ -331,12 +315,9 @@ describe("audited synthetic Vertex capture", () => {
     const readProcSelfStatus = jest.fn(
       async (_path: string) => "Name:\tnode\nVmHWM:\t524288 kB\n",
     );
-    const captured = await captureLiveEvidence({
-      provider: adapter.value,
-      manifest: await manifest(),
-      currentRepoSha: SHA,
-      readProcSelfStatus,
-    } as Parameters<typeof captureLiveEvidence>[0]);
+    const captured = await captureLiveEvidence(
+      canonicalCaptureOptions(adapter.value, { readProcSelfStatus }),
+    );
 
     expect(readProcSelfStatus).toHaveBeenCalledTimes(19);
     expect(
@@ -433,45 +414,45 @@ describe("audited synthetic Vertex capture", () => {
     expect(() => parseLiveEvidence(legacy)).toThrow("LIVE_EVIDENCE_INVALID");
   });
 
-  it("fails preflight with zero calls on repository drift or cross-contract routing", async () => {
-    const adapter = provider();
-    await expect(
-      captureLiveEvidence({
-        provider: adapter.value,
-        manifest: await manifest(),
-        currentRepoSha: "f".repeat(40),
-      }),
-    ).rejects.toThrow("LIVE_CAPTURE_PREFLIGHT_FAILED");
-    const crossed = await manifest();
-    crossed.routingCases[0]!.tenantId = "other-tenant";
-    await expect(
-      captureLiveEvidence({
-        provider: adapter.value,
-        manifest: crossed,
-        currentRepoSha: SHA,
-      }),
-    ).rejects.toThrow("LIVE_CAPTURE_PREFLIGHT_FAILED");
-    expect(adapter.fetcher).not.toHaveBeenCalled();
+  it("stops without retry or publication when the snapshot drifts after call 1 or 18", async () => {
+    for (const driftAt of [1, 18]) {
+      const adapter = provider();
+      const verifySnapshot = jest.fn(async () => {
+        if (verifySnapshot.mock.calls.length === driftAt)
+          throw new Error("QUALITY_REPOSITORY_DRIFT");
+      });
+      const capture = captureLiveEvidence(
+        canonicalCaptureOptions(adapter.value, {
+          mechanical: {
+            policy,
+            qualityClosure: canonicalQualityClosure(),
+            finalReviewHashes: {
+              residualRiskAcceptance: "e".repeat(64),
+              securityReview: "1".repeat(64),
+              privacyReview: "2".repeat(64),
+              dataOwnerReview: "3".repeat(64),
+            },
+            verifySnapshot,
+          },
+        }),
+      );
+
+      await expect(capture).rejects.toThrow("QUALITY_REPOSITORY_DRIFT");
+      expect(adapter.fetcher).toHaveBeenCalledTimes(driftAt);
+      expect(verifySnapshot).toHaveBeenCalledTimes(driftAt);
+    }
   });
 
   it("stops on duplicate response IDs or mixed model versions", async () => {
     const duplicate = provider([VERSION], ["same-response", "same-response"]);
     await expect(
-      captureLiveEvidence({
-        provider: duplicate.value,
-        manifest: await manifest(),
-        currentRepoSha: SHA,
-      }),
+      captureLiveEvidence(canonicalCaptureOptions(duplicate.value)),
     ).rejects.toThrow("LIVE_CAPTURE_PROVENANCE_MISMATCH");
     expect(duplicate.fetcher).toHaveBeenCalledTimes(2);
 
     const mixed = provider([VERSION, "gemini-other-version"]);
     await expect(
-      captureLiveEvidence({
-        provider: mixed.value,
-        manifest: await manifest(),
-        currentRepoSha: SHA,
-      }),
+      captureLiveEvidence(canonicalCaptureOptions(mixed.value)),
     ).rejects.toThrow("LIVE_CAPTURE_PROVENANCE_MISMATCH");
     expect(mixed.fetcher).toHaveBeenCalledTimes(2);
   });
@@ -503,11 +484,7 @@ describe("audited synthetic Vertex capture", () => {
           };
         });
       await expect(
-        captureLiveEvidence({
-          provider: adapter.value,
-          manifest: await manifest(),
-          currentRepoSha: SHA,
-        }),
+        captureLiveEvidence(canonicalCaptureOptions(adapter.value)),
       ).rejects.toThrow("LIVE_CAPTURE_PROVIDER_CONTRACT_FAILED");
       expect(adapter.fetcher).toHaveBeenCalledTimes(1);
     },
