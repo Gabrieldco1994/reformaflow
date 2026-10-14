@@ -8,6 +8,10 @@ const MOBILE_VIEWPORTS = [
   { width: 375, height: 667 },
 ] as const;
 
+const LOCAL_CHAT_REPLY = "Resposta local determinística.";
+const COPILOT_INPUT_PLACEHOLDER = "Pergunte sobre suas finanças...";
+const MARIA_INPUT_PLACEHOLDER = "Pergunte ou lance… “paguei 30 de uber”";
+
 const DESKTOP_VIEWPORTS = [
   { width: 1280, height: 700 },
   { width: 1280, height: 800 },
@@ -174,14 +178,63 @@ function json(body: unknown) {
   };
 }
 
-async function mockApi(page: Page) {
+async function mockApi(
+  page: Page,
+  options: { includeImportEntryAction?: boolean } = {},
+) {
   await page.clock.setFixedTime(new Date("2026-07-15T12:00:00.000Z"));
-  await page.context().addCookies([
-    { name: "rf_token", value: "phase2-564", url: "http://localhost:3013" },
-  ]);
+  await page
+    .context()
+    .addCookies([
+      { name: "rf_token", value: "phase2-564", url: "http://localhost:3013" },
+    ]);
+
+  const chatPosts: Array<{
+    method: string;
+    path: string;
+    body: unknown;
+  }> = [];
 
   await page.route("http://localhost:3001/**", async (route) => {
+    const request = route.request();
     const path = new URL(route.request().url()).pathname;
+
+    if (request.method() === "OPTIONS") {
+      return route.fulfill({
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "*",
+          "Access-Control-Allow-Methods": "*",
+        },
+      });
+    }
+
+    if (path === "/agent/chat" && request.method() === "POST") {
+      chatPosts.push({
+        method: request.method(),
+        path,
+        body: request.postDataJSON(),
+      });
+      return route.fulfill(
+        json({
+          reply: LOCAL_CHAT_REPLY,
+          toolsUsed: [],
+          provider: "local-stub",
+          ...(options.includeImportEntryAction
+            ? {
+                importEntryAction: {
+                  version: 1,
+                  kind: "START_CARD_INVOICE_IMPORT",
+                  originChannel: "TEXT",
+                  formats: ["CSV"],
+                  suggestedCardId: null,
+                },
+              }
+            : {}),
+        }),
+      );
+    }
 
     if (path === "/auth/me") {
       return route.fulfill(
@@ -229,6 +282,8 @@ async function mockApi(page: Page) {
 
     return route.fulfill(json([]));
   });
+
+  return { chatPosts };
 }
 
 type Verdict = "ok" | "covered" | "offscreen" | "dead-link";
@@ -279,11 +334,14 @@ async function readTarget(target: Locator, name: string): Promise<Measurement> {
     );
     const hit = coveredPoint?.hit ?? pointHits[0].hit;
     const href =
-      element instanceof HTMLAnchorElement ? element.getAttribute("href") : null;
+      element instanceof HTMLAnchorElement
+        ? element.getAttribute("href")
+        : null;
     const deadLink =
-      element instanceof HTMLAnchorElement &&
-      (href === "#" || href === "");
-    const fullyInsideViewport = pointHits.every(({ insideViewport }) => insideViewport);
+      element instanceof HTMLAnchorElement && (href === "#" || href === "");
+    const fullyInsideViewport = pointHits.every(
+      ({ insideViewport }) => insideViewport,
+    );
 
     let verdict: Verdict = "ok";
     if (deadLink) verdict = "dead-link";
@@ -303,7 +361,10 @@ async function readTarget(target: Locator, name: string): Promise<Measurement> {
   }, name);
 }
 
-async function census(page: Page, targets: Array<{ label: string; locator: Locator }>) {
+async function census(
+  page: Page,
+  targets: Array<{ label: string; locator: Locator }>,
+) {
   const initial: Measurement[] = [];
   for (const target of targets) {
     initial.push(await readTarget(target.locator, target.label));
@@ -314,7 +375,10 @@ async function census(page: Page, targets: Array<{ label: string; locator: Locat
     const target = targets[index];
     const initialTarget = initial[index];
     let finalTarget = initialTarget;
-    if (initialTarget.verdict !== "dead-link" && initialTarget.verdict !== "ok") {
+    if (
+      initialTarget.verdict !== "dead-link" &&
+      initialTarget.verdict !== "ok"
+    ) {
       await target.locator.scrollIntoViewIfNeeded();
       finalTarget = await readTarget(target.locator, target.label);
     }
@@ -325,9 +389,7 @@ async function census(page: Page, targets: Array<{ label: string; locator: Locat
     });
   }
   expect(results.length).toBeGreaterThanOrEqual(MIN_CENSUS);
-  const bad = results.filter(
-    (r) => r.final.verdict !== "ok",
-  );
+  const bad = results.filter((r) => r.final.verdict !== "ok");
   expect(bad, JSON.stringify(bad, null, 2)).toEqual([]);
   for (const result of results) {
     expect(result.final.width).toBeGreaterThanOrEqual(44);
@@ -338,11 +400,13 @@ async function census(page: Page, targets: Array<{ label: string; locator: Locat
 
 async function ensureWidgetOpen(page: Page) {
   const openButton = page.getByLabel("Abrir Copiloto Financeiro");
-  if (await openButton.count()) {
-    await expect(openButton).toBeVisible();
-    await openButton.click();
-    await expect(page.getByLabel("Fechar")).toBeVisible();
-  }
+  const closeButton = page.getByRole("button", { name: "Fechar", exact: true });
+  await expect
+    .poll(async () => (await closeButton.isVisible()) || openButton.isVisible())
+    .toBe(true);
+  if (await closeButton.isVisible()) return;
+  await openButton.click();
+  await expect(closeButton).toBeVisible();
 }
 
 async function readMainPaddingRight(page: Page) {
@@ -351,11 +415,78 @@ async function readMainPaddingRight(page: Page) {
   });
 }
 
+function boxesOverlap(
+  left: { x: number; y: number; width: number; height: number },
+  right: { x: number; y: number; width: number; height: number },
+) {
+  return (
+    left.x < right.x + right.width &&
+    left.x + left.width > right.x &&
+    left.y < right.y + right.height &&
+    left.y + left.height > right.y
+  );
+}
+
+async function verifyOpenCopilotOnMariaAndClose(
+  page: Page,
+  expectedDraft: string,
+) {
+  const closeButton = page.getByRole("button", { name: "Fechar", exact: true });
+  const panelIsOpen = await closeButton.isVisible();
+  expect
+    .soft(panelIsOpen, "Copilot should remain open after Maria navigation")
+    .toBe(true);
+
+  const copilotInput = page.getByPlaceholder(COPILOT_INPUT_PLACEHOLDER);
+  const copilotInputCount = await copilotInput.count();
+  expect
+    .soft(copilotInputCount, "the Copilot draft should remain available")
+    .toBe(1);
+  if (copilotInputCount === 1) {
+    expect.soft(await copilotInput.inputValue()).toBe(expectedDraft);
+  }
+
+  expect.soft(await readMainPaddingRight(page)).toBe(408);
+
+  if (panelIsOpen) {
+    const mariaInput = page.getByPlaceholder(MARIA_INPUT_PLACEHOLDER);
+    await expect(mariaInput).toBeVisible();
+    const composer = mariaInput.locator("xpath=..");
+    const panel = closeButton.locator("xpath=../../..");
+    const [composerBox, panelBox] = await Promise.all([
+      composer.boundingBox(),
+      panel.boundingBox(),
+    ]);
+    expect.soft(composerBox).not.toBeNull();
+    expect.soft(panelBox).not.toBeNull();
+    if (composerBox && panelBox) {
+      expect
+        .soft(boxesOverlap(composerBox, panelBox))
+        .toBe(false, "the open Copilot panel must not cover Maria's composer");
+    }
+
+    await closeButton.click();
+    await expect(closeButton).toHaveCount(0);
+  }
+
+  const closedFabCount = await page
+    .getByRole("button", { name: "Abrir Copiloto Financeiro" })
+    .count();
+  expect
+    .soft(
+      closedFabCount,
+      "closing Copilot on Maria must not expose its floating button",
+    )
+    .toBe(0);
+}
+
 async function planningTargets(page: Page) {
-  await expect(page.getByRole("heading", { name: "Matriz mensal (modo planilha)" })).toBeVisible();
-  const matrixSection = page
-    .locator("section")
-    .filter({ has: page.getByRole("heading", { name: "Matriz mensal (modo planilha)" }) });
+  await expect(
+    page.getByRole("heading", { name: "Matriz mensal (modo planilha)" }),
+  ).toBeVisible();
+  const matrixSection = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Matriz mensal (modo planilha)" }),
+  });
   const inputs = matrixSection.locator("input");
   await expect(inputs.first()).toBeVisible();
   const count = await inputs.count();
@@ -370,7 +501,9 @@ function contaTargets(page: Page) {
   return [
     {
       label: "Ajuda sobre Tenho na conta hoje",
-      locator: page.getByRole("button", { name: "Ajuda sobre Tenho na conta hoje" }),
+      locator: page.getByRole("button", {
+        name: "Ajuda sobre Tenho na conta hoje",
+      }),
     },
     {
       label: "Entrou no mês",
@@ -382,7 +515,9 @@ function contaTargets(page: Page) {
     },
     {
       label: "Ajuda sobre Ainda falta pagar",
-      locator: page.getByRole("button", { name: "Ajuda sobre Ainda falta pagar" }),
+      locator: page.getByRole("button", {
+        name: "Ajuda sobre Ainda falta pagar",
+      }),
     },
     {
       label: "Ajuda sobre Sobra prevista",
@@ -420,8 +555,14 @@ function expandedSidebarTargets(page: Page) {
   const sidebar = page.locator("aside.minimal-sidebar");
   return [
     { label: "Sidebar · Projetos", locator: sidebar.getByLabel("Projetos") },
-    { label: "Sidebar · Notificações", locator: sidebar.getByLabel("Notificações") },
-    { label: "Sidebar · Enviar feedback", locator: sidebar.getByLabel("Enviar feedback") },
+    {
+      label: "Sidebar · Notificações",
+      locator: sidebar.getByLabel("Notificações"),
+    },
+    {
+      label: "Sidebar · Enviar feedback",
+      locator: sidebar.getByLabel("Enviar feedback"),
+    },
     { label: "Sidebar · Apoio", locator: sidebar.getByLabel("Apoio") },
     {
       label: "Sidebar · Histórico de Budget",
@@ -436,32 +577,63 @@ function expandedSidebarTargets(page: Page) {
   ];
 }
 
-async function openMonthly(page: Page, viewport: { width: number; height: number }) {
+async function openMonthly(
+  page: Page,
+  viewport: { width: number; height: number },
+) {
   await page.setViewportSize(viewport);
   await page.goto(`/projects/${PROJECT_ID}/monthly`);
 }
 
-async function openConta(page: Page, viewport: { width: number; height: number }) {
+async function openConta(
+  page: Page,
+  viewport: { width: number; height: number },
+) {
   await page.setViewportSize(viewport);
   await page.goto(`/projects/${PROJECT_ID}/conta`);
 }
 
 test.describe("issue #564 — cockpit shell census", () => {
-  test("desktop rail survives 700/800/900 without covered actions", async ({ page }) => {
+  test("desktop rail survives 700/800/900 without covered actions", async ({
+    page,
+  }) => {
     await mockApi(page);
     for (const viewport of DESKTOP_VIEWPORTS) {
       await openMonthly(page, viewport);
       await census(page, [
-        { label: "Projetos", locator: page.locator('aside.minimal-sidebar a[aria-label="Projetos"]') },
-        { label: "Apoio", locator: page.locator('aside.minimal-sidebar a[aria-label="Apoio"]') },
-        { label: "Histórico de Budget", locator: page.locator('aside.minimal-sidebar a[aria-label="Histórico de Budget"]') },
-        { label: "Sair", locator: page.locator('aside.minimal-sidebar button[aria-label="Sair (Ana)"]') },
-        { label: "Expandir menu lateral", locator: page.getByRole("button", { name: "Expandir menu lateral" }) },
+        {
+          label: "Projetos",
+          locator: page.locator(
+            'aside.minimal-sidebar a[aria-label="Projetos"]',
+          ),
+        },
+        {
+          label: "Apoio",
+          locator: page.locator('aside.minimal-sidebar a[aria-label="Apoio"]'),
+        },
+        {
+          label: "Histórico de Budget",
+          locator: page.locator(
+            'aside.minimal-sidebar a[aria-label="Histórico de Budget"]',
+          ),
+        },
+        {
+          label: "Sair",
+          locator: page.locator(
+            'aside.minimal-sidebar button[aria-label="Sair (Ana)"]',
+          ),
+        },
+        {
+          label: "Expandir menu lateral",
+          locator: page.getByRole("button", { name: "Expandir menu lateral" }),
+        },
       ]);
     }
   });
 
-  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /maria", async ({ page }, testInfo) => {
+  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /maria", async ({
+    page,
+  }, testInfo) => {
     test.skip(
       testInfo.project.name !== "desktop",
       "a colisão expandida do FinancialAgentWidget só roda no projeto desktop",
@@ -473,9 +645,24 @@ test.describe("issue #564 — cockpit shell census", () => {
     for (const viewport of DESKTOP_VIEWPORTS) {
       await page.setViewportSize(viewport);
 
-      await page.goto(`/projects/${PROJECT_ID}/maria`);
-      expect(await readMainPaddingRight(page)).toBe(24);
+      await page.goto(`/projects/${PROJECT_ID}/planning`);
       await ensureWidgetOpen(page);
+      const mariaEntry = page.getByRole("link", {
+        name: "Importar fatura CSV com Maria",
+        exact: true,
+      });
+      await expect(mariaEntry).toBeVisible();
+      await expect(mariaEntry).toHaveAttribute(
+        "href",
+        `/projects/${PROJECT_ID}/maria`,
+      );
+      await mariaEntry.click();
+      await expect(page).toHaveURL(
+        (url) => url.pathname === `/projects/${PROJECT_ID}/maria`,
+      );
+      await expect(
+        page.getByRole("button", { name: "Fechar", exact: true }),
+      ).toBeVisible();
       const paddingRight = await readMainPaddingRight(page);
       expect(paddingRight).toBe(408);
       const main = page.locator("main.minimal-main");
@@ -496,11 +683,16 @@ test.describe("issue #564 — cockpit shell census", () => {
             document.documentElement.clientWidth,
         ),
       ).toBe(true);
-      await census(page, [...mariaTargets(page), ...expandedSidebarTargets(page)]);
+      await census(page, [
+        ...mariaTargets(page),
+        ...expandedSidebarTargets(page),
+      ]);
     }
   });
 
-  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /planning", async ({ page }, testInfo) => {
+  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /planning", async ({
+    page,
+  }, testInfo) => {
     test.skip(
       testInfo.project.name !== "desktop",
       "a colisão expandida do FinancialAgentWidget só roda no projeto desktop",
@@ -521,7 +713,9 @@ test.describe("issue #564 — cockpit shell census", () => {
     }
   });
 
-  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /conta", async ({ page }, testInfo) => {
+  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900 — /conta", async ({
+    page,
+  }, testInfo) => {
     test.skip(
       testInfo.project.name !== "desktop",
       "a colisão expandida do FinancialAgentWidget só roda no projeto desktop",
@@ -535,38 +729,305 @@ test.describe("issue #564 — cockpit shell census", () => {
 
       await page.goto(`/projects/${PROJECT_ID}/conta`);
       await ensureWidgetOpen(page);
-      await census(page, [...contaTargets(page), ...expandedSidebarTargets(page)]);
+      await census(page, [
+        ...contaTargets(page),
+        ...expandedSidebarTargets(page),
+      ]);
     }
   });
 
-  test("mobile monthly keeps dock, cta and Maria details hittable at 390/375", async ({ page }) => {
+  test("mobile monthly keeps dock, cta and Maria details hittable at 390/375", async ({
+    page,
+  }) => {
     await mockApi(page);
     for (const viewport of MOBILE_VIEWPORTS) {
       await openMonthly(page, viewport);
       const details = page.getByRole("link", { name: /Ver detalhes de/ });
       await census(page, [
-        { label: "Lançar", locator: page.getByRole("button", { name: "Lançar" }) },
-        { label: "Cockpit", locator: page.locator('[data-dock-slot="monthly"]') },
+        {
+          label: "Lançar",
+          locator: page.getByRole("button", { name: "Lançar" }),
+        },
+        {
+          label: "Cockpit",
+          locator: page.locator('[data-dock-slot="monthly"]'),
+        },
         { label: "Conta", locator: page.locator('[data-dock-slot="conta"]') },
         { label: "Maria", locator: page.locator('[data-dock-slot="maria"]') },
-        { label: "Ver todas as despesas", locator: page.getByRole("link", { name: "Ver todas as despesas" }) },
+        {
+          label: "Ver todas as despesas",
+          locator: page.getByRole("link", { name: "Ver todas as despesas" }),
+        },
         { label: "Ver detalhes", locator: details },
       ]);
-      await expect(details).toHaveAttribute("href", `/projects/${PROJECT_ID}/maria`);
+      await expect(details).toHaveAttribute(
+        "href",
+        `/projects/${PROJECT_ID}/maria`,
+      );
     }
   });
 
-  test("mobile Conta keeps KPI quick-filters clear of the help affordance", async ({ page }) => {
+  test("mobile Conta keeps KPI quick-filters clear of the help affordance", async ({
+    page,
+  }) => {
     await mockApi(page);
     for (const viewport of MOBILE_VIEWPORTS) {
       await openConta(page, viewport);
       await census(page, [
-        { label: "Ajuda sobre hoje", locator: page.getByRole("button", { name: "Ajuda sobre Tenho na conta hoje" }) },
-        { label: "Entrou no mês", locator: page.getByRole("button", { name: /^Entrou no mês, / }) },
-        { label: "Saiu no mês", locator: page.getByRole("button", { name: /^Saiu no mês, / }) },
-        { label: "Ainda falta pagar", locator: page.getByRole("button", { name: /^Ainda falta pagar, / }) },
-        { label: "Ajuda sobre sobra", locator: page.getByRole("button", { name: "Ajuda sobre Sobra prevista" }) },
+        {
+          label: "Ajuda sobre hoje",
+          locator: page.getByRole("button", {
+            name: "Ajuda sobre Tenho na conta hoje",
+          }),
+        },
+        {
+          label: "Entrou no mês",
+          locator: page.getByRole("button", { name: /^Entrou no mês, / }),
+        },
+        {
+          label: "Saiu no mês",
+          locator: page.getByRole("button", { name: /^Saiu no mês, / }),
+        },
+        {
+          label: "Ainda falta pagar",
+          locator: page.getByRole("button", { name: /^Ainda falta pagar, / }),
+        },
+        {
+          label: "Ajuda sobre sobra",
+          locator: page.getByRole("button", {
+            name: "Ajuda sobre Sobra prevista",
+          }),
+        },
       ]);
     }
+  });
+
+  test("desktop Maria composer sends from its exact center with Copilot closed", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "the Maria FAB collision is measured at the desktop viewport",
+    );
+    const { chatPosts } = await mockApi(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/projects/${PROJECT_ID}/maria`);
+
+    const closedFab = page.getByRole("button", {
+      name: "Abrir Copiloto Financeiro",
+    });
+
+    const prompt = "Teste Maria 564: envio físico único";
+    const input = page.getByPlaceholder(MARIA_INPUT_PLACEHOLDER);
+    await expect(input).toBeVisible();
+    await input.fill(prompt);
+
+    const send = page.getByRole("button", { name: "Enviar", exact: true });
+    await expect(send).toBeVisible();
+    const box = await send.boundingBox();
+    expect(box).not.toBeNull();
+    const center = {
+      x: box!.x + box!.width / 2,
+      y: box!.y + box!.height / 2,
+    };
+    expect.soft(box!.width).toBeGreaterThanOrEqual(44);
+    expect.soft(box!.height).toBeGreaterThanOrEqual(44);
+
+    const centerHitsSend = await send.evaluate((button, point) => {
+      const hit = document.elementFromPoint(point.x, point.y);
+      return hit !== null && (hit === button || button.contains(hit));
+    }, center);
+    expect.soft(centerHitsSend).toBe(true);
+    expect.soft(await closedFab.count()).toBe(0);
+
+    await page.mouse.click(center.x, center.y);
+
+    await expect.poll(() => chatPosts.length).toBe(1);
+    expect(chatPosts).toHaveLength(1);
+    expect(chatPosts[0]).toMatchObject({
+      method: "POST",
+      path: "/agent/chat",
+      body: {
+        projectId: PROJECT_ID,
+        metadata: { channel: "TEXT" },
+        messages: [{ role: "user", content: prompt }],
+      },
+    });
+    await expect(page.getByText(prompt, { exact: true })).toHaveCount(1);
+    await expect(page.getByText(LOCAL_CHAT_REPLY, { exact: true })).toHaveCount(
+      1,
+    );
+  });
+
+  test("desktop closed Copilot FAB remains on planning and Conta", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "the preserved FAB destinations are desktop routes",
+    );
+    await mockApi(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    for (const route of ["planning", "conta"] as const) {
+      await page.goto(`/projects/${PROJECT_ID}/${route}`);
+      const fab = page.getByRole("button", {
+        name: "Abrir Copiloto Financeiro",
+      });
+      await expect(fab).toBeVisible();
+      await expect(fab).toHaveCount(1);
+    }
+  });
+
+  test("desktop Copilot draft and open panel survive every Maria entry link", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "the global Copilot panel is a desktop surface",
+    );
+    const { chatPosts } = await mockApi(page, {
+      includeImportEntryAction: true,
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    const scenarios: Array<{
+      name: string;
+      source: "planning" | "conta";
+      draft: string;
+      findLink: (currentPage: Page) => Locator;
+      prepare?: (currentPage: Page) => Promise<void>;
+    }> = [
+      {
+        name: "Copilot header",
+        source: "planning",
+        draft: "Rascunho do cabeçalho da Maria",
+        findLink: (currentPage) =>
+          currentPage.getByRole("link", {
+            name: "Importar fatura CSV com Maria",
+            exact: true,
+          }),
+      },
+      {
+        name: "Copilot welcome message",
+        source: "conta",
+        draft: "Rascunho da mensagem de boas-vindas da Maria",
+        findLink: (currentPage) =>
+          currentPage.getByRole("link", {
+            name: "Para importar uma fatura CSV, abra a conversa da Maria",
+            exact: true,
+          }),
+      },
+      {
+        name: "Copilot reply action",
+        source: "planning",
+        draft: "Rascunho da ação de importação da Maria",
+        findLink: (currentPage) =>
+          currentPage.getByRole("link", {
+            name: "Continuar importação CSV com a Maria",
+            exact: true,
+          }),
+        prepare: async (currentPage) => {
+          await currentPage
+            .getByPlaceholder(COPILOT_INPUT_PLACEHOLDER)
+            .fill("Quero abrir o atalho local de importação");
+          await currentPage
+            .getByRole("button", { name: "Enviar", exact: true })
+            .click();
+          await expect(
+            currentPage.getByRole("link", {
+              name: "Continuar importação CSV com a Maria",
+              exact: true,
+            }),
+          ).toBeVisible();
+        },
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      await page.goto(`/projects/${PROJECT_ID}/${scenario.source}`);
+      await ensureWidgetOpen(page);
+      if (scenario.prepare) await scenario.prepare(page);
+
+      await page
+        .getByPlaceholder(COPILOT_INPUT_PLACEHOLDER)
+        .fill(scenario.draft);
+      const mariaLink = scenario.findLink(page);
+      await expect(mariaLink).toBeVisible();
+      await expect(mariaLink).toHaveAttribute(
+        "href",
+        `/projects/${PROJECT_ID}/maria`,
+      );
+      await mariaLink.click();
+      await expect(page).toHaveURL(
+        (url) => url.pathname === `/projects/${PROJECT_ID}/maria`,
+      );
+
+      await verifyOpenCopilotOnMariaAndClose(page, scenario.draft);
+    }
+
+    expect(chatPosts).toHaveLength(1);
+    expect(chatPosts[0]).toMatchObject({
+      method: "POST",
+      path: "/agent/chat",
+      body: {
+        projectId: PROJECT_ID,
+        metadata: { channel: "TEXT" },
+        messages: [
+          { role: "user", content: "Quero abrir o atalho local de importação" },
+        ],
+      },
+    });
+  });
+
+  test("mobile Maria composer stays visible and center-hittable at 390/375", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "mobile",
+      "mobile composer geometry uses the mobile browser context",
+    );
+    const { chatPosts } = await mockApi(page);
+
+    for (const viewport of MOBILE_VIEWPORTS) {
+      await openMonthly(page, viewport);
+      const mariaTab = page.locator('[data-dock-slot="maria"]');
+      await expect(mariaTab).toBeVisible();
+      await expect(mariaTab).toHaveAttribute(
+        "href",
+        `/projects/${PROJECT_ID}/maria`,
+      );
+      await mariaTab.click();
+      await expect(page).toHaveURL(
+        (url) => url.pathname === `/projects/${PROJECT_ID}/maria`,
+      );
+
+      expect(await readMainPaddingRight(page)).toBe(20);
+      await expect(
+        page.getByRole("button", { name: "Abrir Copiloto Financeiro" }),
+      ).toHaveCount(0);
+
+      const input = page.getByPlaceholder(MARIA_INPUT_PLACEHOLDER);
+      await expect(input).toBeVisible();
+      await input.fill(`Maria mobile ${viewport.width}`);
+      const send = page.getByRole("button", { name: "Enviar", exact: true });
+      await expect(send).toBeVisible();
+      const box = await send.boundingBox();
+      expect(box).not.toBeNull();
+      const center = {
+        x: box!.x + box!.width / 2,
+        y: box!.y + box!.height / 2,
+      };
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(
+        await send.evaluate((button, point) => {
+          const hit = document.elementFromPoint(point.x, point.y);
+          return hit !== null && (hit === button || button.contains(hit));
+        }, center),
+      ).toBe(true);
+    }
+
+    expect(chatPosts).toHaveLength(0);
   });
 });

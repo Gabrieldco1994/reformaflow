@@ -52,7 +52,11 @@ const SUGGESTIONS = [
 
 const TTS_ERROR_PREFIX = "Não consegui gerar áudio agora.";
 
-export function FinancialAgentWidget() {
+export function FinancialAgentWidget({
+  showClosedFab = true,
+}: {
+  showClosedFab?: boolean;
+}) {
   const params = useParams<{ projectId: string }>();
   const { projectType } = useProject();
   const agent = useFinancialAgent();
@@ -143,7 +147,7 @@ export function FinancialAgentWidget() {
   return (
     <>
       {/* FAB */}
-      {!open && (
+      {!open && showClosedFab && (
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -173,7 +177,6 @@ export function FinancialAgentWidget() {
               {mariaAvailable && (
                 <Link
                   href={mariaHref}
-                  onClick={() => setOpen(false)}
                   className="inline-flex min-h-11 items-center rounded-full border border-white/30 px-3 text-[11px] font-semibold text-white hover:bg-white/15"
                 >
                   Importar fatura CSV com Maria
@@ -212,7 +215,6 @@ export function FinancialAgentWidget() {
                 {mariaAvailable && (
                   <Link
                     href={mariaHref}
-                    onClick={() => setOpen(false)}
                     className="block rounded-lg border border-darc-velvet bg-white px-3 py-2 text-sm font-semibold text-darc-velvet hover:bg-darc-linen/30"
                   >
                     Para importar uma fatura CSV, abra a conversa da Maria
@@ -251,7 +253,6 @@ export function FinancialAgentWidget() {
                     mariaAvailable && (
                       <Link
                         href={mariaHref}
-                        onClick={() => setOpen(false)}
                         className="mt-2 flex min-h-11 items-center justify-center rounded-lg bg-darc-velvet px-3 py-2 text-center text-xs font-semibold text-white hover:opacity-90"
                       >
                         Continuar importação CSV com a Maria

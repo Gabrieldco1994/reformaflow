@@ -218,6 +218,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const basePath = `/projects/${projectId}`;
+  const showClosedFab = pathname !== `${basePath}/maria`;
   /**
    * U2-P14/P15/P16 — o href do shell (dock, Mais, rail) preserva `?mes`. A fonte
    * do contexto NÃO pode ser só `useSearchParams()`: esse espelho popula um tick
@@ -321,7 +322,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Copiloto Financeiro (desktop). No mobile a rota /maria assume esse papel. */}
       <div className="hidden lg:block">
-        <FinancialAgentWidget />
+        <FinancialAgentWidget showClosedFab={showClosedFab} />
       </div>
     </ProjectProvider>
   );

@@ -466,7 +466,13 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   duas contas diferentes do mesmo dinheiro.
 - A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
 - No desktop, ao abrir o painel flutuante, o conteúdo usa **reserva total 408px:
-  painel 384px + inset lateral 24px**; fechado, mantém o respiro padrão de 24px.
+  painel 384px + inset lateral 24px**; com o FAB fechado e visível, mantém o
+  respiro padrão de 24px. Na rota da Maria (`/projects/:projectId/maria`),
+  somente o FAB fechado **"Abrir Copiloto Financeiro"** fica oculto para não
+  cobrir o botão **Enviar** do compositor; nas demais rotas desktop, ele
+  continua visível. No mobile, o comportamento permanece inalterado. Se a
+  navegação interna chegar à Maria com o painel já aberto, ele permanece aberto
+  com a reserva de 408px, sem cobrir o compositor.
 - Também pode consultar monitoramento de preços (watchlist) e busca avulsa de preços por produto via chat/voz.
 - Também responde sobre manutenção de **CASA/CARRO/PLANTAS** (ex.: "quando foi
   a última troca de óleo?"), lendo os registros de manutenção do projeto —
