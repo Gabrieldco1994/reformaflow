@@ -1225,6 +1225,23 @@ describe("audited synthetic Vertex capture", () => {
     );
   });
 
+  it("[PROBE] RESIDUAL_RISK_ACCEPTANCE", async () => {
+    expect(evidence.run.residualRiskAcceptance).toEqual({
+      decision: "OPTION_1_COMPLETE_ORIGINAL_PDF",
+      dataOwnerAcceptanceSha256: "e".repeat(64),
+      noLocalDerivative: true,
+    });
+
+    const withoutAcceptance = structuredClone(evidence);
+    withoutAcceptance.run.residualRiskAcceptance = null;
+    const report = await evaluateOcrSynth(withoutAcceptance);
+
+    expect(report.releaseStatus).toBe("GAPS");
+    expect(report.liveEvidenceGaps).toContain(
+      "MISSING_DATA_OWNER_RESIDUAL_RISK_ACCEPTANCE",
+    );
+  });
+
   it("scores mutations from native candidates without oracle annotations", async () => {
     const changed = structuredClone(evidence);
     const outcome = changed.predictions[0]!.outcome;

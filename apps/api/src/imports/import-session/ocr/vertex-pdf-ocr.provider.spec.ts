@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   PdfOcrProviderError,
+  VERTEX_ADC_SCOPES,
   VertexPdfOcrProvider,
   type VertexAccessTokenPort,
 } from "./vertex-pdf-ocr.provider";
@@ -217,6 +218,329 @@ async function observeExtraction(
   };
 }
 
+describe("authoritative Vertex request and response probes", () => {
+  it("[PROBE] WRONG_ENDPOINT", () => {
+    const plan = provider(jest.fn()).createRequestPlan(REQUEST);
+
+    expect(plan.endpoint).toBe(
+      "https://southamerica-east1-aiplatform.googleapis.com",
+    );
+    expect([plan.countUrl, plan.generationUrl]).toEqual([
+      expect.stringMatching(
+        /^https:\/\/southamerica-east1-aiplatform\.googleapis\.com\//,
+      ),
+      expect.stringMatching(
+        /^https:\/\/southamerica-east1-aiplatform\.googleapis\.com\//,
+      ),
+    ]);
+  });
+
+  it("[PROBE] WRONG_MODEL", () => {
+    const value = provider(jest.fn());
+    const plan = value.createRequestPlan(REQUEST);
+
+    expect(value.model).toBe("gemini-2.5-flash");
+    expect(plan.model).toBe("gemini-2.5-flash");
+    expect([plan.countUrl, plan.generationUrl]).toEqual([
+      expect.stringContaining("/models/gemini-2.5-flash:countTokens"),
+      expect.stringContaining("/models/gemini-2.5-flash:generateContent"),
+    ]);
+  });
+
+  it("[PROBE] WRONG_REGION", () => {
+    const plan = provider(jest.fn()).createRequestPlan(REQUEST);
+
+    expect(plan.region).toBe("southamerica-east1");
+    expect([plan.countUrl, plan.generationUrl]).toEqual([
+      expect.stringContaining(
+        "/locations/southamerica-east1/publishers/google/",
+      ),
+      expect.stringContaining(
+        "/locations/southamerica-east1/publishers/google/",
+      ),
+    ]);
+  });
+
+  it("[PROBE] API_KEY_AUTH", async () => {
+    const accessToken = jest.fn(async () => "adc-oauth-token");
+    const fetcher = jest.fn(
+      async (
+        url: string,
+        _init: {
+          headers: Record<string, string>;
+        },
+      ) =>
+        url.endsWith(":countTokens")
+          ? response({ totalTokens: 123 })
+          : generationWire,
+    );
+    const value = new VertexPdfOcrProvider(
+      "qa-project-719",
+      { authTrace: "LOCAL_ADC", accessToken },
+      fetcher,
+      Object.freeze({ now: () => 1_000 }),
+    );
+
+    await expect(value.extractPdf(REQUEST)).resolves.toBeDefined();
+
+    expect(accessToken).toHaveBeenCalledTimes(1);
+    expect(accessToken).toHaveBeenCalledWith(expect.any(AbortSignal));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetcher.mock.calls) {
+      expect(url).not.toMatch(/[?&](?:key|api_key)=/i);
+      expect(init.headers).toEqual({
+        authorization: "Bearer adc-oauth-token",
+        "content-type": "application/json",
+        accept: "application/json",
+      });
+    }
+  });
+
+  it("[PROBE] ADC_SCOPE_BOUNDED", async () => {
+    const fetcher = jest.fn(async (url: string) =>
+      url.endsWith(":countTokens")
+        ? response({ totalTokens: 123 })
+        : generationWire,
+    );
+
+    const result = await provider(fetcher).extractPdf(REQUEST);
+
+    expect(VERTEX_ADC_SCOPES).toEqual([
+      "https://www.googleapis.com/auth/cloud-platform",
+    ]);
+    expect(result.provenance.requestTrace).toMatchObject({
+      authTrace: "LOCAL_ADC",
+      adcScopes: ["https://www.googleapis.com/auth/cloud-platform"],
+    });
+  });
+
+  it("[PROBE] REQUEST_BODY_BOUNDED", () => {
+    const maximumPdfBytes = Buffer.alloc(10_485_760, 0x20);
+    maximumPdfBytes.write("%PDF-1.4");
+    const request = {
+      ...REQUEST,
+      artifactSha256: createHash("sha256")
+        .update(maximumPdfBytes)
+        .digest("hex"),
+      pdfBytes: maximumPdfBytes,
+    };
+
+    const plan = provider(jest.fn()).createRequestPlan(request);
+    const countBody = JSON.parse(plan.countBody) as Record<string, unknown>;
+    const generationBody = JSON.parse(plan.generationBody) as Record<
+      string,
+      unknown
+    >;
+
+    expect(Buffer.byteLength(plan.countBody, "utf8")).toBeLessThanOrEqual(
+      20_000_000,
+    );
+    expect(Buffer.byteLength(plan.generationBody, "utf8")).toBeLessThanOrEqual(
+      20_000_000,
+    );
+    expect(Object.keys(countBody)).toEqual(["contents"]);
+    expect(generationBody.contents).toEqual(countBody.contents);
+    expect(plan.generationBody.match(/"inlineData"/g)).toHaveLength(1);
+    expect(plan.generationBody).toContain(maximumPdfBytes.toString("base64"));
+  });
+
+  it("[PROBE] DEADLINE_BOUNDED", async () => {
+    const timeout = jest.spyOn(global, "setTimeout");
+    const fetcher = jest.fn(async (url: string) =>
+      url.endsWith(":countTokens")
+        ? response({ totalTokens: 123 })
+        : generationWire,
+    );
+
+    const result = await provider(fetcher).extractPdf(REQUEST);
+
+    expect(timeout).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    expect(result.provenance.requestTrace?.deadlineMs).toBe(60_000);
+  });
+
+  it("[PROBE] GLOBAL_ENDPOINT_FALLBACK", () => {
+    const plan = provider(jest.fn()).createRequestPlan(REQUEST);
+
+    for (const url of [plan.countUrl, plan.generationUrl]) {
+      expect(new URL(url).hostname).toBe(
+        "southamerica-east1-aiplatform.googleapis.com",
+      );
+      expect(new URL(url).hostname).not.toBe("aiplatform.googleapis.com");
+    }
+  });
+
+  it("[PROBE] TOOLS_PRESENT", async () => {
+    const plan = provider(jest.fn()).createRequestPlan(REQUEST);
+    const generation = JSON.parse(plan.generationBody) as Record<
+      string,
+      unknown
+    >;
+    const fetcher = jest.fn(async (url: string) =>
+      url.endsWith(":countTokens")
+        ? response({ totalTokens: 123 })
+        : generationWire,
+    );
+
+    const result = await provider(fetcher).extractPdf(REQUEST);
+
+    expect(generation).not.toHaveProperty("tools");
+    expect(plan.generationBody).not.toContain('"functionDeclarations"');
+    expect(result.provenance.requestTrace?.toolsPresent).toBe(false);
+  });
+
+  it("[PROBE] FILE_URI_PRESENT", async () => {
+    const plan = provider(jest.fn()).createRequestPlan(REQUEST);
+    const generation = JSON.parse(plan.generationBody) as {
+      contents: Array<{ parts: Array<Record<string, unknown>> }>;
+    };
+    const fetcher = jest.fn(async (url: string) =>
+      url.endsWith(":countTokens")
+        ? response({ totalTokens: 123 })
+        : generationWire,
+    );
+
+    const result = await provider(fetcher).extractPdf(REQUEST);
+    const documentParts = generation.contents[0]!.parts.filter((part) =>
+      Object.prototype.hasOwnProperty.call(part, "inlineData"),
+    );
+
+    expect(documentParts).toEqual([
+      {
+        inlineData: {
+          mimeType: "application/pdf",
+          data: PDF_BYTES.toString("base64"),
+        },
+      },
+    ]);
+    expect(plan.generationBody).not.toContain("fileUri");
+    expect(result.provenance.requestTrace?.fileUri).toBeNull();
+  });
+
+  it("[PROBE] CACHE_PRESENT", async () => {
+    const plan = provider(jest.fn()).createRequestPlan(REQUEST);
+    const fetcher = jest.fn(async (url: string) =>
+      url.endsWith(":countTokens")
+        ? response({ totalTokens: 123 })
+        : generationWire,
+    );
+
+    const result = await provider(fetcher).extractPdf(REQUEST);
+
+    expect(JSON.parse(plan.generationBody)).not.toHaveProperty("cachedContent");
+    expect(result.provenance.requestTrace?.cachedContent).toBeNull();
+  });
+
+  it("[PROBE] PARTIAL_RESPONSE", async () => {
+    const partial = response({
+      responseId: "partial-response-719",
+      modelVersion: "gemini-2.5-flash-001",
+      candidates: [
+        {
+          finishReason: "STOP",
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  completionStatus: "COMPLETE",
+                  reportedPageCount: 1,
+                  pageAccounting: [],
+                  candidates: [],
+                }),
+              },
+            ],
+          },
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 123,
+        candidatesTokenCount: 10,
+        totalTokenCount: 133,
+      },
+    });
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce(response({ totalTokens: 123 }))
+      .mockResolvedValueOnce(partial);
+
+    await expect(provider(fetcher).extractPdf(REQUEST)).rejects.toMatchObject({
+      failure: "MALFORMED_RESPONSE",
+      dispatchState: "DISPATCHED_OR_UNKNOWN",
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("[PROBE] TRUNCATED_RESPONSE", async () => {
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce(response({ totalTokens: 123 }))
+      .mockResolvedValueOnce(
+        responseBytes(
+          Buffer.from(
+            '{"responseId":"truncated-719","candidates":[{"finishReason":"STOP"',
+          ),
+        ),
+      );
+
+    await expect(provider(fetcher).extractPdf(REQUEST)).rejects.toMatchObject({
+      failure: "MALFORMED_RESPONSE",
+      dispatchState: "DISPATCHED_OR_UNKNOWN",
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("[PROBE] SAFETY_BLOCKED_RESPONSE", async () => {
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce(response({ totalTokens: 123 }))
+      .mockResolvedValueOnce(
+        response({ promptFeedback: { blockReason: "SAFETY" } }),
+      );
+
+    await expect(provider(fetcher).extractPdf(REQUEST)).rejects.toMatchObject({
+      failure: "SAFETY",
+      dispatchState: "DISPATCHED_OR_UNKNOWN",
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("[PROBE] KNOWN_SAFETY_FINISH_REASONS", async () => {
+    const reasons = [
+      "SAFETY",
+      "RECITATION",
+      "BLOCKLIST",
+      "PROHIBITED_CONTENT",
+      "SPII",
+      "IMAGE_SAFETY",
+    ] as const;
+
+    for (const finishReason of reasons) {
+      const fetcher = jest
+        .fn()
+        .mockResolvedValueOnce(response({ totalTokens: 123 }))
+        .mockResolvedValueOnce(
+          response({
+            responseId: `blocked-${finishReason}`,
+            modelVersion: "gemini-2.5-flash-001",
+            candidates: [{ finishReason }],
+            usageMetadata: {
+              promptTokenCount: 123,
+              candidatesTokenCount: 0,
+              totalTokenCount: 123,
+            },
+          }),
+        );
+
+      await expect(provider(fetcher).extractPdf(REQUEST)).rejects.toMatchObject(
+        {
+          failure: "SAFETY",
+          dispatchState: "DISPATCHED_OR_UNKNOWN",
+        },
+      );
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    }
+  });
+});
+
 describe("Vertex countTokens request plan", () => {
   it("runs countTokens, then beforeGeneration, then generateContent with no intervening dispatch", async () => {
     const events: string[] = [];
@@ -345,7 +669,7 @@ describe("Vertex countTokens request plan", () => {
     });
   });
 
-  it("qualificationCapture rejects the legacy date key without falling back to V2", async () => {
+  it("[PROBE] MALFORMED_RESPONSE", async () => {
     const observed = await qualificationExtraction({
       pageNumber: 1,
       pageOccurrenceIndex: 1,

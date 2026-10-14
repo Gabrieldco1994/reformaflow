@@ -127,6 +127,118 @@ describe("POST attachment analyze v2 direct OCR", () => {
     expect(await financialCount(prisma, owner.tenantId)).toBe(0);
   });
 
+  it("[PROBE] TEXTUAL_PDF_PROVIDER_CALL", async () => {
+    const testCase = OCR_SYNTH_ROUTING_CASES[0]!;
+    const bytes = await generateArtifact(testCase);
+    const localDocument = await extractPdfDocument(bytes);
+    const owner = await fixture(prisma, "textual-provider-call", bytes);
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn(),
+    };
+    const service = extraction(prisma, bytes, provider, localDocument);
+
+    const analyzed = await service.analyzeAttached(
+      owner.auth,
+      owner.sessionId,
+      owner.attachmentId,
+      { expectedRevision: 1 },
+      {},
+    );
+
+    expect(analyzed.lines.length).toBeGreaterThan(0);
+    expect(provider.extractPdf).not.toHaveBeenCalled();
+    expect(
+      await prisma.importOcrUsage.count({
+        where: { sessionId: owner.sessionId },
+      }),
+    ).toBe(0);
+    expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+  });
+
+  it("[PROBE] LOCAL_RASTER_SANDBOX", async () => {
+    const owner = await fixture(prisma, "local-raster-sandbox");
+    const request = await declareConsent(prisma, owner);
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest
+        .fn()
+        .mockImplementation(async (providerRequest) =>
+          document(
+            owner.hash,
+            "local-raster-sandbox",
+            providerRequest.requestId,
+          ),
+        ),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+
+    const analyzed = await service.analyzeAttached(
+      owner.auth,
+      owner.sessionId,
+      owner.attachmentId,
+      request,
+      {},
+    );
+
+    expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+    expect(provider.extractPdf).toHaveBeenCalledWith({
+      artifactSha256: owner.hash,
+      pageCount: 1,
+      requestId: request.requestId,
+      pdfBytes: owner.bytes,
+      signal: expect.any(AbortSignal),
+    });
+    expect(analyzed.lines).toHaveLength(1);
+    expect(analyzed.lines[0]!.ocrEvidence).toMatchObject({
+      origin: PDF_OCR_PROVIDER_ID,
+      artifactFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+  });
+
+  it("[PROBE] MIXED_LOCAL_PROVIDER_DUPLICATION", async () => {
+    const owner = await fixture(prisma, "mixed-local-provider-duplication");
+    const request = await declareConsent(prisma, owner);
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest
+        .fn()
+        .mockImplementation(async (providerRequest) =>
+          document(
+            owner.hash,
+            "mixed-local-provider-duplication",
+            providerRequest.requestId,
+          ),
+        ),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+
+    const analyzed = await service.analyzeAttached(
+      owner.auth,
+      owner.sessionId,
+      owner.attachmentId,
+      request,
+      {},
+    );
+    const observations = await prisma.importObservation.findMany({
+      where: { tenantId: owner.tenantId },
+    });
+
+    expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+    expect(analyzed.lines).toHaveLength(1);
+    expect(analyzed.lines[0]!.observationIds).toHaveLength(1);
+    expect(observations).toHaveLength(1);
+    expect(observations[0]!.reference).toMatch(/^ocr:/);
+    expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+  });
+
   it("[PROBE] EXACT_CONSENT_CAPABILITY", async () => {
     const owner = await fixture(prisma, "happy");
     const provider = {
@@ -949,7 +1061,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     },
   );
 
-  it("purges OCR content on request at the inclusive deadline and repeats idempotently without a scheduler", async () => {
+  it("[PROBE] ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS", async () => {
     const owner = await fixture(prisma, "request-retention");
     const provider = {
       provider: PDF_OCR_PROVIDER_ID,
@@ -1460,7 +1572,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     });
   });
 
-  it("leaves timeout UNKNOWN and never retries the provider", async () => {
+  it("[PROBE] AMBIGUOUS_TIMEOUT_RETRY", async () => {
     const owner = await fixture(prisma, "timeout");
     const provider = {
       provider: PDF_OCR_PROVIDER_ID,
@@ -1501,7 +1613,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     expect(await financialCount(prisma, owner.tenantId)).toBe(0);
   });
 
-  it("persists and replays an exact terminal safety failure", async () => {
+  it("[PROBE] TERMINAL_FAILURE_REPLAY_NO_CALL", async () => {
     const owner = await fixture(prisma, "safety");
     const provider = {
       provider: PDF_OCR_PROVIDER_ID,
@@ -1794,7 +1906,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     },
   );
 
-  it("projects an in-flight ATTEMPTED row as unknown, then converges exactly without redispatch", async () => {
+  it("[PROBE] UNKNOWN_OUTCOME_NO_RETRY", async () => {
     const owner = await fixture(prisma, "attempted-cold-projection");
     const request = await declareConsent(prisma, owner);
     let release!: () => void;
@@ -2218,7 +2330,143 @@ describe("POST attachment analyze v2 direct OCR", () => {
     expect(provider.extractPdf).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects an observed eleven-page raster PDF before consent or network", async () => {
+  it("[PROBE] DURABLE_TENANT_BUDGET", async () => {
+    const owner = await fixture(prisma, "durable-tenant-budget");
+    const request = await declareConsent(prisma, owner);
+    const budgetOwner = await createBudgetSeedScope(
+      prisma,
+      owner,
+      "durable-tenant-budget-seed",
+    );
+    const seededUsageId = await seedBudgetUsage(prisma, budgetOwner, {
+      actorId: randomUUID(),
+      reservedCostUnits: 3_276_800,
+    });
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn(),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+
+    try {
+      await expect(
+        service.analyzeAttached(
+          owner.auth,
+          owner.sessionId,
+          owner.attachmentId,
+          request,
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "OCR_BUDGET_EXHAUSTED" });
+      expect(provider.extractPdf).not.toHaveBeenCalled();
+      expect(
+        await prisma.importOcrUsage.findUniqueOrThrow({
+          where: { id: seededUsageId },
+        }),
+      ).toMatchObject({
+        tenantId: owner.tenantId,
+        reservedCostUnits: 3_276_800,
+      });
+      expect(
+        await prisma.importOcrUsage.count({
+          where: { sessionId: owner.sessionId },
+        }),
+      ).toBe(0);
+      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+    } finally {
+      await prisma.importOcrUsage.deleteMany({
+        where: { id: seededUsageId },
+      });
+    }
+  });
+
+  it("[PROBE] DURABLE_GLOBAL_BUDGET", async () => {
+    const budgetOwner = await fixture(prisma, "durable-global-budget-seed");
+    const owner = await fixture(prisma, "durable-global-budget-target");
+    const request = await declareConsent(prisma, owner);
+    const seededUsageId = await seedBudgetUsage(prisma, budgetOwner, {
+      actorId: budgetOwner.userId,
+      reservedCostUnits: 32_768_000,
+    });
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn(),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+
+    try {
+      await expect(
+        service.analyzeAttached(
+          owner.auth,
+          owner.sessionId,
+          owner.attachmentId,
+          request,
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "OCR_BUDGET_EXHAUSTED" });
+      expect(provider.extractPdf).not.toHaveBeenCalled();
+      expect(
+        await prisma.importOcrUsage.findUniqueOrThrow({
+          where: { id: seededUsageId },
+        }),
+      ).toMatchObject({
+        tenantId: budgetOwner.tenantId,
+        reservedCostUnits: 32_768_000,
+      });
+      expect(
+        await prisma.importOcrUsage.count({
+          where: { sessionId: owner.sessionId },
+        }),
+      ).toBe(0);
+      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+    } finally {
+      await prisma.importOcrUsage.deleteMany({
+        where: { id: seededUsageId },
+      });
+    }
+  });
+
+  it("[PROBE] CAPABILITY_OFF", async () => {
+    const owner = await fixture(prisma, "capability-off");
+    const request = await declareConsent(prisma, owner);
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn(),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+    const enabled = process.env.IMPORT_OCR_ENABLED;
+    process.env.IMPORT_OCR_ENABLED = "false";
+
+    try {
+      await expect(
+        service.analyzeAttached(
+          owner.auth,
+          owner.sessionId,
+          owner.attachmentId,
+          request,
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "OCR_UNAVAILABLE" });
+    } finally {
+      process.env.IMPORT_OCR_ENABLED = enabled;
+    }
+
+    expect(provider.extractPdf).not.toHaveBeenCalled();
+    expect(
+      await prisma.importOcrUsage.count({
+        where: { sessionId: owner.sessionId },
+      }),
+    ).toBe(0);
+    expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+  });
+
+  it("[PROBE] PAGE_11_ADMISSION", async () => {
     const owner = await fixture(prisma, "oversize");
     const provider = {
       provider: PDF_OCR_PROVIDER_ID,
@@ -2325,7 +2573,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     expect(provider.extractPdf).toHaveBeenCalledTimes(replayCalls);
   });
 
-  it("[R6] FINANCIAL_WRITE authority candidate wraps real analyzeAttached through provider completion", async () => {
+  it("[PROBE] FINANCIAL_WRITE", async () => {
     const owner = await fixture(prisma, "financial-authority");
     const request = await declareConsent(prisma, owner);
     const provider = {
@@ -2846,6 +3094,132 @@ async function createTerminalUsage(
       updatedAt: now,
     },
   });
+}
+
+type BudgetUsageOwner = Readonly<{
+  tenantId: string;
+  projectId: string;
+  sessionId: string;
+  attachmentId: string;
+  artifactId: string;
+  hash: string;
+}>;
+
+async function createBudgetSeedScope(
+  prisma: PrismaService,
+  owner: Awaited<ReturnType<typeof fixture>>,
+  label: string,
+): Promise<BudgetUsageOwner> {
+  const card = await prisma.creditCard.findFirstOrThrow({
+    where: {
+      tenantId: owner.tenantId,
+      projectId: owner.projectId,
+    },
+  });
+  const sessionId = randomUUID();
+  const attachmentId = randomUUID();
+  const artifactId = randomUUID();
+  const bytes = Buffer.from(`%PDF-1.4 ${label}`);
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  await prisma.importSession.create({
+    data: {
+      id: sessionId,
+      tenantId: owner.tenantId,
+      ownerUserId: owner.userId,
+      ownerProjectId: owner.projectId,
+      cardId: card.id,
+      kind: "CREATE_CARD_PURCHASES",
+      state: "DRAFT",
+      revision: 1,
+      createRequestId: randomUUID(),
+      createPayloadHash: "b".repeat(64),
+      consentPolicyVersion: 1,
+      consentedAt: now,
+      lastUserEditAt: now,
+      expiresAt: new Date("2026-10-14T18:00:00.000Z"),
+      draftJson: JSON.stringify({
+        version: 1,
+        lines: [],
+        selectedLineIds: [],
+        questions: [],
+        scope: {
+          observationIds: [],
+          pendingAttachmentIds: [attachmentId],
+        },
+      }),
+    },
+  });
+  await prisma.importArtifact.create({
+    data: {
+      id: artifactId,
+      tenantId: owner.tenantId,
+      ownerProjectId: owner.projectId,
+      documentSha256: hash,
+      verifiedBytes: bytes.length,
+      detectedFormat: "PDF",
+      state: "RAW_READY",
+      storageKey: `t/${artifactId}`,
+    },
+  });
+  await prisma.importSessionArtifact.create({
+    data: {
+      id: attachmentId,
+      tenantId: owner.tenantId,
+      ownerProjectId: owner.projectId,
+      sessionId,
+      artifactId,
+      position: 0,
+      fileName: `${label}.pdf`,
+      declaredMime: "application/pdf",
+      declaredBytes: bytes.length,
+      state: "ATTACHED",
+      reservedBytes: bytes.length,
+      verifiedAt: now,
+    },
+  });
+  return {
+    tenantId: owner.tenantId,
+    projectId: owner.projectId,
+    sessionId,
+    attachmentId,
+    artifactId,
+    hash,
+  };
+}
+
+async function seedBudgetUsage(
+  prisma: PrismaService,
+  owner: BudgetUsageOwner,
+  input: Readonly<{
+    actorId: string;
+    reservedCostUnits: number;
+  }>,
+): Promise<string> {
+  const id = randomUUID();
+  await prisma.importOcrUsage.create({
+    data: {
+      id,
+      day: now.toISOString().slice(0, 10),
+      tenantId: owner.tenantId,
+      ownerProjectId: owner.projectId,
+      actorId: input.actorId,
+      sessionId: owner.sessionId,
+      attachmentId: owner.attachmentId,
+      artifactId: owner.artifactId,
+      artifactSha256: owner.hash,
+      requestId: randomUUID(),
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      reservedCalls: 0,
+      reservedPages: 0,
+      reservedBytes: 0,
+      reservedCostUnits: input.reservedCostUnits,
+      outcome: "SUCCEEDED",
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+  return id;
 }
 
 async function fixture(
