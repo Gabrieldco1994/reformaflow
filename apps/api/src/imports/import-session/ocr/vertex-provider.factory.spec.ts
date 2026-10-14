@@ -27,6 +27,10 @@ describe("configured Vertex provider", () => {
 
   it("admits the production file before constructing only that auth source", async () => {
     const calls: string[] = [];
+    const releaseVerifier = jest.fn(() => {
+      calls.push("release");
+      return Object.freeze({ kind: "VERIFIED" as const });
+    });
     const credentials = Object.freeze({
       type: "service_account" as const,
       project_id: "project-719",
@@ -62,14 +66,17 @@ describe("configured Vertex provider", () => {
         NODE_ENV: "production",
         VERTEX_AUTH_MODE: "service-account-file",
         GOOGLE_CLOUD_PROJECT: "project-719",
+        OCR_RELEASE_ENVELOPE: "verified-release-envelope",
       },
       {
+        releaseVerifier,
         admitServiceAccountFile,
         GoogleAuthClass: GoogleAuthClass as never,
-      },
+      } as never,
     );
 
-    expect(calls).toEqual(["admit:project-719", "auth"]);
+    expect(calls).toEqual(["release", "admit:project-719", "auth"]);
+    expect(releaseVerifier).toHaveBeenCalledTimes(1);
     expect(provider.ready()).toBe(true);
     expect(GoogleAuthClass).toHaveBeenCalledTimes(1);
     expect(GoogleAuthClass).toHaveBeenCalledWith({
@@ -120,6 +127,9 @@ describe("configured Vertex provider", () => {
 
   it("does not fall back to ambient auth after file admission fails", async () => {
     const GoogleAuthClass = jest.fn();
+    const releaseVerifier = jest.fn(() =>
+      Object.freeze({ kind: "VERIFIED" as const }),
+    );
     await expect(
       createConfiguredVertexPdfOcrProvider(
         {
@@ -127,15 +137,18 @@ describe("configured Vertex provider", () => {
           NODE_ENV: "production",
           VERTEX_AUTH_MODE: "service-account-file",
           GOOGLE_CLOUD_PROJECT: "project-719",
+          OCR_RELEASE_ENVELOPE: "verified-release-envelope",
         },
         {
+          releaseVerifier,
           admitServiceAccountFile: async () => {
             throw new Error("VERTEX_SERVICE_ACCOUNT_FILE_INVALID");
           },
           GoogleAuthClass: GoogleAuthClass as never,
-        },
+        } as never,
       ),
     ).rejects.toThrow("VERTEX_SERVICE_ACCOUNT_FILE_INVALID");
+    expect(releaseVerifier).toHaveBeenCalledTimes(1);
     expect(GoogleAuthClass).not.toHaveBeenCalled();
   });
 

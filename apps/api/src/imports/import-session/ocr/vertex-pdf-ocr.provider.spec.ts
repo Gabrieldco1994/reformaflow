@@ -223,6 +223,12 @@ describe("Vertex countTokens request plan", () => {
       failure: "OCR_REQUEST_PLAN_DRIFT",
       dispatchState: "DISPATCHED_OR_UNKNOWN",
     });
-    expect(observed.calls).toHaveLength(1);
+    expect(observed.calls).toHaveLength(2);
+    expect(
+      observed.calls.filter(({ url }) => /:countTokens$/.test(String(url))),
+    ).toHaveLength(1);
+    expect(
+      observed.calls.filter(({ url }) => /:generateContent$/.test(String(url))),
+    ).toHaveLength(1);
   });
 });
