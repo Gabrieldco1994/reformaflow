@@ -1,7 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
 import {
-  VERTEX_SERVICE_ACCOUNT_KEY_PATH,
-  VERTEX_SERVICE_ACCOUNT_STARTUP_ERROR,
   admitVertexServiceAccountFile,
   type VertexServiceAccountFileSystem,
 } from "./vertex-service-account-file";
@@ -90,7 +88,7 @@ describe("Vertex service-account file admission", () => {
       credentials: validDocument(),
     });
     expect(fs.open).toHaveBeenCalledWith(
-      VERTEX_SERVICE_ACCOUNT_KEY_PATH,
+      "/secrets/vertex-sa.json",
       expect.any(Number),
     );
   });
@@ -105,7 +103,7 @@ describe("Vertex service-account file admission", () => {
     expect(admitted).not.toHaveProperty("keyFilename");
     expect(admitted).not.toHaveProperty("path");
     expect(fs.open).toHaveBeenCalledWith(
-      VERTEX_SERVICE_ACCOUNT_KEY_PATH,
+      "/secrets/vertex-sa.json",
       expect.any(Number),
     );
   });
@@ -120,7 +118,7 @@ describe("Vertex service-account file admission", () => {
   ])("rejects %s", async (_label, overrides) => {
     await expect(
       admitVertexServiceAccountFile(PROJECT, fileSystem(undefined, overrides)),
-    ).rejects.toThrow(VERTEX_SERVICE_ACCOUNT_STARTUP_ERROR);
+    ).rejects.toThrow("VERTEX_SERVICE_ACCOUNT_FILE_INVALID");
   });
 
   it.each([
@@ -131,7 +129,7 @@ describe("Vertex service-account file admission", () => {
   ])("rejects %s content", async (_label, content) => {
     await expect(
       admitVertexServiceAccountFile(PROJECT, fileSystem(content)),
-    ).rejects.toThrow(VERTEX_SERVICE_ACCOUNT_STARTUP_ERROR);
+    ).rejects.toThrow("VERTEX_SERVICE_ACCOUNT_FILE_INVALID");
   });
 
   it.each([
@@ -155,7 +153,7 @@ describe("Vertex service-account file admission", () => {
     ).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toBe(
-      VERTEX_SERVICE_ACCOUNT_STARTUP_ERROR,
+      "VERTEX_SERVICE_ACCOUNT_FILE_INVALID",
     );
     expect((failure as Error).message).not.toContain("secret-canary");
     expect((failure as Error).message).not.toContain(

@@ -1,4 +1,9 @@
 import { constants as fsConstants } from "node:fs";
+import {
+  VERTEX_LOCAL_ADC_STARTUP_ERROR,
+  admitVertexLocalAdcFile,
+  vertexLocalAdcPath,
+} from "./vertex-local-adc-file";
 
 type Stats = {
   dev: number;
@@ -19,25 +24,6 @@ type LocalFileSystem = {
     stat(): Promise<Stats>;
     readFile(): Promise<Buffer>;
     close(): Promise<void>;
-  }>;
-};
-
-type LocalLoaderModule = {
-  VERTEX_LOCAL_ADC_STARTUP_ERROR: string;
-  vertexLocalAdcPath(platform: "darwin" | "linux", home: string): string;
-  admitVertexLocalAdcFile(
-    input: Readonly<{
-      platform: "darwin" | "linux";
-      homeDirectory: string;
-      fileSystem: LocalFileSystem;
-    }>,
-  ): Promise<{
-    credentials: {
-      type: "authorized_user";
-      client_id: string;
-      client_secret: string;
-      refresh_token: string;
-    };
   }>;
 };
 
@@ -95,26 +81,20 @@ function fileSystem(
   };
 }
 
-let subject: LocalLoaderModule | null = null;
-let loadFailure: unknown = null;
-try {
-  // Deliberately loaded at runtime: this RED barrier can coexist with the
-  // integration commit until the production loader is added.
-  subject = jest.requireActual("./vertex-local-adc-file") as LocalLoaderModule;
-} catch (error) {
-  loadFailure = error;
-}
-const contract = subject === null ? it.skip : it;
-
 describe("Vertex local ADC file admission", () => {
   it("provides the dedicated local ADC loader", () => {
-    expect({ subject, loadFailure }).toEqual({
-      subject: expect.any(Object),
-      loadFailure: null,
+    expect({
+      VERTEX_LOCAL_ADC_STARTUP_ERROR,
+      admitVertexLocalAdcFile,
+      vertexLocalAdcPath,
+    }).toEqual({
+      VERTEX_LOCAL_ADC_STARTUP_ERROR: "VERTEX_LOCAL_ADC_FILE_INVALID",
+      admitVertexLocalAdcFile: expect.any(Function),
+      vertexLocalAdcPath: expect.any(Function),
     });
   });
 
-  contract.each(["darwin", "linux"] as const)(
+  it.each(["darwin", "linux"] as const)(
     "uses the deterministic %s well-known ADC path and returns only in-memory credentials",
     async (platform) => {
       const fs = fileSystem();
@@ -122,8 +102,8 @@ describe("Vertex local ADC file admission", () => {
       const path =
         "/Users/reformaflow/.config/gcloud/application_default_credentials.json";
 
-      expect(subject!.vertexLocalAdcPath(platform, home)).toBe(path);
-      const admitted = await subject!.admitVertexLocalAdcFile({
+      expect(vertexLocalAdcPath(platform, home)).toBe(path);
+      const admitted = await admitVertexLocalAdcFile({
         platform,
         homeDirectory: home,
         fileSystem: fs,
@@ -140,7 +120,7 @@ describe("Vertex local ADC file admission", () => {
     },
   );
 
-  contract.each([
+  it.each([
     ["symlink directory", { directory: { isSymbolicLink: () => true } }],
     ["writable directory", { directory: { mode: 0o40720 } }],
     ["symlink file", { before: { isSymbolicLink: () => true } }],
@@ -150,35 +130,31 @@ describe("Vertex local ADC file admission", () => {
     ["inode swap after read", { after: { ino: 12 } }],
   ])("rejects %s", async (_label, overrides) => {
     await expect(
-      subject!.admitVertexLocalAdcFile({
+      admitVertexLocalAdcFile({
         platform: "linux",
         homeDirectory: "/home/reformaflow",
         fileSystem: fileSystem(undefined, overrides),
       }),
-    ).rejects.toThrow(subject!.VERTEX_LOCAL_ADC_STARTUP_ERROR);
+    ).rejects.toThrow("VERTEX_LOCAL_ADC_FILE_INVALID");
   });
 
-  contract.each([
+  it.each([
     ["empty", Buffer.alloc(0)],
     ["oversize", Buffer.alloc(64 * 1024 + 1, 0x61)],
     ["invalid UTF-8", Buffer.from([0xc3, 0x28])],
     ["invalid JSON", Buffer.from('{"type":')],
   ])("rejects %s content with one redacted error", async (_label, content) => {
-    const failure = await subject!
-      .admitVertexLocalAdcFile({
-        platform: "darwin",
-        homeDirectory: "/Users/reformaflow",
-        fileSystem: fileSystem(content),
-      })
-      .catch((error: unknown) => error);
+    const failure = await admitVertexLocalAdcFile({
+      platform: "darwin",
+      homeDirectory: "/Users/reformaflow",
+      fileSystem: fileSystem(content),
+    }).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toBe(
-      subject!.VERTEX_LOCAL_ADC_STARTUP_ERROR,
-    );
+    expect((failure as Error).message).toBe("VERTEX_LOCAL_ADC_FILE_INVALID");
     expect((failure as Error).message).not.toContain("canary");
   });
 
-  contract.each([
+  it.each([
     ["service account", { type: "service_account" }],
     ["missing client id", { client_id: undefined }],
     ["missing client secret", { client_secret: undefined }],
@@ -191,17 +167,13 @@ describe("Vertex local ADC file admission", () => {
     "rejects %s without leaking credential values",
     async (_label, override) => {
       const content = Buffer.from(JSON.stringify(document(override)));
-      const failure = await subject!
-        .admitVertexLocalAdcFile({
-          platform: "linux",
-          homeDirectory: "/home/reformaflow",
-          fileSystem: fileSystem(content),
-        })
-        .catch((error: unknown) => error);
+      const failure = await admitVertexLocalAdcFile({
+        platform: "linux",
+        homeDirectory: "/home/reformaflow",
+        fileSystem: fileSystem(content),
+      }).catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toBe(
-        subject!.VERTEX_LOCAL_ADC_STARTUP_ERROR,
-      );
+      expect((failure as Error).message).toBe("VERTEX_LOCAL_ADC_FILE_INVALID");
       expect((failure as Error).message).not.toContain("canary");
       expect((failure as Error).message).not.toContain(
         String(Object.values(override)[0]),

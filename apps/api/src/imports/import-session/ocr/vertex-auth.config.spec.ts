@@ -1,7 +1,4 @@
-import {
-  VERTEX_AUTH_STARTUP_ERROR,
-  parseVertexAuthConfig,
-} from "./vertex-auth.config";
+import { parseVertexAuthConfig } from "./vertex-auth.config";
 
 const enabled = {
   IMPORT_OCR_ENABLED: "true",
@@ -135,7 +132,7 @@ describe("Vertex OCR auth configuration", () => {
     ],
   ])("rejects an enabled invalid auth configuration", (environment) => {
     expect(() => parseVertexAuthConfig(environment)).toThrow(
-      VERTEX_AUTH_STARTUP_ERROR,
+      "VERTEX_AUTH_CONFIG_INVALID",
     );
   });
 });

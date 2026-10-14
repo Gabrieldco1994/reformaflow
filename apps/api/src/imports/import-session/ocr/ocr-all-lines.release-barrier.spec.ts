@@ -1,4 +1,3 @@
-import { CARD_IMPORT_IGNORED_REASON } from "@reformaflow/domain";
 import {
   ignoredImportObservation,
   type StoredImportObservationEvidenceV1,
@@ -49,9 +48,7 @@ function evidence(origin: "LOCAL" | "OCR"): StoredImportObservationEvidenceV1 {
 
 describe("#719 OCR all-lines release barrier", () => {
   it("defers the exact OCR payment text while local extraction still classifies it", () => {
-    expect(ignoredImportObservation(evidence("LOCAL"))).toBe(
-      CARD_IMPORT_IGNORED_REASON.INVOICE_PAYMENT,
-    );
+    expect(ignoredImportObservation(evidence("LOCAL"))).toBe("INVOICE_PAYMENT");
     expect(ignoredImportObservation(evidence("OCR"))).toBeNull();
   });
 });

@@ -1,5 +1,4 @@
 import { createVertexAccessToken } from "./vertex-access-token.factory";
-import { VERTEX_ADC_SCOPES } from "./vertex-pdf-ocr.provider";
 
 const localCredentials = Object.freeze({
   type: "authorized_user",
@@ -26,7 +25,7 @@ describe("Vertex access-token factory", () => {
       },
       {
         credentials: localCredentials,
-        scopes: [...VERTEX_ADC_SCOPES],
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
       },
     ],
     [
@@ -39,7 +38,7 @@ describe("Vertex access-token factory", () => {
       },
       {
         credentials: serviceCredentials,
-        scopes: [...VERTEX_ADC_SCOPES],
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
       },
     ],
   ] as const)(

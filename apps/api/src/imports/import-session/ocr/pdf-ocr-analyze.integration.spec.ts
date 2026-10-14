@@ -238,7 +238,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     });
   });
 
-  it("keeps every ordered OCR occurrence visible and deferred, including payments and exact duplicates", async () => {
+  it("keeps every ordered OCR occurrence review-only through continuation, including payments and exact duplicates", async () => {
     const owner = await fixture(prisma, "all-lines");
     const provider = {
       provider: PDF_OCR_PROVIDER_ID,
@@ -580,7 +580,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
       },
       {},
     );
-    await financialWorkflow.execute(
+    const receipt = await financialWorkflow.execute(
       owner.auth,
       owner.sessionId,
       { financialRequestId },
@@ -593,6 +593,44 @@ describe("POST attachment analyze v2 direct OCR", () => {
       allocations: { count: 0, sumCents: 0 },
       settlements: 0,
       invoiceLiquidations: 0,
+    });
+    expect(receipt.continuationSessionId).toEqual(expect.any(String));
+    const continuation = await reader.getSession(
+      owner.auth,
+      receipt.continuationSessionId!,
+    );
+    expect({
+      selectedLineIds: continuation.selectedLineIds,
+      lines: continuation.lines.map((line) => ({
+        titulo: line.titulo,
+        amountMeaning: line.amountMeaning,
+        amountCents: line.amountCents,
+        decision: line.decision,
+        hasOcrEvidence: line.ocrEvidence !== undefined,
+      })),
+    }).toEqual({
+      selectedLineIds: [],
+      lines: [
+        "PAGAMENTO DE FATURA CARTAO FINAL 0719",
+        "CREDIT",
+        "REFUND",
+        "FEE",
+        "INTEREST",
+        "SUBTOTAL",
+        "TOTAL",
+        "PAID",
+        "ADVANCE",
+        "PARTIAL",
+        "CARD PAYS CARD",
+        "EXACT DUPLICATE",
+        "EXACT DUPLICATE",
+      ].map((titulo) => ({
+        titulo,
+        amountMeaning: "UNKNOWN",
+        amountCents: null,
+        decision: { kind: "UNRESOLVED" },
+        hasOcrEvidence: true,
+      })),
     });
   });
 
