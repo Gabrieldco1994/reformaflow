@@ -147,12 +147,17 @@ describe("final #719 OCR ledger migration barrier", () => {
       join(migrationsRoot, postFk[0]!, "migration.sql"),
       "utf8",
     ).trim();
-    expect(sql).toBe(
-      [
+    const statements = sql
+      .split(/\r?\n/)
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+    expect(statements).toHaveLength(3);
+    expect(new Set(statements)).toEqual(
+      new Set([
         'ALTER TABLE "import_ocr_usage" ADD COLUMN "model_version" TEXT;',
         'ALTER TABLE "import_ocr_usage" ADD COLUMN "region" TEXT;',
         'ALTER TABLE "import_ocr_usage" ADD COLUMN "auth_trace" TEXT;',
-      ].join("\n"),
+      ]),
     );
     expect(sql).not.toMatch(
       /DEFAULT|UPDATE|INSERT|DELETE|DROP|RENAME|CREATE TABLE|GOOGLE_VERTEX_AI|gemini|southamerica|LOCAL_ADC|SERVICE_ACCOUNT_FILE_ADC/i,

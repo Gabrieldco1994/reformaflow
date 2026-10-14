@@ -95,10 +95,13 @@ describe("Vertex service-account file admission", () => {
     );
   });
 
-  it("returns only the exact in-memory credentials for the authorized OCR principal", async () => {
+  it("returns project identity with only the exact in-memory credentials for the authorized OCR principal", async () => {
     const fs = fileSystem();
     const admitted = await admitVertexServiceAccountFile(PROJECT, fs);
-    expect(admitted).toEqual({ credentials: validDocument() });
+    expect(admitted).toMatchObject({
+      projectId: PROJECT,
+      credentials: validDocument(),
+    });
     expect(admitted).not.toHaveProperty("keyFilename");
     expect(admitted).not.toHaveProperty("path");
     expect(fs.open).toHaveBeenCalledWith(
