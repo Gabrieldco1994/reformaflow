@@ -184,7 +184,7 @@ function provider(
 
 type CaptureOptions = Parameters<typeof captureLiveEvidence>[0];
 
-function canonicalQualityClosure() {
+function sevenFieldQualityClosureFixture() {
   const canonicalPolicy = policy as unknown as {
     policyVersion: string;
     qualificationTests: Array<{ name: string; sourcePath: string }>;
@@ -203,9 +203,34 @@ function canonicalQualityClosure() {
       runtimeSha256: "b".repeat(64),
       suiteSha256: "f".repeat(64),
     },
-    tests: canonicalPolicy.qualificationTests.map((item) => ({
-      ...item,
-      status: "PASS",
+    tests: canonicalPolicy.qualificationTests.map(({ name, sourcePath }) => {
+      const title = name;
+      const fullName = `OCR causal authority ${name}`;
+      return {
+        name,
+        title,
+        fullName,
+        status: "PASS",
+        sourcePath,
+        assertionRecordSha256: createHash("sha256")
+          .update(JSON.stringify({ title, fullName, sourcePath }))
+          .digest("hex"),
+        suiteResultSha256: createHash("sha256")
+          .update(`suite:${sourcePath}`)
+          .digest("hex"),
+      };
+    }),
+  };
+}
+
+function legacyThreeFieldQualityClosure() {
+  const closure = sevenFieldQualityClosureFixture();
+  return {
+    ...closure,
+    tests: closure.tests.map(({ name, status, sourcePath }) => ({
+      name,
+      status,
+      sourcePath,
     })),
   };
 }
@@ -218,7 +243,7 @@ function canonicalCaptureOptions(
     provider: value,
     mechanical: {
       policy,
-      qualityClosure: canonicalQualityClosure(),
+      qualityClosure: sevenFieldQualityClosureFixture(),
       finalReviewHashes: {
         residualRiskAcceptance: "e".repeat(64),
         securityReview: "1".repeat(64),
@@ -445,7 +470,20 @@ describe("audited synthetic Vertex capture", () => {
         "GENERATION_RESPONSE",
         "SPEND_RECONCILED",
       ]);
-    expect(captured.qualityClosure.observations).toHaveLength(45);
+    expect(captured.qualityClosure).not.toHaveProperty("observations");
+    expect(captured.qualityClosure.tests).toHaveLength(45);
+    for (const test of captured.qualityClosure.tests)
+      expect(Object.keys(test).sort()).toEqual(
+        [
+          "assertionRecordSha256",
+          "fullName",
+          "name",
+          "sourcePath",
+          "status",
+          "suiteResultSha256",
+          "title",
+        ].sort(),
+      );
     expect(report.functionalStatus).toBe("PASS");
     expect(report.releaseStatus).toBe("GAPS");
     expect(report.liveEvidenceGaps).toEqual([
@@ -479,6 +517,8 @@ describe("audited synthetic Vertex capture", () => {
     >;
     const original = JSON.parse(serialized) as Record<string, any>;
     const pending = evaluateOcrSynth(parsed as unknown as OcrEvalInput);
+    expect(parsed.qualityClosure).not.toHaveProperty("observations");
+    expect(Array.isArray(parsed.qualityClosure.tests)).toBe(true);
 
     const mutations = [
       () => {
@@ -493,9 +533,7 @@ describe("audited synthetic Vertex capture", () => {
         parsed.qualityClosure.snapshot.headSha = "0".repeat(40);
       },
       () => {
-        const observations =
-          parsed.qualityClosure.observations ?? parsed.qualityClosure.tests;
-        observations[0].sourcePath = "caller/changed.spec.ts";
+        parsed.qualityClosure.tests[0].sourcePath = "caller/changed.spec.ts";
       },
     ];
     for (const mutate of mutations) {
@@ -527,6 +565,13 @@ describe("audited synthetic Vertex capture", () => {
     );
     if (!found) throw new Error(`missing ${kind} for ${caseId}`);
     return found;
+  };
+  const closureTests = (value: Record<string, any>): any[] => {
+    expect(value.qualityClosure).not.toHaveProperty("observations");
+    expect(Array.isArray(value.qualityClosure.tests)).toBe(true);
+    return Array.isArray(value.qualityClosure.tests)
+      ? value.qualityClosure.tests
+      : [];
   };
   const replaceResponseBytes = (
     target: Record<string, any>,
@@ -659,7 +704,19 @@ describe("audited synthetic Vertex capture", () => {
   it("refuses the old three-field quality closure before any Vertex call", async () => {
     const adapter = provider();
     const outcome = await captureLiveEvidence(
-      canonicalCaptureOptions(adapter.value),
+      canonicalCaptureOptions(adapter.value, {
+        mechanical: {
+          policy,
+          qualityClosure: legacyThreeFieldQualityClosure(),
+          finalReviewHashes: {
+            residualRiskAcceptance: "e".repeat(64),
+            securityReview: "1".repeat(64),
+            privacyReview: "2".repeat(64),
+            dataOwnerReview: "3".repeat(64),
+          },
+          verifySnapshot: jest.fn(async () => undefined),
+        },
+      }),
     ).then(
       () => "RETURNED",
       (error: unknown) =>
@@ -684,18 +741,8 @@ describe("audited synthetic Vertex capture", () => {
     "rejects quality closure stripped of mandatory %s before Vertex",
     async (field) => {
       const adapter = provider();
-      const closure = canonicalQualityClosure() as Record<string, any>;
-      closure.tests = closure.tests.map(
-        (test: Record<string, unknown>, index: number) => ({
-          ...test,
-          title: test.name,
-          fullName: `qualification ${String(test.name)}`,
-          assertionRecordSha256: "1".repeat(64),
-          suiteResultSha256: "2".repeat(64),
-          ...(index === 0 ? { [field]: undefined } : {}),
-        }),
-      );
-      if (closure.tests[0][field] === undefined) delete closure.tests[0][field];
+      const closure = sevenFieldQualityClosureFixture() as Record<string, any>;
+      delete closure.tests[0][field];
       const outcome = await captureLiveEvidence(
         canonicalCaptureOptions(adapter.value, {
           mechanical: {
@@ -728,7 +775,7 @@ describe("audited synthetic Vertex capture", () => {
 
   it("rejects observations as an alias for tests before Vertex", async () => {
     const adapter = provider();
-    const closure = canonicalQualityClosure() as Record<string, any>;
+    const closure = sevenFieldQualityClosureFixture() as Record<string, any>;
     closure.observations = closure.tests;
     delete closure.tests;
     const outcome = await captureLiveEvidence(
@@ -885,33 +932,29 @@ describe("audited synthetic Vertex capture", () => {
       },
     ],
     [
-      "one closure observation",
+      "one closure test",
       (value: Record<string, any>) => {
-        (value.qualityClosure.observations ?? value.qualityClosure.tests).pop();
+        closureTests(value).pop();
       },
     ],
     [
-      "duplicate closure observation",
+      "duplicate closure test",
       (value: Record<string, any>) => {
-        const observations =
-          value.qualityClosure.observations ?? value.qualityClosure.tests;
-        observations.splice(1, 0, structuredClone(observations[0]));
+        const tests = closureTests(value);
+        tests.splice(1, 0, structuredClone(tests[0]));
       },
     ],
     [
-      "closure observation order",
+      "closure test order",
       (value: Record<string, any>) => {
-        const observations =
-          value.qualityClosure.observations ?? value.qualityClosure.tests;
-        [observations[0], observations[1]] = [observations[1], observations[0]];
+        const tests = closureTests(value);
+        [tests[0], tests[1]] = [tests[1], tests[0]];
       },
     ],
     [
-      "closure observation source",
+      "closure test source",
       (value: Record<string, any>) => {
-        const observations =
-          value.qualityClosure.observations ?? value.qualityClosure.tests;
-        observations[0].sourcePath = "caller/fabricated.spec.ts";
+        closureTests(value)[0].sourcePath = "caller/fabricated.spec.ts";
       },
     ],
     [
@@ -1081,7 +1124,7 @@ describe("audited synthetic Vertex capture", () => {
         canonicalCaptureOptions(adapter.value, {
           mechanical: {
             policy,
-            qualityClosure: canonicalQualityClosure(),
+            qualityClosure: sevenFieldQualityClosureFixture(),
             finalReviewHashes: {
               residualRiskAcceptance: "e".repeat(64),
               securityReview: "1".repeat(64),
@@ -1167,11 +1210,10 @@ describe("audited synthetic Vertex capture", () => {
 
   it("requires exact real-service consent probe provenance", async () => {
     const changed = structuredClone(evidence) as unknown as Record<string, any>;
-    const observations =
-      changed.qualityClosure.observations ?? changed.qualityClosure.tests;
-    observations.find(
-      (observation: Record<string, unknown>) =>
-        observation.name === "[PROBE] EXACT_CONSENT_CAPABILITY",
+    const tests = closureTests(changed);
+    tests.find(
+      (test: Record<string, unknown>) =>
+        test.name === "[PROBE] EXACT_CONSENT_CAPABILITY",
     )!.sourcePath =
       "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
     expect(() => parseLiveEvidence(changed as unknown as OcrEvalInput)).toThrow(
@@ -1324,33 +1366,18 @@ describe("audited synthetic Vertex capture", () => {
   });
 
   it("keeps all route and probe authority bound to mechanical closure results", () => {
-    const qualificationTests = (
-      policy as unknown as {
-        qualificationTests: Array<{ name: string; sourcePath: string }>;
-      }
-    ).qualificationTests;
-    const closure = evidence.qualityClosure as unknown as {
-      observations?: Array<Record<string, unknown>>;
-      tests?: Array<Record<string, unknown>>;
-    };
-    const observations = closure.observations ?? closure.tests ?? [];
-
-    expect(observations).toEqual(
-      qualificationTests.map(({ name, sourcePath }) => ({
-        name,
-        title: name,
-        fullName: expect.stringContaining(name),
-        status: "PASS",
-        sourcePath,
-        assertionRecordSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-        suiteResultSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-      })),
-    );
+    const closure = evidence.qualityClosure as unknown as Record<string, any>;
+    expect(closure).not.toHaveProperty("observations");
+    expect(closure.tests).toEqual(sevenFieldQualityClosureFixture().tests);
     expect(
-      observations.filter(({ name }) => String(name).startsWith("[ROUTE] ")),
+      closure.tests.filter(({ name }: { name: string }) =>
+        name.startsWith("[ROUTE] "),
+      ),
     ).toHaveLength(OCR_SYNTH_ROUTING_CASES.length);
     expect(
-      observations.filter(({ name }) => String(name).startsWith("[PROBE] ")),
+      closure.tests.filter(({ name }: { name: string }) =>
+        name.startsWith("[PROBE] "),
+      ),
     ).toHaveLength(35);
   });
 });

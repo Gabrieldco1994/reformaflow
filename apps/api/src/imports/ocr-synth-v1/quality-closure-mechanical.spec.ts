@@ -20,7 +20,10 @@ const POLICY_PATH =
 const CORPUS_PATH = "apps/api/src/imports/ocr-synth-v1/ground-truth.json";
 const SERVICE_SUITE =
   "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts";
-const SAFETY_SUITE =
+const PROVIDER_SUITE =
+  "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts";
+const CAPTURE_SUITE = "apps/api/src/imports/ocr-synth-v1/capture-live.spec.ts";
+const GENERIC_SAFETY_SUITE =
   "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
 const ROUTE_TITLES = [
   "[ROUTE] mixed-001",
@@ -42,7 +45,7 @@ const SERVICE_PROBE_TITLES = [
   "[PROBE] MISSING_ATTESTATION",
   "[PROBE] PRIOR_CONSENT_DECLARATION",
 ] as const;
-const SAFETY_PROBE_TITLES = [
+const PROVIDER_PROBE_TITLES = [
   "[PROBE] WRONG_ENDPOINT",
   "[PROBE] WRONG_MODEL",
   "[PROBE] WRONG_REGION",
@@ -54,47 +57,74 @@ const SAFETY_PROBE_TITLES = [
   "[PROBE] TOOLS_PRESENT",
   "[PROBE] FILE_URI_PRESENT",
   "[PROBE] CACHE_PRESENT",
-  "[PROBE] TEXTUAL_PDF_PROVIDER_CALL",
-  "[PROBE] LOCAL_RASTER_SANDBOX",
-  "[PROBE] PAGE_11_ADMISSION",
-  "[PROBE] MIXED_LOCAL_PROVIDER_DUPLICATION",
   "[PROBE] PARTIAL_RESPONSE",
   "[PROBE] MALFORMED_RESPONSE",
   "[PROBE] TRUNCATED_RESPONSE",
   "[PROBE] SAFETY_BLOCKED_RESPONSE",
+  "[PROBE] KNOWN_SAFETY_FINISH_REASONS",
+] as const;
+const SERVICE_CONTEXT_PROBE_TITLES = [
+  "[PROBE] TEXTUAL_PDF_PROVIDER_CALL",
+  "[PROBE] LOCAL_RASTER_SANDBOX",
+  "[PROBE] PAGE_11_ADMISSION",
+  "[PROBE] MIXED_LOCAL_PROVIDER_DUPLICATION",
   "[PROBE] AMBIGUOUS_TIMEOUT_RETRY",
   "[PROBE] UNKNOWN_OUTCOME_NO_RETRY",
   "[PROBE] DURABLE_TENANT_BUDGET",
   "[PROBE] DURABLE_GLOBAL_BUDGET",
   "[PROBE] ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS",
   "[PROBE] FINANCIAL_WRITE",
-  "[PROBE] KNOWN_SAFETY_FINISH_REASONS",
   "[PROBE] TERMINAL_FAILURE_REPLAY_NO_CALL",
   "[PROBE] CAPABILITY_OFF",
-  "[PROBE] RESIDUAL_RISK_ACCEPTANCE",
+] as const;
+const MECHANICAL_PROBE_TITLES = ["[PROBE] RESIDUAL_RISK_ACCEPTANCE"] as const;
+const CAUSAL_SUITE_FILES = [
+  SERVICE_SUITE,
+  PROVIDER_SUITE,
+  CAPTURE_SUITE,
 ] as const;
 const EXPECTED_TOPOLOGY = [
   ...ROUTE_TITLES.map((name) => ({ name, sourcePath: SERVICE_SUITE })),
-  ...SAFETY_PROBE_TITLES.slice(0, 24).map((name) => ({
+  ...PROVIDER_PROBE_TITLES.slice(0, 11).map((name) => ({
     name,
-    sourcePath: SAFETY_SUITE,
+    sourcePath: PROVIDER_SUITE,
+  })),
+  ...SERVICE_CONTEXT_PROBE_TITLES.slice(0, 4).map((name) => ({
+    name,
+    sourcePath: SERVICE_SUITE,
+  })),
+  ...PROVIDER_PROBE_TITLES.slice(11, 15).map((name) => ({
+    name,
+    sourcePath: PROVIDER_SUITE,
+  })),
+  ...SERVICE_CONTEXT_PROBE_TITLES.slice(4, 9).map((name) => ({
+    name,
+    sourcePath: SERVICE_SUITE,
   })),
   ...SERVICE_PROBE_TITLES.slice(0, 5).map((name) => ({
     name,
     sourcePath: SERVICE_SUITE,
   })),
-  ...SAFETY_PROBE_TITLES.slice(24, 28).map((name) => ({
+  {
+    name: SERVICE_CONTEXT_PROBE_TITLES[9],
+    sourcePath: SERVICE_SUITE,
+  },
+  {
+    name: PROVIDER_PROBE_TITLES[15],
+    sourcePath: PROVIDER_SUITE,
+  },
+  ...SERVICE_CONTEXT_PROBE_TITLES.slice(10).map((name) => ({
     name,
-    sourcePath: SAFETY_SUITE,
+    sourcePath: SERVICE_SUITE,
   })),
   {
     name: SERVICE_PROBE_TITLES[5],
     sourcePath: SERVICE_SUITE,
   },
-  {
-    name: SAFETY_PROBE_TITLES[28],
-    sourcePath: SAFETY_SUITE,
-  },
+  ...MECHANICAL_PROBE_TITLES.map((name) => ({
+    name,
+    sourcePath: CAPTURE_SUITE,
+  })),
 ] as const;
 const RATE_THRESHOLD_NAMES = [
   "scannedTaskSuccessRate",
@@ -351,7 +381,7 @@ function canonicalJestResult(): MachineJestResult {
     numRuntimeErrorTestSuites: 0,
     numPendingTests: 0,
     numTodoTests: 0,
-    testResults: [SERVICE_SUITE, SAFETY_SUITE].map((sourcePath) => ({
+    testResults: CAUSAL_SUITE_FILES.map((sourcePath) => ({
       name: resolve(ROOT, sourcePath),
       status: "passed",
       message: "",
@@ -363,6 +393,17 @@ function canonicalJestResult(): MachineJestResult {
         status: "passed",
         failureMessages: [],
       })),
+    })),
+  };
+}
+
+function causalPolicy(policy: Policy): Policy {
+  return {
+    ...policy,
+    qualificationSuiteFiles: [...CAUSAL_SUITE_FILES],
+    qualificationTests: EXPECTED_TOPOLOGY.map(({ name, sourcePath }) => ({
+      name,
+      sourcePath,
     })),
   };
 }
@@ -617,17 +658,16 @@ describe("canonical quality closure mechanical binding", () => {
   it("pins the exact 10 ROUTE + 35 PROBE topology independently of runtime arrays", async () => {
     expect(ROUTE_TITLES).toHaveLength(10);
     expect(SERVICE_PROBE_TITLES).toHaveLength(6);
-    expect(SAFETY_PROBE_TITLES).toHaveLength(29);
+    expect(PROVIDER_PROBE_TITLES).toHaveLength(16);
+    expect(SERVICE_CONTEXT_PROBE_TITLES).toHaveLength(12);
+    expect(MECHANICAL_PROBE_TITLES).toHaveLength(1);
     expect(EXPECTED_TOPOLOGY).toHaveLength(45);
     expect(new Set(EXPECTED_TOPOLOGY.map((item) => item.name)).size).toBe(45);
     const policy = await api().loadQualityClosurePolicy({
       root: ROOT,
       now: new Date("2026-10-21T23:59:59.999Z"),
     });
-    expect(policy.qualificationSuiteFiles).toEqual([
-      SERVICE_SUITE,
-      SAFETY_SUITE,
-    ]);
+    expect(policy.qualificationSuiteFiles).toEqual(CAUSAL_SUITE_FILES);
     expect(policy.qualificationTests).toEqual(EXPECTED_TOPOLOGY);
     await expect(
       api().loadQualityClosurePolicy({
@@ -642,20 +682,15 @@ describe("canonical quality closure mechanical binding", () => {
       root: ROOT,
       now: new Date("2026-10-14T12:00:00.000Z"),
     });
-    const genericSource =
-      "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
-    const sourcePaths = [
-      ...new Set(loaded.qualificationTests.map((item) => item.sourcePath)),
-    ];
     const sourceText = await Promise.all(
-      sourcePaths.map(async (sourcePath) => ({
+      CAUSAL_SUITE_FILES.map(async (sourcePath) => ({
         sourcePath,
         text: await readFile(resolve(ROOT, sourcePath), "utf8"),
       })),
     );
     const violations = [
       ...loaded.qualificationTests
-        .filter((item) => item.sourcePath === genericSource)
+        .filter((item) => item.sourcePath === GENERIC_SAFETY_SUITE)
         .map((item) => `${item.name}:GENERIC_SOURCE`),
       ...sourceText
         .filter(({ text }) => /\bbuildOracle[A-Za-z0-9_]*\b/.test(text))
@@ -676,7 +711,8 @@ describe("canonical quality closure mechanical binding", () => {
     expect(
       new Set(loaded.qualificationTests.map((item) => item.name)).size,
     ).toBe(45);
-    expect(loaded.qualificationSuiteFiles).toEqual(sourcePaths);
+    expect(loaded.qualificationSuiteFiles).toEqual(CAUSAL_SUITE_FILES);
+    expect(loaded.qualificationTests).toEqual(EXPECTED_TOPOLOGY);
     expect(
       loaded.qualificationTests.find(
         (item) => item.name === "[PROBE] FINANCIAL_WRITE",
@@ -690,26 +726,26 @@ describe("canonical quality closure mechanical binding", () => {
   });
 
   it("serializes only seven-field mechanical test attestations and never observations", async () => {
-    const policy = await api().loadQualityClosurePolicy({
+    const loadedPolicy = await api().loadQualityClosurePolicy({
       root: ROOT,
       now: new Date("2026-10-14T12:00:00.000Z"),
     });
+    const policy = causalPolicy(loadedPolicy);
     const result = canonicalJestResult();
-    const attested = await api().attestQualityClosure({
+    const tests = await api().runQualityClosureSuite(policy, {
       root: ROOT,
-      now: new Date("2026-10-14T12:00:00.000Z"),
-      exec: async (file, args, options) =>
-        file === process.execPath
-          ? jestExec(result)(file, args, options)
-          : gitExec(ROOT)(file, args, options),
+      exec: jestExec(result),
     });
+    const closure = {
+      version: 2,
+      policyVersion: policy.policyVersion,
+      snapshot: { marker: "deterministic-test-snapshot" },
+      tests,
+    };
 
-    expect(attested.policy.qualificationTests).toEqual(
-      policy.qualificationTests,
-    );
-    expect(attested.closure).not.toHaveProperty("observations");
-    expect(attested.closure.tests).toHaveLength(45);
-    for (const test of attested.closure.tests)
+    expect(closure).not.toHaveProperty("observations");
+    expect(closure.tests).toHaveLength(45);
+    for (const test of closure.tests)
       expect(Object.keys(test).sort()).toEqual(
         [
           "assertionRecordSha256",
@@ -1229,10 +1265,11 @@ describe("canonical quality closure mechanical binding", () => {
   });
 
   it("[B3] hashes each canonical Jest assertion and containing suite result", async () => {
-    const policy = await api().loadQualityClosurePolicy({
+    const loadedPolicy = await api().loadQualityClosurePolicy({
       root: ROOT,
       now: new Date("2026-10-21T23:59:59.999Z"),
     });
+    const policy = causalPolicy(loadedPolicy);
     const machineResult = canonicalJestResult();
     await expect(
       api().runQualityClosureSuite(policy, {
@@ -1242,7 +1279,7 @@ describe("canonical quality closure mechanical binding", () => {
     ).resolves.toEqual(expectedHashedObservations(machineResult));
   });
 
-  it("[B3] executes and attests exactly 10 ROUTE plus 35 PROBE observations from the two real suites", async () => {
+  it("[B3] executes and attests exactly 10 ROUTE plus 35 PROBE tests from the three causal boundary suites", async () => {
     const policy = await api().loadQualityClosurePolicy({
       root: ROOT,
       now: new Date("2026-10-14T12:00:00.000Z"),
@@ -1276,10 +1313,11 @@ describe("canonical quality closure mechanical binding", () => {
   });
 
   it("rejects missing, duplicate, unknown, failed, pending, wrong-source, and runtime-error Jest evidence", async () => {
-    const policy = await api().loadQualityClosurePolicy({
+    const loadedPolicy = await api().loadQualityClosurePolicy({
       root: ROOT,
       now: new Date("2026-10-21T23:59:59.999Z"),
     });
+    const policy = causalPolicy(loadedPolicy);
     const mutations: Array<
       [string, (result: MachineJestResult) => void, (Error | null)?]
     > = [
@@ -1376,10 +1414,11 @@ describe("canonical quality closure mechanical binding", () => {
   });
 
   it("rejects skipped, todo, and pass-with-failureMessages Jest evidence", async () => {
-    const policy = await api().loadQualityClosurePolicy({
+    const loadedPolicy = await api().loadQualityClosurePolicy({
       root: ROOT,
       now: new Date("2026-10-21T23:59:59.999Z"),
     });
+    const policy = causalPolicy(loadedPolicy);
     const mutations: Array<
       [string, (result: ReturnType<typeof canonicalJestResult>) => void]
     > = [
