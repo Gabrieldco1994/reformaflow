@@ -206,8 +206,48 @@ interface MechanicalApi {
     evidence: unknown,
     rerun: unknown,
     policy: Policy,
-    options: { root: string; exec: Exec },
+    options: {
+      root: string;
+      exec: Exec;
+      verifier?: {
+        verify(input: {
+          keyId: string;
+          candidateSha: string;
+          evidenceSha256: string;
+          signature: string;
+        }): boolean;
+      };
+    },
   ): Promise<unknown>;
+  canonicalJson(value: unknown): string;
+  isCanonicalQualityClosure(
+    value: unknown,
+    dependencies?: {
+      verifier?: {
+        verify(input: {
+          keyId: string;
+          candidateSha: string;
+          evidenceSha256: string;
+          signature: string;
+        }): boolean;
+      };
+    },
+  ): boolean;
+  isStructurallyValidQualityClosureEnvelope(value: unknown): boolean;
+  isVerifiedQualityClosureToken(
+    token: unknown,
+    evidence: unknown,
+    dependencies?: {
+      verifier?: {
+        verify(input: {
+          keyId: string;
+          candidateSha: string;
+          evidenceSha256: string;
+          signature: string;
+        }): boolean;
+      };
+    },
+  ): Promise<boolean>;
 }
 
 type Exec = (
@@ -324,6 +364,62 @@ function canonicalJestResult(): MachineJestResult {
         failureMessages: [],
       })),
     })),
+  };
+}
+
+function unsignedAuthorityFixture(candidateSha = "a".repeat(40)) {
+  return {
+    version: 2,
+    policyVersion: "ocr-quality-closure-v2",
+    snapshot: {
+      headSha: candidateSha,
+      treeSha: candidateSha,
+      clean: true,
+      policySha256: "1".repeat(64),
+      corpusSha256: "2".repeat(64),
+      configurationSha256: "3".repeat(64),
+      adapterSha256: "4".repeat(64),
+      runtimeSha256: "5".repeat(64),
+      suiteSha256: "6".repeat(64),
+    },
+    tests: EXPECTED_TOPOLOGY.map((item, index) => ({
+      name: item.name,
+      status: "PASS",
+      sourcePath: item.sourcePath,
+      title: item.name,
+      fullName: `qualification ${item.name}`,
+      assertionRecordSha256: index.toString(16).padStart(64, "0"),
+      suiteResultSha256: (index + 100).toString(16).padStart(64, "0"),
+    })),
+  };
+}
+
+function legacyUnsignedAuthorityFixture(candidateSha = "a".repeat(40)) {
+  const closure = unsignedAuthorityFixture(candidateSha);
+  return {
+    ...closure,
+    tests: closure.tests.map(({ name, status, sourcePath }) => ({
+      name,
+      status,
+      sourcePath,
+    })),
+  };
+}
+
+function canonicalDigest(value: unknown): string {
+  return createHash("sha256").update(api().canonicalJson(value)).digest("hex");
+}
+
+function signedLegacyAuthorityFixture(candidateSha = "a".repeat(40)) {
+  const unsigned = legacyUnsignedAuthorityFixture(candidateSha);
+  return {
+    ...unsigned,
+    authority: {
+      keyId: "qa-key-719",
+      candidateSha,
+      evidenceSha256: canonicalDigest(unsigned),
+      signature: "qa-signature-719",
+    },
   };
 }
 
@@ -540,6 +636,223 @@ describe("canonical quality closure mechanical binding", () => {
       }),
     ).rejects.toThrow("QUALITY_POLICY_EXPIRED");
   });
+
+  it("admits authority only when every one of the 45 identities names one causal production-boundary assertion", async () => {
+    const loaded = await api().loadQualityClosurePolicy({
+      root: ROOT,
+      now: new Date("2026-10-14T12:00:00.000Z"),
+    });
+    const genericSource =
+      "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
+    const sourcePaths = [
+      ...new Set(loaded.qualificationTests.map((item) => item.sourcePath)),
+    ];
+    const sourceText = await Promise.all(
+      sourcePaths.map(async (sourcePath) => ({
+        sourcePath,
+        text: await readFile(resolve(ROOT, sourcePath), "utf8"),
+      })),
+    );
+    const violations = [
+      ...loaded.qualificationTests
+        .filter((item) => item.sourcePath === genericSource)
+        .map((item) => `${item.name}:GENERIC_SOURCE`),
+      ...sourceText
+        .filter(({ text }) => /\bbuildOracle[A-Za-z0-9_]*\b/.test(text))
+        .map(({ sourcePath }) => `${sourcePath}:ORACLE_IMPORT`),
+    ];
+
+    expect(loaded.qualificationTests).toHaveLength(45);
+    expect(
+      loaded.qualificationTests.filter((item) =>
+        item.name.startsWith("[ROUTE] "),
+      ),
+    ).toHaveLength(10);
+    expect(
+      loaded.qualificationTests.filter((item) =>
+        item.name.startsWith("[PROBE] "),
+      ),
+    ).toHaveLength(35);
+    expect(
+      new Set(loaded.qualificationTests.map((item) => item.name)).size,
+    ).toBe(45);
+    expect(loaded.qualificationSuiteFiles).toEqual(sourcePaths);
+    expect(
+      loaded.qualificationTests.find(
+        (item) => item.name === "[PROBE] FINANCIAL_WRITE",
+      ),
+    ).toEqual({
+      name: "[PROBE] FINANCIAL_WRITE",
+      sourcePath:
+        "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts",
+    });
+    expect(violations).toEqual([]);
+  });
+
+  it("serializes only seven-field mechanical test attestations and never observations", async () => {
+    const policy = await api().loadQualityClosurePolicy({
+      root: ROOT,
+      now: new Date("2026-10-14T12:00:00.000Z"),
+    });
+    const result = canonicalJestResult();
+    const attested = await api().attestQualityClosure({
+      root: ROOT,
+      now: new Date("2026-10-14T12:00:00.000Z"),
+      exec: async (file, args, options) =>
+        file === process.execPath
+          ? jestExec(result)(file, args, options)
+          : gitExec(ROOT)(file, args, options),
+    });
+
+    expect(attested.policy.qualificationTests).toEqual(
+      policy.qualificationTests,
+    );
+    expect(attested.closure).not.toHaveProperty("observations");
+    expect(attested.closure.tests).toHaveLength(45);
+    for (const test of attested.closure.tests)
+      expect(Object.keys(test).sort()).toEqual(
+        [
+          "assertionRecordSha256",
+          "fullName",
+          "name",
+          "sourcePath",
+          "status",
+          "suiteResultSha256",
+          "title",
+        ].sort(),
+      );
+  });
+
+  it("recomputes the canonical unsigned evidence digest before invoking the signature verifier", () => {
+    const signed = signedLegacyAuthorityFixture();
+    signed.authority.evidenceSha256 = "f".repeat(64);
+    const verifier = { verify: jest.fn(() => true) };
+
+    expect(api().isCanonicalQualityClosure(signed, { verifier })).toBe(false);
+    expect(verifier.verify).not.toHaveBeenCalled();
+  });
+
+  it("rejects signature replay from candidate A onto candidate B before invoking the verifier", () => {
+    const signedA = signedLegacyAuthorityFixture("a".repeat(40));
+    const unsignedB = legacyUnsignedAuthorityFixture("b".repeat(40));
+    const replayed = {
+      ...unsignedB,
+      authority: {
+        ...signedA.authority,
+        candidateSha: "b".repeat(40),
+      },
+    };
+    const verifier = { verify: jest.fn(() => true) };
+
+    expect(api().isCanonicalQualityClosure(replayed, { verifier })).toBe(false);
+    expect(verifier.verify).not.toHaveBeenCalled();
+  });
+
+  it("requires candidateSha in the signed authority instead of synthesizing it from the snapshot", () => {
+    const signed = signedLegacyAuthorityFixture();
+    const authorityWithoutCandidate = { ...signed.authority } as Partial<
+      typeof signed.authority
+    >;
+    delete authorityWithoutCandidate.candidateSha;
+    const verifier = { verify: jest.fn(() => true) };
+
+    expect(
+      api().isCanonicalQualityClosure(
+        { ...signed, authority: authorityWithoutCandidate },
+        { verifier },
+      ),
+    ).toBe(false);
+    expect(verifier.verify).not.toHaveBeenCalled();
+  });
+
+  it("treats a parser-valid marker as structure only, never signing authority", () => {
+    const unsigned = unsignedAuthorityFixture();
+    const verifier = { verify: jest.fn(() => true) };
+
+    expect(api().isStructurallyValidQualityClosureEnvelope(unsigned)).toBe(
+      true,
+    );
+    expect(api().isCanonicalQualityClosure(unsigned, { verifier })).toBe(false);
+    expect(verifier.verify).not.toHaveBeenCalled();
+  });
+
+  it("rejects a caller-constructed token even when every public field and hash matches", async () => {
+    const closure = signedLegacyAuthorityFixture();
+    const evidence = { qualityClosure: closure };
+    const callerToken = Object.freeze({
+      headSha: closure.snapshot.headSha,
+      closureSha256: canonicalDigest(closure),
+      evidenceSha256: canonicalDigest(evidence),
+      keyId: closure.authority.keyId,
+      signature: closure.authority.signature,
+    });
+    const verifier = { verify: jest.fn(() => true) };
+
+    await expect(
+      api().isVerifiedQualityClosureToken(callerToken, evidence, {
+        verifier,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it.each([
+    [
+      "unsigned closure",
+      legacyUnsignedAuthorityFixture(),
+      undefined,
+      "QUALITY_ATTESTATION_AUTHORITY_MISSING",
+    ],
+    [
+      "signed closure without verifier",
+      signedLegacyAuthorityFixture(),
+      undefined,
+      "QUALITY_ATTESTATION_VERIFIER_MISSING",
+    ],
+    [
+      "signed closure with a mismatched evidence digest",
+      {
+        ...signedLegacyAuthorityFixture(),
+        authority: {
+          ...signedLegacyAuthorityFixture().authority,
+          evidenceSha256: "f".repeat(64),
+        },
+      },
+      { verify: jest.fn(() => true) },
+      "QUALITY_EVIDENCE_DIGEST_MISMATCH",
+    ],
+    [
+      "signed closure whose signature verifier rejects",
+      signedLegacyAuthorityFixture(),
+      { verify: jest.fn(() => false) },
+      "QUALITY_ATTESTATION_MISMATCH",
+    ],
+  ] as const)(
+    "token issue fails explicitly for %s",
+    async (_label, closure, verifier, expectedError) => {
+      const policy = await api().loadQualityClosurePolicy({
+        root: ROOT,
+        now: new Date("2026-10-14T12:00:00.000Z"),
+      });
+      await expect(
+        api().issueVerifiedQualityClosureToken(
+          {
+            run: {
+              residualRiskAcceptance: null,
+              finalReviews: null,
+            },
+            qualityClosure: closure,
+          },
+          legacyUnsignedAuthorityFixture(),
+          policy,
+          {
+            root: ROOT,
+            exec: gitExec(ROOT),
+            ...(verifier ? { verifier } : {}),
+          },
+        ),
+      ).rejects.toThrow(expectedError);
+    },
+  );
 
   it("frames singleton policy and corpus hashes with path and NUL delimiters", async () => {
     const policy = await api().loadQualityClosurePolicy({

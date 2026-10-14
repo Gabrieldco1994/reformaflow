@@ -50,6 +50,7 @@ import {
   artifactSha256,
   generateArtifact,
 } from "../../ocr-synth-v1/fixture-generator";
+import { observeNoFinancialWrite } from "../../ocr-synth-v1/financial-observer.test-support";
 import type { DocumentExtractionV1 } from "../../../credit-card/parsers/types";
 
 const now = new Date("2026-10-13T18:00:00.000Z");
@@ -2322,6 +2323,215 @@ describe("POST attachment analyze v2 direct OCR", () => {
       ),
     ).rejects.toMatchObject({ code: "OCR_REQUEST_STALE_AFTER_COUNT" });
     expect(provider.extractPdf).toHaveBeenCalledTimes(replayCalls);
+  });
+
+  it("[R6] FINANCIAL_WRITE authority candidate wraps real analyzeAttached through provider completion", async () => {
+    const owner = await fixture(prisma, "financial-authority");
+    const request = await declareConsent(prisma, owner);
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest
+        .fn()
+        .mockImplementation(async (providerRequest) =>
+          document(
+            owner.hash,
+            "financial-authority",
+            providerRequest.requestId,
+          ),
+        ),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+
+    const observed = await observeNoFinancialWrite(prisma, () =>
+      service.analyzeAttached(
+        owner.auth,
+        owner.sessionId,
+        owner.attachmentId,
+        request,
+        {},
+      ),
+    );
+
+    expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+    expect(observed.result).toMatchObject({
+      selectedLineIds: [],
+      lines: [
+        expect.objectContaining({
+          titulo: "MERCADO",
+          fornecedor: "MERCADO",
+          amountCents: null,
+          amountMeaning: "UNKNOWN",
+        }),
+      ],
+    });
+    expect(observed.operations).toEqual([]);
+    expect(observed.after).toEqual(observed.before);
+    expect(Object.keys(observed.after)).toEqual([
+      "CashFlowEntry",
+      "CrossProjectSettlement",
+      "Expense",
+      "ImportedInvoiceLiquidation",
+      "RateioAllocation",
+      "Receipt",
+    ]);
+  });
+
+  it("isolates identical PDF bytes across two real tenant service seams and denies cross-tenant replay before provider dispatch", async () => {
+    const identicalBytes = Buffer.from(
+      "%PDF-1.4\n719-identical-tenant-isolation\n%%EOF",
+    );
+    const left = await fixture(prisma, "identical-left", identicalBytes);
+    const right = await fixture(prisma, "identical-right", identicalBytes);
+    const leftRequest = await declareConsent(prisma, left);
+    const rightRequest = await declareConsent(prisma, right);
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn(async (providerRequest) =>
+        document(
+          providerRequest.artifactSha256,
+          providerRequest.requestId,
+          providerRequest.requestId,
+        ),
+      ),
+    };
+    const leftService = extraction(prisma, left.bytes, provider, 1);
+    const rightService = extraction(prisma, right.bytes, provider, 1);
+
+    const observed = await observeNoFinancialWrite(prisma, async () => {
+      const initial = await Promise.all([
+        leftService.analyzeAttached(
+          left.auth,
+          left.sessionId,
+          left.attachmentId,
+          leftRequest,
+          {},
+        ),
+        rightService.analyzeAttached(
+          right.auth,
+          right.sessionId,
+          right.attachmentId,
+          rightRequest,
+          {},
+        ),
+      ]);
+      const callsAfterInitial = provider.extractPdf.mock.calls.length;
+      const replay = await Promise.all([
+        leftService.analyzeAttached(
+          left.auth,
+          left.sessionId,
+          left.attachmentId,
+          leftRequest,
+          {},
+        ),
+        rightService.analyzeAttached(
+          right.auth,
+          right.sessionId,
+          right.attachmentId,
+          rightRequest,
+          {},
+        ),
+      ]);
+      const callsAfterReplay = provider.extractPdf.mock.calls.length;
+      const crossRead = await sessionReader(prisma)
+        .getSession(left.auth, right.sessionId, terminalOutcomeProjection)
+        .then(
+          () => "RETURNED",
+          (error: unknown) =>
+            error && typeof error === "object" && "code" in error
+              ? String(error.code)
+              : "NON_DOMAIN_ERROR",
+        );
+      const crossAnalyze = await rightService
+        .analyzeAttached(
+          left.auth,
+          right.sessionId,
+          right.attachmentId,
+          rightRequest,
+          {},
+        )
+        .then(
+          () => "RETURNED",
+          (error: unknown) =>
+            error && typeof error === "object" && "code" in error
+              ? String(error.code)
+              : "NON_DOMAIN_ERROR",
+        );
+      return {
+        initial,
+        replay,
+        callsAfterInitial,
+        callsAfterReplay,
+        callsAfterCrossTenantAttempts: provider.extractPdf.mock.calls.length,
+        crossRead,
+        crossAnalyze,
+      };
+    });
+    const usages = await prisma.importOcrUsage.findMany({
+      where: {
+        artifactSha256: left.hash,
+        tenantId: { in: [left.tenantId, right.tenantId] },
+      },
+      orderBy: { tenantId: "asc" },
+    });
+    const observations = await prisma.importObservation.findMany({
+      where: { tenantId: { in: [left.tenantId, right.tenantId] } },
+      orderBy: { tenantId: "asc" },
+    });
+
+    expect(left.hash).toBe(right.hash);
+    expect(
+      new Set([
+        left.userId,
+        right.userId,
+        left.projectId,
+        right.projectId,
+        left.sessionId,
+        right.sessionId,
+        left.attachmentId,
+        right.attachmentId,
+        left.artifactId,
+        right.artifactId,
+        leftRequest.requestId,
+        rightRequest.requestId,
+      ]).size,
+    ).toBe(12);
+    expect(observed.result).toMatchObject({
+      callsAfterInitial: 2,
+      callsAfterReplay: 2,
+      callsAfterCrossTenantAttempts: 2,
+      crossRead: "NOT_FOUND",
+      crossAnalyze: "NOT_FOUND",
+    });
+    expect(observed.result.initial).toEqual(observed.result.replay);
+    expect(usages).toHaveLength(2);
+    expect(new Set(usages.map((usage) => usage.tenantId))).toEqual(
+      new Set([left.tenantId, right.tenantId]),
+    );
+    expect(new Set(usages.map((usage) => usage.ownerProjectId))).toEqual(
+      new Set([left.projectId, right.projectId]),
+    );
+    expect(new Set(usages.map((usage) => usage.sessionId))).toEqual(
+      new Set([left.sessionId, right.sessionId]),
+    );
+    expect(new Set(usages.map((usage) => usage.attachmentId))).toEqual(
+      new Set([left.attachmentId, right.attachmentId]),
+    );
+    expect(new Set(usages.map((usage) => usage.artifactId))).toEqual(
+      new Set([left.artifactId, right.artifactId]),
+    );
+    expect(new Set(usages.map((usage) => usage.requestId))).toEqual(
+      new Set([leftRequest.requestId, rightRequest.requestId]),
+    );
+    expect(new Set(usages.map((usage) => usage.id)).size).toBe(2);
+    expect(new Set(observations.map((item) => item.tenantId))).toEqual(
+      new Set([left.tenantId, right.tenantId]),
+    );
+    expect(observed.operations).toEqual([]);
+    expect(observed.after).toEqual(observed.before);
   });
 });
 

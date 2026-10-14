@@ -218,6 +218,59 @@ async function observeExtraction(
 }
 
 describe("Vertex countTokens request plan", () => {
+  it("runs countTokens, then beforeGeneration, then generateContent with no intervening dispatch", async () => {
+    const events: string[] = [];
+    const fetcher = jest.fn(async (url: string) => {
+      if (url.endsWith(":countTokens")) {
+        events.push("countTokens");
+        return response({ totalTokens: 123 });
+      }
+      events.push("generateContent");
+      return generationWire;
+    });
+    const beforeGeneration = jest.fn(async () => {
+      events.push("beforeGeneration");
+    });
+
+    await expect(
+      provider(fetcher).extractPdf(REQUEST, { beforeGeneration }),
+    ).resolves.toBeDefined();
+
+    expect(events).toEqual([
+      "countTokens",
+      "beforeGeneration",
+      "generateContent",
+    ]);
+    expect(beforeGeneration).toHaveBeenCalledTimes(1);
+    expect(beforeGeneration).toHaveBeenCalledWith(expect.any(AbortSignal), {
+      inputTokens: 123,
+      reservedOutputTokens: 8192,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates beforeGeneration rejection after one count and never generates or retries", async () => {
+    const events: string[] = [];
+    const fetcher = jest.fn(async (url: string) => {
+      events.push(url.endsWith(":countTokens") ? "countTokens" : "generation");
+      return url.endsWith(":countTokens")
+        ? response({ totalTokens: 123 })
+        : generationWire;
+    });
+    const beforeGeneration = jest.fn(async () => {
+      events.push("beforeGeneration");
+      throw new Error("AFTER_COUNT_REJECTED");
+    });
+
+    await expect(
+      provider(fetcher).extractPdf(REQUEST, { beforeGeneration }),
+    ).rejects.toThrow("AFTER_COUNT_REJECTED");
+
+    expect(events).toEqual(["countTokens", "beforeGeneration"]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(beforeGeneration).toHaveBeenCalledTimes(1);
+  });
+
   it("creates one immutable plan and sends its stored bodies unchanged", async () => {
     const observed = await observeExtraction({ totalTokens: 123 });
 

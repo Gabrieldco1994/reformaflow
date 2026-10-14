@@ -302,6 +302,7 @@ describe("cumulative capture hard spend", () => {
 
 describe("audited synthetic Vertex capture", () => {
   let evidence: Awaited<ReturnType<typeof captureLiveEvidence>>;
+  let terminalEvidence: Awaited<ReturnType<typeof captureLiveEvidence>>;
   let dispatchedRequestIds: string[];
   let captureFetcher: jest.Mock;
   let platform: PropertyDescriptor;
@@ -318,6 +319,15 @@ describe("audited synthetic Vertex capture", () => {
     const extract = jest.spyOn(adapter.value, "extractPdf");
     evidence = await captureLiveEvidence(
       canonicalCaptureOptions(adapter.value, { memoryRss: () => 100 }),
+    );
+    const terminalAdapter = provider([VERSION], undefined, {
+      "scan-012": "DOCUMENT_UNREADABLE",
+      "scan-018": "LIMIT_EXCEEDED",
+    });
+    terminalEvidence = await captureLiveEvidence(
+      canonicalCaptureOptions(terminalAdapter.value, {
+        memoryRss: () => 100,
+      }),
     );
     dispatchedRequestIds = extract.mock.calls.map(
       ([request]) => request.requestId,
@@ -379,6 +389,28 @@ describe("audited synthetic Vertex capture", () => {
     expect(
       captured.predictions.map((item) => item.adapterTrace?.attempts),
     ).toEqual(Array.from({ length: 18 }, () => 1));
+  });
+
+  it("accepts exact provider-native terminal mappings and binds their raw response bytes", () => {
+    expect(
+      terminalEvidence.predictions.find((item) => item.caseId === "scan-012")!
+        .outcome,
+    ).toEqual({
+      kind: "ERROR",
+      errorCode: "DOCUMENT_UNREADABLE",
+      retryable: false,
+    });
+    expect(
+      terminalEvidence.predictions.find((item) => item.caseId === "scan-018")!
+        .outcome,
+    ).toEqual({
+      kind: "ERROR",
+      errorCode: "LIMIT_EXCEEDED",
+      retryable: false,
+    });
+    expect(() =>
+      parseLiveEvidenceJson(JSON.stringify(terminalEvidence)),
+    ).not.toThrow();
   });
 
   it("[B3] capture output is directly consumable by the live parser and evaluator", async () => {
@@ -508,6 +540,225 @@ describe("audited synthetic Vertex capture", () => {
     target.responseByteLength = changed.length;
     target.responseSha256 = attemptHash(changed);
   };
+
+  const mutateGenerationPayload = (
+    value: Record<string, any>,
+    caseId: string,
+    mutate: (payload: Record<string, any>, wire: Record<string, any>) => void,
+  ) => {
+    replaceResponseBytes(
+      event(value, "GENERATION_RESPONSE", caseId),
+      (wire) => {
+        const part = wire.candidates[0].content.parts[0];
+        const payload = JSON.parse(part.text) as Record<string, any>;
+        mutate(payload, wire);
+        part.text = JSON.stringify(payload);
+      },
+    );
+  };
+
+  it.each([
+    [
+      "COMPLETE plus EMPTY cannot stand in for DOCUMENT_UNREADABLE",
+      () => structuredClone(terminalEvidence) as Record<string, any>,
+      (value: Record<string, any>) =>
+        mutateGenerationPayload(value, "scan-012", (payload) => {
+          payload.completionStatus = "COMPLETE";
+          payload.pageAccounting = payload.pageAccounting.map(
+            (page: Record<string, any>) => ({
+              ...page,
+              status: "EMPTY",
+              visibleOccurrenceCount: 0,
+            }),
+          );
+        }),
+    ],
+    [
+      "swapped provider terminal code",
+      () => structuredClone(terminalEvidence) as Record<string, any>,
+      (value: Record<string, any>) => {
+        value.predictions.find(
+          (item: Record<string, any>) => item.caseId === "scan-012",
+        ).outcome.errorCode = "LIMIT_EXCEEDED";
+      },
+    ],
+    [
+      "retryable terminal mutation",
+      () => structuredClone(terminalEvidence) as Record<string, any>,
+      (value: Record<string, any>) => {
+        value.predictions.find(
+          (item: Record<string, any>) => item.caseId === "scan-018",
+        ).outcome.retryable = true;
+      },
+    ],
+    [
+      "oracle terminal projected over raw COMPLETE",
+      () => structuredClone(evidence) as Record<string, any>,
+      (value: Record<string, any>) => {
+        value.predictions[0].outcome = {
+          kind: "ERROR",
+          errorCode: "DOCUMENT_UNREADABLE",
+          retryable: false,
+        };
+      },
+    ],
+    [
+      "SUCCESS projected over a raw terminal",
+      () => structuredClone(terminalEvidence) as Record<string, any>,
+      (value: Record<string, any>) => {
+        value.predictions.find(
+          (item: Record<string, any>) => item.caseId === "scan-018",
+        ).outcome = { kind: "SUCCESS", candidates: [] };
+      },
+    ],
+    [
+      "raw terminal payload changed without prediction",
+      () => structuredClone(terminalEvidence) as Record<string, any>,
+      (value: Record<string, any>) =>
+        mutateGenerationPayload(value, "scan-018", (payload) => {
+          payload.completionStatus = "INCOMPLETE";
+          payload.pageAccounting[0].status = "UNREADABLE";
+          payload.pageAccounting[0].visibleOccurrenceCount = 0;
+        }),
+    ],
+  ] as const)(
+    "rejects terminal/raw causal mutation: %s",
+    (_label, arrange, mutate) => {
+      const changed = arrange();
+      expect(() =>
+        parseLiveEvidenceJson(JSON.stringify(changed)),
+      ).not.toThrow();
+
+      mutate(changed);
+
+      expect(() => parseLiveEvidenceJson(JSON.stringify(changed))).toThrow(
+        "LIVE_EVIDENCE_INVALID",
+      );
+    },
+  );
+
+  it("serializes qualityClosure v2 with tests only and seven mechanical proof fields per test", () => {
+    const closure = evidence.qualityClosure as unknown as Record<string, any>;
+
+    expect(closure).not.toHaveProperty("observations");
+    expect(closure.tests).toHaveLength(45);
+    for (const test of closure.tests)
+      expect(Object.keys(test).sort()).toEqual(
+        [
+          "assertionRecordSha256",
+          "fullName",
+          "name",
+          "sourcePath",
+          "status",
+          "suiteResultSha256",
+          "title",
+        ].sort(),
+      );
+  });
+
+  it("refuses the old three-field quality closure before any Vertex call", async () => {
+    const adapter = provider();
+    const outcome = await captureLiveEvidence(
+      canonicalCaptureOptions(adapter.value),
+    ).then(
+      () => "RETURNED",
+      (error: unknown) =>
+        error instanceof Error ? error.message : "NON_ERROR_REJECTION",
+    );
+
+    expect({
+      outcome,
+      providerCalls: adapter.fetcher.mock.calls.length,
+    }).toEqual({
+      outcome: "LIVE_CAPTURE_ATTESTATION_MISSING",
+      providerCalls: 0,
+    });
+  });
+
+  it.each([
+    "title",
+    "fullName",
+    "assertionRecordSha256",
+    "suiteResultSha256",
+  ] as const)(
+    "rejects quality closure stripped of mandatory %s before Vertex",
+    async (field) => {
+      const adapter = provider();
+      const closure = canonicalQualityClosure() as Record<string, any>;
+      closure.tests = closure.tests.map(
+        (test: Record<string, unknown>, index: number) => ({
+          ...test,
+          title: test.name,
+          fullName: `qualification ${String(test.name)}`,
+          assertionRecordSha256: "1".repeat(64),
+          suiteResultSha256: "2".repeat(64),
+          ...(index === 0 ? { [field]: undefined } : {}),
+        }),
+      );
+      if (closure.tests[0][field] === undefined) delete closure.tests[0][field];
+      const outcome = await captureLiveEvidence(
+        canonicalCaptureOptions(adapter.value, {
+          mechanical: {
+            policy,
+            qualityClosure: closure,
+            finalReviewHashes: {
+              residualRiskAcceptance: "e".repeat(64),
+              securityReview: "1".repeat(64),
+              privacyReview: "2".repeat(64),
+              dataOwnerReview: "3".repeat(64),
+            },
+            verifySnapshot: jest.fn(async () => undefined),
+          },
+        }),
+      ).then(
+        () => "RETURNED",
+        (error: unknown) =>
+          error instanceof Error ? error.message : "NON_ERROR_REJECTION",
+      );
+
+      expect({
+        outcome,
+        providerCalls: adapter.fetcher.mock.calls.length,
+      }).toEqual({
+        outcome: "LIVE_CAPTURE_ATTESTATION_INVALID",
+        providerCalls: 0,
+      });
+    },
+  );
+
+  it("rejects observations as an alias for tests before Vertex", async () => {
+    const adapter = provider();
+    const closure = canonicalQualityClosure() as Record<string, any>;
+    closure.observations = closure.tests;
+    delete closure.tests;
+    const outcome = await captureLiveEvidence(
+      canonicalCaptureOptions(adapter.value, {
+        mechanical: {
+          policy,
+          qualityClosure: closure,
+          finalReviewHashes: {
+            residualRiskAcceptance: "e".repeat(64),
+            securityReview: "1".repeat(64),
+            privacyReview: "2".repeat(64),
+            dataOwnerReview: "3".repeat(64),
+          },
+          verifySnapshot: jest.fn(async () => undefined),
+        },
+      }),
+    ).then(
+      () => "RETURNED",
+      (error: unknown) =>
+        error instanceof Error ? error.message : "NON_ERROR_REJECTION",
+    );
+
+    expect({
+      outcome,
+      providerCalls: adapter.fetcher.mock.calls.length,
+    }).toEqual({
+      outcome: "LIVE_CAPTURE_ATTESTATION_INVALID",
+      providerCalls: 0,
+    });
+  });
 
   it.each([
     [
@@ -1482,7 +1733,193 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
     ).toThrow("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
   });
 
+  it.each([
+    [
+      "reserved output 8191",
+      (ledger: Array<Record<string, any>>) => {
+        ledger
+          .filter(({ kind }) => kind === "ADMISSION_DECISION")
+          .forEach((item) => {
+            item.reservedOutputTokens = 8191;
+          });
+      },
+    ],
+    [
+      "reserved output 8193",
+      (ledger: Array<Record<string, any>>) => {
+        ledger
+          .filter(({ kind }) => kind === "ADMISSION_DECISION")
+          .forEach((item) => {
+            item.reservedOutputTokens = 8193;
+          });
+      },
+    ],
+    [
+      "input price plus one",
+      (ledger: Array<Record<string, any>>) => {
+        ledger
+          .filter(({ kind }) => kind === "ADMISSION_DECISION")
+          .forEach((item) => {
+            item.inputMicrosPerMillionTokens += 1;
+          });
+      },
+    ],
+    [
+      "output price plus one",
+      (ledger: Array<Record<string, any>>) => {
+        ledger
+          .filter(({ kind }) => kind === "ADMISSION_DECISION")
+          .forEach((item) => {
+            item.outputMicrosPerMillionTokens += 1;
+          });
+      },
+    ],
+    [
+      "hard limit minus one",
+      (ledger: Array<Record<string, any>>) => {
+        ledger
+          .filter(({ kind }) => kind === "ADMISSION_DECISION")
+          .forEach((item) => {
+            item.hardLimitMicros = 499_999;
+          });
+      },
+    ],
+    [
+      "hard limit plus one",
+      (ledger: Array<Record<string, any>>) => {
+        ledger
+          .filter(({ kind }) => kind === "ADMISSION_DECISION")
+          .forEach((item) => {
+            item.hardLimitMicros = 500_001;
+          });
+      },
+    ],
+    [
+      "worst case plus one with adjusted cumulative claims",
+      (ledger: Array<Record<string, any>>) => {
+        for (const item of ledger) {
+          const caseIndex = Number(item.caseId.slice(-3));
+          if (item.kind === "ADMISSION_DECISION") {
+            item.spentKnownBeforeMicros = (caseIndex - 1) * 20_511;
+            item.worstCaseCurrentMicros = 20_511;
+            item.cumulativeWorstCaseMicros = caseIndex * 20_511;
+          }
+          if (item.kind === "SPEND_RECONCILED")
+            item.cumulativeWorstCaseMicros = caseIndex * 20_511;
+        }
+      },
+    ],
+    [
+      "measured plus one with adjusted running cumulative claims",
+      (ledger: Array<Record<string, any>>) => {
+        for (const item of ledger) {
+          if (item.kind !== "SPEND_RECONCILED") continue;
+          const caseIndex = Number(item.caseId.slice(-3));
+          item.measuredCurrentMicros = 81;
+          item.cumulativeMeasuredMicros = caseIndex * 81;
+        }
+      },
+    ],
+    [
+      "counted input plus one with adjusted worst and cumulative claims",
+      (ledger: Array<Record<string, any>>) => {
+        for (const item of ledger) {
+          const caseIndex = Number(item.caseId.slice(-3));
+          if (item.kind === "ADMISSION_DECISION") {
+            item.countedInputTokens = 101;
+            item.spentKnownBeforeMicros = (caseIndex - 1) * 20_511;
+            item.worstCaseCurrentMicros = 20_511;
+            item.cumulativeWorstCaseMicros = caseIndex * 20_511;
+          }
+          if (item.kind === "SPEND_RECONCILED")
+            item.cumulativeWorstCaseMicros = caseIndex * 20_511;
+        }
+      },
+    ],
+  ] as const)(
+    "recomputes admission and spend from raw bytes rather than trusting adjusted ledger claims: %s",
+    (_label, mutate) => {
+      const captured = capturedAttemptFixture();
+      expect(capturedAttemptAuthority().verifyAttemptLedger(captured)).toBe(
+        true,
+      );
+
+      mutate(captured.ledger);
+
+      expect(() =>
+        capturedAttemptAuthority().verifyAttemptLedger(captured),
+      ).toThrow();
+    },
+  );
+
   describe("protected live-capture executable boundary", () => {
+    it("local capture CLI is a fail-closed stub before attestation, auth, provider, output, or network", async () => {
+      jest.resetModules();
+      const attest = jest.fn();
+      const providerFactory = jest.fn();
+      const capture = jest.fn();
+      const outputWriter = jest.fn();
+      const outputPolicy = jest.fn(async () => undefined);
+      jest.doMock("./quality-closure-attestation", () => ({
+        assertOutputOutsideRepository: outputPolicy,
+        qualityCaptureLockPath: jest.fn(
+          async () => "/tmp/ocr-quality-global.lock",
+        ),
+        attestQualityClosure: attest.mockResolvedValue({
+          policy: { marker: "policy" },
+          closure: { version: 2, marker: "attested" },
+        }),
+        readFinalReviewHashes: jest.fn(async () => ({})),
+        assertQualityRepositorySnapshot: jest.fn(async () => undefined),
+      }));
+      jest.doMock("../import-session/ocr/vertex-provider.factory", () => ({
+        createConfiguredVertexPdfOcrProvider: providerFactory,
+      }));
+      jest.doMock("./capture-live-core", () => ({
+        captureLiveEvidence: capture,
+      }));
+      jest.doMock("./capture-live-file", () => ({
+        writeQualifiedLiveEvidenceExclusive: outputWriter,
+      }));
+      const previousArguments = process.argv;
+      const previousExitCode = process.exitCode;
+      process.argv = [
+        process.execPath,
+        "capture-live.ts",
+        "/tmp/never-written.json",
+      ];
+      let complete!: (message: string) => void;
+      const completed = new Promise<string>((resolve) => {
+        complete = resolve;
+      });
+      const stderr = jest
+        .spyOn(process.stderr, "write")
+        .mockImplementation((chunk) => {
+          complete(String(chunk));
+          return true;
+        });
+      try {
+        jest.isolateModules(() => require("./capture-live"));
+        await expect(completed).resolves.toBe(
+          "LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE\n",
+        );
+        expect(outputPolicy).not.toHaveBeenCalled();
+        expect(attest).not.toHaveBeenCalled();
+        expect(providerFactory).not.toHaveBeenCalled();
+        expect(capture).not.toHaveBeenCalled();
+        expect(outputWriter).not.toHaveBeenCalled();
+      } finally {
+        stderr.mockRestore();
+        process.argv = previousArguments;
+        process.exitCode = previousExitCode;
+        jest.dontMock("./quality-closure-attestation");
+        jest.dontMock("../import-session/ocr/vertex-provider.factory");
+        jest.dontMock("./capture-live-core");
+        jest.dontMock("./capture-live-file");
+        jest.resetModules();
+      }
+    });
+
     it("[B3] decorative credential strings cannot invoke caller factories", async () => {
       const source = await readFile(join(__dirname, "capture-live.ts"), "utf8");
       const importSafeSource = source.replace(
