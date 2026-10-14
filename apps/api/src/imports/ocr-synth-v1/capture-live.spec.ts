@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { PDF_OCR_MODEL_ID, PDF_OCR_PROVIDER_ID } from "@reformaflow/domain";
 import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
 import { captureLiveEvidence } from "./capture-live-core";
+import * as captureLiveCore from "./capture-live-core";
 import { writeLiveEvidenceExclusive } from "./capture-live-file";
 import {
   OCR_SYNTH_ROUTING_CASES,
@@ -216,6 +217,74 @@ function canonicalCaptureOptions(
   } as unknown as CaptureOptions;
 }
 
+type CaptureSpendAdmission = (
+  input: Readonly<{
+    spentKnownMicros: number;
+    countedInputTokens: number;
+    reservedOutputTokens: 8192;
+    inputMicrosPerMillionTokens: number;
+    outputMicrosPerMillionTokens: number;
+    limitMicros: 500000;
+  }>,
+  generation: () => Promise<void>,
+) => Promise<Readonly<{ status: "ADMITTED" | "CAPTURE_SPEND_LIMIT" }>>;
+
+async function observeCaptureSpend(
+  spentKnownMicros: number,
+  nextWorstCaseMicros: number,
+) {
+  const admission = (captureLiveCore as unknown as Record<string, unknown>)
+    .admitCaptureGeneration as CaptureSpendAdmission | undefined;
+  const generation = jest.fn(async () => undefined);
+  if (!admission)
+    return {
+      status: "CAPTURE_SPEND_GUARD_NOT_IMPLEMENTED" as const,
+      generationCalls: generation.mock.calls.length,
+    };
+  const countedInputTokens = Math.max(0, nextWorstCaseMicros - 8192);
+  const result = await admission(
+    {
+      spentKnownMicros,
+      countedInputTokens,
+      reservedOutputTokens: 8192,
+      inputMicrosPerMillionTokens: 1_000_000,
+      outputMicrosPerMillionTokens: 1_000_000,
+      limitMicros: 500_000,
+    },
+    generation,
+  );
+  return {
+    status: result.status,
+    generationCalls: generation.mock.calls.length,
+  };
+}
+
+describe("cumulative capture hard spend", () => {
+  it.each([
+    [0, 500_000, "ADMITTED", 1],
+    [100_000, 400_000, "ADMITTED", 1],
+    [100_000, 400_001, "CAPTURE_SPEND_LIMIT", 0],
+  ] as const)(
+    "admits generation only when cumulative worst case %i + %i remains within 500000 micros",
+    async (spent, nextWorstCase, status, generationCalls) => {
+      expect(await observeCaptureSpend(spent, nextWorstCase)).toEqual({
+        status,
+        generationCalls,
+      });
+    },
+  );
+
+  it("keeps a spend stop as GAPS rather than release PASS", async () => {
+    const observation = await observeCaptureSpend(499_999, 2);
+
+    expect(observation).toEqual({
+      status: "CAPTURE_SPEND_LIMIT",
+      generationCalls: 0,
+    });
+    expect(observation.status).not.toBe("PASS");
+  });
+});
+
 describe("audited synthetic Vertex capture", () => {
   let evidence: Awaited<ReturnType<typeof captureLiveEvidence>>;
   let dispatchedRequestIds: string[];
@@ -227,6 +296,7 @@ describe("audited synthetic Vertex capture", () => {
       ...platform,
       value: "linux",
     });
+
     const adapter = provider();
     const extract = jest.spyOn(adapter.value, "extractPdf");
     evidence = await captureLiveEvidence(

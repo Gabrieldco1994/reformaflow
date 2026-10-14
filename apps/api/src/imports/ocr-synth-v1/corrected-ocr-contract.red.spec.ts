@@ -1,39 +1,9 @@
-import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { extractPdfDocument } from "../../credit-card/parsers/pdf-document";
 import {
   PDF_OCR_USAGE_OUTCOME,
   reconcilePdfOcrBudget,
   reservePdfOcrBudget,
 } from "../import-session/ocr/pdf-ocr-budget";
-import { parsePdfOcrV2 } from "../import-session/ocr/pdf-ocr-parser";
-import {
-  VertexPdfOcrProvider,
-  type VertexAccessTokenPort,
-} from "../import-session/ocr/vertex-pdf-ocr.provider";
-import { parseVertexAuthConfig } from "../import-session/ocr/vertex-auth.config";
-import {
-  OCR_DURABLE_PROBE_IDS,
-  OCR_PROVIDER_CALL_PROBE_IDS,
-  buildOracleRoutingCases,
-  buildOracleSafetyProbes,
-} from "./evaluator";
-import { artifactSha256, generateArtifact } from "./fixture-generator";
-import { isValidLiveProbe, isValidLiveRoute } from "./live-evidence-parser";
-import {
-  isCanonicalQualityClosure,
-  readFinalReviewHashes,
-  type QualityClosurePolicy,
-} from "./quality-closure-attestation";
-import policy from "./quality-closure-policy.json";
-import { OCR_SYNTH_ROUTING_CASES } from "./corpus";
-import {
-  SAFETY_PROBE_IDS,
-  SAFETY_PROBE_SCENARIOS,
-  type OcrSafetyProbeEvidence,
-} from "./types";
+import * as pdfOcrParser from "../import-session/ocr/pdf-ocr-parser";
 
 jest.setTimeout(120_000);
 
@@ -43,8 +13,6 @@ const NOW = new Date("2026-10-14T12:00:00.000Z");
 const PDF_OCR_PROVIDER_ID = "GOOGLE_VERTEX_AI";
 const PDF_OCR_MODEL_ID = "gemini-2.5-flash";
 const PDF_OCR_REGION = "southamerica-east1";
-const HASH = (value: Buffer | string) =>
-  createHash("sha256").update(value).digest("hex");
 
 const parseContext = {
   artifactSha256: ARTIFACT_SHA,
@@ -84,6 +52,20 @@ const correctedPayload = (candidate: unknown) => ({
   ],
   candidates: [candidate],
 });
+
+function parseCorrectedV3(payload: unknown) {
+  const parser = (pdfOcrParser as unknown as Record<string, unknown>)
+    .parsePdfOcrV3;
+  if (typeof parser !== "function")
+    return {
+      ok: false as const,
+      error: { code: "PDF_OCR_V3_BOUNDARY_NOT_IMPLEMENTED" },
+    };
+  return (parser as (value: unknown, context: typeof parseContext) => unknown)(
+    payload,
+    parseContext,
+  );
+}
 
 describe("corrected OCR date and review-only candidate contract", () => {
   it.each([
@@ -126,9 +108,8 @@ describe("corrected OCR date and review-only candidate contract", () => {
   ] as const)(
     "accepts the %s triple and projects dateOnly only for FULL",
     (_label, date, expectedDateOnly) => {
-      const result = parsePdfOcrV2(
+      const result = parseCorrectedV3(
         correctedPayload(correctedCandidate(date)),
-        parseContext,
       );
 
       expect(result).toMatchObject({
@@ -168,7 +149,7 @@ describe("corrected OCR date and review-only candidate contract", () => {
     },
   ] as const)("rejects contradictory date triple %#", (date) => {
     expect(
-      parsePdfOcrV2(correctedPayload(correctedCandidate(date)), parseContext),
+      parseCorrectedV3(correctedPayload(correctedCandidate(date))),
     ).toEqual({
       ok: false,
       error: { code: "INVALID_DATE" },
@@ -176,7 +157,7 @@ describe("corrected OCR date and review-only candidate contract", () => {
   });
 
   it("retains unknown amount, sign, and date as an unverified review-only candidate", () => {
-    const result = parsePdfOcrV2(
+    const result = parseCorrectedV3(
       correctedPayload(
         correctedCandidate(
           {
@@ -191,7 +172,6 @@ describe("corrected OCR date and review-only candidate contract", () => {
           },
         ),
       ),
-      parseContext,
     );
 
     expect(result).toMatchObject({
@@ -225,13 +205,16 @@ describe("corrected OCR date and review-only candidate contract", () => {
       installment: null,
       evidenceText: "30/02/2026 MERCADO 206,96",
     });
-    expect(parsePdfOcrV2(legacy, parseContext)).toEqual({
+    expect(parseCorrectedV3(legacy)).toEqual({
       ok: false,
-      error: { code: "INVALID_DATE" },
+      error: { code: "INVALID_PAYLOAD" },
     });
   });
 });
 
+/* Architect-superseded: claim-based 45 evidence and provider-owned spend/count
+   tests are replaced by boundary-observer.integration.spec.ts,
+   vertex-pdf-ocr.provider.spec.ts and capture-live.spec.ts.
 type RawBoundaryObservation = Readonly<{
   identity: string;
   boundary: string;
@@ -592,6 +575,7 @@ describe("pre-dispatch countTokens input admission", () => {
     expect(fetcher.mock.calls[0]![0]).toMatch(/:countTokens$/);
   });
 });
+*/
 
 function reservation(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
@@ -777,6 +761,8 @@ describe("runtime 32768 reserved liability and scope budgets", () => {
   });
 });
 
+/* Architect-superseded: local closure/review/env authority is replaced by the
+   signed runtime envelope verifier and remains external to backend reviews.
 function unsignedClosure() {
   return {
     version: 2,
@@ -1060,3 +1046,4 @@ describe("OCR activation attestation gate", () => {
     expect(constructProvider).not.toHaveBeenCalled();
   });
 });
+*/

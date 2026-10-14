@@ -19,8 +19,8 @@ const roomy = {
   },
 } satisfies PdfOcrDailyBudgetLimits;
 const input = (
-  tenantId = randomUUID(),
-  actorId = randomUUID(),
+  tenantId: string = randomUUID(),
+  actorId: string = randomUUID(),
   overrides: Partial<Parameters<typeof reservePdfOcrBudget>[1]> = {},
 ) => ({
   id: randomUUID(),
@@ -243,4 +243,114 @@ describe("durable direct OCR abuse budget", () => {
       ).toBe(0);
     },
   );
+
+  it.each([
+    [32_767, false],
+    [32_768, true],
+    [32_769, true],
+  ] as const)(
+    "persists the fixed 32768 liability at cost-unit boundary %i",
+    async (costUnits, admitted) => {
+      const reservation = input();
+      await persistReservationParents(prisma, reservation);
+      const limits = {
+        ...roomy,
+        costUnits: {
+          user: costUnits,
+          tenant: costUnits,
+          global: costUnits,
+        },
+      };
+      const operation = prisma.$transaction((tx) =>
+        reservePdfOcrBudget(tx, reservation, limits),
+      );
+
+      if (admitted) await expect(operation).resolves.toBeUndefined();
+      else
+        await expect(operation).rejects.toMatchObject({
+          code: "OCR_BUDGET_EXHAUSTED",
+        });
+      const row = await prisma.importOcrUsage.findUnique({
+        where: { id: reservation.id },
+      });
+      expect(row?.reservedCostUnits ?? null).toBe(admitted ? 32_768 : null);
+    },
+  );
+
+  it("reconciles known usage to 120 and retains UNKNOWN liability 32768", async () => {
+    const known = input();
+    const unknown = input(known.tenantId, known.actorId);
+    await persistReservationParents(prisma, known);
+    await persistReservationParents(prisma, unknown);
+    await prisma.$transaction((tx) => reservePdfOcrBudget(tx, known, roomy));
+    await prisma.$transaction((tx) => reservePdfOcrBudget(tx, unknown, roomy));
+
+    await prisma.$transaction((tx) =>
+      reconcilePdfOcrBudget(
+        tx,
+        known.id,
+        "SUCCEEDED",
+        now,
+        {
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+        },
+        "known-response",
+        {
+          provider: "GOOGLE_VERTEX_AI",
+          model: "gemini-2.5-flash",
+          modelVersion: "budget-integration-v1",
+          region: "southamerica-east1",
+          requestId: known.requestId,
+          responseId: "known-response",
+          usage: {
+            inputTokens: 100,
+            outputTokens: 20,
+            totalTokens: 120,
+          },
+          latencyMs: 1,
+          requestTrace: {
+            authTrace: "LOCAL_ADC",
+          },
+        } as never,
+      ),
+    );
+    await prisma.$transaction((tx) =>
+      reconcilePdfOcrBudget(tx, unknown.id, "UNKNOWN", now, null),
+    );
+
+    const rows = await prisma.importOcrUsage.findMany({
+      where: { id: { in: [known.id, unknown.id] } },
+      orderBy: { id: "asc" },
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(known.id)).toMatchObject({
+      reservedCostUnits: 120,
+      totalTokens: 120,
+    });
+    expect(byId.get(unknown.id)).toMatchObject({
+      reservedCostUnits: 32_768,
+      totalTokens: null,
+    });
+  });
+
+  it("admits one usage row for two concurrent reservations of the same attempt", async () => {
+    const reservation = input();
+    await persistReservationParents(prisma, reservation);
+
+    const outcomes = await Promise.allSettled([
+      prisma.$transaction((tx) => reservePdfOcrBudget(tx, reservation, roomy)),
+      prisma.$transaction((tx) => reservePdfOcrBudget(tx, reservation, roomy)),
+    ]);
+
+    expect(outcomes.filter((item) => item.status === "fulfilled")).toHaveLength(
+      1,
+    );
+    expect(
+      await prisma.importOcrUsage.count({
+        where: { id: reservation.id },
+      }),
+    ).toBe(1);
+  });
 });

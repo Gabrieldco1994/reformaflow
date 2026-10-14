@@ -40,4 +40,10 @@ describe("pdfOcrTerminalCodeForLedgerOutcome", () => {
   ] as const)("maps private ledger outcome %s to %s", (outcome, expected) => {
     expect(pdfOcrTerminalCodeForLedgerOutcome(outcome)).toBe(expected);
   });
+
+  it("never exposes the internal CAPTURE_SPEND_LIMIT as a session code", () => {
+    expect(
+      pdfOcrTerminalCodeForLedgerOutcome("CAPTURE_SPEND_LIMIT"),
+    ).toBeNull();
+  });
 });

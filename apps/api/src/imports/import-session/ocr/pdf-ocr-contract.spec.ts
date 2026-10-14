@@ -5,6 +5,7 @@ import {
   PDF_OCR_REGION,
 } from "@reformaflow/domain";
 import { PdfOcrFailureCode, parsePdfOcrV2 } from "./pdf-ocr-parser";
+import * as pdfOcrParser from "./pdf-ocr-parser";
 import { isPdfOcrEnabled } from "./pdf-ocr-capability";
 
 const ARTIFACT_SHA = "a".repeat(64);
@@ -49,6 +50,145 @@ describe("strict review-only OCR parser", () => {
       ok: false,
       error: { code: PdfOcrFailureCode.INVALID_PAYLOAD },
     });
+  });
+
+  type V3Parser = (
+    payload: unknown,
+    parseContext: typeof context,
+  ) =>
+    | { readonly ok: true; readonly value: Record<string, unknown> }
+    | {
+        readonly ok: false;
+        readonly error: Readonly<{ code: string }>;
+      };
+
+  const parseV3: V3Parser = (payload, parseContext) => {
+    const parser = (pdfOcrParser as unknown as Record<string, unknown>)
+      .parsePdfOcrV3;
+    if (typeof parser !== "function")
+      return {
+        ok: false,
+        error: { code: "PDF_OCR_V3_BOUNDARY_NOT_IMPLEMENTED" },
+      };
+    return (parser as V3Parser)(payload, parseContext);
+  };
+
+  const v3Candidate = {
+    pageNumber: 2,
+    pageOccurrenceIndex: 1,
+    description: "MERCADO",
+    amountCents: "-1001",
+    sign: "NEGATIVE",
+    amountMeaning: "LINE_AMOUNT",
+    dateText: "13/10/2026",
+    normalizedDate: "2026-10-13",
+    dateExplicitness: "FULL",
+    installment: { index: 1, total: 2 },
+    evidenceText: "13/10/2026 MERCADO -10,01",
+  };
+  const v3Payload = (candidateOverride: Record<string, unknown> = {}) =>
+    payload({ candidates: [{ ...v3Candidate, ...candidateOverride }] });
+
+  describe("strict provider document V3", () => {
+    it("accepts only the exact V3 candidate keys", () => {
+      expect(parseV3(v3Payload(), context)).toMatchObject({
+        ok: true,
+        value: {
+          version: 3,
+          candidates: [
+            {
+              ...v3Candidate,
+              dateOnly: "2026-10-13",
+              selected: false,
+              verificationStatus: "UNVERIFIED",
+            },
+          ],
+        },
+      });
+    });
+
+    it("rejects the legacy provider date shape instead of promoting it", () => {
+      const {
+        dateText: _dateText,
+        normalizedDate: _normalizedDate,
+        ...legacy
+      } = v3Candidate;
+
+      expect(
+        parseV3(
+          payload({
+            candidates: [{ ...legacy, date: "2026-10-13" }],
+          }),
+          context,
+        ),
+      ).toEqual({
+        ok: false,
+        error: { code: "INVALID_PAYLOAD" },
+      });
+    });
+
+    it.each([
+      [null, "UNKNOWN", "UNKNOWN", true],
+      [null, "POSITIVE", "UNKNOWN", false],
+      [null, "UNKNOWN", "LINE_AMOUNT", false],
+      ["-1", "NEGATIVE", "LINE_AMOUNT", true],
+      ["-1", "POSITIVE", "LINE_AMOUNT", false],
+      ["0", "ZERO", "LINE_AMOUNT", true],
+      ["0", "POSITIVE", "LINE_AMOUNT", false],
+      ["1", "POSITIVE", "UNKNOWN", true],
+      ["1", "NEGATIVE", "UNKNOWN", false],
+    ] as const)(
+      "enforces amount/sign invariant for %s %s %s",
+      (amountCents, sign, amountMeaning, accepted) => {
+        const result = parseV3(
+          v3Payload({ amountCents, sign, amountMeaning }),
+          context,
+        );
+
+        expect(result.ok).toBe(accepted);
+        if (!accepted)
+          expect(result).toEqual({
+            ok: false,
+            error: { code: "INVALID_AMOUNT_CENTS" },
+          });
+      },
+    );
+
+    it.each([
+      ["FULL", "13/10/2026", "2026-10-13", "2026-10-13", true],
+      ["YEARLESS", "13/10", null, null, true],
+      ["MISSING", null, null, null, true],
+      ["UNKNOWN", "13 ou 18/10", null, null, true],
+      ["FULL", "13/10/2026", null, null, false],
+      ["YEARLESS", "13/10", "2026-10-13", null, false],
+      ["MISSING", "13/10", null, null, false],
+      ["UNKNOWN", "13/10", "2026-10-13", null, false],
+    ] as const)(
+      "enforces %s date triple without current-year inference",
+      (
+        dateExplicitness,
+        dateText,
+        normalizedDate,
+        expectedDateOnly,
+        accepted,
+      ) => {
+        const result = parseV3(
+          v3Payload({ dateExplicitness, dateText, normalizedDate }),
+          context,
+        );
+
+        expect(result.ok).toBe(accepted);
+        if (accepted)
+          expect(result).toMatchObject({
+            value: { candidates: [{ dateOnly: expectedDateOnly }] },
+          });
+        else
+          expect(result).toEqual({
+            ok: false,
+            error: { code: "INVALID_DATE" },
+          });
+      },
+    );
   });
 
   it.each(["v", "v".repeat(192)])(

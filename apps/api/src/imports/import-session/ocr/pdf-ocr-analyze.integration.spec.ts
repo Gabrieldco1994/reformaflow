@@ -1979,6 +1979,10 @@ describe("POST attachment analyze v2 direct OCR", () => {
     "replays legacy %s without retry as %s",
     async (outcome, code) => {
       const owner = await fixture(prisma, `legacy-${outcome}`);
+      const beforeFinance = await exactFinancialSnapshot(
+        prisma,
+        owner.tenantId,
+      );
       const provider = {
         provider: PDF_OCR_PROVIDER_ID,
         model: PDF_OCR_MODEL_ID,
@@ -2013,7 +2017,9 @@ describe("POST attachment analyze v2 direct OCR", () => {
         ),
       ).rejects.toMatchObject({ code });
       expect(provider.extractPdf).toHaveBeenCalledTimes(1);
-      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+      expect(await exactFinancialSnapshot(prisma, owner.tenantId)).toEqual(
+        beforeFinance,
+      );
     },
   );
 
@@ -2182,6 +2188,78 @@ describe("POST attachment analyze v2 direct OCR", () => {
         where: { sessionId: owner.sessionId },
       }),
     ).toBe(0);
+  });
+
+  it("revalidates revision, consent, lease, artifact, attempt and release gate after count before generation", async () => {
+    const owner = await fixture(prisma, "after-count-toctou");
+    const request = await declareConsent(prisma, owner);
+    const beforeFinance = await exactFinancialSnapshot(prisma, owner.tenantId);
+    let countTokensCalls = 0;
+    let generationCalls = 0;
+    const provider = {
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      ready: () => true,
+      extractPdf: jest.fn(
+        async (
+          _providerRequest: unknown,
+          hooks?: {
+            beforeGeneration(): Promise<void>;
+          },
+        ) => {
+          countTokensCalls += 1;
+          await prisma.importSession.update({
+            where: { id: owner.sessionId },
+            data: { revision: { increment: 1 } },
+          });
+          if (hooks) await hooks.beforeGeneration();
+          generationCalls += 1;
+          return document(owner.hash, "after-count-toctou", request.requestId);
+        },
+      ),
+    };
+    const service = extraction(prisma, owner.bytes, provider, 1);
+    const outcome = await service
+      .analyzeAttached(
+        owner.auth,
+        owner.sessionId,
+        owner.attachmentId,
+        request,
+        {},
+      )
+      .then(
+        () => "RETURNED",
+        (error: unknown) =>
+          error instanceof Error && "code" in error
+            ? String(error.code)
+            : error instanceof Error
+              ? error.message
+              : "NON_ERROR",
+      );
+
+    expect({
+      outcome,
+      countTokensCalls,
+      generationCalls,
+      finance: await exactFinancialSnapshot(prisma, owner.tenantId),
+    }).toEqual({
+      outcome: "OCR_REQUEST_STALE_AFTER_COUNT",
+      countTokensCalls: 1,
+      generationCalls: 0,
+      finance: beforeFinance,
+    });
+
+    const replayCalls = provider.extractPdf.mock.calls.length;
+    await expect(
+      service.analyzeAttached(
+        owner.auth,
+        owner.sessionId,
+        owner.attachmentId,
+        request,
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "OCR_REQUEST_STALE_AFTER_COUNT" });
+    expect(provider.extractPdf).toHaveBeenCalledTimes(replayCalls);
   });
 });
 
