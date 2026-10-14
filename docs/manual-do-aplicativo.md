@@ -426,9 +426,10 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   `OCR_ATTEMPT_UNKNOWN` e os bloqueios documentais têm mensagens distintas.
   `OCR_UNAVAILABLE` informa que a falha ocorreu antes do envio do PDF. Resposta
   ambígua ou timeout depois de o envio começar — ou quando ele pode ter ocorrido
-  — produz `OCR_ATTEMPT_UNKNOWN`, informa que não é possível repetir e que
-  nenhum lançamento foi criado, e encerra a leitura externa daquele anexo sem
-  botão para repetir ou autorizar. Em todos os fallbacks, a tela oferece entrada
+  — produz `OCR_ATTEMPT_UNKNOWN`, informa explicitamente que o PDF pode ter sido
+  enviado ao Google Cloud Vertex AI, que não é possível repetir e que nenhum
+  lançamento foi criado, e encerra a leitura externa daquele anexo sem botão
+  para repetir ou autorizar. Em todos os fallbacks, a tela oferece entrada
   manual, substituição ou cancelamento e informa que houve zero escrita
   financeira. Se `IMPORT_OCR_ENABLED` estiver desligada, indisponível ou sem
   anexo elegível na capability, não há falsa ativação; permanece o fallback para

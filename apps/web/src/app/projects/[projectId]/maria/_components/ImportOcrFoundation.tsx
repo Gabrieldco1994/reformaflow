@@ -11,7 +11,7 @@ const TERMINAL_COPY: Record<OcrTerminalUiState, string> = {
   OCR_MALFORMED_RESPONSE:
     "O provedor devolveu uma leitura inválida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_ATTEMPT_UNKNOWN:
-    "O envio começou ou pode ter ocorrido, mas não foi possível confirmar o resultado do OCR. Esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+    "O envio começou ou pode ter ocorrido, e o PDF pode ter sido enviado ao Google Cloud Vertex AI, mas não foi possível confirmar o resultado do OCR. Esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_BUDGET_EXHAUSTED:
     "O limite diário de OCR foi atingido antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
   DOCUMENT_UNREADABLE:
