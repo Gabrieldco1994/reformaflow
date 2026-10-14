@@ -34,6 +34,14 @@ type ReleaseModule = Readonly<{
     envelope: unknown,
     runtime: Readonly<Record<string, unknown>>,
   ): unknown;
+  verifyTrustedOcrP256Signature(
+    input: Readonly<{
+      keyId: string;
+      payloadBytes: Buffer;
+      signatureBase64: string;
+    }>,
+    runtime?: Readonly<Record<string, unknown>>,
+  ): true;
 }>;
 type LoadedBoundary =
   | { readonly kind: "READY"; readonly value: ReleaseModule }
@@ -51,7 +59,8 @@ function loadReleaseBoundary(): LoadedBoundary {
   const loaded = require(MODULE_PATH) as Partial<ReleaseModule>;
   if (
     typeof loaded.parseOcrReleaseEnvelope !== "function" ||
-    typeof loaded.verifyOcrReleaseEnvelope !== "function"
+    typeof loaded.verifyOcrReleaseEnvelope !== "function" ||
+    typeof loaded.verifyTrustedOcrP256Signature !== "function"
   ) {
     return {
       kind: "BOUNDARY_UNAVAILABLE",
@@ -175,6 +184,34 @@ describe("production OCR release envelope", () => {
       commitSha: "a".repeat(40),
       treeSha: "b".repeat(40),
     });
+  });
+
+  it("verifies detached canonical bytes only with an admitted trust key", () => {
+    const boundary = requireReleaseBoundary();
+    const payloadBytes = Buffer.from(
+      '{"candidateSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","evidenceSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","kind":"REFORMAFLOW_OCR_QUALITY_CLOSURE"}',
+    );
+    const signatureBase64 = sign("sha256", payloadBytes, PRIVATE_KEY).toString(
+      "base64",
+    );
+
+    expect(
+      boundary.verifyTrustedOcrP256Signature(
+        {
+          keyId: "qa-p256-2026-10",
+          payloadBytes,
+          signatureBase64,
+        },
+        runtime,
+      ),
+    ).toBe(true);
+    expect(() =>
+      boundary.verifyTrustedOcrP256Signature({
+        keyId: "qa-p256-2026-10",
+        payloadBytes,
+        signatureBase64,
+      }),
+    ).toThrow("OCR_ATTESTATION_KEY_NOT_ALLOWED");
   });
 
   it.each([

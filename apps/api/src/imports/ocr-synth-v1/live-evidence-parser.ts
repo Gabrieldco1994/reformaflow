@@ -28,7 +28,9 @@ const QUALIFICATION_SOURCE_BY_NAME = new Map(
 );
 const NON_AUTHORITY_SAFETY_EVIDENCE_SOURCE =
   "apps/api/src/imports/ocr-synth-v1/direct-pdf-vertex-safety.spec.ts";
-const VERIFIED_LIVE_EVIDENCE = Symbol("verified-live-evidence");
+const STRUCTURALLY_VALIDATED_LIVE_EVIDENCE = Symbol(
+  "structurally-validated-live-evidence",
+);
 
 const fail = (): never => {
   throw new Error("LIVE_EVIDENCE_INVALID");
@@ -916,10 +918,12 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export function isVerifiedLiveEvidence(value: unknown): boolean {
+export function isStructurallyValidatedLiveEvidence(value: unknown): boolean {
   return (
     object(value) &&
-    (value as Record<PropertyKey, unknown>)[VERIFIED_LIVE_EVIDENCE] === true
+    (value as Record<PropertyKey, unknown>)[
+      STRUCTURALLY_VALIDATED_LIVE_EVIDENCE
+    ] === true
   );
 }
 
@@ -949,7 +953,7 @@ export function parseLiveEvidence(value: unknown): OcrEvalInput {
       !validCaptureLedger(value)
     )
       fail();
-    Object.defineProperty(value, VERIFIED_LIVE_EVIDENCE, {
+    Object.defineProperty(value, STRUCTURALLY_VALIDATED_LIVE_EVIDENCE, {
       value: true,
       enumerable: false,
       configurable: false,

@@ -1700,78 +1700,23 @@ describe("canonical capture and qualification orchestration", () => {
   });
 
   it("[B3] one-argument local capture CLI fails at the protected entrypoint before any dependency", async () => {
-    jest.resetModules();
-    let complete!: () => void;
-    const completed = new Promise<void>((resolveCompleted) => {
-      complete = resolveCompleted;
+    await expect(
+      execFile(
+        process.execPath,
+        [
+          "-r",
+          "ts-node/register",
+          "src/imports/ocr-synth-v1/capture-live.ts",
+          "/tmp/result.json",
+        ],
+        { cwd: join(ROOT, "apps/api") },
+      ),
+    ).rejects.toMatchObject({
+      stderr: "LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE\n",
     });
-    const outputPolicy = jest.fn(async () => undefined);
-    const globalLock = jest.fn(async () => "/tmp/ocr-quality-global.lock");
-    const attest = jest.fn(async () => ({
-      policy: { marker: "policy" },
-      closure: { version: 2, marker: "attested", snapshot: {} },
-    }));
-    const reviewReads = jest.fn(async () => ({}));
-    const snapshotVerification = jest.fn(async () => undefined);
-    const capture = jest.fn();
-    const outputWriter = jest.fn();
-    const providerFactory = jest.fn();
-    jest.doMock("./quality-closure-attestation", () => ({
-      assertOutputOutsideRepository: outputPolicy,
-      qualityCaptureLockPath: globalLock,
-      attestQualityClosure: attest,
-      readFinalReviewHashes: reviewReads,
-      assertQualityRepositorySnapshot: snapshotVerification,
-    }));
-    jest.doMock("./capture-live-file", () => ({
-      writeQualifiedLiveEvidenceExclusive: outputWriter,
-    }));
-    jest.doMock("../import-session/ocr/vertex-provider.factory", () => ({
-      createConfiguredVertexPdfOcrProvider: providerFactory,
-    }));
-    jest.doMock("./capture-live-core", () => ({
-      captureLiveEvidence: capture,
-    }));
-    const previousArguments = process.argv;
-    const previousResults = process.env.OCR_QUALITY_RESULTS_JSON;
-    const previousPath = process.env.OCR_QUALITY_RESULTS_PATH;
-    process.argv = [process.execPath, "capture-live.ts", "/tmp/result.json"];
-    process.env.OCR_QUALITY_RESULTS_JSON = '{"injected":true}';
-    process.env.OCR_QUALITY_RESULTS_PATH = "/tmp/injected.json";
-    let cliError: string | undefined;
-    const stderr = jest
-      .spyOn(process.stderr, "write")
-      .mockImplementation((chunk) => {
-        cliError = String(chunk);
-        complete();
-        return true;
-      });
-    try {
-      jest.isolateModules(() => require("./capture-live"));
-      await completed;
-      expect(cliError).toBe("LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE\n");
-      expect(stderr).toHaveBeenCalledTimes(1);
-      expect(process.exitCode).toBe(1);
-      expect(outputPolicy).not.toHaveBeenCalled();
-      expect(globalLock).not.toHaveBeenCalled();
-      expect(attest).not.toHaveBeenCalled();
-      expect(reviewReads).not.toHaveBeenCalled();
-      expect(snapshotVerification).not.toHaveBeenCalled();
-      expect(capture).not.toHaveBeenCalled();
-      expect(providerFactory).not.toHaveBeenCalled();
-      expect(outputWriter).not.toHaveBeenCalled();
-    } finally {
-      process.argv = previousArguments;
-      if (previousResults === undefined)
-        delete process.env.OCR_QUALITY_RESULTS_JSON;
-      else process.env.OCR_QUALITY_RESULTS_JSON = previousResults;
-      if (previousPath === undefined)
-        delete process.env.OCR_QUALITY_RESULTS_PATH;
-      else process.env.OCR_QUALITY_RESULTS_PATH = previousPath;
-    }
   });
 
-  it("two-argument local capture CLI fails at the protected entrypoint before any dependency", async () => {
+  it("two-argument-looking import is side-effect free before any dependency", async () => {
     jest.resetModules();
     const outputPolicy = jest.fn(async () => undefined);
     const globalLock = jest.fn(async () => "/tmp/ocr-quality-global.lock");
@@ -1807,19 +1752,21 @@ describe("canonical capture and qualification orchestration", () => {
       "/tmp/result.json",
       "/tmp/caller-results.json",
     ];
-    let reject!: (value: string) => void;
-    const rejected = new Promise<string>((resolveRejected) => {
-      reject = resolveRejected;
-    });
-    jest.spyOn(process.stderr, "write").mockImplementation((chunk) => {
-      reject(String(chunk));
-      return true;
-    });
+    const stderr = jest
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
     try {
-      jest.isolateModules(() => require("./capture-live"));
-      await expect(rejected).resolves.toBe(
-        "LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE\n",
+      let imported: unknown;
+      jest.isolateModules(() => {
+        imported = require("./capture-live");
+      });
+      await Promise.resolve();
+      expect(imported).toEqual(
+        expect.objectContaining({
+          runProtectedLiveCapture: expect.any(Function),
+        }),
       );
+      expect(stderr).not.toHaveBeenCalled();
       expect(outputPolicy).not.toHaveBeenCalled();
       expect(globalLock).not.toHaveBeenCalled();
       expect(attest).not.toHaveBeenCalled();
@@ -1828,9 +1775,9 @@ describe("canonical capture and qualification orchestration", () => {
       expect(capture).not.toHaveBeenCalled();
       expect(providerFactory).not.toHaveBeenCalled();
       expect(outputWriter).not.toHaveBeenCalled();
-      expect(process.exitCode).toBe(1);
     } finally {
       process.argv = previousArguments;
+      stderr.mockRestore();
     }
   });
 
@@ -1899,6 +1846,7 @@ describe("canonical capture and qualification orchestration", () => {
     }));
     jest.doMock("./quality-closure-attestation", () => ({
       attestQualityClosure: attest,
+      createQualityClosureVerifier: () => ({ verify: () => true }),
       issueVerifiedQualityClosureToken: issue,
       assertQualityRepositorySnapshot: finalSnapshot,
       withQualityCaptureLock,

@@ -221,36 +221,14 @@ mounted at `/secrets/vertex-sa.json`; it records `SERVICE_ACCOUNT_FILE_ADC` on a
 The runtime parser accepts `LOCAL_ADC` for local diagnostics, but such a capture remains GAPS and
 cannot prove production authentication. Legacy undifferentiated `ADC_OAUTH` evidence is rejected.
 
-```bash
-cd /absolute/path/to/reformaflow
-CANDIDATE_SHA='<tested-current-feat-719-final-ocr-pr-head>'
-MANIFEST='/absolute/path/ocr-live-manifest.json'
-EVIDENCE='/absolute/path/ocr-live-evidence.json'
-test -n "$CANDIDATE_SHA" &&
-  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA" ||
-  { printf '%s\n' 'CANDIDATE_SHA does not match HEAD' >&2; exit 1; }
-node -e '
-  const fs = require("node:fs");
-  const [manifestPath, expectedSha] = process.argv.slice(1);
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  if (manifest.candidateSha !== expectedSha) process.exit(1);
-' "$MANIFEST" "$CANDIDATE_SHA"
-cd apps/api
-IMPORT_OCR_ENABLED=true \
-NODE_ENV=production \
-VERTEX_AUTH_MODE=service-account-file \
-GOOGLE_CLOUD_PROJECT='<approved-project>' \
-  npx ts-node src/imports/ocr-synth-v1/capture-live.ts \
-  "$EVIDENCE" \
-  "$MANIFEST"
-```
+Live capture is not a local CLI. Direct execution of `capture-live.ts` always stops with
+`LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE` before arguments, credentials, provider setup or
+filesystem side effects. Importing the module is side-effect free. Its exported runner is reached
+only through the existing protected WIF adapter in the qualification image. The adapter remains
+fail-closed while the protected project/token-consumer configuration is absent; it never falls
+back to ADC, a service-account file supplied by a caller, or an API key.
 
-For non-qualifying local diagnostics only, use `NODE_ENV=development` and
-`VERTEX_AUTH_MODE=local-adc` as constrained above. Production accepts only the fixed secret file
-and exact dedicated principal. There is no auth fallback: missing or invalid credentials stop
-before the first provider call, and a token failure remains `NOT_DISPATCHED`.
-
-The command generates only the in-repository synthetic `scan-001` through `scan-018` PDFs in
+The protected runner generates only the in-repository synthetic `scan-001` through `scan-018` PDFs in
 memory, hashes and admits all of them before dispatch, then calls
 `VertexPdfOcrProvider.extractPdf` sequentially exactly once per case. It never accepts an input PDF
 path. Mixed/textual cases come only from the bounded service evidence and make no provider call.
@@ -267,7 +245,7 @@ Stderr contains only a fixed `LIVE_CAPTURE_*` code. The evidence contains typed 
 sanitized request provenance, never PDF bytes, base64 payloads, access tokens, credentials, raw
 wire responses or raw provider errors.
 
-Then qualify that immutable evidence:
+Qualification of immutable evidence is also authority-gated:
 
 ```bash
 cd apps/api
@@ -278,7 +256,12 @@ npx ts-node src/imports/ocr-synth-v1/qualify-live.ts \
 No file, overwrite, offline oracle data, incomplete 18-case quality or 10-case routing evidence,
 synthetic service provenance, missing budgets/pricing/limits, or missing provider metadata fails
 closed. The qualifier performs exact runtime parsing rather than a TypeScript cast. It consumes
-evidence and does not contain a second provider implementation.
+evidence and does not contain a second provider implementation. A structurally valid closure or
+ledger never grants authority: `LIVE_CAPTURE` is qualified only with the in-process opaque token
+issued after the complete canonical evidence digest is recomputed and its detached P-256
+signature verifies against the compiled OCR trust bundle. The bundle is intentionally empty while
+OCR is OFF, so a positive qualification additionally requires a separately reviewed trusted key;
+no self-issued key or fallback is accepted.
 
 ## Evidence status
 

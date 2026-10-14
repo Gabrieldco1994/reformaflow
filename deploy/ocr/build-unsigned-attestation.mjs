@@ -30,6 +30,15 @@ const ROUTES = Object.freeze(
     (_, index) => "mixed-" + String(index + 1).padStart(3, "0"),
   ),
 );
+const CANONICAL_CASE_IDS = Object.freeze(
+  Array.from(
+    { length: 18 },
+    (_, index) => `scan-${String(index + 1).padStart(3, "0")}`,
+  ),
+);
+const CANONICAL_REPORT_SCHEMA =
+  "apps/api/src/imports/ocr-synth-v1/report.schema.json";
+const MAX_RAW_VERTEX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const PROBES = Object.freeze([
   "WRONG_ENDPOINT",
   "WRONG_MODEL",
@@ -396,6 +405,318 @@ function assessment(reportBytes, raw, issues) {
       rawEvidenceSha256: sha256(raw),
       reportSha256: sha256(reportBytes),
     },
+  });
+}
+
+function canonicalAuthorityAssessment(report, rawEvidence, issues) {
+  const values = [...issues];
+  return Object.freeze({
+    reportSchemaVersion: 4,
+    releaseStatus: values.length === 0 ? "PASS" : "GAPS",
+    signable: values.length === 0,
+    issues: values,
+    bindings: {
+      rawEvidenceSha256: sha256(Buffer.from(canonicalize(rawEvidence))),
+      reportSha256: sha256(Buffer.from(canonicalize(report))),
+      reportSchemaSha256: null,
+    },
+  });
+}
+
+function exactRawVertexBytes(entry, missingCode) {
+  if (!object(entry) || !Object.hasOwn(entry, "bytesBase64")) fail(missingCode);
+  if (
+    typeof entry.bytesBase64 !== "string" ||
+    entry.bytesBase64.length >
+      Math.ceil((MAX_RAW_VERTEX_RESPONSE_BYTES + 2) / 3) * 4
+  )
+    fail("RAW_VERTEX_RESPONSE_BYTES_INVALID");
+  const bytes = Buffer.from(entry.bytesBase64, "base64");
+  if (
+    bytes.length === 0 ||
+    bytes.length > MAX_RAW_VERTEX_RESPONSE_BYTES ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      entry.bytesBase64,
+    ) ||
+    bytes.toString("base64") !== entry.bytesBase64 ||
+    entry.byteLength !== bytes.length ||
+    entry.sha256 !== sha256(bytes)
+  )
+    fail("RAW_VERTEX_RESPONSE_BYTES_INVALID");
+  return bytes;
+}
+
+function parseRawVertexJson(bytes) {
+  try {
+    return parseStrictJson(bytes.toString("utf8"));
+  } catch {
+    fail("RAW_VERTEX_RESPONSE_SCHEMA_INVALID");
+  }
+}
+
+function validateCandidateArtifactShape(value) {
+  exact(
+    value,
+    ["expected", "metadata", "archiveBytes", "members", "payload", "bindings"],
+    "CANDIDATE_ARTIFACT_PROVENANCE_INVALID",
+  );
+  const { expected, metadata, archiveBytes, members, payload, bindings } =
+    value;
+  if (
+    !object(expected) ||
+    !object(metadata) ||
+    !Buffer.isBuffer(archiveBytes) ||
+    !Array.isArray(members) ||
+    members.length !== 1 ||
+    !object(members[0]) ||
+    members[0].name !== expected.memberName ||
+    !Buffer.isBuffer(members[0].bytes) ||
+    metadata.id !== expected.artifactId ||
+    metadata.name !== expected.artifactName ||
+    metadata.expired !== false ||
+    metadata.digest !== `sha256:${sha256(archiveBytes)}` ||
+    !object(metadata.workflow_run) ||
+    metadata.workflow_run.id !== expected.workflowRunId ||
+    metadata.workflow_run.head_sha !== expected.workflowHeadSha ||
+    !object(bindings) ||
+    bindings.workflowPath !== expected.workflowPath ||
+    bindings.workflowSha !== expected.workflowSha ||
+    bindings.workflowHeadTree !== expected.workflowHeadTree ||
+    bindings.subjectSha !== expected.subjectSha ||
+    bindings.subjectTree !== expected.subjectTree ||
+    canonicalize(parseRawVertexJson(members[0].bytes)) !== canonicalize(payload)
+  )
+    fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+}
+
+export async function verifyCandidateArtifactV4(value) {
+  try {
+    validateCandidateArtifactShape(value);
+    return value.payload;
+  } catch {
+    fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+  }
+}
+
+function validateCanonicalReportV4(report) {
+  exact(report, [
+    "reportSchemaVersion",
+    "datasetVersion",
+    "corpusSampleCount",
+    "releaseScannedPdfSampleCount",
+    "routingSafetySampleCount",
+    "futureImageSampleCount",
+    "baseline",
+    "candidate",
+    "thresholds",
+    "metrics",
+    "perCase",
+    "regressions",
+    "routingCases",
+    "safetyProbes",
+    "fallbackSafety",
+    "liveEvidenceGaps",
+    "functionalStatus",
+    "releaseStatus",
+  ]);
+  if (
+    report.reportSchemaVersion !== 4 ||
+    report.datasetVersion !== "ocr-synth-v1-direct-pdf-vertex-v3" ||
+    report.corpusSampleCount !== 52 ||
+    report.releaseScannedPdfSampleCount !== 18 ||
+    report.routingSafetySampleCount !== 10 ||
+    report.futureImageSampleCount !== 12 ||
+    !object(report.baseline) ||
+    report.baseline.behavior !== "OCR_REQUIRED" ||
+    report.baseline.sampleCount !== 18 ||
+    !object(report.candidate) ||
+    report.candidate.evidenceClass !== "LIVE" ||
+    !Array.isArray(report.perCase) ||
+    report.perCase.length !== 18 ||
+    !Array.isArray(report.routingCases) ||
+    report.routingCases.length !== 10 ||
+    !Array.isArray(report.safetyProbes) ||
+    report.safetyProbes.length !== 35 ||
+    !Array.isArray(report.regressions) ||
+    !Array.isArray(report.liveEvidenceGaps)
+  )
+    fail("REPORT_V4_SCHEMA_INVALID");
+}
+
+function validateCanonicalRawCandidate(rawCase, index, issues) {
+  if (!object(rawCase)) fail("RAW_VERTEX_RESPONSE_SCHEMA_INVALID");
+  const countTokensBytes = exactRawVertexBytes(
+    rawCase.countTokens,
+    "RAW_VERTEX_RESPONSE_BYTES_MISSING",
+  );
+  const generationBytes = exactRawVertexBytes(
+    rawCase.generation,
+    "RAW_VERTEX_RESPONSE_BYTES_MISSING",
+  );
+  const countTokens = parseRawVertexJson(countTokensBytes);
+  const generation = parseRawVertexJson(generationBytes);
+  if (
+    !object(countTokens) ||
+    !Number.isSafeInteger(countTokens.totalTokens) ||
+    Reflect.ownKeys(countTokens).length !== 1 ||
+    !object(generation) ||
+    !exact(
+      generation,
+      ["responseId", "modelVersion", "candidates", "usageMetadata"],
+      "RAW_VERTEX_RESPONSE_SCHEMA_INVALID",
+    ) ||
+    !nonempty(generation.responseId, "RAW_VERTEX_RESPONSE_SCHEMA_INVALID") ||
+    !nonempty(generation.modelVersion, "RAW_VERTEX_RESPONSE_SCHEMA_INVALID") ||
+    !Array.isArray(generation.candidates) ||
+    generation.candidates.length !== 1 ||
+    !object(generation.candidates[0]) ||
+    !object(generation.candidates[0].content) ||
+    !Array.isArray(generation.candidates[0].content.parts) ||
+    generation.candidates[0].content.parts.length !== 1 ||
+    !object(generation.candidates[0].content.parts[0]) ||
+    typeof generation.candidates[0].content.parts[0].text !== "string" ||
+    !object(generation.usageMetadata)
+  )
+    fail("RAW_VERTEX_RESPONSE_SCHEMA_INVALID");
+  const usage = generation.usageMetadata;
+  if (
+    !Number.isSafeInteger(usage.promptTokenCount) ||
+    !Number.isSafeInteger(usage.candidatesTokenCount) ||
+    !Number.isSafeInteger(usage.totalTokenCount) ||
+    usage.totalTokenCount !==
+      usage.promptTokenCount + usage.candidatesTokenCount
+  )
+    fail("RAW_VERTEX_RESPONSE_SCHEMA_INVALID");
+  const generationClaim = rawCase.generation;
+  if (
+    (Object.hasOwn(generationClaim, "responseId") &&
+      generationClaim.responseId !== generation.responseId) ||
+    (Object.hasOwn(generationClaim, "modelVersion") &&
+      generationClaim.modelVersion !== generation.modelVersion) ||
+    (Object.hasOwn(generationClaim, "usage") &&
+      (!object(generationClaim.usage) ||
+        generationClaim.usage.promptTokenCount !== usage.promptTokenCount ||
+        generationClaim.usage.candidatesTokenCount !==
+          usage.candidatesTokenCount ||
+        generationClaim.usage.totalTokenCount !== usage.totalTokenCount))
+  )
+    fail("RAW_VERTEX_RESPONSE_BINDING_INVALID");
+  let providerPayload;
+  try {
+    providerPayload = parseStrictJson(
+      generation.candidates[0].content.parts[0].text,
+    );
+  } catch {
+    fail("RAW_VERTEX_RESPONSE_SCHEMA_INVALID");
+  }
+  if (
+    !object(providerPayload) ||
+    !Array.isArray(providerPayload.candidates) ||
+    providerPayload.candidates.length !== 1 ||
+    !object(providerPayload.candidates[0])
+  )
+    fail("RAW_VERTEX_RESPONSE_SCHEMA_INVALID");
+  if (providerPayload.candidates[0].amountCents !== String(index + 1))
+    add(issues, "MONEY_MISMATCH");
+}
+
+export async function assessCanonicalReport(input) {
+  if (!object(input)) fail("REPORT_V4_SCHEMA_INVALID");
+  if (input.evidenceClass === "TEST_ONLY") {
+    return Object.freeze({
+      reportSchemaVersion: 4,
+      releaseStatus: "GAPS",
+      signable: false,
+      issues: [
+        "LIVE_PROVIDER_RUN_NOT_SUPPLIED",
+        "MISSING_BASELINE_EXECUTION",
+        "MISSING_LIVE_CANDIDATE_EXECUTION",
+        "MISSING_RAW_VERTEX_RESPONSE_BYTES",
+        "MISSING_LIVE_ATTEMPT_LEDGER",
+        "MISSING_LIVE_BOUNDARY_OBSERVATIONS",
+      ],
+      bindings: {
+        rawEvidenceSha256: sha256(
+          Buffer.from(canonicalize(input.rawEvidence ?? null)),
+        ),
+        reportSha256: sha256(Buffer.from(canonicalize(input.report ?? null))),
+        reportSchemaSha256: sha256(
+          await readFile(
+            resolve(import.meta.dirname, "../..", CANONICAL_REPORT_SCHEMA),
+          ),
+        ),
+      },
+    });
+  }
+  const issues = new Set();
+  try {
+    validateCanonicalReportV4(input.report);
+    if (
+      input.evidenceClass !== "LIVE" ||
+      input.rawEvidence?.evidenceClass !== "LIVE" ||
+      input.rawEvidence?.datasetVersion !== input.report.datasetVersion ||
+      !Array.isArray(input.rawEvidence?.cases) ||
+      input.rawEvidence.cases.length !== 18
+    )
+      fail("RAW_VERTEX_RESPONSE_SCHEMA_INVALID");
+    if (
+      input.baselineArtifact?.verified !== true ||
+      !Array.isArray(input.baselineArtifact.records) ||
+      canonicalize(input.baselineArtifact.records) !==
+        canonicalize(CANONICAL_CASE_IDS) ||
+      input.boundaryObservations?.verified !== true ||
+      input.boundaryObservations.count !== 45 ||
+      input.attemptLedger?.verified !== true ||
+      input.attemptLedger.runAttempt !== 1
+    )
+      fail("LIVE_EVIDENCE_BINDING_INVALID");
+    const candidatePayload = await verifyCandidateArtifactV4(
+      input.candidateArtifact,
+    );
+    input.rawEvidence.cases.forEach((rawCase, index) =>
+      validateCanonicalRawCandidate(rawCase, index, issues),
+    );
+    if (canonicalize(candidatePayload) !== canonicalize(input.rawEvidence))
+      add(issues, "CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+    if (issues.size > 0) add(issues, "REPORT_V4_DERIVATION_MISMATCH");
+    else if (
+      input.report.functionalStatus !== "PASS" ||
+      input.report.releaseStatus !== "PASS" ||
+      input.report.liveEvidenceGaps.length !== 0 ||
+      input.report.regressions.length !== 0 ||
+      input.report.perCase.some(
+        (item, index) =>
+          !object(item) ||
+          item.caseId !== CANONICAL_CASE_IDS[index] ||
+          item.pass !== true ||
+          !Array.isArray(item.issues) ||
+          item.issues.length !== 0,
+      )
+    )
+      add(issues, "REPORT_V4_DERIVATION_MISMATCH");
+  } catch (error) {
+    add(
+      issues,
+      error instanceof Error && /^[A-Z][A-Z0-9_]+$/.test(error.message)
+        ? error.message
+        : "REPORT_V4_SCHEMA_INVALID",
+    );
+  }
+  const result = canonicalAuthorityAssessment(
+    input.report,
+    input.rawEvidence,
+    issues,
+  );
+  return Object.freeze({
+    ...result,
+    bindings: Object.freeze({
+      ...result.bindings,
+      reportSchemaSha256: sha256(
+        await readFile(
+          resolve(import.meta.dirname, "../..", CANONICAL_REPORT_SCHEMA),
+        ),
+      ),
+    }),
   });
 }
 
@@ -840,13 +1161,18 @@ if (invoked) {
     );
     const options = { assessmentOnly: mode === "--assessment" };
     const value =
-      input.mode === "BUNDLE"
-        ? buildUnsignedPayloadFromBundle(input, options)
-        : await buildUnsignedPayload(
-            input,
-            resolve(root ?? process.cwd()),
-            options,
-          );
+      object(input) &&
+      Object.hasOwn(input, "evidenceClass") &&
+      Object.hasOwn(input, "report") &&
+      Object.hasOwn(input, "rawEvidence")
+        ? await assessCanonicalReport(input)
+        : input.mode === "BUNDLE"
+          ? buildUnsignedPayloadFromBundle(input, options)
+          : await buildUnsignedPayload(
+              input,
+              resolve(root ?? process.cwd()),
+              options,
+            );
     process.stdout.write(canonicalize(value));
   } catch (error) {
     const code =

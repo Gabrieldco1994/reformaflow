@@ -22,6 +22,8 @@ const FILES = [
   "deploy/ocr/required-reviews.json",
   "deploy/ocr/review.schema.json",
   "apps/api/src/imports/import-session/ocr/ocr-release-trust.json",
+  "apps/api/src/imports/ocr-synth-v1/capture-live.ts",
+  "apps/api/src/imports/ocr-synth-v1/capture-live-file.ts",
   "deploy/ocr/external-producer-contracts.json",
   "deploy/ocr/external-producer-gate.mjs",
   "scripts/ci/ocr-attestation.mjs",

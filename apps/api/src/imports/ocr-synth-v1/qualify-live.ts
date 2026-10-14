@@ -6,6 +6,7 @@ import { parseLiveEvidenceJson } from "./live-evidence-parser";
 import {
   assertQualityRepositorySnapshot,
   attestQualityClosure,
+  createQualityClosureVerifier,
   issueVerifiedQualityClosureToken,
   withQualityCaptureLock,
 } from "./quality-closure-attestation";
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
       input,
       rerun.closure,
       rerun.policy,
+      { verifier: createQualityClosureVerifier() },
     );
     const report = await evaluateOcrSynth(input, token);
     assertReleaseQualified(report);

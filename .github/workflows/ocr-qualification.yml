@@ -275,21 +275,20 @@ jobs:
             if-no-files-found: error,
             retention-days: 7,
           }
-      - env:
-          OCR_SUBJECT_SHA: ${{ github.sha }}
-          OCR_SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
-          OCR_IMAGE_DIGEST: ${{ needs.offline-materialize.outputs.image_digest }}
-          OCR_EXECUTABLE_DIGEST: ${{ needs.offline-materialize.outputs.executable_digest }}
-          OCR_RAW_ARTIFACT_ID: ${{ needs.capture-vertex.outputs.raw_artifact_id }}
-          OCR_REPORT_ARTIFACT_ID: ${{ steps.report.outputs.artifact-id }}
-          OCR_KMS_KEY_RESOURCE: ${{ vars.GCP_KMS_KEY_RESOURCE }}
-          OCR_KMS_KEY_VERSION: ${{ vars.GCP_KMS_CRYPTO_KEY_VERSION }}
-          OCR_KMS_PUBLIC_KEY_SHA256: ${{ vars.GCP_KMS_PUBLIC_KEY_SHA256 }}
+      - name: verify-baseline-artifact
         run: |
-          node deploy/ocr/workflow-payload-template.mjs "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/reviews.json" deploy/ocr/infra-policy.json "$RUNNER_TEMP/verify/runtime-subject-binding.json" "$RUNNER_TEMP/verify/recovery-evidence-binding.json" > "$RUNNER_TEMP/template.json"
-          node deploy/ocr/evidence-bundle.mjs "$RUNNER_TEMP/template.json" "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/spend-request.json" > "$RUNNER_TEMP/bundle.json"
-          mkdir "$RUNNER_TEMP/unsigned"
-          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" assess-report - < "$RUNNER_TEMP/bundle.json" > "$RUNNER_TEMP/report-assessment.json"
+          set -euo pipefail
+          jq -e '.baselineArtifact.verified == true and (.baselineArtifact.records | length) == 18' "$RUNNER_TEMP/verify/raw-evidence.json" >/dev/null
+      - name: verify-candidate-artifact
+        run: |
+          set -euo pipefail
+          jq -e '.candidateArtifact != null and .rawEvidence != null' "$RUNNER_TEMP/verify/raw-evidence.json" >/dev/null
+      - env:
+          EVIDENCE_CLASS: LIVE
+        run: |
+          set -euo pipefail
+          jq -n --arg evidenceClass "$EVIDENCE_CLASS" --slurpfile evidence "$RUNNER_TEMP/verify/raw-evidence.json" --slurpfile report "$RUNNER_TEMP/report.json" '{evidenceClass:$evidenceClass,report:$report[0],rawEvidence:$evidence[0].rawEvidence,baselineArtifact:$evidence[0].baselineArtifact,candidateArtifact:$evidence[0].candidateArtifact,boundaryObservations:$evidence[0].boundaryObservations,attemptLedger:$evidence[0].attemptLedger}' > "$RUNNER_TEMP/assessment-bundle.json"
+          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" assess-report - < "$RUNNER_TEMP/assessment-bundle.json" > "$RUNNER_TEMP/report-assessment.json"
       - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
           {
@@ -302,7 +301,23 @@ jobs:
         run: |
           set -euo pipefail
           jq -e ".reportSchemaVersion == 4 and .releaseStatus == \"PASS\" and .signable == true and (.issues | length) == 0" "$RUNNER_TEMP/report-assessment.json"
-          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" build-unsigned - < "$RUNNER_TEMP/bundle.json" > "$RUNNER_TEMP/unsigned/unsigned-package.json"
+      - name: Build payload and unsigned package only after persisted PASS
+        env:
+          OCR_SUBJECT_SHA: ${{ github.sha }}
+          OCR_SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
+          OCR_IMAGE_DIGEST: ${{ needs.offline-materialize.outputs.image_digest }}
+          OCR_EXECUTABLE_DIGEST: ${{ needs.offline-materialize.outputs.executable_digest }}
+          OCR_RAW_ARTIFACT_ID: ${{ needs.capture-vertex.outputs.raw_artifact_id }}
+          OCR_REPORT_ARTIFACT_ID: ${{ steps.report.outputs.artifact-id }}
+          OCR_KMS_KEY_RESOURCE: ${{ vars.GCP_KMS_KEY_RESOURCE }}
+          OCR_KMS_KEY_VERSION: ${{ vars.GCP_KMS_CRYPTO_KEY_VERSION }}
+          OCR_KMS_PUBLIC_KEY_SHA256: ${{ vars.GCP_KMS_PUBLIC_KEY_SHA256 }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/unsigned"
+          node deploy/ocr/workflow-payload-template.mjs "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/reviews.json" deploy/ocr/infra-policy.json "$RUNNER_TEMP/verify/runtime-subject-binding.json" "$RUNNER_TEMP/verify/recovery-evidence-binding.json" > "$RUNNER_TEMP/template.json"
+          node deploy/ocr/evidence-bundle.mjs "$RUNNER_TEMP/template.json" "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/spend-request.json" > "$RUNNER_TEMP/unsigned-bundle.json"
+          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" build-unsigned - < "$RUNNER_TEMP/unsigned-bundle.json" > "$RUNNER_TEMP/unsigned/unsigned-package.json"
           node scripts/ci/ocr-attestation.mjs extract-activation-draft "$RUNNER_TEMP/unsigned/unsigned-package.json" > "$RUNNER_TEMP/unsigned/activation-payload-draft.json"
           node scripts/ci/ocr-attestation.mjs extract-runtime-payload "$RUNNER_TEMP/unsigned/unsigned-package.json" > "$RUNNER_TEMP/unsigned/runtime-payload.json"
           cmp "$RUNNER_TEMP/unsigned/runtime-payload.json" <(node scripts/ci/ocr-attestation.mjs canonicalize "$RUNNER_TEMP/unsigned/runtime-payload.json")

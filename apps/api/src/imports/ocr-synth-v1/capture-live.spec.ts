@@ -506,6 +506,7 @@ describe("audited synthetic Vertex capture", () => {
     expect(report.functionalStatus).toBe("PASS");
     expect(report.releaseStatus).toBe("GAPS");
     expect(report.liveEvidenceGaps).toEqual([
+      "QUALITY_CLOSURE_NOT_VERIFIED",
       "VERIFIED_BASELINE_EXECUTION_MISSING",
     ]);
   });
@@ -1916,7 +1917,7 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
   );
 
   describe("protected live-capture executable boundary", () => {
-    it("local capture CLI is a fail-closed stub before attestation, auth, provider, output, or network", async () => {
+    it("import is side-effect free before attestation, auth, provider, output, or network", async () => {
       jest.resetModules();
       const attest = jest.fn();
       const providerFactory = jest.fn();
@@ -1951,21 +1952,21 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
         "capture-live.ts",
         "/tmp/never-written.json",
       ];
-      let complete!: (message: string) => void;
-      const completed = new Promise<string>((resolve) => {
-        complete = resolve;
-      });
       const stderr = jest
         .spyOn(process.stderr, "write")
-        .mockImplementation((chunk) => {
-          complete(String(chunk));
-          return true;
-        });
+        .mockImplementation(() => true);
       try {
-        jest.isolateModules(() => require("./capture-live"));
-        await expect(completed).resolves.toBe(
-          "LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE\n",
+        let imported: unknown;
+        jest.isolateModules(() => {
+          imported = require("./capture-live");
+        });
+        await Promise.resolve();
+        expect(imported).toEqual(
+          expect.objectContaining({
+            runProtectedLiveCapture: expect.any(Function),
+          }),
         );
+        expect(stderr).not.toHaveBeenCalled();
         expect(outputPolicy).not.toHaveBeenCalled();
         expect(attest).not.toHaveBeenCalled();
         expect(providerFactory).not.toHaveBeenCalled();

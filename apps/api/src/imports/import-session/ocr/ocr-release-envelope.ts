@@ -26,7 +26,7 @@ interface ParsedEnvelope {
   }>;
 }
 
-interface TrustKey {
+export interface OcrTrustedSignatureKey {
   readonly keyId: string;
   readonly algorithm: string;
   readonly publicKeyPem: string;
@@ -34,6 +34,14 @@ interface TrustKey {
   readonly notBefore?: string;
   readonly notAfter?: string;
   readonly allowedWorkflowSha?: string;
+}
+
+export interface OcrTrustedSignatureRuntime {
+  readonly now: Date;
+  /** Test seam. Production omits this and consumes the compiled trust source. */
+  readonly embeddedTrustBundle?: Readonly<{
+    keys: readonly OcrTrustedSignatureKey[];
+  }>;
 }
 
 interface VerificationRuntime {
@@ -47,7 +55,9 @@ interface VerificationRuntime {
   readonly allowedWorkflowShas: readonly string[];
   readonly now: Date;
   /** Test seam. Production omits this and consumes the compiled trust source. */
-  readonly embeddedTrustBundle?: Readonly<{ keys: readonly TrustKey[] }>;
+  readonly embeddedTrustBundle?: Readonly<{
+    keys: readonly OcrTrustedSignatureKey[];
+  }>;
 }
 
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -109,18 +119,22 @@ export function parseOcrReleaseEnvelope(raw: string): ParsedEnvelope {
   });
 }
 
-function trustKeys(runtime: VerificationRuntime): readonly TrustKey[] {
+function trustKeys(
+  runtime: OcrTrustedSignatureRuntime,
+): readonly OcrTrustedSignatureKey[] {
   if (runtime.embeddedTrustBundle) return runtime.embeddedTrustBundle.keys;
   const source = trustSource as Readonly<{
     schemaVersion: number;
-    keys: readonly TrustKey[];
+    keys: readonly OcrTrustedSignatureKey[];
   }>;
   return source.schemaVersion === 1 && Array.isArray(source.keys)
     ? source.keys
     : [];
 }
 
-function requireP256(key: TrustKey): ReturnType<typeof createPublicKey> {
+function requireP256(
+  key: OcrTrustedSignatureKey,
+): ReturnType<typeof createPublicKey> {
   const publicKey = (() => {
     try {
       return createPublicKey(key.publicKeyPem);
@@ -151,6 +165,53 @@ function requireDerSignature(bytes: Buffer): void {
     bytes[1] !== bytes.length - 2
   )
     fail("OCR_ATTESTATION_SIGNATURE_INVALID");
+}
+
+/**
+ * Verifies detached bytes only against the compiled OCR trust bundle.
+ * Callers supply the signed bytes, never a public key.
+ */
+export function verifyTrustedOcrP256Signature(
+  input: Readonly<{
+    keyId: string;
+    payloadBytes: Buffer;
+    signatureBase64: string;
+  }>,
+  runtime: OcrTrustedSignatureRuntime = { now: new Date() },
+): true {
+  if (
+    typeof input.keyId !== "string" ||
+    input.keyId.length === 0 ||
+    !Buffer.isBuffer(input.payloadBytes) ||
+    input.payloadBytes.length === 0
+  )
+    fail("OCR_ATTESTATION_SCHEMA_INVALID");
+  const trustedKey = trustKeys(runtime).find(
+    (candidate) =>
+      candidate.keyId === input.keyId && candidate.algorithm === ALGORITHM,
+  );
+  if (!trustedKey) fail("OCR_ATTESTATION_KEY_NOT_ALLOWED");
+  const admittedKey = trustedKey as OcrTrustedSignatureKey;
+  if (
+    (admittedKey.notBefore && runtime.now < new Date(admittedKey.notBefore)) ||
+    (admittedKey.notAfter && runtime.now > new Date(admittedKey.notAfter))
+  )
+    fail("OCR_ATTESTATION_KEY_NOT_ALLOWED");
+  const signature = decodeBase64(
+    input.signatureBase64,
+    "OCR_ATTESTATION_SIGNATURE_INVALID",
+  );
+  requireDerSignature(signature);
+  if (
+    !verifySignature(
+      "sha256",
+      input.payloadBytes,
+      requireP256(admittedKey),
+      signature,
+    )
+  )
+    fail("OCR_ATTESTATION_SIGNATURE_INVALID");
+  return true;
 }
 
 function parsePayload(bytes: Buffer): Record<string, unknown> {
@@ -296,7 +357,7 @@ export function verifyOcrReleaseEnvelope(
       candidate.algorithm === ALGORITHM,
   );
   if (!key) fail("OCR_ATTESTATION_KEY_NOT_ALLOWED");
-  const trustedKey = key as TrustKey;
+  const trustedKey = key as OcrTrustedSignatureKey;
   const now = runtime.now;
   if (
     (trustedKey.notBefore && now < new Date(trustedKey.notBefore)) ||

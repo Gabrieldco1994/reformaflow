@@ -33,7 +33,7 @@ import {
   isVerifiedQualityClosureToken,
   type VerifiedQualityClosureToken,
 } from "./quality-closure-attestation";
-import { isVerifiedLiveEvidence } from "./live-evidence-parser";
+import { isStructurallyValidatedLiveEvidence } from "./live-evidence-parser";
 import type { OcrQualityClosure } from "./types";
 
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
@@ -842,8 +842,9 @@ export async function evaluateOcrSynth(
   input: OcrEvalInput,
   verifiedQualityClosure?: VerifiedQualityClosureToken,
 ): Promise<OcrEvalReport> {
-  const verifiedLiveEvidence = isVerifiedLiveEvidence(input);
-  const mechanicalObservations = verifiedLiveEvidence
+  const structurallyValidatedLiveEvidence =
+    isStructurallyValidatedLiveEvidence(input);
+  const mechanicalObservations = structurallyValidatedLiveEvidence
     ? (input.qualityClosure as OcrQualityClosure).tests
     : [];
   const mechanicalObservationNames = new Set(
@@ -908,7 +909,7 @@ export async function evaluateOcrSynth(
       prediction,
       counters,
       issues,
-      verifiedLiveEvidence,
+      structurallyValidatedLiveEvidence,
     );
     if (!prediction.schemaValid) issues.push("SCHEMA_INVALID");
     if (input.run.mode === "LIVE_CAPTURE")
@@ -929,7 +930,7 @@ export async function evaluateOcrSynth(
   const routeObservationNames = mechanicalObservations
     .filter(({ name }) => name.startsWith("[ROUTE] "))
     .map(({ name }) => name.slice("[ROUTE] ".length));
-  const routingStructuralIssues = verifiedLiveEvidence
+  const routingStructuralIssues = structurallyValidatedLiveEvidence
     ? routeObservationNames.length -
       new Set(routeObservationNames).size +
       routeObservationNames.filter((id) => !routingExpectedIds.has(id)).length
@@ -940,7 +941,7 @@ export async function evaluateOcrSynth(
   const routingCases: OcrEvalReport["routingCases"] = [];
   for (const testCase of OCR_SYNTH_ROUTING_CASES) {
     const issues: string[] = [];
-    if (verifiedLiveEvidence) {
+    if (structurallyValidatedLiveEvidence) {
       if (!mechanicalObservationNames.has(`[ROUTE] ${testCase.id}`))
         issues.push("MISSING_ROUTING_CASE");
       routingCases.push({
@@ -1001,7 +1002,7 @@ export async function evaluateOcrSynth(
 
   const probesById = new Map(safetyEvidence.map((probe) => [probe.id, probe]));
   const safetyProbes = SAFETY_PROBE_IDS.map((id) => {
-    if (verifiedLiveEvidence) {
+    if (structurallyValidatedLiveEvidence) {
       const issues = mechanicalObservationNames.has(`[PROBE] ${id}`)
         ? []
         : ["MISSING_SAFETY_PROBE"];
@@ -1033,7 +1034,7 @@ export async function evaluateOcrSynth(
   const probeObservationNames = mechanicalObservations
     .filter(({ name }) => name.startsWith("[PROBE] "))
     .map(({ name }) => name.slice("[PROBE] ".length));
-  const probeStructureIssues = verifiedLiveEvidence
+  const probeStructureIssues = structurallyValidatedLiveEvidence
     ? probeObservationNames.length -
       new Set(probeObservationNames).size +
       probeObservationNames.filter((id) => !SAFETY_PROBE_IDS.includes(id))
@@ -1132,9 +1133,8 @@ export async function evaluateOcrSynth(
   const closureVerified =
     input.run.mode !== "LIVE_CAPTURE"
       ? false
-      : verifiedLiveEvidence ||
-        (await isVerifiedQualityClosureToken(verifiedQualityClosure, input));
-  const qualityClosure = verifiedLiveEvidence
+      : await isVerifiedQualityClosureToken(verifiedQualityClosure, input);
+  const qualityClosure = structurallyValidatedLiveEvidence
     ? (input.qualityClosure as OcrQualityClosure)
     : isCanonicalQualityClosure(input.qualityClosure)
       ? input.qualityClosure
@@ -1322,7 +1322,7 @@ export async function evaluateOcrSynth(
     gaps.push("COST_LIMIT_NOT_MET");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    !verifiedLiveEvidence &&
+    !structurallyValidatedLiveEvidence &&
     safetyEvidence.some(
       (probe) =>
         probe.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED",
@@ -1331,7 +1331,7 @@ export async function evaluateOcrSynth(
     gaps.push("SAFETY_PROBES_NOT_FROM_REAL_SERVICE_SEAM");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    !verifiedLiveEvidence &&
+    !structurallyValidatedLiveEvidence &&
     routingEvidence.some(
       (route) =>
         route.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED",
@@ -1340,7 +1340,7 @@ export async function evaluateOcrSynth(
     gaps.push("ROUTING_CASES_NOT_FROM_REAL_SERVICE_SEAM");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    !verifiedLiveEvidence &&
+    !structurallyValidatedLiveEvidence &&
     [...safetyEvidence, ...routingEvidence].some(
       (item) => !/^apps\/api\/src\/imports\/.+\.spec\.ts$/.test(item.testFile),
     )
@@ -1351,7 +1351,7 @@ export async function evaluateOcrSynth(
   );
   if (
     input.run.mode === "LIVE_CAPTURE" &&
-    (verifiedLiveEvidence
+    (structurallyValidatedLiveEvidence
       ? REAL_SERVICE_CONTEXT_PROBE_IDS.some(
           (id) => !mechanicalObservationNames.has(`[PROBE] ${id}`),
         )

@@ -20,6 +20,14 @@ export interface ProtectedLiveCaptureDependencies {
   readonly verifyRepository: () => Promise<void>;
 }
 
+export interface ProtectedWifLiveCaptureDependencies {
+  readonly authMode: "GITHUB_OIDC_WIF";
+  readonly projectId: string;
+}
+
+const WIF_OUTPUT_PATH = "/run/ocr/raw-evidence.json";
+const WIF_LOCK_PATH = "/run/ocr/live-capture.lock";
+
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -43,6 +51,7 @@ export async function runProtectedLiveCapture(input: unknown): Promise<void> {
   ) {
     return failClosed(CREDENTIALS_MISSING);
   }
+
   if ((credentials as Record<PropertyKey, unknown>)[PROTECTED_CONTEXT] !== true)
     return failClosed(PROTECTED_CONTEXT_UNAVAILABLE);
   if (
@@ -64,16 +73,47 @@ export async function runProtectedLiveCapture(input: unknown): Promise<void> {
   );
 }
 
+/**
+ * Existing WIF adapter seam. Only this boundary can construct the module-local
+ * context consumed by the generic runner; direct/local callers remain blocked.
+ */
+export async function runProtectedWifLiveCapture(
+  input: ProtectedWifLiveCaptureDependencies,
+): Promise<void> {
+  if (
+    !object(input) ||
+    input.authMode !== "GITHUB_OIDC_WIF" ||
+    typeof input.projectId !== "string" ||
+    input.projectId.length === 0
+  )
+    return failClosed(CREDENTIALS_MISSING);
+  return runProtectedLiveCapture({
+    outputPath: WIF_OUTPUT_PATH,
+    lockPath: WIF_LOCK_PATH,
+    credentials: {
+      projectId: input.projectId,
+      serviceAccountPath: "GITHUB_OIDC_WIF_INHERITED_TOKEN",
+      [PROTECTED_CONTEXT]: true,
+    },
+    captureEvidence: async () =>
+      failClosed("LIVE_CAPTURE_PROTECTED_DEPENDENCIES_MISSING"),
+    verifyRepository: async () =>
+      failClosed("LIVE_CAPTURE_PROTECTED_DEPENDENCIES_MISSING"),
+  });
+}
+
 async function main(): Promise<void> {
   throw new Error("LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE");
 }
 
-void main().catch((error: unknown) => {
-  const code =
-    error instanceof Error &&
-    /^(?:LIVE_CAPTURE|QUALITY)_[A-Z_]+$/.test(error.message)
-      ? error.message
-      : "LIVE_CAPTURE_FAILED";
-  process.stderr.write(`${code}\n`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void main().catch((error: unknown) => {
+    const code =
+      error instanceof Error &&
+      /^(?:LIVE_CAPTURE|QUALITY)_[A-Z_]+$/.test(error.message)
+        ? error.message
+        : "LIVE_CAPTURE_FAILED";
+    process.stderr.write(`${code}\n`);
+    process.exitCode = 1;
+  });
+}

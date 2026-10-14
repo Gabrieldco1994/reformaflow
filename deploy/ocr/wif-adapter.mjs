@@ -84,9 +84,16 @@ async function main() {
     const token = await readToken();
     if (!token) fail("WIF_TOKEN_INVALID");
     await assertSpendReservation(reservation, RESERVATION);
-    // The repository-only SRE slice deliberately has no product/provider adapter.
-    // A reviewed application executable must consume the token through an inherited
-    // descriptor and emit strict raw evidence before this gate can become live.
+    const projectId = process.env.OCR_GCP_PROJECT_ID?.trim();
+    if (!projectId) fail("OCR_CAPTURE_WIF_EXECUTABLE_NOT_AVAILABLE");
+    const captureModule =
+      await import("../../apps/api/dist/imports/ocr-synth-v1/capture-live.js");
+    if (typeof captureModule.runProtectedWifLiveCapture !== "function")
+      fail("OCR_CAPTURE_WIF_EXECUTABLE_NOT_AVAILABLE");
+    await captureModule.runProtectedWifLiveCapture({
+      authMode: "GITHUB_OIDC_WIF",
+      projectId,
+    });
     fail("OCR_CAPTURE_WIF_EXECUTABLE_NOT_AVAILABLE");
   } finally {
     await reservation.handle.close().catch(() => undefined);

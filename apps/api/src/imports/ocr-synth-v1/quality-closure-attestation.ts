@@ -34,6 +34,7 @@ import type {
   OcrQualityClosureTestEvidence,
   OcrRepositorySnapshot,
 } from "./types";
+import { verifyTrustedOcrP256Signature } from "../import-session/ocr/ocr-release-envelope";
 import type { OcrEvalInput } from "./evaluator";
 
 const REPOSITORY_ROOT = resolve(__dirname, "../../../../..");
@@ -173,6 +174,38 @@ export interface QualityClosureVerifier {
       signature: string;
     }>,
   ): boolean;
+}
+
+const QUALITY_CLOSURE_SIGNATURE_KIND =
+  "REFORMAFLOW_OCR_QUALITY_CLOSURE" as const;
+
+/** Production verifier: detached P-256 signature over domain-separated canonical bytes. */
+export function createQualityClosureVerifier(): QualityClosureVerifier {
+  return Object.freeze({
+    verify(input: Parameters<QualityClosureVerifier["verify"]>[0]): boolean {
+      if (
+        !SHA_PATTERN.test(input.candidateSha) ||
+        !HASH_PATTERN.test(input.evidenceSha256)
+      )
+        return false;
+      try {
+        return verifyTrustedOcrP256Signature({
+          keyId: input.keyId,
+          payloadBytes: Buffer.from(
+            canonicalJson({
+              kind: QUALITY_CLOSURE_SIGNATURE_KIND,
+              candidateSha: input.candidateSha,
+              evidenceSha256: input.evidenceSha256,
+            }),
+            "utf8",
+          ),
+          signatureBase64: input.signature,
+        });
+      } catch {
+        return false;
+      }
+    },
+  });
 }
 
 export interface VerifiedQualityClosureToken {
