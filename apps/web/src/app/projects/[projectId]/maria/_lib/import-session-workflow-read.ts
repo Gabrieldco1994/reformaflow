@@ -901,6 +901,14 @@ export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
   const draftQuestionLimit =
     L.editableLines * IMPORT_DRAFT_QUESTION_FIELDS.length;
   const documentaryFieldLimit = L.editableLines * L.observationsPerLine * 6;
+  const capabilityValue =
+    isRecord(value) &&
+    isRecord(value.ocrCapability) &&
+    !Object.hasOwn(value.ocrCapability, "terminalOutcomes")
+      ? { ...value.ocrCapability, terminalOutcomes: [] }
+      : isRecord(value)
+        ? value.ocrCapability
+        : null;
   if (
     !isRecord(value) ||
     !exact(value, [
@@ -940,7 +948,7 @@ export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
     !distinct(value.lines.map((l) => l.id)) ||
     !ids(value.selectedLineIds, 0, L.selectedLines) ||
     !isImportReviewBlockers(value.reviewBlockers) ||
-    !ocrCapability(value.ocrCapability) ||
+    !ocrCapability(capabilityValue) ||
     !every(
       value.questions,
       isImportQuestion,
@@ -983,13 +991,8 @@ export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
     })
   )
     return invalid();
-  const {
-    lines,
-    selectedLineIds,
-    questions,
-    attachments,
-    ocrCapability: capability,
-  } = value;
+  const { lines, selectedLineIds, questions, attachments } = value;
+  const capability = capabilityValue;
   const selected = lines.filter((line) => selectedLineIds.includes(line.id));
   if (
     capability.attachments.some((candidate) =>
@@ -1100,7 +1103,7 @@ export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
     questions,
     declaredFacts: value.declaredFacts,
     reviewBlockers: value.reviewBlockers,
-    ocrCapability: value.ocrCapability,
+    ocrCapability: capability,
     searchComplete: value.searchComplete,
     proposal: p,
     confirmation: c,

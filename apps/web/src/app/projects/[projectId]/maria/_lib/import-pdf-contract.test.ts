@@ -6,6 +6,7 @@ import {
   classifyImportFailure,
   describeImportFailure,
   isImportSessionErrorBody,
+  isPdfDocumentErrorCode,
 } from "./import-session-errors";
 
 describe("textual PDF capability contract", () => {
@@ -153,6 +154,26 @@ describe("textual PDF capability contract", () => {
     );
     expect(isImportSessionErrorBody({ ...body, code: "OCR_RETRY" })).toBe(
       false,
+    );
+  });
+
+  it("keeps generic LIMIT_EXCEEDED outside the global PDF/OCR classification", () => {
+    const failure = classifyImportFailure(
+      new ApiResponseError("limit", 422, {
+        code: "LIMIT_EXCEEDED",
+        retryable: false,
+        sessionId: "session",
+        currentRevision: 1,
+        reason: null,
+      }),
+    );
+
+    expect(isPdfDocumentErrorCode("LIMIT_EXCEEDED")).toBe(false);
+    expect(describeImportFailure(failure, "document").message).toContain(
+      "Esta importação passou de um limite permitido.",
+    );
+    expect(describeImportFailure(failure, "document").message).not.toContain(
+      "use entrada manual, substitua o documento",
     );
   });
 });

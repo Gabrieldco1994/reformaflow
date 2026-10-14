@@ -12,7 +12,6 @@ export type PdfDocumentErrorCode =
   | "OCR_MALFORMED_RESPONSE"
   | "OCR_ATTEMPT_UNKNOWN"
   | "OCR_BUDGET_EXHAUSTED"
-  | "LIMIT_EXCEEDED"
   | "DOCUMENT_UNREADABLE"
   | "PDF_PASSWORD_REQUIRED"
   | "UNSUPPORTED_DOCUMENT";
@@ -31,7 +30,6 @@ export function isPdfDocumentErrorCode(
     value === "OCR_MALFORMED_RESPONSE" ||
     value === "OCR_ATTEMPT_UNKNOWN" ||
     value === "OCR_BUDGET_EXHAUSTED" ||
-    value === "LIMIT_EXCEEDED" ||
     value === "DOCUMENT_UNREADABLE" ||
     value === "PDF_PASSWORD_REQUIRED" ||
     value === "UNSUPPORTED_DOCUMENT"
@@ -53,6 +51,9 @@ export type ImportFailure =
   | { kind: "timeout" }
   | { kind: "malformed" }
   | { kind: "unknown" };
+
+export const OCR_LIMIT_EXCEEDED_COPY =
+  "A leitura excedeu um limite permitido e não pode continuar para este documento. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.";
 
 /** Fixed copy per wire code. The server never sends a message and none is ever rendered. */
 export const IMPORT_ERROR_COPY: Record<ImportWireErrorCode, string> = {
@@ -88,8 +89,7 @@ export const IMPORT_ERROR_COPY: Record<ImportWireErrorCode, string> = {
   REVIEW_REQUIRED:
     "Esta importação precisa de uma nova revisão antes de seguir.",
   SEARCH_TOO_BROAD: "A busca ficou ampla demais para esta importação.",
-  LIMIT_EXCEEDED:
-    "A leitura excedeu um limite permitido e não pode continuar para este documento. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+  LIMIT_EXCEEDED: "Esta importação passou de um limite permitido.",
   UNSUPPORTED_DOCUMENT: "Um dos documentos desta importação não é suportado.",
   LEASE_CONFLICT:
     "Esta importação está em uso agora. Tente de novo em instantes.",

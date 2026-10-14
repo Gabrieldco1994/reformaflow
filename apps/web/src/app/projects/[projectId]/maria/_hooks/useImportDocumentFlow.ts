@@ -22,6 +22,7 @@ import {
   describeImportFailure,
   importWorkflowFailure,
   isPdfDocumentErrorCode,
+  OCR_LIMIT_EXCEEDED_COPY,
   type ImportWireErrorCode,
 } from "../_lib/import-session-errors";
 import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-read";
@@ -234,7 +235,7 @@ export function useImportDocumentFlow(
         case "OCR_BUDGET_EXHAUSTED":
           return "OCR_BUDGET_EXHAUSTED";
         case "LIMIT_EXCEEDED":
-          return "LIMIT_EXCEEDED";
+          return attempted ? "LIMIT_EXCEEDED" : "OCR_UNAVAILABLE";
         case "DOCUMENT_UNREADABLE":
           return "DOCUMENT_UNREADABLE";
         case "PDF_PASSWORD_REQUIRED":
@@ -285,20 +286,30 @@ export function useImportDocumentFlow(
         : null;
     const failure = {
       ...described,
+      message:
+        described.code === "LIMIT_EXCEEDED" && attempted
+          ? OCR_LIMIT_EXCEEDED_COPY
+          : described.message,
       attachmentId,
       ocrKind:
         described.code === "OCR_REQUIRED" && !capabilityAttachment
           ? ("OCR_UNAVAILABLE" as const)
           : ocrFailureKind(classified, attempted),
     };
-    if (isPdfDocumentErrorCode(failure.code))
-      generation.documentBlocker = failure;
+    const terminalDocumentFailure =
+      isPdfDocumentErrorCode(failure.code) ||
+      (failure.code === "LIMIT_EXCEEDED" && attempted);
+    const terminalOcrPresentation = terminalDocumentFailure || attempted;
+    if (terminalDocumentFailure) generation.documentBlocker = failure;
     const attachment = attachmentId
       ? cachedView?.attachments.find(
           (candidate) => candidate.id === attachmentId,
         )
       : null;
-    if (attachment?.fileName.toLocaleLowerCase("en-US").endsWith(".pdf"))
+    if (
+      terminalOcrPresentation &&
+      attachment?.fileName.toLocaleLowerCase("en-US").endsWith(".pdf")
+    )
       generation.ocrPresentation = {
         attachmentId: attachment.id,
         kind: failure.ocrKind,

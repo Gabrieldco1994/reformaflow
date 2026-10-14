@@ -49,6 +49,8 @@ import {
 
 /** Authenticated UI transport; the server owns availability and actions. */
 const UI_HEADERS = { "x-rf-import-ui": "1" } as const;
+export const IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY = "terminalOutcomes";
+export const IMPORT_SESSION_TERMINAL_OUTCOMES_VERSION = "v1";
 
 export class ImportMalformedResponseError extends Error {
   constructor() {
@@ -252,7 +254,7 @@ export async function cancelImportSession(
 }
 
 export async function getFullImportSession(id: string, signal?: AbortSignal) {
-  const path = `/import-sessions/${enc(id)}`;
+  const path = `/import-sessions/${enc(id)}?${IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY}=${IMPORT_SESSION_TERMINAL_OUTCOMES_VERSION}`;
   return readImportWorkflowView(
     signal
       ? await api.get<unknown>(path, { signal })

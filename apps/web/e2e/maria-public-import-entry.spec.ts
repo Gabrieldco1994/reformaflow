@@ -79,6 +79,7 @@ const sessionView = (id = SESSION): ImportSessionViewV1 =>
       includesMetadataAndEmbeddedContent: true,
       includesPotentiallyNonVisibleContent: true,
       attachments: [],
+      terminalOutcomes: [],
     },
   }) as ImportSessionViewV1;
 const summary = {

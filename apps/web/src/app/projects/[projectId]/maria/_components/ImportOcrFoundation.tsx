@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import type { OcrTerminalUiState, OcrUiScope, OcrUiState } from "../_types";
+import { OCR_LIMIT_EXCEEDED_COPY } from "../_lib/import-session-errors";
 
 const TERMINAL_COPY: Record<OcrTerminalUiState, string> = {
   OCR_UNAVAILABLE:
@@ -14,8 +15,7 @@ const TERMINAL_COPY: Record<OcrTerminalUiState, string> = {
     "O envio começou ou pode ter ocorrido, e o PDF pode ter sido enviado ao Google Cloud Vertex AI, mas não foi possível confirmar o resultado do OCR. Esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
   OCR_BUDGET_EXHAUSTED:
     "O limite diário de OCR foi atingido antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
-  LIMIT_EXCEEDED:
-    "A leitura excedeu um limite permitido e não pode continuar para este documento. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+  LIMIT_EXCEEDED: OCR_LIMIT_EXCEEDED_COPY,
   DOCUMENT_UNREADABLE:
     "Não foi possível ler este documento. Substitua por um arquivo legível ou cancele a importação.",
   PDF_PASSWORD_REQUIRED:

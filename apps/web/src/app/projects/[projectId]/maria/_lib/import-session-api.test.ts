@@ -3,6 +3,7 @@ import {
   analyzeImportAttachment,
   answerImportDocumentaryQuestion,
   answerImportFocusedDraftQuestion,
+  getFullImportSession,
   getImportResult,
   prepareImportSession,
   uploadImportSessionAttachment,
@@ -102,15 +103,15 @@ describe("readImportWorkflowView OCR reload contract", () => {
     ).toEqual([{ attachmentId: "source", code }]);
   });
 
-  it("requires terminalOutcomes on every OCR capability projection", () => {
+  it("normalizes an absent terminalOutcomes projection from an old backend to an empty list", () => {
     const { terminalOutcomes: _missing, ...withoutTerminalOutcomes } =
       view.ocrCapability;
-    expect(() =>
+    expect(
       readImportWorkflowView({
         ...view,
         ocrCapability: withoutTerminalOutcomes,
-      }),
-    ).toThrow(ImportWorkflowResponseError);
+      }).ocrCapability.terminalOutcomes,
+    ).toEqual([]);
   });
 
   it.each([
@@ -659,6 +660,22 @@ describe("direct review and result endpoints", () => {
       signal,
     });
     expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("opts the detail GET into terminal outcomes while accepting an old backend omission", async () => {
+    const signal = new AbortController().signal;
+    const { terminalOutcomes: _missing, ...oldCapability } = view.ocrCapability;
+    api.get.mockResolvedValue({ ...view, ocrCapability: oldCapability });
+
+    await expect(
+      getFullImportSession("session", signal),
+    ).resolves.toMatchObject({
+      ocrCapability: { terminalOutcomes: [] },
+    });
+    expect(api.get).toHaveBeenCalledWith(
+      "/import-sessions/session?terminalOutcomes=v1",
+      { signal },
+    );
   });
 });
 

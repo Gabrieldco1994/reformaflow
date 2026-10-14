@@ -441,6 +441,16 @@ describe("textual PDF documentary coordinator", () => {
       "OCR_BUDGET_EXHAUSTED",
     ],
     [
+      new ApiResponseError("Limit", 422, {
+        code: "LIMIT_EXCEEDED",
+        retryable: false,
+        sessionId: "s1",
+        currentRevision: 2,
+        reason: null,
+      }),
+      "LIMIT_EXCEEDED",
+    ],
+    [
       new ApiResponseError("Unexpected repeated OCR gate", 422, {
         code: "OCR_REQUIRED",
         retryable: false,
@@ -503,6 +513,10 @@ describe("textual PDF documentary coordinator", () => {
         attachmentId: "a1",
         kind: expectedKind,
       });
+      if (expectedKind === "LIMIT_EXCEEDED")
+        expect(result.current.error?.message).toContain(
+          "A leitura excedeu um limite permitido",
+        );
 
       await act(async () => {
         await result.current.recover();
@@ -621,16 +635,6 @@ describe("textual PDF documentary coordinator", () => {
       }),
       "OCR_BUDGET_EXHAUSTED",
     ],
-    [
-      new ApiResponseError("Limit", 422, {
-        code: "LIMIT_EXCEEDED",
-        retryable: false,
-        sessionId: "s1",
-        currentRevision: 1,
-        reason: null,
-      }),
-      "LIMIT_EXCEEDED",
-    ],
   ] as const)(
     "maps pre-call documentary failure to %s",
     async (failure, kind) => {
@@ -662,6 +666,55 @@ describe("textual PDF documentary coordinator", () => {
       });
       expect(result.current.ocrConsentAttempted).toBe(false);
       expect(api.analyzeImportAttachment).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["invoice.csv", "textual.pdf"])(
+    "keeps an immediate generic limit for %s generic and recoverable",
+    async (fileName) => {
+      const attached = view({
+        actions: ["ANALYZE", "CANCEL"],
+        attachments: [
+          {
+            id: "a1",
+            fileName,
+            declaredBytes: 9,
+            state: "ATTACHED",
+            canAnalyze: true,
+            materializedInSession: false,
+          },
+        ],
+      });
+      api.getFullImportSession.mockResolvedValue(attached);
+      api.analyzeImportAttachment.mockRejectedValue(
+        new ApiResponseError("Limit", 422, {
+          code: "LIMIT_EXCEEDED",
+          retryable: false,
+          sessionId: "s1",
+          currentRevision: 1,
+          reason: null,
+        }),
+      );
+      const { result } = setup();
+      await waitFor(() => expect(result.current.view).not.toBeNull());
+
+      await act(async () => {
+        await result.current.analyze("a1");
+      });
+
+      expect(result.current.error?.message).toContain(
+        "Esta importação passou de um limite permitido.",
+      );
+      expect(result.current.error?.message).not.toContain(
+        "use entrada manual, substitua o documento",
+      );
+      expect(result.current.ocrUiState).toBeNull();
+
+      await act(async () => {
+        await result.current.recover();
+      });
+      expect(result.current.error).toBeNull();
+      expect(result.current.ocrUiState).toBeNull();
     },
   );
 
