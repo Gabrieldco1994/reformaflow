@@ -1217,10 +1217,17 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
         () => null,
         (error: unknown) => error,
       );
-      expect(missingDependencies).toBeInstanceOf(Error);
-      expect((missingDependencies as Error).message).toMatch(
-        /^LIVE_CAPTURE_(?:PROTECTED_DEPENDENCIES|DEPENDENCIES|CREDENTIALS)_MISSING$/,
-      );
+      // The runner is constructed in an isolated VM realm, so its Error has a
+      // different prototype. Match the stable semantic contract without
+      // injecting outer-realm globals. Resolving after removal of the
+      // fail-closed throw yields null and is mutation-locked by this assertion.
+      expect({
+        name: (missingDependencies as { name?: unknown } | null)?.name,
+        message: (missingDependencies as { message?: unknown } | null)?.message,
+      }).toEqual({
+        name: "Error",
+        message: "LIVE_CAPTURE_CREDENTIALS_MISSING",
+      });
     });
   });
 
