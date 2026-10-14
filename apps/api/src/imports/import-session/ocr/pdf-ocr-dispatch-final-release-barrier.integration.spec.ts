@@ -86,12 +86,32 @@ describe("final #719 provider dispatch fence", () => {
   it("treats an HTTP failure after full-PDF dispatch as UNKNOWN and never retries", async () => {
     const owner = await fixture(prisma, "post-dispatch");
     const accessToken = jest.fn().mockResolvedValue("adc-token");
-    const fetcher = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      headers: { get: () => null },
-      body: null,
-    });
+    const countBytes = Buffer.from(JSON.stringify({ totalTokens: 100 }));
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name: string) =>
+            name === "content-type"
+              ? "application/json"
+              : name === "content-length"
+                ? String(countBytes.length)
+                : null,
+        },
+        body: {
+          async *[Symbol.asyncIterator]() {
+            yield countBytes;
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        headers: { get: () => null },
+        body: null,
+      });
     const provider = new VertexPdfOcrProvider(
       "approved-project",
       { authTrace: "LOCAL_ADC", accessToken },
@@ -133,7 +153,7 @@ describe("final #719 provider dispatch fence", () => {
     }).toEqual({
       codes: ["OCR_ATTEMPT_UNKNOWN", "OCR_ATTEMPT_UNKNOWN"],
       accessTokenCalls: 1,
-      fetchCalls: 1,
+      fetchCalls: 2,
       outcome: "UNKNOWN",
       inputTokens: null,
       outputTokens: null,
@@ -141,9 +161,13 @@ describe("final #719 provider dispatch fence", () => {
       responseId: null,
     });
 
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    const [, init] = fetcher.mock.calls[0]!;
-    expect(JSON.parse(init.body).contents[0].parts).toEqual([
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const [, countInit] = fetcher.mock.calls[0]!;
+    expect(JSON.parse(countInit.body).contents[0].parts).toEqual([
+      expect.objectContaining({ text: expect.any(String) }),
+    ]);
+    const [, generationInit] = fetcher.mock.calls[1]!;
+    expect(JSON.parse(generationInit.body).contents[0].parts).toEqual([
       expect.objectContaining({ text: expect.any(String) }),
       {
         inlineData: {

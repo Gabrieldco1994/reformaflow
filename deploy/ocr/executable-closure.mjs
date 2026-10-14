@@ -13,6 +13,7 @@ const FILES = [
   "deploy/ocr/github-approval-evidence.mjs",
   "deploy/ocr/kms-curl-config.mjs",
   "deploy/ocr/offline-report-adapter.mjs",
+  "deploy/ocr/snapshot-authority-adapter.mjs",
   "deploy/ocr/wif-adapter.mjs",
   "deploy/ocr/workflow-payload-template.mjs",
   "deploy/ocr/qualification-entrypoint.mjs",

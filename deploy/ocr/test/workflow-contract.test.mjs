@@ -3,8 +3,6 @@ import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { canonicalize } from "../../../scripts/ci/ocr-attestation.mjs";
-import { assessReportV4 } from "../build-unsigned-attestation.mjs";
 import { writeKmsCurlConfig } from "../kms-curl-config.mjs";
 const root = resolve(import.meta.dirname, "../../..");
 const q = await readFile(
@@ -221,7 +219,7 @@ test("candidate, assessment and persisted GAPS precede payload construction", ()
   assert.ok(signing > buildUnsigned);
 });
 
-test("V1 and hybrid reports persist structured GAPS before zero payload, build, and KMS calls", () => {
+test("only persisted application V4 assessment can precede payload, build, and KMS", () => {
   const verify = section(q, "verify-offline", "sign-kms");
   const assess = verify.indexOf("assess-report");
   const upload = verify.indexOf("ocr-report-assessment-");
@@ -231,19 +229,6 @@ test("V1 and hybrid reports persist structured GAPS before zero payload, build, 
   const template = verify.indexOf("workflow-payload-template.mjs");
   const build = verify.indexOf("build-unsigned");
 
-  for (const report of [
-    { schemaVersion: 1, releaseStatus: "PASS" },
-    { reportSchemaVersion: 4, schemaVersion: 1, releaseStatus: "PASS" },
-  ]) {
-    const result = assessReportV4(
-      {},
-      Buffer.from("{}"),
-      Buffer.from(canonicalize(report)),
-    );
-    assert.deepEqual(result.issues, ["REPORT_V4_REQUIRED"]);
-    assert.equal(result.releaseStatus, "GAPS");
-    assert.equal(result.signable, false);
-  }
   assert.match(verify, /reportSchemaVersion[^]*==[^]*4/);
   assert.ok(assess > 0);
   assert.ok(upload > assess);

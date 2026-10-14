@@ -640,6 +640,44 @@ export async function snapshotQualityRepository(
   };
 }
 
+/** Recomputes every bound source digest without requiring Git metadata. */
+export async function snapshotQualityFiles(
+  policy: QualityClosurePolicy,
+  identity: Readonly<{ headSha: string; treeSha: string }>,
+  dependencies: QualityAttestationDependencies = {},
+): Promise<OcrRepositorySnapshot> {
+  if (
+    !SHA_PATTERN.test(identity.headSha) ||
+    !SHA_PATTERN.test(identity.treeSha)
+  )
+    throw new Error("QUALITY_REPOSITORY_INVALID");
+  const root = dependencies.root ?? REPOSITORY_ROOT;
+  return {
+    headSha: identity.headSha,
+    treeSha: identity.treeSha,
+    clean: true,
+    policySha256: await aggregateSha256(root, [QUALITY_POLICY_PATH]),
+    corpusSha256: await aggregateSha256(root, [QUALITY_CORPUS_PATH]),
+    configurationSha256: await aggregateSha256(
+      root,
+      policy.configurationBindingFiles,
+    ),
+    adapterSha256: await aggregateSha256(root, policy.adapterBindingFiles),
+    runtimeSha256: await aggregateSha256(root, policy.runtimeBindingFiles),
+    suiteSha256: await aggregateSha256(root, policy.qualificationSuiteFiles),
+  };
+}
+
+export async function assertQualityFilesSnapshot(
+  expected: OcrRepositorySnapshot,
+  policy: QualityClosurePolicy,
+  dependencies: QualityAttestationDependencies = {},
+): Promise<void> {
+  const current = await snapshotQualityFiles(policy, expected, dependencies);
+  if (canonicalJson(current) !== canonicalJson(expected))
+    throw new Error("QUALITY_REPOSITORY_DRIFT");
+}
+
 export async function assertQualityRepositorySnapshot(
   expected: OcrRepositorySnapshot,
   policy: QualityClosurePolicy,
@@ -878,6 +916,35 @@ export async function attestQualityClosure(
   };
 }
 
+/**
+ * Protected-image variant: identity comes from the transferred workflow
+ * authority while every source digest and mechanical test is recomputed here.
+ */
+export async function attestQualityClosureFromSnapshot(
+  expected: OcrRepositorySnapshot,
+  dependencies: QualityAttestationDependencies = {},
+): Promise<
+  Readonly<{ policy: QualityClosurePolicy; closure: OcrQualityClosure }>
+> {
+  const policy = await loadQualityClosurePolicy(dependencies);
+  const before = await snapshotQualityFiles(policy, expected, dependencies);
+  if (canonicalJson(before) !== canonicalJson(expected))
+    throw new Error("QUALITY_REPOSITORY_DRIFT");
+  const tests = await runQualityClosureSuite(policy, dependencies);
+  const after = await snapshotQualityFiles(policy, expected, dependencies);
+  if (canonicalJson(after) !== canonicalJson(expected))
+    throw new Error("QUALITY_REPOSITORY_DRIFT");
+  return {
+    policy,
+    closure: {
+      version: 2,
+      policyVersion: policy.policyVersion,
+      snapshot: before,
+      tests,
+    },
+  };
+}
+
 export async function readFinalReviewHashes(
   policy: QualityClosurePolicy,
   dependencies: QualityAttestationDependencies = {},
@@ -969,6 +1036,14 @@ export async function issueVerifiedQualityClosureToken(
   policy: QualityClosurePolicy,
   dependencies: QualityAttestationDependencies = {},
 ): Promise<VerifiedQualityClosureToken> {
+  void evidence;
+  void rerun;
+  void policy;
+  void dependencies;
+  throw new Error("QUALITY_ACTIVATION_REQUIRES_SIGNED_RELEASE");
+  /*
+   * Retired pre-KMS authority implementation intentionally retained only in
+   * source history context. It is not compiled or reachable.
   if (!object(evidence.qualityClosure))
     throw new Error("QUALITY_ATTESTATION_AUTHORITY_MISSING");
   const closure = evidence.qualityClosure;
@@ -1052,6 +1127,7 @@ export async function issueVerifiedQualityClosureToken(
   });
   issuedQualityClosureTokens.add(token);
   return token;
+  */
 }
 
 export async function isVerifiedQualityClosureToken(
@@ -1059,7 +1135,13 @@ export async function isVerifiedQualityClosureToken(
   evidence: OcrEvalInput,
   dependencies: Pick<QualityAttestationDependencies, "verifier"> = {},
 ): Promise<boolean> {
+  void token;
+  void evidence;
   void dependencies;
+  return false;
+  /*
+   * A mechanical closure token is never activation authority. Production
+   * activation verifies the externally signed OCR release envelope instead.
   const closure = isStructurallySignedQualityClosure(evidence.qualityClosure)
     ? evidence.qualityClosure
     : undefined;
@@ -1074,6 +1156,7 @@ export async function isVerifiedQualityClosureToken(
     token.evidenceSha256 ===
       canonicalSha256(evidenceWithoutQualityAuthority(evidence))
   );
+  */
 }
 
 export async function assertOutputOutsideRepository(

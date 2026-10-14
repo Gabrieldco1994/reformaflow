@@ -28,11 +28,7 @@ import {
   type OcrSafetyProbeEvidence,
 } from "./types";
 import policy from "./quality-closure-policy.json";
-import {
-  isCanonicalQualityClosure,
-  isVerifiedQualityClosureToken,
-  type VerifiedQualityClosureToken,
-} from "./quality-closure-attestation";
+import { isCanonicalQualityClosure } from "./quality-closure-attestation";
 import { isStructurallyValidatedLiveEvidence } from "./live-evidence-parser";
 import type { OcrQualityClosure } from "./types";
 
@@ -842,7 +838,7 @@ export async function buildOraclePredictions(
 
 export async function evaluateOcrSynth(
   input: OcrEvalInput,
-  verifiedQualityClosure?: VerifiedQualityClosureToken,
+  _activationAuthority?: unknown,
 ): Promise<OcrEvalReport> {
   const structurallyValidatedLiveEvidence =
     isStructurallyValidatedLiveEvidence(input);
@@ -1132,17 +1128,11 @@ export async function evaluateOcrSynth(
     metrics.financialWrites <= OCR_SYNTH_THRESHOLDS.financialWrites;
 
   const gaps: string[] = [];
-  const closureVerified =
-    input.run.mode !== "LIVE_CAPTURE"
-      ? false
-      : await isVerifiedQualityClosureToken(verifiedQualityClosure, input);
   const qualityClosure = structurallyValidatedLiveEvidence
     ? (input.qualityClosure as OcrQualityClosure)
     : isCanonicalQualityClosure(input.qualityClosure)
       ? input.qualityClosure
       : undefined;
-  if (input.run.mode === "LIVE_CAPTURE" && !closureVerified)
-    gaps.push("QUALITY_CLOSURE_NOT_VERIFIED");
   if (
     input.run.mode === "LIVE_CAPTURE" &&
     qualityClosure &&

@@ -10,18 +10,15 @@ describe("offline application-owned report", () => {
     } as never;
     const parse = jest.fn(() => input);
     const evaluate = jest.fn(async () => report);
-    const issueToken = jest.fn(async () => undefined);
 
     await expect(
       evaluateOfflineReport('{"raw":true}', {
         parse,
         evaluate,
-        issueToken,
       }),
     ).resolves.toBe(report);
     expect(parse).toHaveBeenCalledWith('{"raw":true}');
-    expect(issueToken).toHaveBeenCalledWith(input);
-    expect(evaluate).toHaveBeenCalledWith(input, undefined);
+    expect(evaluate).toHaveBeenCalledWith(input);
   });
 
   it("does not convert parser failure into a caller-owned report", async () => {

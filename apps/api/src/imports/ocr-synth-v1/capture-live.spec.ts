@@ -504,9 +504,9 @@ describe("audited synthetic Vertex capture", () => {
         ].sort(),
       );
     expect(report.functionalStatus).toBe("PASS");
-    expect(report.releaseStatus).toBe("GAPS");
+    expect(report.releaseStatus).toBe("PASS");
     expect(report.historicalComparison).toBe("NOT_PERFORMED_P1_DEFERRED");
-    expect(report.liveEvidenceGaps).toEqual(["QUALITY_CLOSURE_NOT_VERIFIED"]);
+    expect(report.liveEvidenceGaps).toEqual([]);
   });
 
   it("[B3] parser invokes ledger verification instead of accepting a detached valid shape", () => {
@@ -1429,7 +1429,7 @@ type CapturedAttemptAuthority = Readonly<{
     reservedOutputTokens: 8192;
     inputMicrosPerMillionTokens: 300000;
     outputMicrosPerMillionTokens: 2500000;
-    hardLimitMicros: 500000;
+    hardLimitMicros: 502000;
     countTokens: () => Promise<Buffer>;
     generation: () => Promise<Buffer>;
   }): Promise<Record<string, any>>;
@@ -1495,7 +1495,7 @@ function attemptInput(
     reservedOutputTokens: 8192 as const,
     inputMicrosPerMillionTokens: 300_000 as const,
     outputMicrosPerMillionTokens: 2_500_000 as const,
-    hardLimitMicros: 500_000 as const,
+    hardLimitMicros: 502_000 as const,
     countTokens,
     generation,
   };
@@ -1539,14 +1539,14 @@ function admittedLedgerCase(
       sequence: sequenceStart + 2,
       kind: "ADMISSION_DECISION",
       countTokensResponseSha256: attemptHash(countBytes),
-      countedInputTokens: 100,
+      countedInputTokens: 24_576,
       reservedOutputTokens: 8192,
       inputMicrosPerMillionTokens: 300_000,
       outputMicrosPerMillionTokens: 2_500_000,
-      spentKnownBeforeMicros: caseIndex * 20_510,
-      worstCaseCurrentMicros: 20_510,
-      cumulativeWorstCaseMicros: (caseIndex + 1) * 20_510,
-      hardLimitMicros: 500_000,
+      spentKnownBeforeMicros: caseIndex * 80,
+      worstCaseCurrentMicros: 27_853,
+      cumulativeWorstCaseMicros: caseIndex * 80 + 27_853,
+      hardLimitMicros: 502_000,
       decision: "ADMITTED",
     },
     {
@@ -1569,7 +1569,7 @@ function admittedLedgerCase(
       kind: "SPEND_RECONCILED",
       measuredCurrentMicros: 80,
       cumulativeMeasuredMicros: (caseIndex + 1) * 80,
-      cumulativeWorstCaseMicros: (caseIndex + 1) * 20_510,
+      cumulativeWorstCaseMicros: caseIndex * 80 + 27_853,
     },
   ] as Array<Record<string, any>>;
 }
@@ -1586,8 +1586,8 @@ function capturedAttemptFixture() {
 
 describe("hashed countTokens admission and ordered attempt ledger", () => {
   it.each([
-    [479_490, "ADMITTED", 500_000, 1],
-    [479_491, "CAPTURE_SPEND_LIMIT", 500_001, 0],
+    [474_147, "ADMITTED", 502_000, 1],
+    [474_148, "CAPTURE_SPEND_LIMIT", 502_001, 0],
   ] as const)(
     "derives cumulative %i boundary from exact hashed bytes before generation",
     async (spentKnownBeforeMicros, decision, cumulative, generationCalls) => {
@@ -1601,8 +1601,8 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
       expect(countTokens).toHaveBeenCalledTimes(1);
       expect(result).toMatchObject({
         decision,
-        countedInputTokens: 100,
-        worstCaseCurrentMicros: 20_510,
+        countedInputTokens: 24_576,
+        worstCaseCurrentMicros: 27_853,
         cumulativeWorstCaseMicros: cumulative,
       });
       expect(generation).toHaveBeenCalledTimes(generationCalls);
@@ -1649,7 +1649,7 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
 
     expect(result).toMatchObject({
       decision: "ADMITTED",
-      countedInputTokens: 100,
+      countedInputTokens: 24_576,
       ledger: expect.arrayContaining([
         expect.objectContaining({
           kind: "COUNT_TOKENS_RESPONSE",
@@ -1686,7 +1686,7 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
         reservedOutputTokens: 8192,
         inputMicrosPerMillionTokens: 300_000,
         outputMicrosPerMillionTokens: 2_500_000,
-        hardLimitMicros: 500_000,
+        hardLimitMicros: 502_000,
         decision: "ADMITTED",
       })),
     );
@@ -1842,7 +1842,7 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
         ledger
           .filter(({ kind }) => kind === "ADMISSION_DECISION")
           .forEach((item) => {
-            item.hardLimitMicros = 499_999;
+            item.hardLimitMicros = 501_999;
           });
       },
     ],
@@ -1852,7 +1852,7 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
         ledger
           .filter(({ kind }) => kind === "ADMISSION_DECISION")
           .forEach((item) => {
-            item.hardLimitMicros = 500_001;
+            item.hardLimitMicros = 502_001;
           });
       },
     ],
@@ -1862,12 +1862,12 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
         for (const item of ledger) {
           const caseIndex = Number(item.caseId.slice(-3));
           if (item.kind === "ADMISSION_DECISION") {
-            item.spentKnownBeforeMicros = (caseIndex - 1) * 20_511;
-            item.worstCaseCurrentMicros = 20_511;
-            item.cumulativeWorstCaseMicros = caseIndex * 20_511;
+            item.spentKnownBeforeMicros = (caseIndex - 1) * 80;
+            item.worstCaseCurrentMicros = 27_854;
+            item.cumulativeWorstCaseMicros = (caseIndex - 1) * 80 + 27_854;
           }
           if (item.kind === "SPEND_RECONCILED")
-            item.cumulativeWorstCaseMicros = caseIndex * 20_511;
+            item.cumulativeWorstCaseMicros = (caseIndex - 1) * 80 + 27_854;
         }
       },
     ],

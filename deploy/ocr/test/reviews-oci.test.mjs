@@ -256,21 +256,8 @@ test("real OCI fixture has one image manifest and config and rejects provenance 
   await assert.rejects(() => inspectOciLayout(mutated), /OCI_LAYOUT_INVALID/);
 });
 
-test("actual repository review descriptors pass the worktree verifier", () => {
-  const verified = verifyReviewWorktree(ROOT);
-  assert.deepEqual(
-    verified.documents.map((document) => document.role),
-    roles,
-  );
-  assert.deepEqual(
-    verified.documents.map((document) => document.path),
-    [
-      "deploy/ocr/reviews/data-owner-risk-acceptance.json",
-      "deploy/ocr/reviews/security.json",
-      "deploy/ocr/reviews/privacy.json",
-      "deploy/ocr/reviews/data-owner-final.json",
-    ],
-  );
+test("review descriptors remain fail closed until the new policy is reapproved", () => {
+  assert.throws(() => verifyReviewWorktree(ROOT), /REVIEW_SET_INVALID/);
 });
 
 test("documented GitHub approval shape excludes approval time and rejects fabricated top-level fields", () => {

@@ -10,6 +10,10 @@ const BUILD_UNSIGNED = resolve(
   "deploy/ocr/build-unsigned-attestation.mjs",
 );
 const OFFLINE_REPORT = resolve(ROOT, "deploy/ocr/offline-report-adapter.mjs");
+const SNAPSHOT_AUTHORITY = resolve(
+  ROOT,
+  "deploy/ocr/snapshot-authority-adapter.mjs",
+);
 
 function run(file, args) {
   const child = spawn(process.execPath, [file, ...args], {
@@ -30,6 +34,7 @@ else if (command === "assess-report")
   run(BUILD_UNSIGNED, [args[0] ?? "-", "--assessment"]);
 else if (command === "build-unsigned") run(BUILD_UNSIGNED, args);
 else if (command === "offline-report") run(OFFLINE_REPORT, args);
+else if (command === "snapshot-authority") run(SNAPSHOT_AUTHORITY, args);
 else if (
   [
     "canonicalize",

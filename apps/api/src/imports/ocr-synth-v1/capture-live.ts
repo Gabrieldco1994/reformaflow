@@ -3,10 +3,11 @@ import type { OcrEvalInput } from "./evaluator";
 import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
 import { captureLiveEvidence } from "./capture-live-core";
 import {
-  assertQualityRepositorySnapshot,
-  attestQualityClosure,
-  readFinalReviewHashes,
+  assertQualityFilesSnapshot,
+  attestQualityClosureFromSnapshot,
 } from "./quality-closure-attestation";
+import type { FinalReviewHashes } from "./quality-closure-attestation";
+import type { OcrRepositorySnapshot } from "./types";
 
 const PROTECTED_DEPENDENCIES_MISSING =
   "LIVE_CAPTURE_PROTECTED_DEPENDENCIES_MISSING";
@@ -31,6 +32,8 @@ export interface ProtectedWifLiveCaptureDependencies {
   readonly authMode: "GITHUB_OIDC_WIF";
   readonly projectId: string;
   readonly accessToken: string;
+  readonly snapshot: OcrRepositorySnapshot;
+  readonly finalReviewHashes: FinalReviewHashes;
 }
 
 const WIF_OUTPUT_PATH = "/run/ocr/raw-evidence.json";
@@ -102,16 +105,17 @@ export async function runProtectedWifLiveCapture(
     typeof input.projectId !== "string" ||
     input.projectId.length === 0 ||
     typeof input.accessToken !== "string" ||
-    input.accessToken.length < 20
+    input.accessToken.length < 20 ||
+    !object(input.snapshot) ||
+    !object(input.finalReviewHashes)
   )
     return failClosed(CREDENTIALS_MISSING);
-  const attestation = await attestQualityClosure();
-  const finalReviewHashes = await readFinalReviewHashes(attestation.policy);
+  const snapshot = input.snapshot as unknown as OcrRepositorySnapshot;
+  const finalReviewHashes =
+    input.finalReviewHashes as unknown as FinalReviewHashes;
+  const attestation = await attestQualityClosureFromSnapshot(snapshot);
   const verifyRepository = async () =>
-    assertQualityRepositorySnapshot(
-      attestation.closure.snapshot,
-      attestation.policy,
-    );
+    assertQualityFilesSnapshot(snapshot, attestation.policy);
   const provider = new VertexPdfOcrProvider(input.projectId, {
     authTrace: "GITHUB_OIDC_WIF",
     accessToken: async () => input.accessToken,

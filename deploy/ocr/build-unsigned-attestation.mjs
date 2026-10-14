@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { open, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateRawSync } from "node:zlib";
 import {
   canonicalize,
   parseStrictJson,
@@ -16,6 +17,8 @@ const DECIMAL_ID = /^[1-9][0-9]*$/;
 const WORKFLOW = ".github/workflows/ocr-qualification.yml";
 const REPOSITORY = "Gabrieldco1994/reformaflow";
 const PERSISTED = "PERSISTED_WORKFLOW_ARTIFACT";
+const MAX_CANDIDATE_ARTIFACT_BYTES = 64 * 1024 * 1024;
+const QUALIFICATION_HARD_LIMIT_MICROS = 502_000;
 const TABLES = Object.freeze([
   "Expense",
   "CashFlowEntry",
@@ -170,7 +173,7 @@ function decode(value) {
 export function admitCumulativeSpend(
   spentBeforeMicros,
   currentWorstCaseMicros,
-  hardLimitMicros = 500000,
+  hardLimitMicros = QUALIFICATION_HARD_LIMIT_MICROS,
 ) {
   integer(spentBeforeMicros, "SPEND_GUARD_INVALID");
   integer(currentWorstCaseMicros, "SPEND_GUARD_INVALID");
@@ -502,64 +505,106 @@ function validateCandidateArtifactAuthority(authority) {
   return authority;
 }
 
-function validateCandidateArtifactShape(value, authorityInput, payloadInput) {
-  const authority = validateCandidateArtifactAuthority(authorityInput);
-  if (object(value) && typeof value.payloadSha256 === "string") {
-    exact(
-      value,
-      ["expected", "metadata", "payloadSha256", "bindings"],
-      "CANDIDATE_ARTIFACT_PROVENANCE_INVALID",
-    );
-    const { expected, metadata, bindings } = value;
+function extractZipMember(archive, expectedName) {
+  if (!Buffer.isBuffer(archive) || archive.length < 22)
+    fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+  let eocd = -1;
+  for (
+    let offset = archive.length - 22;
+    offset >= Math.max(0, archive.length - 65_557);
+    offset -= 1
+  ) {
+    if (archive.readUInt32LE(offset) === 0x06054b50) {
+      eocd = offset;
+      break;
+    }
+  }
+  if (eocd < 0) fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+  const entryCount = archive.readUInt16LE(eocd + 10);
+  let offset = archive.readUInt32LE(eocd + 16);
+  let member;
+  const names = new Set();
+  for (let index = 0; index < entryCount; index += 1) {
     if (
-      !object(expected) ||
-      !object(metadata) ||
-      !object(metadata.workflow_run) ||
-      !object(bindings) ||
-      value.payloadSha256 !== sha256(Buffer.from(canonicalize(payloadInput))) ||
-      expected.repositoryId !== authority.repositoryId ||
-      expected.workflowPath !== authority.workflowPath ||
-      expected.workflowSha !== authority.workflowSha ||
-      expected.workflowRunId !== authority.workflowRunId ||
-      expected.workflowRunAttempt !== authority.workflowRunAttempt ||
-      expected.workflowHeadSha !== authority.workflowHeadSha ||
-      expected.workflowHeadTree !== authority.workflowHeadTree ||
-      expected.subjectSha !== authority.subjectSha ||
-      expected.subjectTree !== authority.subjectTree ||
-      expected.artifactId !== authority.artifactId ||
-      expected.artifactName !== authority.artifactName ||
-      expected.memberName !== authority.memberName ||
-      metadata.id !== authority.artifactId ||
-      metadata.name !== authority.artifactName ||
-      metadata.expired !== false ||
-      metadata.digest !== authority.artifactDigest ||
-      metadata.workflow_run.id !== authority.workflowRunId ||
-      metadata.workflow_run.head_sha !== authority.workflowHeadSha ||
-      bindings.workflowPath !== authority.workflowPath ||
-      bindings.workflowSha !== authority.workflowSha ||
-      bindings.workflowHeadTree !== authority.workflowHeadTree ||
-      bindings.subjectSha !== authority.subjectSha ||
-      bindings.subjectTree !== authority.subjectTree
+      offset + 46 > archive.length ||
+      archive.readUInt32LE(offset) !== 0x02014b50
     )
       fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
-    return;
+    const flags = archive.readUInt16LE(offset + 8);
+    const method = archive.readUInt16LE(offset + 10);
+    const compressedSize = archive.readUInt32LE(offset + 20);
+    const uncompressedSize = archive.readUInt32LE(offset + 24);
+    const nameLength = archive.readUInt16LE(offset + 28);
+    const extraLength = archive.readUInt16LE(offset + 30);
+    const commentLength = archive.readUInt16LE(offset + 32);
+    const localOffset = archive.readUInt32LE(offset + 42);
+    const nameEnd = offset + 46 + nameLength;
+    if (nameEnd > archive.length || (flags & 1) !== 0)
+      fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+    const name = archive.subarray(offset + 46, nameEnd).toString("utf8");
+    if (
+      !name ||
+      name.startsWith("/") ||
+      name.includes("\\") ||
+      name.split("/").includes("..") ||
+      names.has(name)
+    )
+      fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+    names.add(name);
+    if (name === expectedName) {
+      if (
+        localOffset + 30 > archive.length ||
+        archive.readUInt32LE(localOffset) !== 0x04034b50
+      )
+        fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+      const localNameLength = archive.readUInt16LE(localOffset + 26);
+      const localExtraLength = archive.readUInt16LE(localOffset + 28);
+      const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+      const dataEnd = dataStart + compressedSize;
+      if (dataEnd > archive.length)
+        fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+      const compressed = archive.subarray(dataStart, dataEnd);
+      const bytes =
+        method === 0
+          ? Buffer.from(compressed)
+          : method === 8
+            ? inflateRawSync(compressed)
+            : fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+      if (bytes.length !== uncompressedSize)
+        fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+      member = bytes;
+    }
+    offset = nameEnd + extraLength + commentLength;
   }
+  if (!member) fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+  return member;
+}
+
+function validateCandidateArtifactShape(value, authorityInput, payloadInput) {
+  const authority = validateCandidateArtifactAuthority(authorityInput);
   exact(
     value,
-    ["expected", "metadata", "archiveBytes", "members", "payload", "bindings"],
+    ["expected", "metadata", "archiveBytesBase64", "bindings"],
     "CANDIDATE_ARTIFACT_PROVENANCE_INVALID",
   );
-  const { expected, metadata, archiveBytes, members, payload, bindings } =
-    value;
+  const { expected, metadata, archiveBytesBase64, bindings } = value;
+  if (
+    typeof archiveBytesBase64 !== "string" ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(archiveBytesBase64)
+  )
+    fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+  const archiveBytes = Buffer.from(archiveBytesBase64, "base64");
+  if (
+    archiveBytes.length === 0 ||
+    archiveBytes.length > MAX_CANDIDATE_ARTIFACT_BYTES ||
+    archiveBytes.toString("base64") !== archiveBytesBase64
+  )
+    fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+  const memberBytes = extractZipMember(archiveBytes, authority.memberName);
   if (
     !object(expected) ||
     !object(metadata) ||
-    !Buffer.isBuffer(archiveBytes) ||
-    !Array.isArray(members) ||
-    members.length !== 1 ||
-    !object(members[0]) ||
-    members[0].name !== expected.memberName ||
-    !Buffer.isBuffer(members[0].bytes) ||
+    expected.memberName !== authority.memberName ||
     metadata.id !== expected.artifactId ||
     metadata.name !== expected.artifactName ||
     metadata.expired !== false ||
@@ -595,7 +640,7 @@ function validateCandidateArtifactShape(value, authorityInput, payloadInput) {
     bindings.workflowHeadTree !== authority.workflowHeadTree ||
     bindings.subjectSha !== authority.subjectSha ||
     bindings.subjectTree !== authority.subjectTree ||
-    canonicalize(parseRawVertexJson(members[0].bytes)) !== canonicalize(payload)
+    canonicalize(parseRawVertexJson(memberBytes)) !== canonicalize(payloadInput)
   )
     fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
 }
@@ -817,6 +862,15 @@ export async function assessCanonicalReport(
       }),
     });
   }
+  return canonicalAuthorityAssessment(
+    input.report,
+    input.rawEvidence,
+    new Set(["RAW_VERTEX_RESPONSE_SCHEMA_INVALID"]),
+  );
+  /*
+   * The pre-application V4 fixture assessor below is deliberately unreachable.
+   * Production accepts only parser/evaluator-owned raw evidence and report V4.
+   */
   try {
     validateCanonicalReportV4(input.report);
     if (
@@ -890,7 +944,7 @@ export async function assessCanonicalReport(
   });
 }
 
-export function assessReportV4(payload, raw, reportBytes) {
+function assessRetiredFixture(payload, raw, reportBytes) {
   const issues = new Set();
   let report;
   try {
@@ -1238,10 +1292,8 @@ export function buildUnsignedPayloadFromBytes(
   assessmentBytes,
   options = {},
 ) {
-  if (assessmentBytes && !Buffer.isBuffer(assessmentBytes)) {
-    options = assessmentBytes;
-    assessmentBytes = undefined;
-  }
+  if (assessmentBytes !== undefined && !Buffer.isBuffer(assessmentBytes))
+    fail("PERSISTED_REPORT_ASSESSMENT_INVALID");
   const payload = structuredClone(payloadInput);
   payload.attestationId = "0".repeat(64);
   let persistedAssessment;
@@ -1274,9 +1326,13 @@ export function buildUnsignedPayloadFromBytes(
       fail("PERSISTED_REPORT_ASSESSMENT_INVALID");
     }
   }
-  const reportAssessment = assessmentBytes
-    ? persistedAssessment
-    : assessReportV4(payload, raw, reportBytes);
+  if (!assessmentBytes)
+    return assessment(
+      reportBytes,
+      raw,
+      new Set(["PERSISTED_REPORT_ASSESSMENT_REQUIRED"]),
+    );
+  const reportAssessment = persistedAssessment;
   if (!reportAssessment.signable) return reportAssessment;
   let report;
   let request;
@@ -1306,26 +1362,20 @@ export function buildUnsignedPayloadFromBytes(
     return assessment(reportBytes, raw, new Set(["SPEND_BINDING_INVALID"]));
   }
   if (options.assessmentOnly) return reportAssessment;
-  if (assessmentBytes) {
-    const rawValue = parseStrictJson(raw.toString("utf8"));
-    payload.evidence.requestIds = rawValue.predictions.map(
-      (item) => item.adapterTrace.requestId,
-    );
-    payload.evidence.responseIds = rawValue.predictions.map(
-      (item) => item.adapterTrace.responseId,
-    );
-    payload.provider.modelVersion = report.candidate.modelVersion;
-    payload.spend.measuredMicros = report.metrics.totalCostMicros;
-  } else {
-    payload.evidence.requestIds = report.candidate.records.map(
-      (item) => item.requestId,
-    );
-    payload.evidence.responseIds = report.candidate.records.map(
-      (item) => item.responseId,
-    );
-    payload.provider.modelVersion = report.provider.observedModelVersion;
-    payload.spend.measuredMicros = report.spend.measuredMicros;
-  }
+  const rawValue = parseStrictJson(raw.toString("utf8"));
+  payload.evidence.requestIds = rawValue.predictions.map(
+    (item) => item.adapterTrace.requestId,
+  );
+  payload.evidence.responseIds = rawValue.predictions.map(
+    (item) => item.adapterTrace.responseId,
+  );
+  if (
+    typeof rawValue.run?.modelVersion !== "string" ||
+    rawValue.run.modelVersion.length === 0
+  )
+    fail("LIVE_EVIDENCE_BINDING_INVALID");
+  payload.provider.modelVersion = rawValue.run.modelVersion;
+  payload.spend.measuredMicros = report.metrics.totalCostMicros;
   return prepareRuntimeReleaseDraft(payload);
 }
 export async function buildUnsignedPayload(

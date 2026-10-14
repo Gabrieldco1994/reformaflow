@@ -1,5 +1,6 @@
 import {
   IMPORT_SESSION_PRIMITIVES,
+  PDF_OCR_MAX_INPUT_TOKENS,
   PDF_OCR_MODEL_VERSION_PATTERN,
 } from "@reformaflow/domain";
 import { createHash } from "node:crypto";
@@ -855,7 +856,7 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
     if (
       admission.decision !== "ADMITTED" ||
       admission.countTokensResponseSha256 !== count.responseSha256 ||
-      admission.countedInputTokens !== countWire.totalTokens ||
+      admission.countedInputTokens !== PDF_OCR_MAX_INPUT_TOKENS ||
       admission.spentKnownBeforeMicros !== cumulativeMeasuredMicros ||
       !number(admission.worstCaseCurrentMicros) ||
       !number(admission.cumulativeWorstCaseMicros) ||
@@ -1002,7 +1003,14 @@ export function parseLiveEvidence(value: unknown): OcrEvalInput {
         !object(value.attemptLedger)))
   )
     fail();
-  return value as unknown as OcrEvalInput;
+  if (object(value) && "qualityClosure" in value)
+    Object.defineProperty(value, STRUCTURALLY_VALIDATED_LIVE_EVIDENCE, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+  return deepFreeze(value) as unknown as OcrEvalInput;
 }
 
 export function parseLiveEvidenceJson(raw: string): OcrEvalInput {

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { runWifCaptureAdapter } from "../wif-adapter.mjs";
 import { runOfflineReportAdapter } from "../offline-report-adapter.mjs";
+import { materializeSnapshotAuthority } from "../snapshot-authority-adapter.mjs";
 
 const TOKEN = "deterministic-wif-access-token";
 
@@ -18,7 +19,17 @@ test("WIF adapter emits captured evidence instead of an unavailable stub", async
       OCR_GCP_PROJECT_ID: "pilot-project",
     },
     {
-      authenticateRequest: async () => Object.freeze({ request: true }),
+      authenticateRequest: async () =>
+        Object.freeze({
+          request: { request: true },
+          authority: { snapshot: { headSha: "a".repeat(40) } },
+          finalReviewHashes: {
+            residualRiskAcceptance: "1".repeat(64),
+            securityReview: "2".repeat(64),
+            privacyReview: "3".repeat(64),
+            dataOwnerReview: "4".repeat(64),
+          },
+        }),
       reserve: async () => ({
         handle: { close: async () => undefined },
       }),
@@ -28,6 +39,8 @@ test("WIF adapter emits captured evidence instead of an unavailable stub", async
         assert.equal(input.authMode, "GITHUB_OIDC_WIF");
         assert.equal(input.projectId, "pilot-project");
         assert.equal(input.accessToken, TOKEN);
+        assert.equal(input.snapshot.headSha, "a".repeat(40));
+        assert.equal(input.finalReviewHashes.securityReview, "2".repeat(64));
         return evidence;
       },
       write: (value) => {
@@ -84,4 +97,63 @@ test("WIF adapter remains fail closed without protected auth configuration", asy
       ),
     /OCR_CAPTURE_WIF_CONFIG_INVALID/,
   );
+});
+
+test("snapshot authority binds workflow identity to image and executable without Git", async () => {
+  const snapshot = Object.freeze({
+    headSha: "a".repeat(40),
+    treeSha: "b".repeat(40),
+    policySha256: "c".repeat(64),
+    corpusSha256: "d".repeat(64),
+  });
+  let receivedIdentity;
+  const authority = await materializeSnapshotAuthority(
+    {
+      OCR_SUBJECT_SHA: snapshot.headSha,
+      OCR_SUBJECT_TREE: snapshot.treeSha,
+      OCR_QUALIFICATION_IMAGE_DIGEST: `sha256:${"e".repeat(64)}`,
+      OCR_EXECUTABLE_DIGEST: `sha256:${"f".repeat(64)}`,
+    },
+    {
+      load: async () => ({
+        loadQualityClosurePolicy: async () => ({ version: "test-policy" }),
+        snapshotQualityFiles: async (_policy, identity) => {
+          receivedIdentity = identity;
+          return snapshot;
+        },
+      }),
+    },
+  );
+
+  assert.deepEqual(receivedIdentity, {
+    headSha: snapshot.headSha,
+    treeSha: snapshot.treeSha,
+  });
+  assert.equal(authority.policySha256, snapshot.policySha256);
+  assert.equal(authority.corpusSha256, snapshot.corpusSha256);
+  assert.equal(authority.qualificationImageDigest, `sha256:${"e".repeat(64)}`);
+  assert.equal(authority.executableDigest, `sha256:${"f".repeat(64)}`);
+});
+
+test("snapshot authority rejects malformed transferred identity before loading product code", async () => {
+  let loaded = false;
+  await assert.rejects(
+    () =>
+      materializeSnapshotAuthority(
+        {
+          OCR_SUBJECT_SHA: "not-a-sha",
+          OCR_SUBJECT_TREE: "b".repeat(40),
+          OCR_QUALIFICATION_IMAGE_DIGEST: `sha256:${"e".repeat(64)}`,
+          OCR_EXECUTABLE_DIGEST: `sha256:${"f".repeat(64)}`,
+        },
+        {
+          load: async () => {
+            loaded = true;
+            return {};
+          },
+        },
+      ),
+    /SNAPSHOT_AUTHORITY_INVALID/,
+  );
+  assert.equal(loaded, false);
 });

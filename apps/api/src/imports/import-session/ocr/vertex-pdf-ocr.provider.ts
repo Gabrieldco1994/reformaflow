@@ -469,7 +469,13 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
   createRequestPlan(
     request: FixedPdfOcrProviderRequest,
   ): VertexPdfOcrRequestPlan {
-    const contents = [
+    const promptContents = [
+      {
+        role: "user",
+        parts: [{ text: PROMPT }],
+      },
+    ];
+    const generationContents = [
       {
         role: "user",
         parts: [
@@ -488,9 +494,9 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         DEFAULT_ADMISSION_POLICY.maxOutputTokens,
       PDF_OCR_MAX_OUTPUT_TOKENS,
     );
-    const countBody = JSON.stringify({ contents });
+    const countBody = JSON.stringify({ contents: promptContents });
     const generationBody = JSON.stringify({
-      contents,
+      contents: generationContents,
       generationConfig: {
         temperature: 0,
         responseMimeType: JSON_MIME,
@@ -638,6 +644,11 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       const maxInputTokens =
         this.admission.maxInputTokens ??
         DEFAULT_ADMISSION_POLICY.maxInputTokens;
+      if (count.totalTokens > maxInputTokens)
+        throw dispatchedFailure(
+          "LIMIT_EXCEEDED",
+          PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+        );
       const reservedOutputTokens =
         this.admission.reservedOutputTokens ??
         DEFAULT_ADMISSION_POLICY.reservedOutputTokens;
@@ -657,8 +668,9 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
                   DEFAULT_ADMISSION_POLICY.outputMicrosPerMillionTokens)) /
                 1_000_000,
             );
+      const conservativeInputTokens = maxInputTokens;
       const estimatedCostMicros =
-        Math.ceil((count.totalTokens * inputRate) / 1_000_000) +
+        Math.ceil((conservativeInputTokens * inputRate) / 1_000_000) +
         reservedOutputMicros;
       const spentKnownBeforeMicros =
         request.qualificationEvidence?.spentKnownBeforeMicros ?? 0;
@@ -671,7 +683,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         cumulativeWorstCaseMicros <= hardLimitMicros;
       emitQualification("ADMISSION_DECISION", {
         countTokensResponseSha256: digest(count.bytes),
-        countedInputTokens: count.totalTokens,
+        countedInputTokens: conservativeInputTokens,
         reservedOutputTokens,
         inputMicrosPerMillionTokens: inputRate,
         outputMicrosPerMillionTokens:

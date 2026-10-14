@@ -33,6 +33,7 @@ RUN npm ci --no-audit --no-fund --include=dev \
   && node --check deploy/ocr/build-unsigned-attestation.mjs \
   && node --check deploy/ocr/evidence-bundle.mjs \
   && node --check deploy/ocr/offline-report-adapter.mjs \
+  && node --check deploy/ocr/snapshot-authority-adapter.mjs \
   && node --check deploy/ocr/artifact-digest.mjs \
   && node --check deploy/ocr/external-producer-gate.mjs \
   && node --check deploy/ocr/kms-curl-config.mjs \

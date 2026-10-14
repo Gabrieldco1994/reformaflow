@@ -51,8 +51,39 @@ function authenticatedReviewSet(environment = process.env) {
   return reviews;
 }
 
+function captureAuthority(environment) {
+  const authority = parseStrictJson(
+    Buffer.from(environment.OCR_CAPTURE_AUTHORITY_B64 ?? "", "base64").toString(
+      "utf8",
+    ),
+  );
+  if (
+    !authority ||
+    typeof authority !== "object" ||
+    Array.isArray(authority) ||
+    Reflect.ownKeys(authority).length !== 8 ||
+    authority.schemaVersion !== 1 ||
+    authority.subjectSha !== environment.OCR_SUBJECT_SHA ||
+    authority.subjectTree !== environment.OCR_SUBJECT_TREE ||
+    authority.qualificationImageDigest !==
+      environment.OCR_QUALIFICATION_IMAGE_DIGEST ||
+    authority.executableDigest !== environment.OCR_EXECUTABLE_DIGEST ||
+    authority.policySha256 !== environment.OCR_POLICY_SHA256 ||
+    authority.corpusSha256 !== environment.OCR_CORPUS_SHA256 ||
+    !authority.snapshot ||
+    typeof authority.snapshot !== "object" ||
+    authority.snapshot.headSha !== authority.subjectSha ||
+    authority.snapshot.treeSha !== authority.subjectTree ||
+    authority.snapshot.policySha256 !== authority.policySha256 ||
+    authority.snapshot.corpusSha256 !== authority.corpusSha256
+  )
+    fail("CAPTURE_AUTHORITY_INVALID");
+  return authority;
+}
+
 function authenticateRequest(environment) {
   const reviews = authenticatedReviewSet(environment);
+  const authority = captureAuthority(environment);
   const reviewSetSha256 = sha256(canonicalize(reviews));
   const request = parseStrictJson(
     Buffer.from(environment.OCR_SPEND_REQUEST_B64 ?? "", "base64").toString(
@@ -87,7 +118,17 @@ function authenticateRequest(environment) {
     request.expectedCaseCount !== Number(environment.OCR_EXPECTED_CASE_COUNT)
   )
     fail("CAPTURE_BINDING_INVALID");
-  return request;
+  const byRole = new Map(reviews.map((review) => [review.role, review.sha256]));
+  return {
+    request,
+    authority,
+    finalReviewHashes: {
+      residualRiskAcceptance: byRole.get("DATA_OWNER_RISK_ACCEPTANCE"),
+      securityReview: byRole.get("SECURITY"),
+      privacyReview: byRole.get("PRIVACY"),
+      dataOwnerReview: byRole.get("DATA_OWNER_FINAL"),
+    },
+  };
 }
 
 const defaultDependencies = Object.freeze({
@@ -119,7 +160,8 @@ export async function runWifCaptureAdapter(
     fail("CAPTURE_CAPABILITY_INVALID");
   const projectId = environment.OCR_GCP_PROJECT_ID?.trim();
   if (!projectId) fail("OCR_CAPTURE_WIF_CONFIG_INVALID");
-  const request = await runtime.authenticateRequest(environment);
+  const authenticated = await runtime.authenticateRequest(environment);
+  const request = authenticated.request ?? authenticated;
   const reservation = await runtime.reserve(request);
   try {
     await runtime.assertReservation(reservation);
@@ -130,6 +172,8 @@ export async function runWifCaptureAdapter(
       authMode: "GITHUB_OIDC_WIF",
       projectId,
       accessToken: token,
+      snapshot: authenticated.authority.snapshot,
+      finalReviewHashes: authenticated.finalReviewHashes,
     });
     await runtime.assertReservation(reservation);
     runtime.write(`${canonicalize(evidence)}\n`);

@@ -339,9 +339,14 @@ describe("authoritative Vertex request and response probes", () => {
       20_000_000,
     );
     expect(Object.keys(countBody)).toEqual(["contents"]);
-    expect(generationBody.contents).toEqual(countBody.contents);
+    expect(countBody.contents).toEqual([
+      { role: "user", parts: [{ text: expect.any(String) }] },
+    ]);
+    expect(plan.countBody).not.toContain("inlineData");
+    expect(generationBody.contents).not.toEqual(countBody.contents);
     expect(plan.generationBody.match(/"inlineData"/g)).toHaveLength(1);
     expect(plan.generationBody).toContain(maximumPdfBytes.toString("base64"));
+    expect(plan.countBody).not.toContain(maximumPdfBytes.toString("base64"));
   });
 
   it("[PROBE] DEADLINE_BOUNDED", async () => {
@@ -608,8 +613,8 @@ describe("Vertex countTokens request plan", () => {
     const generationBody = JSON.parse(observed.calls[1]!.body) as {
       contents: unknown;
     };
-    expect(countBody.contents).toEqual(generationBody.contents);
-    expect(observed.calls[0]!.body).toContain(PDF_BYTES.toString("base64"));
+    expect(countBody.contents).not.toEqual(generationBody.contents);
+    expect(observed.calls[0]!.body).not.toContain(PDF_BYTES.toString("base64"));
     expect(observed.calls[1]!.body).toContain(PDF_BYTES.toString("base64"));
   });
 

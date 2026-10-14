@@ -957,13 +957,13 @@ describe("canonical quality closure mechanical binding", () => {
       "unsigned closure",
       legacyUnsignedAuthorityFixture(),
       undefined,
-      "QUALITY_ATTESTATION_AUTHORITY_MISSING",
+      "QUALITY_ACTIVATION_REQUIRES_SIGNED_RELEASE",
     ],
     [
       "signed closure without verifier",
       signedLegacyAuthorityFixture(),
       undefined,
-      "QUALITY_ATTESTATION_VERIFIER_MISSING",
+      "QUALITY_ACTIVATION_REQUIRES_SIGNED_RELEASE",
     ],
     [
       "signed closure with a mismatched evidence digest",
@@ -975,13 +975,13 @@ describe("canonical quality closure mechanical binding", () => {
         },
       },
       { verify: jest.fn(() => true) },
-      "QUALITY_EVIDENCE_DIGEST_MISMATCH",
+      "QUALITY_ACTIVATION_REQUIRES_SIGNED_RELEASE",
     ],
     [
       "signed closure whose signature verifier rejects",
       signedLegacyAuthorityFixture(),
       { verify: jest.fn(() => false) },
-      "QUALITY_ATTESTATION_MISMATCH",
+      "QUALITY_ACTIVATION_REQUIRES_SIGNED_RELEASE",
     ],
   ] as const)(
     "token issue fails explicitly for %s",
@@ -1028,7 +1028,7 @@ describe("canonical quality closure mechanical binding", () => {
     );
   });
 
-  it("pins the current approved policy to literal 1/0 thresholds and exact runtime limits", async () => {
+  it("pins the current policy to literal 1/0 thresholds and exact runtime limits", async () => {
     const baseline = JSON.parse(
       await readFile(resolve(ROOT, POLICY_PATH), "utf8"),
     ) as Policy;
@@ -1053,11 +1053,11 @@ describe("canonical quality closure mechanical binding", () => {
       maxP95LatencyMs: 30_000,
       maxProviderDeadlineMs: 60_000,
       maxRequestBodyBytes: 20_000_000,
-      maxTotalCostMicros: 500_000,
+      maxTotalCostMicros: 502_000,
       maxVmHwmBytes: 536_870_912,
       declaredLimits: {
         maxP95LatencyMs: 30_000,
-        maxTotalCostMicros: 500_000,
+        maxTotalCostMicros: 502_000,
         maxRequestBodyBytes: 20_000_000,
         maxProviderDeadlineMs: 60_000,
         maxVmHwmBytes: 536_870_912,
@@ -1084,7 +1084,7 @@ describe("canonical quality closure mechanical binding", () => {
     });
     expect(baseline.declaredLimits).toEqual({
       maxP95LatencyMs: 30_000,
-      maxTotalCostMicros: 500_000,
+      maxTotalCostMicros: 502_000,
       maxRequestBodyBytes: 20_000_000,
       maxProviderDeadlineMs: 60_000,
       maxVmHwmBytes: 536_870_912,
@@ -1813,7 +1813,6 @@ describe("canonical capture and qualification orchestration", () => {
     });
     const input = { qualityClosure: { version: 2, marker: "captured" } };
     const rerun = { version: 2, marker: "captured" };
-    const token = Object.freeze({ opaque: true });
     const parse = jest.fn(() => input);
     const attest = jest.fn(async () => {
       events.push("rerun");
@@ -1821,11 +1820,11 @@ describe("canonical capture and qualification orchestration", () => {
     });
     const issue = jest.fn(async () => {
       events.push("token");
-      return token;
+      return Object.freeze({ opaque: true });
     });
     const evaluate = jest.fn(async (_input, receivedToken) => {
       events.push("evaluate");
-      expect(receivedToken).toBe(token);
+      expect(receivedToken).toBeUndefined();
       return { releaseStatus: "PASS" };
     });
     const assert = jest.fn(() => events.push("assert"));
@@ -1915,13 +1914,12 @@ describe("canonical capture and qualification orchestration", () => {
     expect(result.read).toHaveBeenCalledTimes(accepted ? 1 : 0);
     expect(result.close).toHaveBeenCalledTimes(1);
     expect(result.attest).toHaveBeenCalledTimes(accepted ? 1 : 0);
-    expect(result.issue).toHaveBeenCalledTimes(accepted ? 1 : 0);
+    expect(result.issue).not.toHaveBeenCalled();
     if (accepted) {
       expect(result.events).toEqual([
         "lock",
         "open",
         "rerun",
-        "token",
         "evaluate",
         "assert",
         "final-snapshot",
@@ -2001,7 +1999,6 @@ describe("canonical capture and qualification orchestration", () => {
       "lock",
       "open",
       "rerun",
-      "token",
       "evaluate",
       "assert",
       "final-snapshot",

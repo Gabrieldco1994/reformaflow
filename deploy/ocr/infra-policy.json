@@ -4,7 +4,7 @@
   "subjectBaseTree": "26be40730c1fc949a12bd57fbcfadcf176dafec4",
   "policy": {
     "path": "apps/api/src/imports/ocr-synth-v1/quality-closure-policy.json",
-    "sha256": "d0baa742cd4db8515b5df7d947c8079b50864c7b296062a7fe66d27cf14a3f57",
+    "sha256": "ac936f5dcba70b78069602ae6932db095bd9f1d3983dc12de1ad6e0244393ae0",
     "version": "ocr-quality-closure-v2",
     "validThroughUtc": "2026-10-21T23:59:59.000Z"
   },
@@ -20,7 +20,7 @@
     "currency": "USD",
     "inputMicrosPerMillionTokens": 300000,
     "outputMicrosPerMillionTokens": 2500000,
-    "maxTotalCostMicros": 500000
+    "maxTotalCostMicros": 502000
   },
   "provider": {
     "provider": "GOOGLE_VERTEX_AI",

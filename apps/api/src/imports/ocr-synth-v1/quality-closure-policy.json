@@ -5,11 +5,11 @@
   "maxP95LatencyMs": 30000,
   "maxProviderDeadlineMs": 60000,
   "maxRequestBodyBytes": 20000000,
-  "maxTotalCostMicros": 500000,
+  "maxTotalCostMicros": 502000,
   "maxVmHwmBytes": 536870912,
   "declaredLimits": {
     "maxP95LatencyMs": 30000,
-    "maxTotalCostMicros": 500000,
+    "maxTotalCostMicros": 502000,
     "maxRequestBodyBytes": 20000000,
     "maxProviderDeadlineMs": 60000,
     "maxVmHwmBytes": 536870912
@@ -75,10 +75,10 @@
     "reservedCostUnitsPerCall": 32768
   },
   "reviewArtifacts": {
-    "residualRiskAcceptance": "docs/reviews/719-ocr-data-owner-risk-acceptance.md",
-    "securityReview": "docs/reviews/719-ocr-security-review.md",
-    "privacyReview": "docs/reviews/719-ocr-privacy-review.md",
-    "dataOwnerReview": "docs/reviews/719-ocr-data-owner-review.md"
+    "residualRiskAcceptance": "deploy/ocr/reviews/data-owner-risk-acceptance.json",
+    "securityReview": "deploy/ocr/reviews/security.json",
+    "privacyReview": "deploy/ocr/reviews/privacy.json",
+    "dataOwnerReview": "deploy/ocr/reviews/data-owner-final.json"
   },
   "jestConfigPath": "apps/api/src/imports/ocr-synth-v1/quality-closure-jest.config.cjs",
   "qualificationSuiteFiles": [

@@ -1,12 +1,10 @@
 # #732 — `ocr-synth-v1` scanned-PDF Vertex qualification
 
-Implementation snapshot reviewed: **`6867ba991f4c39deb19bb48ead0cda62a2a9a131`**. The
-scanned-PDF OCR implementation and audited live-capture tooling exist in that code snapshot. The
-release source of truth will be the current `feat/719-final-ocr` PR head once opened, not a
-self-referential documentation commit. `IMPORT_OCR_ENABLED` remains **OFF** and live qualification
-is still **GAPS (fail closed)**. This does not claim merge, deploy, production availability or
-rollout. The capture command does not enable OCR, use an application database, expose ingress, or
-write financial data. Ordinary CI still makes no Vertex call.
+The scanned-PDF OCR implementation and audited live-capture tooling are bound to the immutable
+subject SHA/tree supplied by the protected workflow. `IMPORT_OCR_ENABLED` remains **OFF** and live
+qualification is still **GAPS (fail closed)**. This does not claim merge, deploy, production
+availability or rollout. The capture command does not enable OCR, use an application database,
+expose ingress, or write financial data. Ordinary CI still makes no Vertex call.
 
 ## User promise and safety boundary
 
@@ -121,6 +119,12 @@ honestly records `capturePath=DIRECT_PROVIDER_CAPTURE`, `consentRecorded=false`,
 candidate defaults are release evidence only through the six pinned real-service probes in
 `pdf-ocr-analyze.integration.spec.ts`. Every successful live case must record
 `finishReason=STOP` and `maxOutputTokens=8192`; missing or different evidence fails release.
+There are two provider calls per admitted case: `countTokens` receives only the non-sensitive
+prompt text, and `generateContent` is the sole call containing the original PDF bytes. Admission
+reserves the conservative local bound of 24,576 input tokens plus 8,192 output tokens before that
+single PDF transmission. At the dated policy prices this is 27,853 micros per case and 501,354
+micros for all 18 cases, below the qualification-only hard limit of 502,000 micros. The operational
+tenant/global quotas remain 500,000 micros.
 The 10 routing cases and all service probes must come from real service tests with only the external
 model and Prisma mocked. A model mock cannot supply the cents/sign/schema field being evaluated.
 
@@ -180,15 +184,12 @@ npx jest --config src/imports/ocr-synth-v1/jest.config.cjs --runInBand
 npx jest src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts --runInBand
 ```
 
-Before capture, prepare an audited manifest JSON with the exact candidate/configuration/adapter
-pins, declared limits, pricing, durable budget policy, review hashes, all 35 service-probe results,
-and all 10 routing results. Routing rows must be the results of the parameterized
-`ImportSessionExtractionService` test above, with
-`source=REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED`, the generated artifact SHA, zero provider
-calls, zero OCR-usage rows and zero financial writes. Probe rows must likewise cite their real
-`apps/api/src/imports/**/*.spec.ts` source. The capture parser rejects missing, extra, duplicate,
-unknown-enum, byte-bearing, offline-oracle, cross-tenant, stale-hash, or incomplete evidence before
-the first provider request.
+Before capture, the protected image reruns the pinned three-suite mechanical topology and records
+the exact Jest assertion and containing-suite hashes for precisely 10 `ROUTE` and 35 `PROBE`
+assertions. The capture path does not synthesize provider-call, fallback, durable-state or
+financial-write claims from test names. Those behaviors are asserted at the real service boundary;
+the resulting passed assertion bytes are what the closure binds. Missing, extra, duplicate,
+wrong-source or failed assertions stop before the first provider request.
 
 ### Authentication decision and prerequisites
 
@@ -205,6 +206,12 @@ only through the protected WIF adapter in the qualification image. The adapter v
 spend and workflow bindings before dispatch, emits canonical raw evidence on stdout, and remains
 fail-closed while protected configuration is absent.
 
+The qualification image does not contain or mount `.git`. Before capture, the protected workflow
+materializes a snapshot authority bound to subject SHA/tree, qualification image digest,
+executable closure digest, policy and corpus. The image recomputes every bound source hash and
+rejects drift. The authenticated protected review set is passed separately and binds the four
+required review roles; repository review descriptor files are not treated as approval.
+
 The protected runner generates only the in-repository synthetic `scan-001` through `scan-018` PDFs in
 memory, hashes and admits all of them before dispatch, then calls
 `VertexPdfOcrProvider.extractPdf` sequentially exactly once per case. It never accepts an input PDF
@@ -212,9 +219,9 @@ path. Mixed/textual cases come only from the bounded service evidence and make n
 The dense `scan-010` result retains all returned occurrences in order; qualification requires its
 24 expected occurrences.
 
-The output is reserved with exclusive/no-follow semantics and mode `0600` **before** Git, ADC or
-provider work begins, and the descriptor remains open throughout capture. An existing file,
-symlink, concurrent writer, write failure, repository-SHA drift, duplicate request/response ID,
+The output is reserved with exclusive/no-follow semantics and mode `0600` **before** authentication
+or provider work begins, and the descriptor remains open throughout capture. An existing file,
+symlink, concurrent writer, write failure, snapshot drift, duplicate request/response ID,
 mixed model version, adapter failure, or incomplete trace stops the command and leaves no partial
 new output. Git HEAD is checked again after all calls and before publication. Failure cleanup
 unlinks only when the path still has the reserved file's device and inode, never a replacement.
@@ -232,13 +239,16 @@ npx ts-node src/imports/ocr-synth-v1/qualify-live.ts \
 
 No file, overwrite, offline oracle data, incomplete 18-case quality or 10-case routing evidence,
 synthetic service provenance, missing budgets/pricing/limits, or missing provider metadata fails
-closed. The qualifier performs exact runtime parsing rather than a TypeScript cast. It consumes
-evidence and does not contain a second provider implementation. A structurally valid closure or
-ledger never grants authority: `LIVE_CAPTURE` is qualified only with the in-process opaque token
-issued after the complete canonical evidence digest is recomputed and its detached P-256
-signature verifies against the compiled OCR trust bundle. The bundle is intentionally empty while
-OCR is OFF, so a positive qualification additionally requires a separately reviewed trusted key;
-no self-issued key or fallback is accepted.
+closed. The qualifier performs exact runtime parsing rather than a TypeScript cast. It consumes evidence
+and does not contain a second provider implementation. A structurally valid closure, ledger or
+absolute `PASS` assessment never grants activation authority. Offline scoring may produce the
+persisted application-owned V4 assessment after independently recomputing the 18-case ground truth
+and the exact 10/35 mechanical topology. The unsigned builder accepts only that persisted
+assessment and the authenticated raw-artifact archive bytes/member; there is no legacy report
+fallback. KMS then signs the bound release package. Only the externally signed release envelope,
+verified against the compiled trust bundle by the production activation boundary, can authorize
+OCR. The bundle remains intentionally empty while OCR is OFF; self-issued keys and unsigned
+fallbacks are rejected.
 
 The application-owned report has one V4 shape. Offline scoring parses the exact capture with the
 production parser and recomputes all 18 ground-truth cases, 10 routing cases and 35 probes. The
@@ -246,6 +256,11 @@ persisted assessment is bound into the unsigned package before the KMS boundary.
 candidate-to-candidate reconstruction is explicitly deferred as
 `historicalComparison: NOT_PERFORMED_P1_DEFERRED`; the older `OCR_REQUIRED` behavior is not claimed
 as a comparable Vertex baseline.
+
+The current policy SHA-256 is
+`ac936f5dcba70b78069602ae6932db095bd9f1d3983dc12de1ad6e0244393ae0`. The four committed review
+descriptors still bind the preceding policy and were not rewritten. A real workflow therefore
+remains fail closed until all four protected roles reapprove this exact policy hash.
 
 ## Evidence status
 

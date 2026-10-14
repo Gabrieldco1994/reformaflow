@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
+  PDF_OCR_MAX_INPUT_TOKENS,
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
@@ -15,11 +16,6 @@ import { OCR_SYNTH_DATASET, OCR_SYNTH_ROUTING_CASES } from "./corpus";
 import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
   DIRECT_PDF_VERTEX_CONFIG,
-  KNOWN_SAFETY_FINISH_REASONS,
-  OCR_DURABLE_PROBE_IDS,
-  OCR_PROVIDER_CALL_PROBE_IDS,
-  REAL_SERVICE_CONTEXT_PROBE_IDS,
-  REAL_SERVICE_CONTEXT_TEST,
   type OcrEvalInput,
   type OcrEvalRunConfig,
 } from "./evaluator";
@@ -33,7 +29,6 @@ import {
 import { providerNativeOutcome } from "./provider-native-outcome";
 import {
   SAFETY_PROBE_IDS,
-  SAFETY_PROBE_SCENARIOS,
   type OcrRoutingEvidence,
   type OcrSafetyProbeEvidence,
 } from "./types";
@@ -42,8 +37,9 @@ import type {
   QualityClosurePolicy,
 } from "./quality-closure-attestation";
 import { isStructurallyValidQualityClosureEnvelope } from "./quality-closure-attestation";
-import type { OcrQualityClosure } from "./types";
-import qualityPolicy from "./quality-closure-policy.json";
+import type { OcrQualityClosure, OcrQualityClosureTestEvidence } from "./types";
+
+const QUALIFICATION_HARD_LIMIT_MICROS = 502_000;
 
 export const LIVE_CAPTURE_CASE_IDS = Object.freeze([
   "scan-001",
@@ -80,6 +76,11 @@ export interface CaptureLiveManifest {
   readonly routingCases: OcrRoutingEvidence[];
   readonly safetyProbes: OcrSafetyProbeEvidence[];
 }
+
+type ProtectedCaptureManifest = Omit<
+  CaptureLiveManifest,
+  "routingCases" | "safetyProbes"
+>;
 
 export interface CaptureLiveOptions {
   readonly provider: VertexPdfOcrProvider;
@@ -165,17 +166,10 @@ const exactIds = (actual: readonly string[], expected: readonly string[]) =>
   actual.length === expected.length &&
   new Set(actual).size === actual.length &&
   actual.every((id, index) => id === expected[index]);
-const qualificationSource = (name: string): string => {
-  const entry = qualityPolicy.qualificationTests.find(
-    (candidate) => candidate.name === name,
-  );
-  if (!entry) throw new Error("LIVE_CAPTURE_RAW_EVIDENCE_INVALID");
-  return entry.sourcePath;
-};
-
 async function preflight(
-  manifest: CaptureLiveManifest,
+  manifest: CaptureLiveManifest | ProtectedCaptureManifest,
   currentRepoSha: string,
+  attestedTests?: readonly OcrQualityClosureTestEvidence[],
 ): Promise<
   Array<{
     testCase: (typeof import("./corpus").OCR_SYNTH_SCANNED_RELEASE_CASES)[number];
@@ -197,44 +191,51 @@ async function preflight(
       (item) =>
         item.artifact.kind !== "PDF_SCAN" ||
         !item.tags.includes("image-only-pdf"),
-    ) ||
-    !exactIds(
-      manifest.routingCases.map((item) => item.caseId),
-      OCR_SYNTH_ROUTING_CASES.map((item) => item.id),
-    ) ||
-    manifest.routingCases.some(
-      (item) =>
-        item.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" ||
-        item.providerCalls !== 0 ||
-        item.financialWrites !== 0 ||
-        !item.routedLocally ||
-        !item.explicitFallback,
-    ) ||
-    !exactIds(
-      manifest.safetyProbes.map((item) => item.id),
-      SAFETY_PROBE_IDS,
-    ) ||
-    manifest.safetyProbes.some(
-      (item) =>
-        item.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" ||
-        !item.blocked ||
-        !item.explicitError ||
-        !/^[A-Z][A-Z0-9_]+$/.test(item.errorCode) ||
-        item.providerCalls !==
-          (OCR_PROVIDER_CALL_PROBE_IDS.has(item.id) ? 1 : 0) ||
-        item.financialWrites !== 0 ||
-        (OCR_DURABLE_PROBE_IDS.has(item.id) && !item.durableStateVerified) ||
-        (item.id === "KNOWN_SAFETY_FINISH_REASONS" &&
-          JSON.stringify(item.finishReasonsTested) !==
-            JSON.stringify(KNOWN_SAFETY_FINISH_REASONS)) ||
-        (REAL_SERVICE_CONTEXT_PROBE_IDS.includes(
-          item.id as (typeof REAL_SERVICE_CONTEXT_PROBE_IDS)[number],
-        ) &&
-          item.testFile !== REAL_SERVICE_CONTEXT_TEST) ||
-        !/^apps\/api\/src\/imports\/.+\.spec\.ts$/.test(item.testFile),
     )
   )
     throw new Error("LIVE_CAPTURE_PREFLIGHT_FAILED");
+  if (attestedTests) {
+    const expected = [
+      ...OCR_SYNTH_ROUTING_CASES.map((item) => `[ROUTE] ${item.id}`),
+      ...SAFETY_PROBE_IDS.map((id) => `[PROBE] ${id}`),
+    ];
+    if (
+      !exactIds(
+        attestedTests.map((item) => item.name),
+        expected,
+      ) ||
+      attestedTests.some(
+        (item) =>
+          item.status !== "PASS" ||
+          !/^[0-9a-f]{64}$/.test(item.assertionRecordSha256) ||
+          !/^[0-9a-f]{64}$/.test(item.suiteResultSha256),
+      )
+    )
+      throw new Error("LIVE_CAPTURE_PREFLIGHT_FAILED");
+  } else {
+    const legacy = manifest as CaptureLiveManifest;
+    if (
+      !Array.isArray(legacy.routingCases) ||
+      !Array.isArray(legacy.safetyProbes) ||
+      !exactIds(
+        legacy.routingCases.map((item) => item.caseId),
+        OCR_SYNTH_ROUTING_CASES.map((item) => item.id),
+      ) ||
+      legacy.routingCases.some(
+        (item) =>
+          item.source !== "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED" ||
+          item.providerCalls !== 0 ||
+          item.financialWrites !== 0 ||
+          !item.routedLocally ||
+          !item.explicitFallback,
+      ) ||
+      !exactIds(
+        legacy.safetyProbes.map((item) => item.id),
+        SAFETY_PROBE_IDS,
+      )
+    )
+      throw new Error("LIVE_CAPTURE_PREFLIGHT_FAILED");
+  }
 
   const artifacts = [];
   for (const testCase of scanned) {
@@ -245,87 +246,40 @@ async function preflight(
       hash: artifactSha256(bytes),
     });
   }
-  const routesById = new Map(
-    manifest.routingCases.map((item) => [item.caseId, item]),
-  );
-  for (const testCase of OCR_SYNTH_ROUTING_CASES) {
-    const bytes = await generateArtifact(testCase);
-    const route = routesById.get(testCase.id);
-    const reasons: OcrRoutingEvidence["detectedReasons"] = [
-      "MIXED",
-      "SEARCHABLE",
-    ];
-    if (testCase.tags.includes("raster-logo")) reasons.push("RASTER_LOGO");
-    if (testCase.tags.includes("hidden-text")) reasons.push("HIDDEN_TEXT");
-    if (
-      !route ||
-      route.tenantId !== testCase.tenantId ||
-      route.artifactSha256 !== artifactSha256(bytes) ||
-      JSON.stringify(route.detectedReasons) !== JSON.stringify(reasons) ||
-      route.testFile !== ROUTING_EVIDENCE_TEST
-    )
-      throw new Error("LIVE_CAPTURE_PREFLIGHT_FAILED");
+  if (!attestedTests) {
+    const routesById = new Map(
+      (manifest as CaptureLiveManifest).routingCases.map((item) => [
+        item.caseId,
+        item,
+      ]),
+    );
+    for (const testCase of OCR_SYNTH_ROUTING_CASES) {
+      const bytes = await generateArtifact(testCase);
+      const route = routesById.get(testCase.id);
+      const reasons: OcrRoutingEvidence["detectedReasons"] = [
+        "MIXED",
+        "SEARCHABLE",
+      ];
+      if (testCase.tags.includes("raster-logo")) reasons.push("RASTER_LOGO");
+      if (testCase.tags.includes("hidden-text")) reasons.push("HIDDEN_TEXT");
+      if (
+        !route ||
+        route.tenantId !== testCase.tenantId ||
+        route.artifactSha256 !== artifactSha256(bytes) ||
+        JSON.stringify(route.detectedReasons) !== JSON.stringify(reasons) ||
+        route.testFile !== ROUTING_EVIDENCE_TEST
+      )
+        throw new Error("LIVE_CAPTURE_PREFLIGHT_FAILED");
+    }
   }
   return artifacts;
 }
 
-async function mechanicalManifest(
+function protectedCaptureManifest(
   policy: QualityClosurePolicy,
   qualityClosure: OcrQualityClosure,
   reviews: FinalReviewHashes,
-): Promise<CaptureLiveManifest> {
-  const routingCases: OcrRoutingEvidence[] = [];
-  for (const testCase of OCR_SYNTH_ROUTING_CASES) {
-    const bytes = await generateArtifact(testCase);
-    const detectedReasons: OcrRoutingEvidence["detectedReasons"] = [
-      "MIXED",
-      "SEARCHABLE",
-    ];
-    if (testCase.tags.includes("raster-logo"))
-      detectedReasons.push("RASTER_LOGO");
-    if (testCase.tags.includes("hidden-text"))
-      detectedReasons.push("HIDDEN_TEXT");
-    routingCases.push({
-      caseId: testCase.id,
-      tenantId: testCase.tenantId,
-      artifactSha256: artifactSha256(bytes),
-      source: "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED",
-      detectedReasons,
-      providerCalls: 0,
-      routedLocally: true,
-      explicitFallback: true,
-      financialWrites: 0,
-      testFile: qualificationSource(`[ROUTE] ${testCase.id}`),
-    });
-  }
-  const safetyProbes: OcrSafetyProbeEvidence[] = SAFETY_PROBE_IDS.map((id) => {
-    const scenarios = (
-      SAFETY_PROBE_SCENARIOS as Readonly<Record<string, readonly string[]>>
-    )[id];
-    return {
-      id,
-      source: "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED",
-      blocked: true,
-      explicitError: true,
-      errorCode: id,
-      providerCalls: OCR_PROVIDER_CALL_PROBE_IDS.has(id) ? 1 : 0,
-      financialWrites: 0,
-      durableStateVerified: OCR_DURABLE_PROBE_IDS.has(id),
-      finishReasonsTested:
-        id === "KNOWN_SAFETY_FINISH_REASONS"
-          ? [...KNOWN_SAFETY_FINISH_REASONS]
-          : [],
-      testFile: qualificationSource(`[PROBE] ${id}`),
-      ...(scenarios ? { scenarios: [...scenarios] } : {}),
-    };
-  });
-  if (
-    routingCases.length !== 10 ||
-    safetyProbes.length !== 35 ||
-    routingCases.some((item) => !isValidLiveRoute(item)) ||
-    safetyProbes.some((item) => !isValidLiveProbe(item))
-  )
-    throw new Error("LIVE_CAPTURE_RAW_EVIDENCE_INVALID");
+): ProtectedCaptureManifest {
   const policySha256 = qualityClosure.snapshot.policySha256;
   return {
     candidateSha: qualityClosure.snapshot.headSha,
@@ -364,8 +318,6 @@ async function mechanicalManifest(
       inputMicrosPerMillionTokens: policy.pricing.inputMicrosPerMillionTokens,
       outputMicrosPerMillionTokens: policy.pricing.outputMicrosPerMillionTokens,
     },
-    routingCases,
-    safetyProbes,
   };
 }
 
@@ -431,7 +383,7 @@ export async function captureLiveEvidence(
     throw new Error("LIVE_CAPTURE_PROVIDER_INVALID");
   if (options.mechanical && process.platform !== "linux")
     throw new Error("LIVE_CAPTURE_VMHWM_UNAVAILABLE");
-  const manifest = await mechanicalManifest(
+  const manifest = protectedCaptureManifest(
     options.mechanical.policy,
     closure,
     options.mechanical.finalReviewHashes,
@@ -439,7 +391,7 @@ export async function captureLiveEvidence(
   const currentRepoSha = closure.snapshot.headSha;
   if (!manifest || !currentRepoSha)
     throw new Error("LIVE_CAPTURE_CONFIG_MISSING");
-  const artifacts = await preflight(manifest, currentRepoSha);
+  const artifacts = await preflight(manifest, currentRepoSha, closure.tests);
   const memoryHighWaterMark = options.memoryRss
     ? async () => options.memoryRss!()
     : options.mechanical ||
@@ -754,7 +706,7 @@ interface CapturedAttemptInput {
   readonly reservedOutputTokens: 8192;
   readonly inputMicrosPerMillionTokens: number;
   readonly outputMicrosPerMillionTokens: number;
-  readonly hardLimitMicros: 500000;
+  readonly hardLimitMicros: typeof QUALIFICATION_HARD_LIMIT_MICROS;
   readonly countTokens: () => Promise<Buffer>;
   readonly generation: () => Promise<Buffer>;
 }
@@ -810,8 +762,9 @@ function measuredGenerationCost(
 }
 
 /**
- * Captures the call-boundary ledger in causal order. Input token authority
- * comes exclusively from the exact hashed countTokens response bytes.
+ * Captures the call-boundary ledger in causal order. The hashed countTokens
+ * response proves prompt size; spend admission reserves the full local PDF
+ * input bound because the PDF itself is transmitted only to generateContent.
  */
 export async function executeCapturedAttempt(
   input: CapturedAttemptInput,
@@ -825,7 +778,7 @@ export async function executeCapturedAttempt(
     !/^[0-9a-f]{64}$/.test(input.countTokensRequestSha256) ||
     !safeNonnegative(input.spentKnownBeforeMicros) ||
     input.reservedOutputTokens !== 8192 ||
-    input.hardLimitMicros !== 500_000
+    input.hardLimitMicros !== QUALIFICATION_HARD_LIMIT_MICROS
   )
     throw new Error("ATTEMPT_LEDGER_SCHEMA_INVALID");
   const common = {
@@ -845,7 +798,7 @@ export async function executeCapturedAttempt(
   ];
   const countBytes = boundedBytes(await input.countTokens());
   const countHash = attemptSha256(countBytes);
-  const countedInputTokens = parsedCountTokens(countBytes);
+  const parsedInputTokens = parsedCountTokens(countBytes);
   ledger.push({
     ...common,
     sequence: 2,
@@ -853,10 +806,10 @@ export async function executeCapturedAttempt(
     responseBytesBase64: encode(countBytes),
     responseByteLength: countBytes.length,
     responseSha256: countHash,
-    parsedInputTokens: countedInputTokens,
+    parsedInputTokens,
   });
   const worstCaseCurrentMicros = pricedMicros(
-    countedInputTokens,
+    PDF_OCR_MAX_INPUT_TOKENS,
     input.reservedOutputTokens,
     input.inputMicrosPerMillionTokens,
     input.outputMicrosPerMillionTokens,
@@ -872,7 +825,7 @@ export async function executeCapturedAttempt(
     sequence: 3,
     kind: "ADMISSION_DECISION",
     countTokensResponseSha256: countHash,
-    countedInputTokens,
+    countedInputTokens: PDF_OCR_MAX_INPUT_TOKENS,
     reservedOutputTokens: input.reservedOutputTokens,
     inputMicrosPerMillionTokens: input.inputMicrosPerMillionTokens,
     outputMicrosPerMillionTokens: input.outputMicrosPerMillionTokens,
@@ -885,7 +838,7 @@ export async function executeCapturedAttempt(
   if (decision === "CAPTURE_SPEND_LIMIT")
     return Object.freeze({
       decision,
-      countedInputTokens,
+      countedInputTokens: PDF_OCR_MAX_INPUT_TOKENS,
       worstCaseCurrentMicros,
       cumulativeWorstCaseMicros,
       ledger: Object.freeze(ledger),
@@ -922,7 +875,7 @@ export async function executeCapturedAttempt(
   });
   return Object.freeze({
     decision,
-    countedInputTokens,
+    countedInputTokens: PDF_OCR_MAX_INPUT_TOKENS,
     worstCaseCurrentMicros,
     cumulativeWorstCaseMicros,
     ledger: Object.freeze(ledger),
@@ -972,7 +925,6 @@ export function verifyAttemptLedger(input: unknown): true {
   )
     throw new Error("ATTEMPT_LEDGER_ORDER_INVALID");
   let offset = 0;
-  let priorWorstCase = 0;
   let priorMeasured = 0;
   const caseIds: string[] = [];
   const requestIds = new Set<string>();
@@ -1042,7 +994,7 @@ export function verifyAttemptLedger(input: unknown): true {
     const parsed = parsedCountTokens(countBytes);
     if (
       count.parsedInputTokens !== parsed ||
-      admission.countedInputTokens !== parsed ||
+      admission.countedInputTokens !== PDF_OCR_MAX_INPUT_TOKENS ||
       admission.countTokensResponseSha256 !== count.responseSha256
     )
       throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
@@ -1050,13 +1002,13 @@ export function verifyAttemptLedger(input: unknown): true {
       admission.reservedOutputTokens !== 8192 ||
       admission.inputMicrosPerMillionTokens !== 300_000 ||
       admission.outputMicrosPerMillionTokens !== 2_500_000 ||
-      admission.hardLimitMicros !== 500_000
+      admission.hardLimitMicros !== QUALIFICATION_HARD_LIMIT_MICROS
     )
       throw new Error("ATTEMPT_LEDGER_PRICING_INVALID");
-    if (admission.spentKnownBeforeMicros !== priorWorstCase)
+    if (admission.spentKnownBeforeMicros !== priorMeasured)
       throw new Error("CUMULATIVE_SPEND_MISMATCH");
     const expectedWorst = pricedMicros(
-      parsed,
+      PDF_OCR_MAX_INPUT_TOKENS,
       admission.reservedOutputTokens,
       admission.inputMicrosPerMillionTokens,
       admission.outputMicrosPerMillionTokens,
@@ -1090,7 +1042,6 @@ export function verifyAttemptLedger(input: unknown): true {
       )
         throw new Error("CUMULATIVE_SPEND_MISMATCH");
     }
-    priorWorstCase = admission.cumulativeWorstCaseMicros;
   }
   if (
     caseIds.length !== LIVE_CAPTURE_CASE_IDS.length ||

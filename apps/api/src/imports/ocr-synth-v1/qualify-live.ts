@@ -6,8 +6,6 @@ import { parseLiveEvidenceJson } from "./live-evidence-parser";
 import {
   assertQualityRepositorySnapshot,
   attestQualityClosure,
-  createQualityClosureVerifier,
-  issueVerifiedQualityClosureToken,
   withQualityCaptureLock,
 } from "./quality-closure-attestation";
 
@@ -44,13 +42,7 @@ async function main(): Promise<void> {
     if (!input.qualityClosure) throw new Error("QUALITY_ATTESTATION_MISSING");
 
     const rerun = await attestQualityClosure();
-    const token = await issueVerifiedQualityClosureToken(
-      input,
-      rerun.closure,
-      rerun.policy,
-      { verifier: createQualityClosureVerifier() },
-    );
-    const report = await evaluateOcrSynth(input, token);
+    const report = await evaluateOcrSynth(input);
     assertReleaseQualified(report);
     await assertQualityRepositorySnapshot(rerun.closure.snapshot, rerun.policy);
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

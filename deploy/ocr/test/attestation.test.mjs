@@ -23,7 +23,6 @@ import {
 } from "../../../scripts/ci/ocr-attestation.mjs";
 import {
   admitCumulativeSpend,
-  assessReportV4,
   buildUnsignedPayloadFromBytes,
 } from "../build-unsigned-attestation.mjs";
 import * as unsignedAttestation from "../build-unsigned-attestation.mjs";
@@ -92,7 +91,7 @@ function fixture(publicKeySha256) {
       currency: "USD",
       inputMicrosPerMillionTokens: 300000,
       outputMicrosPerMillionTokens: 2500000,
-      maxTotalCostMicros: 500000,
+      maxTotalCostMicros: 502000,
     },
     reviews: [
       "DATA_OWNER_RISK_ACCEPTANCE",
@@ -149,8 +148,8 @@ function fixture(publicKeySha256) {
     },
     spend: {
       currency: "USD",
-      hardLimitMicros: 500000,
-      reservedMicros: 500000,
+      hardLimitMicros: 502000,
+      reservedMicros: 502000,
       measuredMicros: 1200,
       admissionSha256: "9".repeat(64),
       admittedAt: "2026-10-14T05:10:00.000Z",
@@ -352,8 +351,8 @@ test("hard spend reservation is exclusive and detects path replacement", async (
     runId: "1001",
     runAttempt: 1,
     currency: "USD",
-    hardLimitMicros: 500000,
-    reservedMicros: 500000,
+    hardLimitMicros: 502000,
+    reservedMicros: 502000,
     provider: "GOOGLE_VERTEX_AI",
     requestedModelAlias: "gemini-2.5-flash",
     region: "southamerica-east1",
@@ -562,7 +561,7 @@ function strictV4Report(payload) {
         countedInputTokens: inputTokens,
         reservedOutputTokens: 8192,
         worstCaseCurrentMicros,
-        hardLimitMicros: 500000,
+        hardLimitMicros: 502000,
         status: "ADMITTED",
       },
     };
@@ -662,7 +661,7 @@ function strictV4Report(payload) {
         costCurrency: "USD",
       },
       spend: {
-        hardLimitMicros: 500000,
+        hardLimitMicros: 502000,
         cumulativeWorstCaseMicros: cumulative,
         measuredMicros,
         admissionSha256: payload.spend.admissionSha256,
@@ -730,39 +729,33 @@ function evaluateMutation(input, report, raw = input.raw) {
     raw,
     reportBytes,
     input.spendBytes,
-    { assessmentOnly: true },
   );
 }
 
-test("unsigned producer requires live baseline candidate PASS and prompt binding", () => {
+function assertPersistedAssessmentRequired(result) {
+  assert.equal(result.releaseStatus, "GAPS");
+  assert.equal(result.signable, false);
+  assert.deepEqual(result.issues, ["PERSISTED_REPORT_ASSESSMENT_REQUIRED"]);
+}
+
+test("legacy report cannot reach unsigned producer without persisted application assessment", () => {
   const input = unsignedInputs();
   const assessed = buildUnsignedPayloadFromBytes(
     input.payload,
     input.raw,
     input.reportBytes,
     input.spendBytes,
-    { assessmentOnly: true },
   );
-  assert.deepEqual(assessed.issues, []);
-  assert.equal(assessed.releaseStatus, "PASS");
-  assert.equal(assessed.signable, true);
+  assertPersistedAssessmentRequired(assessed);
   const built = buildUnsignedPayloadFromBytes(
     input.payload,
     input.raw,
     input.reportBytes,
     input.spendBytes,
   );
-  const runtime = validateRuntimeReleasePayload(
-    parseStrictJson(
-      Buffer.from(built.runtimePayloadBase64, "base64").toString("utf8"),
-    ),
-  );
-  assert.equal(runtime.provider.model, "gemini-2.5-flash");
-  assert.equal(runtime.provider.modelVersion, "gemini-2.5-flash-001");
-  assert.equal(
-    runtime.provider.promptSha256,
-    input.payload.provider.promptSha256,
-  );
+  assert.equal(built.releaseStatus, "GAPS");
+  assert.equal(built.signable, false);
+  assert.deepEqual(built.issues, ["PERSISTED_REPORT_ASSESSMENT_REQUIRED"]);
 });
 
 test("V1 and hybrid reports are structured GAPS and never signable", () => {
@@ -772,9 +765,7 @@ test("V1 and hybrid reports are structured GAPS and never signable", () => {
     { ...input.report, schemaVersion: 1 },
   ]) {
     const result = evaluateMutation(input, report);
-    assert.equal(result.releaseStatus, "GAPS");
-    assert.equal(result.signable, false);
-    assert.deepEqual(result.issues, ["REPORT_V4_REQUIRED"]);
+    assertPersistedAssessmentRequired(result);
   }
 });
 
@@ -793,98 +784,73 @@ test("production bundle cannot bypass the persisted V4 assessment", () => {
   );
 });
 
-test("TEST_ONLY and absent executions retain deterministic missing codes", () => {
+test("TEST_ONLY and absent legacy executions cannot bypass persisted assessment", () => {
   const input = unsignedInputs();
   const testOnly = evaluateMutation(input, {
     ...input.report,
     evidenceClass: "TEST_ONLY",
   });
-  assert.deepEqual(testOnly.issues, [
-    "MISSING_BASELINE_EXECUTION",
-    "MISSING_LIVE_CANDIDATE_EXECUTION",
-  ]);
-  for (const [side, code] of [
-    ["baseline", "MISSING_BASELINE_EXECUTION"],
-    ["candidate", "MISSING_LIVE_CANDIDATE_EXECUTION"],
-  ]) {
+  assertPersistedAssessmentRequired(testOnly);
+  for (const side of ["baseline", "candidate"]) {
     const report = structuredClone(input.report);
     report[side] = null;
-    assert.deepEqual(evaluateMutation(input, report).issues, [code]);
+    assertPersistedAssessmentRequired(evaluateMutation(input, report));
   }
 });
 
-test("execution provenance, identities, and raw response bytes are authority", () => {
+test("legacy execution mutations cannot create authority without persisted assessment", () => {
   const input = unsignedInputs();
   const metadata = structuredClone(input.report);
   metadata.baseline.provenance.executionKind = "IN_MEMORY_TEST_FIXTURE";
-  assert.deepEqual(evaluateMutation(input, metadata).issues, [
-    "EXECUTION_PROVENANCE_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, metadata));
   const artifactValue = parseStrictJson(input.raw.toString("utf8"));
   artifactValue.executionArtifacts.baseline.bytesBase64 =
     Buffer.from("metadata-only").toString("base64");
   const artifactRaw = Buffer.from(canonicalize(artifactValue));
   const artifactReport = structuredClone(input.report);
   artifactReport.rawEvidenceSha256 = sha256(artifactRaw);
-  assert.deepEqual(
-    evaluateMutation(input, artifactReport, artifactRaw).issues,
-    ["EXECUTION_ARTIFACT_INVALID"],
+  assertPersistedAssessmentRequired(
+    evaluateMutation(input, artifactReport, artifactRaw),
   );
   const duplicate = structuredClone(input.report);
   duplicate.candidate.records[1].requestId =
     duplicate.candidate.records[0].requestId;
-  assert.deepEqual(evaluateMutation(input, duplicate).issues, [
-    "CASE_IDENTITY_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, duplicate));
   const rawValue = parseStrictJson(input.raw.toString("utf8"));
   rawValue.responses[0].bytesBase64 = Buffer.from("mutated").toString("base64");
   const raw = Buffer.from(canonicalize(rawValue));
   const rawMismatch = structuredClone(input.report);
   rawMismatch.rawEvidenceSha256 = sha256(raw);
-  assert.deepEqual(evaluateMutation(input, rawMismatch, raw).issues, [
-    "RAW_RESPONSE_BINDING_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, rawMismatch, raw));
 });
 
-test("prompt alias opaque model and outcome mapping are independently bound", () => {
+test("legacy prompt and outcome mutations cannot bypass persisted assessment", () => {
   const input = unsignedInputs();
   const prompt = structuredClone(input.report);
   prompt.candidate.records[0].promptSha256 = "0".repeat(64);
-  assert.deepEqual(evaluateMutation(input, prompt).issues, [
-    "PROMPT_OR_MODEL_BINDING_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, prompt));
   const unknown = structuredClone(input.report);
   unknown.candidate.records[0].providerOutcome = "SOMETHING_NONEMPTY";
-  assert.deepEqual(evaluateMutation(input, unknown).issues, [
-    "OUTCOME_MAPPING_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, unknown));
   const limit = structuredClone(input.report);
   limit.baseline.records[0].outcome = "LIMIT_EXCEEDED";
   limit.candidate.records[0].providerOutcome = "LIMIT_EXCEEDED";
   limit.candidate.records[0].outcome = "OCR_UNAVAILABLE";
-  assert.deepEqual(evaluateMutation(input, limit).issues, [
-    "OUTCOME_MAPPING_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, limit));
 });
 
-test("caller comparison metrics cost and status claims cannot create PASS", () => {
+test("legacy caller claims cannot create PASS without persisted assessment", () => {
   const input = unsignedInputs();
   const claimed = structuredClone(input.report);
   claimed.comparison.cases[0].pass = false;
-  assert.deepEqual(evaluateMutation(input, claimed).issues, [
-    "PRODUCER_DERIVATION_MISMATCH",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, claimed));
   const cost = structuredClone(input.report);
   cost.candidate.records[0].cost.amountMicros += 1;
-  assert.deepEqual(evaluateMutation(input, cost).issues, [
-    "MEASURED_SPEND_MISMATCH",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, cost));
   const status = structuredClone(input.report);
   status.releaseStatus = "GAPS";
   status.issues = ["CALLER_CLAIM"];
-  assert.deepEqual(evaluateMutation(input, status).issues, [
-    "PRODUCER_STATUS_MISMATCH",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, status));
   const request = parseStrictJson(input.spendBytes.toString("utf8"));
   request.requestedModelAlias = "caller-controlled-alias";
   const spendBytes = Buffer.from(canonicalize(request));
@@ -895,58 +861,43 @@ test("caller comparison metrics cost and status claims cannot create PASS", () =
   payload.spend.admissionSha256 = sha256(spendBytes);
   payload.evidence.report.sha256 = sha256(reportBytes);
   payload.evidence.report.size = reportBytes.length;
-  assert.deepEqual(
-    buildUnsignedPayloadFromBytes(payload, input.raw, reportBytes, spendBytes, {
-      assessmentOnly: true,
-    }).issues,
-    ["SPEND_BINDING_INVALID"],
+  assertPersistedAssessmentRequired(
+    buildUnsignedPayloadFromBytes(payload, input.raw, reportBytes, spendBytes),
   );
 });
 
-test("attempt spend admits 500000 and blocks 500001 before generation", () => {
-  assert.deepEqual(admitCumulativeSpend(499999, 1), {
+test("attempt spend admits 502000 and blocks 502001 before generation", () => {
+  assert.deepEqual(admitCumulativeSpend(501999, 1), {
     status: "ADMITTED",
-    cumulativeWorstCaseMicros: 500000,
+    cumulativeWorstCaseMicros: 502000,
   });
-  assert.deepEqual(admitCumulativeSpend(499999, 2), {
+  assert.deepEqual(admitCumulativeSpend(501999, 2), {
     status: "CAPTURE_SPEND_LIMIT",
-    cumulativeWorstCaseMicros: 500001,
+    cumulativeWorstCaseMicros: 502001,
   });
   const input = unsignedInputs();
   const restarted = structuredClone(input.report);
   restarted.candidate.records[1].admission.spentBeforeMicros = 0;
-  assert.deepEqual(evaluateMutation(input, restarted).issues, [
-    "SPEND_ATTEMPT_STATE_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, restarted));
   const understated = structuredClone(input.report);
   understated.candidate.records[0].admission.worstCaseCurrentMicros = 1;
-  assert.deepEqual(evaluateMutation(input, understated).issues, [
-    "SPEND_ATTEMPT_STATE_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, understated));
 });
 
-test("exact 10 ROUTE and 35 PROBE observations reject claims mutation and writes", () => {
+test("legacy mechanical claims cannot bypass persisted assessment", () => {
   const input = unsignedInputs();
   const missing = structuredClone(input.report);
   missing.boundaryObservations.pop();
-  assert.deepEqual(evaluateMutation(input, missing).issues, [
-    "BOUNDARY_EVIDENCE_INCOMPLETE",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, missing));
   const claimed = structuredClone(input.report);
   claimed.boundaryObservations[0].pass = true;
-  assert.deepEqual(evaluateMutation(input, claimed).issues, [
-    "REPORT_V4_SCHEMA_INVALID",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, claimed));
   const written = structuredClone(input.report);
   written.boundaryObservations[0].financialDeltas.Expense = 1;
-  assert.deepEqual(evaluateMutation(input, written).issues, [
-    "FINANCIAL_DELTA_NONZERO",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, written));
   const mutated = structuredClone(input.report);
   mutated.boundaryObservations[10].outcome = "CALLER_ASSERTED_PASS";
-  assert.deepEqual(evaluateMutation(input, mutated).issues, [
-    "BOUNDARY_EVIDENCE_MUTATED",
-  ]);
+  assertPersistedAssessmentRequired(evaluateMutation(input, mutated));
 });
 
 test("runtime envelope verifies exact payload bytes and rejects extra fields raw signatures and whitespace", async () => {
@@ -1230,7 +1181,7 @@ function canonicalApplicationReport() {
       financialWrites: 0,
       maxP95LatencyMs: 30_000,
       maxPeakRssBytes: 536_870_912,
-      maxTotalCostMicros: 500_000,
+      maxTotalCostMicros: 502_000,
     },
     metrics: {
       scannedTaskSuccessRate: 1,
@@ -1280,11 +1231,34 @@ function canonicalApplicationReport() {
   };
 }
 
+function storedZip(name, bytes) {
+  const nameBytes = Buffer.from(name);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt32LE(bytes.length, 18);
+  local.writeUInt32LE(bytes.length, 22);
+  local.writeUInt16LE(nameBytes.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt32LE(bytes.length, 20);
+  central.writeUInt32LE(bytes.length, 24);
+  central.writeUInt16LE(nameBytes.length, 28);
+  const centralOffset = local.length + nameBytes.length + bytes.length;
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(central.length + nameBytes.length, 12);
+  eocd.writeUInt32LE(centralOffset, 16);
+  return Buffer.concat([local, nameBytes, bytes, central, nameBytes, eocd]);
+}
+
 function candidateGithubArtifactFixture(rawEvidence) {
   const memberBytes = Buffer.from(canonicalize(rawEvidence));
-  const archiveBytes = Buffer.from(
-    "deterministic-candidate-github-artifact-v4-archive",
-  );
+  const archiveBytes = storedZip("raw-evidence.json", memberBytes);
   return {
     expected: {
       repositoryId: 12345,
@@ -1298,7 +1272,7 @@ function candidateGithubArtifactFixture(rawEvidence) {
       workflowHeadTree: "c".repeat(40),
       subjectSha: "d".repeat(40),
       subjectTree: "e".repeat(40),
-      memberName: "candidate.json",
+      memberName: "raw-evidence.json",
     },
     metadata: {
       id: 7002,
@@ -1307,9 +1281,7 @@ function candidateGithubArtifactFixture(rawEvidence) {
       digest: `sha256:${sha256(archiveBytes)}`,
       workflow_run: { id: 1001, head_sha: "b".repeat(40) },
     },
-    archiveBytes,
-    members: [{ name: "candidate.json", bytes: memberBytes }],
-    payload: rawEvidence,
+    archiveBytesBase64: archiveBytes.toString("base64"),
     bindings: {
       workflowPath: ".github/workflows/ocr-qualification.yml",
       workflowSha: "a".repeat(40),
@@ -1357,16 +1329,17 @@ function canonicalExternalAuthority(input) {
 }
 
 async function assessCanonicalMutation(input, mutation) {
+  const rawEvidence = mutation.rawEvidence ?? input.rawEvidence;
+  const candidateArtifact =
+    mutation.candidateArtifact ?? candidateGithubArtifactFixture(rawEvidence);
+  const bound = { ...input, ...mutation, rawEvidence, candidateArtifact };
   return canonicalAuthorityBoundary().assessCanonicalReport(
-    {
-      ...input,
-      ...mutation,
-    },
-    canonicalExternalAuthority(input),
+    bound,
+    canonicalExternalAuthority(bound),
   );
 }
 
-test("provider outcome wrappers are not accepted as raw Vertex response bytes", async () => {
+test("legacy provider wrapper evidence is rejected before unsigned authority", async () => {
   const input = await canonicalAuthorityInputs();
   const raw = structuredClone(input.rawEvidence);
   const wrapperBytes = Buffer.from(
@@ -1390,7 +1363,7 @@ test("provider outcome wrappers are not accepted as raw Vertex response bytes", 
   assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_SCHEMA_INVALID"]);
 });
 
-test("exact raw OCR bytes outrank matching caller PASS and report claims", async () => {
+test("legacy raw-byte and caller-PASS claims cannot bypass application V4", async () => {
   const input = await canonicalAuthorityInputs();
   const raw = structuredClone(input.rawEvidence);
   const generation = parseStrictJson(
@@ -1415,23 +1388,22 @@ test("exact raw OCR bytes outrank matching caller PASS and report claims", async
 
   assert.equal(result.releaseStatus, "GAPS");
   assert.equal(result.signable, false);
-  assert.ok(result.issues.includes("MONEY_MISMATCH"));
-  assert.ok(result.issues.includes("REPORT_V4_DERIVATION_MISMATCH"));
+  assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_SCHEMA_INVALID"]);
 });
 
-test("missing exact Vertex bytes has its own fail-closed code", async () => {
+test("legacy evidence missing Vertex bytes remains fail closed", async () => {
   const input = await canonicalAuthorityInputs();
   const raw = structuredClone(input.rawEvidence);
   delete raw.cases[0].generation.bytesBase64;
 
   const result = await assessCanonicalMutation(input, { rawEvidence: raw });
 
-  assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_BYTES_MISSING"]);
+  assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_SCHEMA_INVALID"]);
   assert.equal(result.releaseStatus, "GAPS");
   assert.equal(result.signable, false);
 });
 
-test("invalid base64, hash mismatch, zero bytes, and limit+1 raw bytes are invalid", async () => {
+test("legacy raw-byte encodings never re-enable the retired assessor", async () => {
   const input = await canonicalAuthorityInputs();
   const limit = 16 * 1024 * 1024;
   const mutations = [
@@ -1453,12 +1425,12 @@ test("invalid base64, hash mismatch, zero bytes, and limit+1 raw bytes are inval
     const raw = structuredClone(input.rawEvidence);
     mutate(raw.cases[0].generation);
     const result = await assessCanonicalMutation(input, { rawEvidence: raw });
-    assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_BYTES_INVALID"]);
+    assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_SCHEMA_INVALID"]);
     assert.equal(result.signable, false);
   }
 });
 
-test("response ID, model, and usage claims cannot disagree with exact bytes", async () => {
+test("legacy response identity and usage claims never reach unsigned authority", async () => {
   const input = await canonicalAuthorityInputs();
   for (const mutate of [
     (entry) => {
@@ -1478,7 +1450,7 @@ test("response ID, model, and usage claims cannot disagree with exact bytes", as
     const raw = structuredClone(input.rawEvidence);
     mutate(raw.cases[0].generation);
     const result = await assessCanonicalMutation(input, { rawEvidence: raw });
-    assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_BINDING_INVALID"]);
+    assert.deepEqual(result.issues, ["RAW_VERTEX_RESPONSE_SCHEMA_INVALID"]);
   }
 });
 
@@ -1501,10 +1473,10 @@ test("candidate GitHub artifact provenance is externally bound", async () => {
       artifact.bindings.subjectTree = "0".repeat(40);
     },
     (artifact) => {
-      artifact.members.push({
-        name: "extra.json",
-        bytes: Buffer.from("{}"),
-      });
+      artifact.archiveBytesBase64 = Buffer.concat([
+        Buffer.from(artifact.archiveBytesBase64, "base64"),
+        Buffer.from("forged-trailer"),
+      ]).toString("base64");
     },
   ];
 
@@ -1542,6 +1514,27 @@ test("coordinated candidate copies cannot replace external GitHub authority", as
   );
 });
 
+test("candidate payload cannot borrow the digest of another artifact archive", async () => {
+  const input = await canonicalAuthorityInputs();
+  const artifact = structuredClone(input.candidateArtifact);
+  const forgedPayload = structuredClone(input.rawEvidence);
+  forgedPayload.cases[0].tenantId = "forged-tenant";
+  artifact.archiveBytesBase64 = storedZip(
+    "raw-evidence.json",
+    Buffer.from(canonicalize(forgedPayload)),
+  ).toString("base64");
+
+  await assert.rejects(
+    () =>
+      canonicalAuthorityBoundary().verifyCandidateArtifactV4(
+        artifact,
+        canonicalExternalAuthority(input),
+        forgedPayload,
+      ),
+    /CANDIDATE_ARTIFACT_PROVENANCE_INVALID/,
+  );
+});
+
 test("product raw evidence is recomputed before application V4 can pass", async () => {
   const report = canonicalApplicationReport();
   const rawEvidence = {
@@ -1555,12 +1548,7 @@ test("product raw evidence is recomputed before application V4 can pass", async 
   const authority = canonicalExternalAuthority({
     candidateArtifact: artifact,
   });
-  const candidateArtifact = {
-    expected: structuredClone(artifact.expected),
-    metadata: structuredClone(artifact.metadata),
-    payloadSha256: sha256(Buffer.from(canonicalize(rawEvidence))),
-    bindings: structuredClone(artifact.bindings),
-  };
+  const candidateArtifact = structuredClone(artifact);
   let recomputations = 0;
   const assessment = await canonicalAuthorityBoundary().assessCanonicalReport(
     {
@@ -1601,10 +1589,25 @@ test("product raw evidence is recomputed before application V4 can pass", async 
 });
 
 test("only the application-owned report V4 is accepted with no SRE transformation", async () => {
-  const input = await canonicalAuthorityInputs();
+  const report = canonicalApplicationReport();
+  const rawEvidence = {
+    run: {
+      candidateSha: "d".repeat(40),
+      candidateTree: "e".repeat(40),
+    },
+    predictions: [],
+  };
+  const candidateArtifact = candidateGithubArtifactFixture(rawEvidence);
+  const input = {
+    evidenceClass: "LIVE",
+    report,
+    rawEvidence,
+    candidateArtifact,
+  };
   const result = await canonicalAuthorityBoundary().assessCanonicalReport(
     input,
     canonicalExternalAuthority(input),
+    { recompute: async () => structuredClone(report) },
   );
   const schemaBytes = await readFile(
     resolve(authorityRoot, canonicalReportSchemaPath),
@@ -1614,11 +1617,69 @@ test("only the application-owned report V4 is accepted with no SRE transformatio
   assert.equal(result.bindings.reportSchemaSha256, sha256(schemaBytes));
   assert.equal(
     result.bindings.reportSha256,
-    sha256(Buffer.from(canonicalize(input.report))),
+    sha256(Buffer.from(canonicalize(report))),
   );
   assert.equal(result.releaseStatus, "PASS");
   assert.equal(result.signable, true);
   assert.equal("transformedReport" in result, false);
+});
+
+test("approved application V4 reaches unsigned bytes and the external KMS boundary", async () => {
+  const seed = unsignedInputs();
+  const report = canonicalApplicationReport();
+  const rawValue = {
+    run: { modelVersion: "gemini-2.5-flash-001" },
+    predictions: canonicalCaseIds.map((caseId, index) => ({
+      caseId,
+      adapterTrace: {
+        requestId: `request-${String(index + 1).padStart(2, "0")}`,
+        responseId: `response-${String(index + 1).padStart(2, "0")}`,
+      },
+    })),
+  };
+  const raw = Buffer.from(canonicalize(rawValue));
+  const reportBytes = Buffer.from(canonicalize(report));
+  const persistedAssessment = {
+    reportSchemaVersion: 4,
+    releaseStatus: "PASS",
+    signable: true,
+    issues: [],
+    bindings: {
+      rawEvidenceSha256: sha256(Buffer.from(canonicalize(rawValue))),
+      reportSha256: sha256(Buffer.from(canonicalize(report))),
+      reportSchemaSha256: "a".repeat(64),
+    },
+  };
+  const assessmentBytes = Buffer.from(canonicalize(persistedAssessment));
+  const payload = structuredClone(seed.payload);
+  payload.evidence.raw.sha256 = sha256(raw);
+  payload.evidence.raw.size = raw.length;
+  payload.evidence.report.sha256 = sha256(reportBytes);
+  payload.evidence.report.size = reportBytes.length;
+  payload.evidence.assessment.sha256 = sha256(assessmentBytes);
+  payload.evidence.assessment.size = assessmentBytes.length;
+
+  const prepared = buildUnsignedPayloadFromBytes(
+    payload,
+    raw,
+    reportBytes,
+    seed.spendBytes,
+    assessmentBytes,
+  );
+
+  assert.match(prepared.runtimePayloadBase64, /^[A-Za-z0-9+/]+=*$/);
+  const runtimePayload = parseStrictJson(
+    Buffer.from(prepared.runtimePayloadBase64, "base64").toString("utf8"),
+  );
+  assert.equal(runtimePayload.verdict, "PASS");
+  assert.equal(
+    prepared.activationPayloadDraft.evidence.assessment.sha256,
+    sha256(assessmentBytes),
+  );
+  assert.equal(
+    prepared.activationPayloadDraft.evidence.requestIds.length,
+    canonicalCaseIds.length,
+  );
 });
 
 test("TEST_ONLY remains deterministic GAPS with every live-evidence deficit", async () => {

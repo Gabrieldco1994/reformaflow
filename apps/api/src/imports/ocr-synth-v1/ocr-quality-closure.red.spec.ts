@@ -123,8 +123,8 @@ function liveRun(): OcrEvalRunConfig {
     },
     durableBudgets: {
       policySha256: fileSha256(POLICY_PATH),
-      tenantLimitMicros: policy.maxTotalCostMicros,
-      globalLimitMicros: policy.maxTotalCostMicros,
+      tenantLimitMicros: policy.durableBudgets.tenantLimitMicros,
+      globalLimitMicros: policy.durableBudgets.globalLimitMicros,
       storage: "DATABASE",
     },
     residualRiskAcceptance: {
@@ -245,18 +245,19 @@ function qualificationProof(candidateSha: string) {
       clean: true as const,
       policySha256: fileSha256(POLICY_PATH),
       corpusSha256: fileSha256(CORPUS_PATH),
-      configurationSha256: "4".repeat(64),
-      adapterSha256: "5".repeat(64),
+      configurationSha256: "c".repeat(64),
+      adapterSha256: "d".repeat(64),
       runtimeSha256: runtimeSha256(),
       suiteSha256: "6".repeat(64),
     },
-    tests: QUALIFICATION_TEST_NAMES.map((name) => ({
+    tests: QUALIFICATION_TEST_NAMES.map((name, index) => ({
       name,
+      title: name,
+      fullName: `qualification ${name}`,
       status: "PASS" as const,
-      sourcePath:
-        name.startsWith("[ROUTE] ") || SERVICE_PROBE_NAMES.has(name)
-          ? SERVICE_QUALIFICATION_PATH
-          : SAFETY_QUALIFICATION_PATH,
+      sourcePath: policy.qualificationTests[index]!.sourcePath,
+      assertionRecordSha256: "7".repeat(64),
+      suiteResultSha256: "8".repeat(64),
     })),
   };
 }
@@ -400,7 +401,7 @@ describe("quality-closure mechanical evidence binding", () => {
       maxP95LatencyMs: 30_000,
       maxProviderDeadlineMs: 60_000,
       maxRequestBodyBytes: 20_000_000,
-      maxTotalCostMicros: 500_000,
+      maxTotalCostMicros: 502_000,
       maxVmHwmBytes: 536_870_912,
       pricing: {
         currency: "USD",
@@ -513,20 +514,18 @@ describe("quality-closure mechanical evidence binding", () => {
     expect(proof.tests.map((item) => item.name)).toEqual(
       QUALIFICATION_TEST_NAMES,
     );
-    expect(
-      parseLiveEvidence({
-        ...evidence,
-        qualityClosure: proof,
-      }),
-    ).toMatchObject({ qualityClosure: proof });
-    const unverified = await evaluateOcrSynth({
+    const parsed = parseLiveEvidence({
       ...evidence,
       qualityClosure: proof,
-    } as unknown as OcrEvalInput);
-    expect(unverified.releaseStatus).toBe("GAPS");
-    expect(unverified.liveEvidenceGaps).toContain(
+    });
+    expect(parsed).toMatchObject({ qualityClosure: proof });
+    const assessment = await evaluateOcrSynth(parsed);
+    expect(assessment.liveEvidenceGaps).toEqual([]);
+    expect(assessment.liveEvidenceGaps).not.toContain(
       "QUALITY_CLOSURE_NOT_VERIFIED",
     );
+    expect(assessment.releaseStatus).toBe("GAPS");
+    expect(assessment.historicalComparison).toBe("NOT_PERFORMED_P1_DEFERRED");
   });
 
   it.each([

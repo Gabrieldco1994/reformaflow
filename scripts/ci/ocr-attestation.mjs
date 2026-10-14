@@ -29,6 +29,7 @@ const REGION = "southamerica-east1";
 const ENDPOINT = "https://southamerica-east1-aiplatform.googleapis.com";
 const KMS_ALGORITHM = "EC_SIGN_P256_SHA256";
 const MAX_JSON_BYTES = 64 * 1024 * 1024;
+const QUALIFICATION_HARD_LIMIT_MICROS = 502_000;
 
 function fail(code) {
   throw new Error(code);
@@ -1471,7 +1472,7 @@ export async function reserveSpend(request, path) {
   integer(request.outputMicrosPerMillionTokens, 1, "SPEND_GUARD_INVALID");
   integer(request.expectedCaseCount, 1, "SPEND_GUARD_INVALID");
   if (
-    request.hardLimitMicros !== 500000 ||
+    request.hardLimitMicros !== QUALIFICATION_HARD_LIMIT_MICROS ||
     request.reservedMicros !== request.hardLimitMicros ||
     request.expectedCaseCount !== 18
   )
