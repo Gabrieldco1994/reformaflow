@@ -24,7 +24,7 @@ const line = (index: number) => ({
   fornecedor: null,
   tipoDespesa: null,
   categoriaMaoDeObra: null,
-  amountMeaning: index === 2 ? "UNKNOWN" : "LINE_AMOUNT",
+  amountMeaning: "UNKNOWN",
   amountCents: index === 0 ? -20_696 : index === 1 ? 0 : index === 2 ? null : 1,
   installmentCount: null,
   dataCompra: null,
@@ -87,8 +87,8 @@ describe("final #719 strict browser OCR envelope", () => {
         amountCents,
       })),
     ).toEqual([
-      { amountMeaning: "LINE_AMOUNT", amountCents: -20_696 },
-      { amountMeaning: "LINE_AMOUNT", amountCents: 0 },
+      { amountMeaning: "UNKNOWN", amountCents: -20_696 },
+      { amountMeaning: "UNKNOWN", amountCents: 0 },
       { amountMeaning: "UNKNOWN", amountCents: null },
     ]);
     expect(parsed.selectedLineIds).toEqual([]);
