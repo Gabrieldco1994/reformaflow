@@ -10,8 +10,8 @@ expose ingress, or write financial data. Ordinary CI still makes no Vertex call.
 
 For an explicitly consented PDF that deterministic routing proves is fully scanned/image-only and
 has at most 10 pages, Maria may send the original `application/pdf` bytes once to the regional
-Vertex endpoint in `southamerica-east1`, using bounded OAuth from the single explicitly admitted
-ADC source and exactly
+Vertex endpoint in `southamerica-east1`, using a bounded OAuth token from the protected GitHub
+OIDC/WIF environment and exactly
 `gemini-2.5-flash`. It returns source-grounded raw candidates that remain unselected and
 UNVERIFIED for human review. Exact readable cents and sign, visible evidence, explicit ambiguity
 and source provenance are preserved. No OCR result makes a purchase/payment/credit/fee decision or
@@ -223,11 +223,11 @@ The output is reserved with exclusive/no-follow semantics and mode `0600` **befo
 or provider work begins, and the descriptor remains open throughout capture. An existing file,
 symlink, concurrent writer, write failure, snapshot drift, duplicate request/response ID,
 mixed model version, adapter failure, or incomplete trace stops the command and leaves no partial
-new output. Git HEAD is checked again after all calls and before publication. Failure cleanup
-unlinks only when the path still has the reserved file's device and inode, never a replacement.
-Stderr contains only a fixed `LIVE_CAPTURE_*` code. The evidence contains typed candidates,
-sanitized request provenance and bounded exact Vertex response bytes needed for independent
-offline recomputation; it never contains PDF input bytes, access tokens or credentials.
+new output. The bound source snapshot is revalidated after all calls and before publication.
+Failure cleanup unlinks only when the path still has the reserved file's device and inode, never a
+replacement. Stderr contains only a fixed `LIVE_CAPTURE_*` code. The evidence contains typed
+candidates, sanitized request provenance and bounded exact Vertex response bytes needed for
+independent offline recomputation; it never contains PDF input bytes, access tokens or credentials.
 
 Qualification of immutable evidence is also authority-gated:
 
@@ -267,7 +267,7 @@ remains fail closed until all four protected roles reapprove this exact policy h
 ```text
 ## AI Quality Report
 GAPS
-- surface/model: Maria scanned/image-only PDF OCR; fixed regional Vertex gemini-2.5-flash; implementation snapshot 6867ba991f4c39deb19bb48ead0cda62a2a9a131, release truth at current PR head, OCR OFF and production live run absent
+- surface/model: Maria scanned/image-only PDF OCR; fixed regional Vertex gemini-2.5-flash; subject SHA/tree bound by the protected workflow; OCR OFF and production live run absent
 - eval set: ocr-synth-v1-direct-pdf-vertex-v3; quality n=18 scanned PDFs (1..10); routing safety n=10 mixed/searchable; 12 image files future
 - baseline: 08d19d11638a55e14ce73a6bf472894174c66389; 18/18 scanned fixtures exercise the real local parser seam and return OCR_REQUIRED
 - candidate: no operator-supplied tested CANDIDATE_SHA/current PR-head manifest, provider modelVersion, real adapter trace, response IDs, 18-case live quality results or 10-case real routing results
