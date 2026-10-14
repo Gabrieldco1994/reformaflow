@@ -19,7 +19,11 @@ import { mintImportAuthContext } from "../import-session.auth";
 import { CardPurchaseBatchAdapter } from "../card-purchase-batch.adapter";
 import { DefaultImportSessionCapability } from "../import-session.capability";
 import { ImportSessionExtractionService } from "../import-session.extraction.service";
-import { ImportSessionService } from "../import-session.service";
+import {
+  IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY,
+  IMPORT_SESSION_TERMINAL_OUTCOMES_VERSION,
+  ImportSessionService,
+} from "../import-session.service";
 import { ImportSessionWorkflowService } from "../import-session-workflow.service";
 import {
   parseStoredPdfOcrState,
@@ -58,6 +62,10 @@ const providerError = (
   failure: ConstructorParameters<typeof PdfOcrProviderError>[0],
   dispatchState: ConstructorParameters<typeof PdfOcrProviderError>[1],
 ) => new PdfOcrProviderError(failure, dispatchState);
+const terminalOutcomeProjection = {
+  [IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY]:
+    IMPORT_SESSION_TERMINAL_OUTCOMES_VERSION,
+} as const;
 
 describe("POST attachment analyze v2 direct OCR", () => {
   const prisma = new PrismaService();
@@ -138,7 +146,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
       request,
       {},
     );
-    expect(analyzed.ocrCapability?.terminalOutcomes).toEqual([]);
+    expect(analyzed.ocrCapability).not.toHaveProperty("terminalOutcomes");
 
     expect(provider.extractPdf).toHaveBeenCalledTimes(1);
     expect(provider.extractPdf).toHaveBeenCalledWith({
@@ -604,6 +612,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     const continuation = await reader.getSession(
       owner.auth,
       receipt.continuationSessionId!,
+      terminalOutcomeProjection,
     );
     expect(continuation.ocrCapability?.terminalOutcomes).toEqual([]);
     expect(await exactFinancialSnapshot(prisma, owner.tenantId)).toEqual({
@@ -1654,10 +1663,31 @@ describe("POST attachment analyze v2 direct OCR", () => {
         ).rejects.toMatchObject({ code });
 
       const reader = sessionReader(prisma);
-      const available = await reader.getSession(owner.auth, owner.sessionId);
+      const legacy = await reader.getSession(owner.auth, owner.sessionId);
+      expect(legacy.ocrCapability).not.toHaveProperty("terminalOutcomes");
+      expect(legacy.attachments).toEqual([
+        expect.objectContaining({
+          id: owner.attachmentId,
+          canAnalyze: false,
+        }),
+      ]);
+      expect(legacy.actions).not.toContain("ANALYZE");
+
+      const available = await reader.getSession(
+        owner.auth,
+        owner.sessionId,
+        terminalOutcomeProjection,
+      );
       expect(available.ocrCapability?.terminalOutcomes).toEqual([
         { attachmentId: owner.attachmentId, code },
       ]);
+      expect(available).toEqual({
+        ...legacy,
+        ocrCapability: {
+          ...legacy.ocrCapability,
+          terminalOutcomes: [{ attachmentId: owner.attachmentId, code }],
+        },
+      });
       expect(available.ocrCapability?.attachments).toEqual([]);
       expect(available.attachments).toEqual([
         expect.objectContaining({
@@ -1669,7 +1699,11 @@ describe("POST attachment analyze v2 direct OCR", () => {
 
       process.env.IMPORT_OCR_ENABLED = "false";
       try {
-        const disabled = await reader.getSession(owner.auth, owner.sessionId);
+        const disabled = await reader.getSession(
+          owner.auth,
+          owner.sessionId,
+          terminalOutcomeProjection,
+        );
         expect(disabled.ocrCapability).toMatchObject({
           status: "DISABLED",
           attachments: [],
@@ -1684,7 +1718,11 @@ describe("POST attachment analyze v2 direct OCR", () => {
         `terminal-projection-attacker-${failure}`,
       );
       await expect(
-        reader.getSession(attacker.auth, owner.sessionId),
+        reader.getSession(
+          attacker.auth,
+          owner.sessionId,
+          terminalOutcomeProjection,
+        ),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
       expect(provider.extractPdf).toHaveBeenCalledTimes(1);
       expect(await exactFinancialSnapshot(prisma, owner.tenantId)).toEqual(
@@ -1734,7 +1772,11 @@ describe("POST attachment analyze v2 direct OCR", () => {
     await providerEntered;
 
     const reader = sessionReader(prisma);
-    const attempted = await reader.getSession(owner.auth, owner.sessionId);
+    const attempted = await reader.getSession(
+      owner.auth,
+      owner.sessionId,
+      terminalOutcomeProjection,
+    );
     expect(attempted.ocrCapability?.terminalOutcomes).toEqual([
       {
         attachmentId: owner.attachmentId,
@@ -1746,7 +1788,11 @@ describe("POST attachment analyze v2 direct OCR", () => {
 
     release();
     await expect(first).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
-    const reconciled = await reader.getSession(owner.auth, owner.sessionId);
+    const reconciled = await reader.getSession(
+      owner.auth,
+      owner.sessionId,
+      terminalOutcomeProjection,
+    );
     expect(reconciled.ocrCapability?.terminalOutcomes).toEqual([
       { attachmentId: owner.attachmentId, code: "LIMIT_EXCEEDED" },
     ]);
@@ -1814,6 +1860,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
       const view = await sessionReader(prisma).getSession(
         owner.auth,
         owner.sessionId,
+        terminalOutcomeProjection,
       );
       expect(view.ocrCapability?.terminalOutcomes).toEqual([
         {
@@ -1890,6 +1937,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
     const view = await sessionReader(prisma).getSession(
       owner.auth,
       owner.sessionId,
+      terminalOutcomeProjection,
     );
     expect(view.ocrCapability?.terminalOutcomes).toEqual([
       {

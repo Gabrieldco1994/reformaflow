@@ -550,6 +550,7 @@ export interface ProjectionResult {
 /** Whether the projection may emit the applied receipt (only after the participant ACL gate). */
 export interface ProjectionOptions {
   readonly includeReceipt: boolean;
+  readonly includeTerminalOutcomes?: boolean;
   readonly analysisEnabled?: boolean;
   readonly ocrReleaseEnabled?: boolean;
   readonly ocrPrerequisitesReady?: boolean;
@@ -708,7 +709,9 @@ function projectSessionUnchecked(
             includesMetadataAndEmbeddedContent: true,
             includesPotentiallyNonVisibleContent: true,
             attachments: [],
-            terminalOutcomes: [],
+            ...(options.includeTerminalOutcomes === true
+              ? { terminalOutcomes: [] }
+              : {}),
           }
         : options.ocrCapability,
     searchComplete,

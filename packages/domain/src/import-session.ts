@@ -582,7 +582,8 @@ export interface ImportSessionViewV1 extends Omit<
       consentedRequestId: ImportSessionRequestId | null;
       consentedRevision: ImportSessionRevision | null;
     }>;
-    terminalOutcomes: Array<{
+    /** Opt-in GET projection; absent from legacy and mutation response shapes. */
+    terminalOutcomes?: Array<{
       attachmentId: ImportSessionId;
       code: ImportSessionOcrTerminalCodeV1;
     }>;

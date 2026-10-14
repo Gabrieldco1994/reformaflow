@@ -227,8 +227,8 @@ async function declareConsent(
         consentedRevision: 2,
       },
     ],
-    terminalOutcomes: [],
   });
+  expect(view.ocrCapability).not.toHaveProperty("terminalOutcomes");
   return {
     version: 2,
     expectedRevision: 2,

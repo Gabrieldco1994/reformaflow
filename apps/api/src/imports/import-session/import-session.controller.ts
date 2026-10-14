@@ -122,8 +122,9 @@ export class ImportSessionController {
   getSession(
     @ImportAuth() auth: AuthenticatedImportContext,
     @Param("id") id: string,
+    @Query() query: unknown,
   ): Promise<ImportSessionViewV1> {
-    return this.service.getSession(auth, id);
+    return this.service.getSession(auth, id, query);
   }
 
   @Get(":id/result")

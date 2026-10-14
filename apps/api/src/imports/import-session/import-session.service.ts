@@ -158,6 +158,9 @@ const invalid = () =>
   new ImportSessionError(ImportSessionErrorCode.INVALID_INPUT);
 const notFound = () => new ImportSessionError(ImportSessionErrorCode.NOT_FOUND);
 const READ_CHUNK = 300;
+export const IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY =
+  "terminalOutcomes" as const;
+export const IMPORT_SESSION_TERMINAL_OUTCOMES_VERSION = "v1" as const;
 const compareId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const pageOrder = (a: ImportPagePosition, b: ImportPagePosition) =>
   compareId(a.kind, b.kind) || compareId(a.id, b.id);
@@ -256,6 +259,22 @@ export function assertSessionId(id: unknown): asserts id is string {
 export interface ImportListQuery {
   readonly filter: ImportListFilter;
   readonly cursor: string | null;
+}
+
+export function parseSessionProjectionQuery(query: unknown): {
+  readonly includeTerminalOutcomes: boolean;
+} {
+  if (!isPlainRecord(query)) throw invalid();
+  const keys = Object.keys(query);
+  if (keys.length === 0) return { includeTerminalOutcomes: false };
+  if (
+    keys.length !== 1 ||
+    keys[0] !== IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY ||
+    query[IMPORT_SESSION_TERMINAL_OUTCOMES_QUERY] !==
+      IMPORT_SESSION_TERMINAL_OUTCOMES_VERSION
+  )
+    throw invalid();
+  return { includeTerminalOutcomes: true };
 }
 
 /**
@@ -509,8 +528,10 @@ export class ImportSessionService {
   async getSession(
     auth: AuthenticatedImportContext,
     id: string,
+    query: unknown = {},
   ): Promise<ImportSessionViewV1> {
-    return (await this.read(auth, id)).view;
+    const projection = parseSessionProjectionQuery(query);
+    return (await this.read(auth, id, projection.includeTerminalOutcomes)).view;
   }
 
   async getResult(
@@ -1251,7 +1272,11 @@ export class ImportSessionService {
     return result;
   }
 
-  private async read(auth: AuthenticatedImportContext, id: string) {
+  private async read(
+    auth: AuthenticatedImportContext,
+    id: string,
+    includeTerminalOutcomes = false,
+  ) {
     assertMintedImportContext(auth);
     assertSessionId(id);
     // ONE read transaction: reauth, ownership, card, participant ACL and projection see the
@@ -1267,6 +1292,7 @@ export class ImportSessionService {
       );
       return this.render(tx, row, now, {
         includeReceipt: true,
+        includeTerminalOutcomes,
         workflow: {
           writesEnabled: await importSessionWritesEnabled(
             tx,
@@ -1681,9 +1707,12 @@ async function renderImportSessionUnchecked(
       consent.usageId === null ? [] : [consent.attachmentId],
     ),
   );
-  const terminalUsageIds = ocrState.consents.flatMap((consent) =>
-    consent.usageId === null ? [] : [consent.usageId],
-  );
+  const includeTerminalOutcomes = options.includeTerminalOutcomes === true;
+  const terminalUsageIds = includeTerminalOutcomes
+    ? ocrState.consents.flatMap((consent) =>
+        consent.usageId === null ? [] : [consent.usageId],
+      )
+    : [];
   const terminalOcrUsages =
     terminalUsageIds.length === 0
       ? []
@@ -1695,11 +1724,13 @@ async function renderImportSessionUnchecked(
             sessionId: row.id,
           },
         });
-  const boundArtifactIds = attachments.flatMap((ref) =>
-    spentOcrAttachmentIds.has(ref.id) && ref.artifactId !== null
-      ? [ref.artifactId]
-      : [],
-  );
+  const boundArtifactIds = includeTerminalOutcomes
+    ? attachments.flatMap((ref) =>
+        spentOcrAttachmentIds.has(ref.id) && ref.artifactId !== null
+          ? [ref.artifactId]
+          : [],
+      )
+    : [];
   const boundArtifacts =
     boundArtifactIds.length === 0
       ? []
@@ -1711,44 +1742,46 @@ async function renderImportSessionUnchecked(
           },
           select: { id: true, documentSha256: true },
         });
-  const terminalOutcomes = [...attachments]
-    .sort((left, right) => left.position - right.position)
-    .flatMap((ref) => {
-      const consent = ocrState.consents.find(
-        (item) => item.attachmentId === ref.id && item.usageId !== null,
-      );
-      if (!consent) return [];
-      const usage = terminalOcrUsages.find(
-        (item) => item.id === consent.usageId,
-      );
-      const artifact = boundArtifacts.find(
-        (item) => item.id === ref.artifactId,
-      );
-      const correctlyBound =
-        usage !== undefined &&
-        artifact !== undefined &&
-        artifact.documentSha256 !== null &&
-        consent.actorId === row.ownerUserId &&
-        consent.artifactSha256 === artifact.documentSha256 &&
-        consent.requestPayloadHash ===
-          pdfOcrRequestPayloadHash({
-            version: PDF_OCR_VERSION,
-            expectedRevision: consent.expectedRevision,
-            requestId: consent.requestId,
-            consentExternalProcessing: true,
-          }) &&
-        usage.actorId === consent.actorId &&
-        usage.attachmentId === consent.attachmentId &&
-        usage.artifactId === artifact.id &&
-        usage.artifactSha256 === consent.artifactSha256 &&
-        usage.requestId === consent.requestId &&
-        usage.provider === consent.provider &&
-        usage.model === consent.model;
-      const code = correctlyBound
-        ? pdfOcrTerminalCodeForLedgerOutcome(usage.outcome)
-        : ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN;
-      return code === null ? [] : [{ attachmentId: ref.id, code }];
-    });
+  const terminalOutcomes = includeTerminalOutcomes
+    ? [...attachments]
+        .sort((left, right) => left.position - right.position)
+        .flatMap((ref) => {
+          const consent = ocrState.consents.find(
+            (item) => item.attachmentId === ref.id && item.usageId !== null,
+          );
+          if (!consent) return [];
+          const usage = terminalOcrUsages.find(
+            (item) => item.id === consent.usageId,
+          );
+          const artifact = boundArtifacts.find(
+            (item) => item.id === ref.artifactId,
+          );
+          const correctlyBound =
+            usage !== undefined &&
+            artifact !== undefined &&
+            artifact.documentSha256 !== null &&
+            consent.actorId === row.ownerUserId &&
+            consent.artifactSha256 === artifact.documentSha256 &&
+            consent.requestPayloadHash ===
+              pdfOcrRequestPayloadHash({
+                version: PDF_OCR_VERSION,
+                expectedRevision: consent.expectedRevision,
+                requestId: consent.requestId,
+                consentExternalProcessing: true,
+              }) &&
+            usage.actorId === consent.actorId &&
+            usage.attachmentId === consent.attachmentId &&
+            usage.artifactId === artifact.id &&
+            usage.artifactSha256 === consent.artifactSha256 &&
+            usage.requestId === consent.requestId &&
+            usage.provider === consent.provider &&
+            usage.model === consent.model;
+          const code = correctlyBound
+            ? pdfOcrTerminalCodeForLedgerOutcome(usage.outcome)
+            : ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN;
+          return code === null ? [] : [{ attachmentId: ref.id, code }];
+        })
+    : [];
   const ocrStatus =
     options.ocrReleaseEnabled !== true
       ? "DISABLED"
@@ -1805,7 +1838,7 @@ async function renderImportSessionUnchecked(
               },
             ];
           }),
-    terminalOutcomes,
+    ...(includeTerminalOutcomes ? { terminalOutcomes } : {}),
   };
   return projectSession(row, attachments, now, {
     ...options,
