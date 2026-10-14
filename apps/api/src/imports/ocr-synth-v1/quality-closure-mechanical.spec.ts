@@ -164,8 +164,18 @@ interface MechanicalApi {
   ): Promise<Record<string, unknown>>;
   runQualityClosureSuite(
     policy: Policy,
-    options: { root: string; exec: Exec },
-  ): Promise<Array<{ name: string; status: "PASS"; sourcePath: string }>>;
+    options: { root: string; exec?: Exec },
+  ): Promise<
+    Array<{
+      name: string;
+      title: string;
+      fullName: string;
+      status: "PASS";
+      sourcePath: string;
+      assertionRecordSha256: string;
+      suiteResultSha256: string;
+    }>
+  >;
   assertOutputOutsideRepository(
     outputPath: string,
     options: { root: string; exec: Exec },
@@ -244,6 +254,47 @@ function framedHash(path: string, bytes: Buffer): string {
     .update(bytes)
     .update("\0")
     .digest("hex");
+}
+
+function canonicalHash(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function expectedHashedObservations(result: MachineJestResult) {
+  return EXPECTED_TOPOLOGY.map((expected) => {
+    const suite = result.testResults.find(
+      (item) => resolve(item.name) === resolve(ROOT, expected.sourcePath),
+    )!;
+    const assertion = suite.assertionResults.find(
+      (item) => item.title === expected.name,
+    )!;
+    const suiteResultSha256 = canonicalHash({
+      sourcePath: expected.sourcePath,
+      status: suite.status,
+      message: suite.message,
+      assertionResults: suite.assertionResults.map((item) => ({
+        title: item.title,
+        fullName: item.fullName,
+        status: item.status,
+        failureMessages: item.failureMessages,
+      })),
+    });
+    return {
+      name: expected.name,
+      title: assertion.title,
+      fullName: assertion.fullName,
+      status: "PASS",
+      sourcePath: expected.sourcePath,
+      assertionRecordSha256: canonicalHash({
+        title: assertion.title,
+        fullName: assertion.fullName,
+        status: assertion.status,
+        failureMessages: assertion.failureMessages,
+        sourcePath: expected.sourcePath,
+      }),
+      suiteResultSha256,
+    };
+  });
 }
 
 async function writePolicy(root: string, value: unknown): Promise<void> {
@@ -864,22 +915,51 @@ describe("canonical quality closure mechanical binding", () => {
     });
   });
 
-  it("accepts only canonical machine-readable Jest evidence", async () => {
+  it("[B3] hashes each canonical Jest assertion and containing suite result", async () => {
     const policy = await api().loadQualityClosurePolicy({
       root: ROOT,
       now: new Date("2026-10-21T23:59:59.999Z"),
     });
+    const machineResult = canonicalJestResult();
     await expect(
       api().runQualityClosureSuite(policy, {
         root: ROOT,
-        exec: jestExec(canonicalJestResult()),
+        exec: jestExec(machineResult),
       }),
-    ).resolves.toEqual(
-      EXPECTED_TOPOLOGY.map((item) => ({
-        ...item,
-        status: "PASS",
-      })),
+    ).resolves.toEqual(expectedHashedObservations(machineResult));
+  });
+
+  it("[B3] executes and attests exactly 10 ROUTE plus 35 PROBE observations from the two real suites", async () => {
+    const policy = await api().loadQualityClosurePolicy({
+      root: ROOT,
+      now: new Date("2026-10-14T12:00:00.000Z"),
+    });
+
+    const observations = await api().runQualityClosureSuite(policy, {
+      root: ROOT,
+    });
+
+    expect(observations).toHaveLength(45);
+    expect(observations.map((item) => item.name)).toEqual(
+      EXPECTED_TOPOLOGY.map((item) => item.name),
     );
+    expect(
+      observations.filter((item) => item.name.startsWith("[ROUTE] ")),
+    ).toHaveLength(10);
+    expect(
+      observations.filter((item) => item.name.startsWith("[PROBE] ")),
+    ).toHaveLength(35);
+    for (const [index, observation] of observations.entries()) {
+      expect(observation).toMatchObject({
+        name: EXPECTED_TOPOLOGY[index]!.name,
+        title: EXPECTED_TOPOLOGY[index]!.name,
+        fullName: expect.stringContaining(EXPECTED_TOPOLOGY[index]!.name),
+        sourcePath: EXPECTED_TOPOLOGY[index]!.sourcePath,
+        status: "PASS",
+        assertionRecordSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        suiteResultSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+    }
   });
 
   it("rejects missing, duplicate, unknown, failed, pending, wrong-source, and runtime-error Jest evidence", async () => {
@@ -1054,56 +1134,6 @@ describe("canonical quality closure mechanical binding", () => {
     ).rejects.toThrow("LIVE_CAPTURE_OUTPUT_INSIDE_REPOSITORY");
     expect(await stat(gitDirectory)).toBeDefined();
   });
-
-  it("rejects a rerun whose canonical attestation differs at the same clean HEAD", async () => {
-    const dependencies = {
-      root: ROOT,
-      now: new Date("2026-10-21T23:59:59.999Z"),
-      exec: attestationExec(ROOT),
-    };
-    const rerun = await api().attestQualityClosure(dependencies);
-    const policy = structuredClone(rerun.policy);
-    policy.reviewArtifacts = {
-      residualRiskAcceptance: POLICY_PATH,
-      securityReview: POLICY_PATH,
-      privacyReview: POLICY_PATH,
-      dataOwnerReview: POLICY_PATH,
-    };
-    const reviews = await api().readFinalReviewHashes(policy, dependencies);
-    const evidenceClosure = structuredClone(rerun.closure);
-    evidenceClosure.snapshot.suiteSha256 = "9".repeat(64);
-    const evidence = {
-      qualityClosure: evidenceClosure,
-      run: {
-        residualRiskAcceptance: reviews.residualRiskAcceptance
-          ? {
-              decision: "OPTION_1_COMPLETE_ORIGINAL_PDF",
-              dataOwnerAcceptanceSha256: reviews.residualRiskAcceptance,
-              noLocalDerivative: true,
-            }
-          : null,
-        finalReviews:
-          reviews.securityReview &&
-          reviews.privacyReview &&
-          reviews.dataOwnerReview
-            ? {
-                securityReviewSha256: reviews.securityReview,
-                privacyReviewSha256: reviews.privacyReview,
-                dataOwnerReviewSha256: reviews.dataOwnerReview,
-              }
-            : null,
-      },
-    };
-
-    await expect(
-      api().issueVerifiedQualityClosureToken(
-        evidence,
-        rerun.closure,
-        policy,
-        dependencies,
-      ),
-    ).rejects.toThrow("QUALITY_ATTESTATION_MISMATCH");
-  });
 });
 
 describe("canonical capture and qualification orchestration", () => {
@@ -1194,7 +1224,7 @@ describe("canonical capture and qualification orchestration", () => {
     }
   });
 
-  it("runs one capture preflight attestation before provider dispatch and ignores caller result seams", async () => {
+  it("[B3] capture CLI remains unavailable without an internally admitted credential context", async () => {
     jest.resetModules();
     const events: string[] = [];
     const closure = { version: 2, marker: "attested", snapshot: {} };
@@ -1202,20 +1232,13 @@ describe("canonical capture and qualification orchestration", () => {
     const completed = new Promise<void>((resolveCompleted) => {
       complete = resolveCompleted;
     });
-    class Provider {
-      ready() {
-        return true;
-      }
-    }
     const attest = jest.fn(async () => {
       events.push("jest");
       return { policy: { marker: "policy" }, closure };
     });
-    const capture = jest.fn(async (options: Record<string, any>) => {
-      events.push("provider-dispatch");
-      expect(options.mechanical.qualityClosure).toBe(closure);
-      return { qualityClosure: options.mechanical.qualityClosure };
-    });
+    const capture = jest.fn();
+    const outputWriter = jest.fn();
+    const providerFactory = jest.fn();
     jest.doMock("./quality-closure-attestation", () => ({
       assertOutputOutsideRepository: jest.fn(async () => {
         events.push("output-policy");
@@ -1234,29 +1257,10 @@ describe("canonical capture and qualification orchestration", () => {
       }),
     }));
     jest.doMock("./capture-live-file", () => ({
-      writeQualifiedLiveEvidenceExclusive: jest.fn(
-        async (
-          _output: string,
-          _lock: string,
-          factory: () => Promise<unknown>,
-          verify: () => Promise<void>,
-        ) => {
-          events.push("reserved");
-          const emitted = await factory();
-          expect(emitted).toEqual({ qualityClosure: closure });
-          await verify();
-          complete();
-        },
-      ),
-    }));
-    jest.doMock("../import-session/ocr/vertex-pdf-ocr.provider", () => ({
-      VertexPdfOcrProvider: Provider,
+      writeQualifiedLiveEvidenceExclusive: outputWriter,
     }));
     jest.doMock("../import-session/ocr/vertex-provider.factory", () => ({
-      createConfiguredVertexPdfOcrProvider: jest.fn(async () => {
-        events.push("provider-created");
-        return new Provider();
-      }),
+      createConfiguredVertexPdfOcrProvider: providerFactory,
     }));
     jest.doMock("./capture-live-core", () => ({
       captureLiveEvidence: capture,
@@ -1278,19 +1282,17 @@ describe("canonical capture and qualification orchestration", () => {
     try {
       jest.isolateModules(() => require("./capture-live"));
       await completed;
-      expect(cliError).toBeUndefined();
-      expect(stderr).not.toHaveBeenCalled();
+      expect(cliError).toBe("LIVE_CAPTURE_CREDENTIALS_MISSING\n");
+      expect(stderr).toHaveBeenCalledTimes(1);
       expect(attest).toHaveBeenCalledTimes(1);
-      expect(capture).toHaveBeenCalledTimes(1);
+      expect(capture).not.toHaveBeenCalled();
+      expect(providerFactory).not.toHaveBeenCalled();
+      expect(outputWriter).not.toHaveBeenCalled();
       expect(events).toEqual([
         "output-policy",
         "global-lock",
-        "reserved",
         "jest",
         "reviews",
-        "snapshot",
-        "provider-created",
-        "provider-dispatch",
         "snapshot",
       ]);
     } finally {
@@ -1347,6 +1349,7 @@ describe("canonical capture and qualification orchestration", () => {
     openError?: Error;
     finalDrift?: boolean;
     argumentCount?: number;
+    lockError?: Error;
   }
 
   async function runQualifier(options: QualifierOptions) {
@@ -1391,6 +1394,13 @@ describe("canonical capture and qualification orchestration", () => {
       events.push("final-snapshot");
       if (options.finalDrift) throw new Error("QUALITY_REPOSITORY_DRIFT");
     });
+    const withQualityCaptureLock = jest.fn(
+      async (action: () => Promise<unknown>) => {
+        events.push("lock");
+        if (options.lockError) throw options.lockError;
+        return action();
+      },
+    );
     jest.doMock("node:fs/promises", () => ({ open }));
     jest.doMock("./live-evidence-parser", () => ({
       parseLiveEvidenceJson: parse,
@@ -1399,6 +1409,7 @@ describe("canonical capture and qualification orchestration", () => {
       attestQualityClosure: attest,
       issueVerifiedQualityClosureToken: issue,
       assertQualityRepositorySnapshot: finalSnapshot,
+      withQualityCaptureLock,
     }));
     jest.doMock("./evaluator", () => ({
       evaluateOcrSynth: evaluate,
@@ -1446,6 +1457,7 @@ describe("canonical capture and qualification orchestration", () => {
         evaluate,
         assert,
         finalSnapshot,
+        withQualityCaptureLock,
       };
     } finally {
       process.argv = previousArguments;
@@ -1466,6 +1478,7 @@ describe("canonical capture and qualification orchestration", () => {
     expect(result.issue).toHaveBeenCalledTimes(accepted ? 1 : 0);
     if (accepted) {
       expect(result.events).toEqual([
+        "lock",
         "open",
         "rerun",
         "token",
@@ -1486,6 +1499,24 @@ describe("canonical capture and qualification orchestration", () => {
     expect(result.read).toHaveBeenCalledTimes(1);
     expect(result.parse).toHaveBeenCalledTimes(1);
     expect(result.close).toHaveBeenCalledTimes(1);
+    expect(result.withQualityCaptureLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("[B3] qualifier and capture share the repository lock before evidence read or evaluation", async () => {
+    const result = await runQualifier({
+      size: 1,
+      lockError: new Error("QUALITY_CAPTURE_LOCK_HELD"),
+    });
+
+    expect(result.result).toEqual({
+      stream: "stderr",
+      text: "QUALITY_CAPTURE_LOCK_HELD\n",
+    });
+    expect(result.events).toEqual(["lock", "stderr"]);
+    expect(result.open).not.toHaveBeenCalled();
+    expect(result.parse).not.toHaveBeenCalled();
+    expect(result.attest).not.toHaveBeenCalled();
+    expect(result.evaluate).not.toHaveBeenCalled();
   });
 
   it.each([

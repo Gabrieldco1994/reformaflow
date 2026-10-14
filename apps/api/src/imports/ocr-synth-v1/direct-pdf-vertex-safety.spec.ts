@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { OCR_SYNTH_DATASET } from "./corpus";
+import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
 import {
   DIRECT_PDF_VERTEX_CONFIG,
   buildOraclePredictions,
@@ -125,6 +127,49 @@ describe("scanned PDF Vertex adapter and service mutation gates", () => {
   });
 
   const assertBlockedExplicitZeroWrite = async (id: SafetyProbeId) => {
+    const pdfBytes = Buffer.from("%PDF-1.4\nband-3-attested-probe\n%%EOF");
+    const seam = new VertexPdfOcrProvider(
+      "band-3-test-project",
+      {
+        authTrace: "SERVICE_ACCOUNT_FILE_ADC",
+        accessToken: async () => "never-dispatched",
+      },
+      jest.fn(async () => {
+        throw new Error("PROVIDER_NETWORK_FORBIDDEN");
+      }),
+    );
+    const createPlan = jest.spyOn(seam, "createRequestPlan");
+    const plan = seam.createRequestPlan({
+      artifactSha256: createHash("sha256").update(pdfBytes).digest("hex"),
+      pageCount: 1,
+      requestId: "10000000-0000-4000-8000-000000000001",
+      pdfBytes,
+      signal: new AbortController().signal,
+    });
+    expect(createPlan).toHaveBeenCalledTimes(1);
+    expect(plan).toMatchObject({
+      provider: DIRECT_PDF_VERTEX_CONFIG.provider,
+      model: DIRECT_PDF_VERTEX_CONFIG.model,
+      region: DIRECT_PDF_VERTEX_CONFIG.region,
+      endpoint: DIRECT_PDF_VERTEX_CONFIG.endpoint,
+      countBodySha256: createHash("sha256")
+        .update(plan.countBody)
+        .digest("hex"),
+      generationBodySha256: createHash("sha256")
+        .update(plan.generationBody)
+        .digest("hex"),
+      planSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(plan.countUrl).toMatch(/:countTokens$/);
+    expect(plan.generationUrl).toMatch(/:generateContent$/);
+    expect(JSON.parse(plan.generationBody)).toEqual(
+      expect.not.objectContaining({
+        tools: expect.anything(),
+        fileUri: expect.anything(),
+        cachedContent: expect.anything(),
+      }),
+    );
+
     const value = evidence(clone(baseline), routes);
     const probe = value.safetyProbes.find((item) => item.id === id)!;
     probe.blocked = false;

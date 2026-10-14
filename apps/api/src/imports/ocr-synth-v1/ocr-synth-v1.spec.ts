@@ -18,8 +18,12 @@ import {
 } from "./evaluator";
 import { extractPdfDocument } from "../../credit-card/parsers/pdf-document";
 import { artifactSha256, generateArtifact } from "./fixture-generator";
-import type { OcrEvalPrediction, OcrRoutingEvidence } from "./types";
-import type { OcrEvalExpected } from "./types";
+import type {
+  OcrEvalExpected,
+  OcrEvalPrediction,
+  OcrProviderNativeCandidate,
+  OcrRoutingEvidence,
+} from "./types";
 import Ajv2020 from "ajv/dist/2020";
 import reportSchema from "./report.schema.json";
 
@@ -154,6 +158,167 @@ describe("ocr-synth-v1 scanned-only release corpus (offline)", () => {
           item.tags.includes("image-only-pdf"),
       ),
     ).toBe(true);
+  });
+
+  function nativeCandidates(caseId: string): OcrProviderNativeCandidate[] {
+    const occurrences = new Map<number, number>();
+    return successfulRows(getOcrSynthCase(caseId)).map((row) => {
+      const pageOccurrenceIndex = (occurrences.get(row.page) ?? 0) + 1;
+      occurrences.set(row.page, pageOccurrenceIndex);
+      return {
+        pageNumber: row.page,
+        pageOccurrenceIndex,
+        description: row.description,
+        amountCents: row.amountCents,
+        sign: row.sign,
+        amountMeaning: row.amountMeaning,
+        dateText: row.dateText,
+        normalizedDate: row.normalizedDate,
+        dateExplicitness: row.dateExplicitness,
+        installment:
+          row.installmentCurrent !== null && row.installmentTotal !== null
+            ? { index: row.installmentCurrent, total: row.installmentTotal }
+            : null,
+        evidenceText: row.evidenceText,
+        selected: false,
+        verificationStatus: "UNVERIFIED",
+        candidateDisposition: "RAW_UNCLASSIFIED",
+      };
+    });
+  }
+
+  async function nativeCaseInput(
+    caseId: string,
+    mutate?: (candidates: OcrProviderNativeCandidate[]) => void,
+  ): Promise<{
+    input: OcrEvalInput;
+    candidates: OcrProviderNativeCandidate[];
+  }> {
+    const predictions = await buildOraclePredictions();
+    const prediction = predictions.find((item) => item.caseId === caseId);
+    if (!prediction) throw new Error(`missing prediction ${caseId}`);
+    const candidates = nativeCandidates(caseId);
+    mutate?.(candidates);
+    prediction.outcome = { kind: "SUCCESS", candidates };
+    return {
+      input: input(predictions, await buildOracleRoutingCases()),
+      candidates,
+    };
+  }
+
+  describe("Band-3 provider-native factual coordinates", () => {
+    it("[B3] scores scan-010 with one-based indexes reset per page", async () => {
+      const arranged = await nativeCaseInput("scan-010");
+      const original = structuredClone(arranged.candidates);
+
+      const report = await evaluateOcrSynth(arranged.input);
+      const dense = report.perCase.find((item) => item.caseId === "scan-010");
+
+      expect(
+        arranged.candidates
+          .filter((candidate) => candidate.pageNumber === 1)
+          .map((candidate) => candidate.pageOccurrenceIndex),
+      ).toEqual(Array.from({ length: 12 }, (_, index) => index + 1));
+      expect(
+        arranged.candidates
+          .filter((candidate) => candidate.pageNumber === 10)
+          .map((candidate) => candidate.pageOccurrenceIndex),
+      ).toEqual(Array.from({ length: 12 }, (_, index) => index + 1));
+      expect(arranged.candidates).toEqual(original);
+      expect(arranged.candidates).toHaveLength(24);
+      expect(dense).toEqual({ caseId: "scan-010", pass: true, issues: [] });
+      expect(report.metrics).toMatchObject({
+        exactMoneyRate: 1,
+        exactSignRate: 1,
+        exactDateRate: 1,
+        exactDateExplicitnessRate: 1,
+        exactInstallmentRate: 1,
+        visibleEvidenceRate: 1,
+        inventedRows: 0,
+        omittedRows: 0,
+      });
+    });
+
+    it.each([
+      [
+        "zero",
+        (candidates: OcrProviderNativeCandidate[]) => {
+          candidates[0]!.pageOccurrenceIndex = 0;
+        },
+      ],
+      [
+        "global index carried onto page 10",
+        (candidates: OcrProviderNativeCandidate[]) => {
+          candidates.find(
+            (item) => item.pageNumber === 10,
+          )!.pageOccurrenceIndex = 13;
+        },
+      ],
+      [
+        "duplicate",
+        (candidates: OcrProviderNativeCandidate[]) => {
+          candidates[1]!.pageOccurrenceIndex = 1;
+        },
+      ],
+      [
+        "gap",
+        (candidates: OcrProviderNativeCandidate[]) => {
+          candidates[1]!.pageOccurrenceIndex = 3;
+        },
+      ],
+      [
+        "decreasing",
+        (candidates: OcrProviderNativeCandidate[]) => {
+          candidates[0]!.pageOccurrenceIndex = 2;
+          candidates[1]!.pageOccurrenceIndex = 1;
+        },
+      ],
+    ] as const)(
+      "[B3] rejects %s per-page occurrence coordinates",
+      async (_label, mutate) => {
+        const arranged = await nativeCaseInput("scan-010", mutate);
+
+        const report = await evaluateOcrSynth(arranged.input);
+        const dense = report.perCase.find(
+          (item) => item.caseId === "scan-010",
+        )!;
+
+        expect(dense.pass).toBe(false);
+        expect(dense.issues).toEqual(
+          expect.arrayContaining([
+            expect.stringMatching(
+              /^(?:PAGE_OCCURRENCE_INDEX_MISMATCH|ROW_SCHEMA_OR_PROVENANCE_MISMATCH)$/,
+            ),
+          ]),
+        );
+      },
+    );
+
+    it("[B3] scores installments without provider-only installmentMeaning", async () => {
+      const arranged = await nativeCaseInput("scan-009");
+      for (const candidate of arranged.candidates)
+        expect(candidate).not.toHaveProperty("installmentMeaning");
+
+      const exact = await evaluateOcrSynth(arranged.input);
+      expect(exact.perCase.find((item) => item.caseId === "scan-009")).toEqual({
+        caseId: "scan-009",
+        pass: true,
+        issues: [],
+      });
+      expect(exact.metrics.exactInstallmentRate).toBe(1);
+
+      const invented = await nativeCaseInput("scan-009", (candidates) => {
+        const unknown = candidates.find(
+          (candidate) => candidate.installment === null,
+        );
+        if (!unknown) throw new Error("missing UNKNOWN installment fixture");
+        unknown.installment = { index: 1, total: 2 };
+      });
+      const changed = await evaluateOcrSynth(invented.input);
+      expect(
+        changed.perCase.find((item) => item.caseId === "scan-009")!.issues,
+      ).toContain("INSTALLMENT_MEANING_INVENTED");
+    });
   });
 
   it("covers dense, empty, ambiguous, unreadable, raw, duplicate and adversarial statements", () => {

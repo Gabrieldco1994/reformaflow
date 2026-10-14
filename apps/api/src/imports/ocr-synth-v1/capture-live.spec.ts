@@ -345,7 +345,7 @@ describe("audited synthetic Vertex capture", () => {
     ).toHaveLength(24);
   });
 
-  it("captures all 18 expected outcomes with one dispatch each and no terminal retry", async () => {
+  it("[B3] records one countTokens plus one generateContent call for every admitted case", async () => {
     const adapter = provider([VERSION], undefined, {
       "scan-012": "DOCUMENT_UNREADABLE",
       "scan-018": "LIMIT_EXCEEDED",
@@ -377,41 +377,316 @@ describe("audited synthetic Vertex capture", () => {
     expect(adapter.fetcher).toHaveBeenCalledTimes(36);
     expect(
       captured.predictions.map((item) => item.adapterTrace?.providerCallCount),
-    ).toEqual(Array.from({ length: 18 }, () => 1));
+    ).toEqual(Array.from({ length: 18 }, () => 2));
     expect(
       captured.predictions.map((item) => item.adapterTrace?.attempts),
     ).toEqual(Array.from({ length: 18 }, () => 1));
   });
 
-  it("captures exact raw response bytes through executeCapturedAttempt and persists the bound ledger", async () => {
+  it("[B3] capture output is directly consumable by the live parser and evaluator", async () => {
     const adapter = provider();
-    const extract = jest.spyOn(adapter.value, "extractPdf");
     const captured = (await captureLiveEvidence(
       canonicalCaptureOptions(adapter.value, {
         memoryRss: () => 256_000_000,
       }),
     )) as unknown as Record<string, any>;
+    const serialized = JSON.stringify(captured);
+    const parsed = parseLiveEvidenceJson(serialized) as unknown as Record<
+      string,
+      any
+    >;
+    const report = await evaluateOcrSynth(parsed as unknown as OcrEvalInput);
 
-    expect(extract).toHaveBeenCalledTimes(18);
-    for (const [request] of extract.mock.calls)
-      expect(
-        (request as unknown as { captureResponseBytes?: unknown })
-          .captureResponseBytes,
-      ).toEqual(expect.any(Function));
-    expect(captured.rawResponses).toHaveLength(18);
-    expect(captured.rawResponses.map((item: any) => item.caseId)).toEqual(
+    expect(parsed).toEqual(captured);
+    expect(captured).not.toHaveProperty("rawResponses");
+    expect(captured).not.toHaveProperty("routingCases");
+    expect(captured).not.toHaveProperty("safetyProbes");
+    expect(captured.predictions).toHaveLength(18);
+    expect(captured.attemptLedger).toHaveLength(18);
+    expect(captured.attemptLedger.map((item: any) => item.caseId)).toEqual(
       OCR_SYNTH_SCANNED_RELEASE_CASES.map(({ id }) => id),
     );
-    expect(captured.attemptLedger).toEqual(
-      expect.objectContaining({
-        runAttempt: 1,
-        ledger: expect.any(Array),
-      }),
-    );
-    expect(() =>
-      capturedAttemptAuthority().verifyAttemptLedger(captured.attemptLedger),
-    ).not.toThrow();
+    for (const item of captured.attemptLedger)
+      expect(item.events.map((event: any) => event.kind)).toEqual([
+        "COUNT_TOKENS_REQUEST",
+        "COUNT_TOKENS_RESPONSE",
+        "ADMISSION_DECISION",
+        "GENERATION_REQUEST",
+        "GENERATION_RESPONSE",
+        "SPEND_RECONCILED",
+      ]);
+    expect(captured.qualityClosure.observations).toHaveLength(45);
+    expect(report.functionalStatus).toBe("PASS");
+    expect(report.releaseStatus).toBe("GAPS");
+    expect(report.liveEvidenceGaps).toEqual([
+      "VERIFIED_BASELINE_EXECUTION_MISSING",
+    ]);
   });
+
+  it("[B3] parser invokes ledger verification instead of accepting a detached valid shape", () => {
+    const changed = structuredClone(evidence) as unknown as Record<string, any>;
+    const ledgerGroups = changed.attemptLedger;
+    const events = Array.isArray(ledgerGroups)
+      ? ledgerGroups[0]?.events
+      : ledgerGroups?.ledger;
+    expect(Array.isArray(events)).toBe(true);
+    const responseIndex = events.findIndex(
+      (event: any) => event.kind === "COUNT_TOKENS_RESPONSE",
+    );
+    expect(responseIndex).toBeGreaterThanOrEqual(0);
+    events.splice(responseIndex, 1);
+
+    expect(() => parseLiveEvidenceJson(JSON.stringify(changed))).toThrow(
+      /^(?:LIVE_EVIDENCE_INVALID|LIVE_EVIDENCE_BINDING_INVALID)$/,
+    );
+  });
+
+  it("[B3] parsed evidence is deeply immutable during asynchronous evaluation", async () => {
+    const serialized = JSON.stringify(evidence);
+    const parsed = parseLiveEvidenceJson(serialized) as unknown as Record<
+      string,
+      any
+    >;
+    const original = JSON.parse(serialized) as Record<string, any>;
+    const pending = evaluateOcrSynth(parsed as unknown as OcrEvalInput);
+
+    const mutations = [
+      () => {
+        parsed.predictions[0].outcome.candidates[0].amountCents = "999999";
+      },
+      () => {
+        const groups = parsed.attemptLedger;
+        const events = Array.isArray(groups) ? groups[0].events : groups.ledger;
+        events[0].sequence = 999;
+      },
+      () => {
+        parsed.qualityClosure.snapshot.headSha = "0".repeat(40);
+      },
+      () => {
+        const observations =
+          parsed.qualityClosure.observations ?? parsed.qualityClosure.tests;
+        observations[0].sourcePath = "caller/changed.spec.ts";
+      },
+    ];
+    for (const mutate of mutations) {
+      try {
+        mutate();
+      } catch (error) {
+        expect(error).toBeInstanceOf(TypeError);
+      }
+    }
+
+    await pending;
+    expect(parsed).toEqual(original);
+    expect(Object.isFrozen(parsed)).toBe(true);
+    expect(Object.isFrozen(parsed.predictions[0])).toBe(true);
+    expect(Object.isFrozen(parsed.qualityClosure)).toBe(true);
+  });
+
+  const causalEvents = (value: Record<string, any>): any[] =>
+    Array.isArray(value.attemptLedger)
+      ? value.attemptLedger.flatMap((group: any) => group.events)
+      : value.attemptLedger.ledger;
+  const event = (
+    value: Record<string, any>,
+    kind: string,
+    caseId = "scan-001",
+  ): any => {
+    const found = causalEvents(value).find(
+      (item: any) => item.kind === kind && item.caseId === caseId,
+    );
+    if (!found) throw new Error(`missing ${kind} for ${caseId}`);
+    return found;
+  };
+  const replaceResponseBytes = (
+    target: Record<string, any>,
+    mutate: (wire: Record<string, any>) => void,
+  ) => {
+    const bytes = Buffer.from(target.responseBytesBase64, "base64");
+    const wire = JSON.parse(bytes.toString("utf8")) as Record<string, any>;
+    mutate(wire);
+    const changed = Buffer.from(JSON.stringify(wire));
+    target.responseBytesBase64 = changed.toString("base64");
+    target.responseByteLength = changed.length;
+    target.responseSha256 = attemptHash(changed);
+  };
+
+  it.each([
+    [
+      "CountTokens raw bytes and self-hash without admission count",
+      (value: Record<string, any>) =>
+        replaceResponseBytes(event(value, "COUNT_TOKENS_RESPONSE"), (wire) => {
+          wire.totalTokens = 101;
+        }),
+    ],
+    [
+      "GenerateContent raw bytes and self-hash without prediction",
+      (value: Record<string, any>) =>
+        replaceResponseBytes(event(value, "GENERATION_RESPONSE"), (wire) => {
+          wire.modelVersion = "gemini-2.5-flash-mutated";
+        }),
+    ],
+    [
+      "request-plan SHA on every event without recomputed plan",
+      (value: Record<string, any>) => {
+        for (const item of causalEvents(value))
+          item.requestPlanSha256 = "9".repeat(64);
+        if (!Array.isArray(value.attemptLedger))
+          for (const caseId of Object.keys(
+            value.attemptLedger.requestPlanSha256ByCase,
+          ))
+            value.attemptLedger.requestPlanSha256ByCase[caseId] = "9".repeat(
+              64,
+            );
+      },
+    ],
+    [
+      "CountTokens request-body SHA",
+      (value: Record<string, any>) => {
+        event(value, "COUNT_TOKENS_REQUEST").requestBodySha256 = "8".repeat(64);
+      },
+    ],
+    [
+      "GenerateContent request-body SHA",
+      (value: Record<string, any>) => {
+        event(value, "GENERATION_REQUEST").requestBodySha256 = "7".repeat(64);
+      },
+    ],
+    [
+      "raw modelVersion only",
+      (value: Record<string, any>) =>
+        replaceResponseBytes(event(value, "GENERATION_RESPONSE"), (wire) => {
+          wire.modelVersion = "gemini-2.5-flash-other";
+        }),
+    ],
+    [
+      "prediction and run modelVersion without raw response",
+      (value: Record<string, any>) => {
+        value.run.modelVersion = "gemini-2.5-flash-002";
+        value.predictions[0].modelVersion = "gemini-2.5-flash-002";
+      },
+    ],
+    [
+      "raw responseId",
+      (value: Record<string, any>) =>
+        replaceResponseBytes(event(value, "GENERATION_RESPONSE"), (wire) => {
+          wire.responseId = "response-mutated-only";
+        }),
+    ],
+    [
+      "trace responseId only",
+      (value: Record<string, any>) => {
+        value.predictions[0].adapterTrace.responseId = "response-trace-mutated";
+      },
+    ],
+    [
+      "prediction candidate cents only",
+      (value: Record<string, any>) => {
+        value.predictions[0].outcome.candidates[0].amountCents = "2";
+      },
+    ],
+    [
+      "two prediction candidates",
+      (value: Record<string, any>) => {
+        const candidates = value.predictions.find(
+          (item: any) => item.caseId === "scan-010",
+        ).outcome.candidates;
+        [candidates[0], candidates[1]] = [candidates[1], candidates[0]];
+      },
+    ],
+    [
+      "two case ledger groups",
+      (value: Record<string, any>) => {
+        if (Array.isArray(value.attemptLedger)) {
+          [value.attemptLedger[0], value.attemptLedger[1]] = [
+            value.attemptLedger[1],
+            value.attemptLedger[0],
+          ];
+          return;
+        }
+        const ledger = value.attemptLedger.ledger;
+        const first = ledger.slice(0, 6);
+        const second = ledger.slice(6, 12);
+        ledger.splice(0, 12, ...second, ...first);
+        ledger.forEach((item: any, index: number) => {
+          item.sequence = index + 1;
+        });
+      },
+    ],
+    [
+      "another case request ID",
+      (value: Record<string, any>) => {
+        const other = value.predictions[1].adapterTrace.requestId;
+        for (const item of causalEvents(value))
+          if (item.caseId === "scan-001") item.requestId = other;
+      },
+    ],
+    [
+      "another tenant ID",
+      (value: Record<string, any>) => {
+        value.predictions[0].tenantId = value.predictions[1].tenantId;
+      },
+    ],
+    [
+      "artifact SHA without generated PDF",
+      (value: Record<string, any>) => {
+        value.predictions[0].artifactSha256 = "6".repeat(64);
+      },
+    ],
+    [
+      "one closure observation",
+      (value: Record<string, any>) => {
+        (value.qualityClosure.observations ?? value.qualityClosure.tests).pop();
+      },
+    ],
+    [
+      "duplicate closure observation",
+      (value: Record<string, any>) => {
+        const observations =
+          value.qualityClosure.observations ?? value.qualityClosure.tests;
+        observations.splice(1, 0, structuredClone(observations[0]));
+      },
+    ],
+    [
+      "closure observation order",
+      (value: Record<string, any>) => {
+        const observations =
+          value.qualityClosure.observations ?? value.qualityClosure.tests;
+        [observations[0], observations[1]] = [observations[1], observations[0]];
+      },
+    ],
+    [
+      "closure observation source",
+      (value: Record<string, any>) => {
+        const observations =
+          value.qualityClosure.observations ?? value.qualityClosure.tests;
+        observations[0].sourcePath = "caller/fabricated.spec.ts";
+      },
+    ],
+    [
+      "repository tree SHA",
+      (value: Record<string, any>) => {
+        value.qualityClosure.snapshot.treeSha = "5".repeat(40);
+      },
+    ],
+  ] as Array<[string, (value: Record<string, any>) => void]>)(
+    "[B3] independently rejects broken causal binding: %s",
+    (_label, mutate) => {
+      const changed = JSON.parse(JSON.stringify(evidence)) as Record<
+        string,
+        any
+      >;
+      expect(() =>
+        parseLiveEvidenceJson(JSON.stringify(changed)),
+      ).not.toThrow();
+
+      mutate(changed);
+
+      expect(() => parseLiveEvidenceJson(JSON.stringify(changed))).toThrow(
+        /^(?:LIVE_EVIDENCE_INVALID|LIVE_EVIDENCE_BINDING_INVALID)$/,
+      );
+    },
+  );
 
   it("fails before dispatch when Linux VmHWM evidence is unavailable", async () => {
     const adapter = provider();
@@ -1018,19 +1293,35 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
     },
   );
 
-  it("rejects extra countTokens response fields even when totalTokens is valid", async () => {
-    const countTokens = jest.fn(async () =>
-      Buffer.from(JSON.stringify({ totalTokens: 100, unboundClaim: true })),
+  it("[B3] accepts bounded CountTokens metadata and hashes all exact bytes", async () => {
+    const countBytes = Buffer.from(
+      JSON.stringify({
+        totalTokens: 100,
+        totalBillableCharacters: 912,
+        promptTokensDetails: [{ modality: "DOCUMENT", tokenCount: 100 }],
+      }),
     );
+    const countTokens = jest.fn(async () => Buffer.from(countBytes));
     const generation = jest.fn(async () => generationResponseBytes());
 
-    await expect(
-      capturedAttemptAuthority().executeCapturedAttempt(
-        attemptInput(0, countTokens, generation),
-      ),
-    ).rejects.toThrow("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+    const result = await capturedAttemptAuthority().executeCapturedAttempt(
+      attemptInput(0, countTokens, generation),
+    );
+
+    expect(result).toMatchObject({
+      decision: "ADMITTED",
+      countedInputTokens: 100,
+      ledger: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "COUNT_TOKENS_RESPONSE",
+          responseByteLength: countBytes.length,
+          responseSha256: attemptHash(countBytes),
+          parsedInputTokens: 100,
+        }),
+      ]),
+    });
     expect(countTokens).toHaveBeenCalledTimes(1);
-    expect(generation).not.toHaveBeenCalled();
+    expect(generation).toHaveBeenCalledTimes(1);
   });
 
   it("accepts only the complete ordered 18-case canonical ledger", () => {
@@ -1166,7 +1457,7 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
   });
 
   describe("protected live-capture executable boundary", () => {
-    it("exports an executable runner that remains closed without explicit protected dependencies and credentials", async () => {
+    it("[B3] decorative credential strings cannot invoke caller factories", async () => {
       const source = await readFile(join(__dirname, "capture-live.ts"), "utf8");
       const importSafeSource = source.replace(
         /\nvoid main\(\)\.catch[\s\S]*$/,
@@ -1182,11 +1473,12 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
       const moduleRecord: { exports: Record<string, unknown> } = {
         exports: {},
       };
+      const outputWriter = jest.fn(async () => undefined);
       const requireStub = (id: string): unknown => {
         if (id === "node:path")
           return { resolve: (...parts: string[]) => join(...parts) };
         if (id === "./capture-live-file")
-          return { writeQualifiedLiveEvidenceExclusive: jest.fn() };
+          return { writeQualifiedLiveEvidenceExclusive: outputWriter };
         if (id === "./quality-closure-attestation")
           return {
             assertOutputOutsideRepository: jest.fn(),
@@ -1228,6 +1520,39 @@ describe("hashed countTokens admission and ordered attempt ledger", () => {
         name: "Error",
         message: "LIVE_CAPTURE_CREDENTIALS_MISSING",
       });
+
+      const captureEvidence = jest.fn(async () => {
+        throw new Error("CALLER_CAPTURE_MUST_NOT_RUN");
+      });
+      const verifyRepository = jest.fn(async () => {
+        throw new Error("CALLER_REPOSITORY_CHECK_MUST_NOT_RUN");
+      });
+      const decorative = await (runner as (input: unknown) => Promise<unknown>)(
+        {
+          outputPath: "/tmp/band-3-must-not-exist.json",
+          lockPath: "/tmp/band-3-must-not-exist.lock",
+          credentials: {
+            projectId: "plausible-project-id",
+            serviceAccountPath: "/secrets/vertex-sa.json",
+          },
+          captureEvidence,
+          verifyRepository,
+        },
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+      expect({
+        name: (decorative as { name?: unknown } | null)?.name,
+        message: (decorative as { message?: unknown } | null)?.message,
+      }).toEqual({
+        name: "Error",
+        message: "LIVE_CAPTURE_PROTECTED_CONTEXT_UNAVAILABLE",
+      });
+      expect(captureEvidence).not.toHaveBeenCalled();
+      expect(verifyRepository).not.toHaveBeenCalled();
+      expect(outputWriter).not.toHaveBeenCalled();
     });
   });
 
