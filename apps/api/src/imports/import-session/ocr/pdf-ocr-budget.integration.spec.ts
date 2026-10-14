@@ -37,6 +37,96 @@ const input = (
   now,
   ...overrides,
 });
+type Reservation = ReturnType<typeof input>;
+
+async function persistReservationParents(
+  prisma: PrismaService,
+  reservation: Reservation,
+): Promise<void> {
+  await prisma.tenant.upsert({
+    where: { id: reservation.tenantId },
+    update: {},
+    create: { id: reservation.tenantId, name: "OCR budget fixture" },
+  });
+  await prisma.user.upsert({
+    where: { id: reservation.actorId },
+    update: {},
+    create: {
+      id: reservation.actorId,
+      tenantId: reservation.tenantId,
+      username: reservation.actorId,
+      name: "OCR budget fixture",
+      role: "ADMIN",
+    },
+  });
+  await prisma.project.create({
+    data: {
+      id: reservation.ownerProjectId,
+      tenantId: reservation.tenantId,
+      name: "OCR budget fixture",
+      type: "PESSOAL",
+    },
+  });
+  const cardId = randomUUID();
+  await prisma.creditCard.create({
+    data: {
+      id: cardId,
+      tenantId: reservation.tenantId,
+      projectId: reservation.ownerProjectId,
+      nickname: "OCR",
+      institution: "fixture",
+      last4: "0719",
+    },
+  });
+  await prisma.importSession.create({
+    data: {
+      id: reservation.sessionId,
+      tenantId: reservation.tenantId,
+      ownerUserId: reservation.actorId,
+      ownerProjectId: reservation.ownerProjectId,
+      cardId,
+      kind: "CREATE_CARD_PURCHASES",
+      state: "DRAFT",
+      revision: 1,
+      createRequestId: randomUUID(),
+      createPayloadHash: "b".repeat(64),
+      consentPolicyVersion: 1,
+      consentedAt: now,
+      lastUserEditAt: now,
+      expiresAt: new Date("2026-10-14T20:00:00.000Z"),
+      draftJson:
+        '{"version":1,"lines":[],"selectedLineIds":[],"questions":[],"scope":{"observationIds":[],"pendingAttachmentIds":[]}}',
+    },
+  });
+  await prisma.importArtifact.create({
+    data: {
+      id: reservation.artifactId,
+      tenantId: reservation.tenantId,
+      ownerProjectId: reservation.ownerProjectId,
+      documentSha256: reservation.artifactSha256,
+      verifiedBytes: reservation.byteCount,
+      detectedFormat: "PDF",
+      state: "RAW_READY",
+      storageKey: `fixture/${reservation.artifactId}`,
+    },
+  });
+  await prisma.importSessionArtifact.create({
+    data: {
+      id: reservation.attachmentId,
+      tenantId: reservation.tenantId,
+      ownerProjectId: reservation.ownerProjectId,
+      sessionId: reservation.sessionId,
+      artifactId: reservation.artifactId,
+      position: 0,
+      fileName: "fixture.pdf",
+      declaredMime: "application/pdf",
+      declaredBytes: reservation.byteCount,
+      state: "ATTACHED",
+      reservedBytes: reservation.byteCount,
+      verifiedAt: now,
+    },
+  });
+}
 
 describe("durable direct OCR abuse budget", () => {
   const prisma = new PrismaService();
@@ -51,8 +141,11 @@ describe("durable direct OCR abuse budget", () => {
       ...roomy,
       calls: { user: 1, tenant: 10, global: 10 },
     };
+    const reservations = [input(tenantId, actorId), input(tenantId, actorId)];
+    for (const reservation of reservations)
+      await persistReservationParents(prisma, reservation);
     const outcomes = await Promise.allSettled(
-      [input(tenantId, actorId), input(tenantId, actorId)].map((reservation) =>
+      reservations.map((reservation) =>
         prisma.$transaction((tx) =>
           reservePdfOcrBudget(tx, reservation, limits),
         ),
@@ -74,6 +167,7 @@ describe("durable direct OCR abuse budget", () => {
       ...roomy,
       calls: { user: 1, tenant: 10, global: 10 },
     };
+    await persistReservationParents(prisma, first);
     await prisma.$transaction((tx) => reservePdfOcrBudget(tx, first, limits));
     await prisma.$transaction((tx) =>
       reconcilePdfOcrBudget(tx, first.id, "UNKNOWN", now, null),
@@ -81,10 +175,10 @@ describe("durable direct OCR abuse budget", () => {
     const restarted = new PrismaService();
     await restarted.$connect();
     try {
+      const second = input(tenantId, actorId);
+      await persistReservationParents(restarted, second);
       await expect(
-        restarted.$transaction((tx) =>
-          reservePdfOcrBudget(tx, input(tenantId, actorId), limits),
-        ),
+        restarted.$transaction((tx) => reservePdfOcrBudget(tx, second, limits)),
       ).rejects.toMatchObject({ code: "OCR_BUDGET_EXHAUSTED" });
     } finally {
       await restarted.$disconnect();
@@ -97,18 +191,17 @@ describe("durable direct OCR abuse budget", () => {
       ...roomy,
       calls: { user: 10, tenant: 1, global: 1 },
     };
-    await prisma.$transaction((tx) =>
-      reservePdfOcrBudget(tx, input(tenantId), limits),
-    );
+    const first = input(tenantId);
+    const sameTenant = input(tenantId);
+    const otherTenant = input(randomUUID());
+    for (const reservation of [first, sameTenant, otherTenant])
+      await persistReservationParents(prisma, reservation);
+    await prisma.$transaction((tx) => reservePdfOcrBudget(tx, first, limits));
     await expect(
-      prisma.$transaction((tx) =>
-        reservePdfOcrBudget(tx, input(tenantId), limits),
-      ),
+      prisma.$transaction((tx) => reservePdfOcrBudget(tx, sameTenant, limits)),
     ).rejects.toMatchObject({ code: "OCR_BUDGET_EXHAUSTED" });
     await expect(
-      prisma.$transaction((tx) =>
-        reservePdfOcrBudget(tx, input(randomUUID()), limits),
-      ),
+      prisma.$transaction((tx) => reservePdfOcrBudget(tx, otherTenant, limits)),
     ).rejects.toMatchObject({ code: "OCR_BUDGET_EXHAUSTED" });
   });
 
@@ -139,6 +232,7 @@ describe("durable direct OCR abuse budget", () => {
     "rejects %s exhaustion before an attempt row",
     async (_label, overrides, limits) => {
       const reservation = input(randomUUID(), randomUUID(), overrides);
+      await persistReservationParents(prisma, reservation);
       await expect(
         prisma.$transaction((tx) =>
           reservePdfOcrBudget(tx, reservation, limits),

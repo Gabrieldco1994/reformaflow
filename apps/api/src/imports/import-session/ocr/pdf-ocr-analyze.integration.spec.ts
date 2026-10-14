@@ -29,6 +29,10 @@ const now = new Date("2026-10-13T18:00:00.000Z");
 const clock = { now: () => now };
 const capability = new DefaultImportSessionCapability();
 const verifier = { verify: jest.fn() };
+const providerError = (
+  failure: ConstructorParameters<typeof PdfOcrProviderError>[0],
+  dispatchState: ConstructorParameters<typeof PdfOcrProviderError>[1],
+) => new PdfOcrProviderError(failure, dispatchState);
 
 describe("POST attachment analyze v2 direct OCR", () => {
   const prisma = new PrismaService();
@@ -322,7 +326,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
       ready: () => true,
       extractPdf: jest
         .fn()
-        .mockRejectedValue(new PdfOcrProviderError("TIMEOUT")),
+        .mockRejectedValue(providerError("TIMEOUT", "DISPATCHED_OR_UNKNOWN")),
     };
     const service = extraction(prisma, owner.bytes, provider, 1);
     const request = await declareConsent(prisma, owner);
@@ -363,7 +367,7 @@ describe("POST attachment analyze v2 direct OCR", () => {
       ready: () => true,
       extractPdf: jest
         .fn()
-        .mockRejectedValue(new PdfOcrProviderError("SAFETY")),
+        .mockRejectedValue(providerError("SAFETY", "DISPATCHED_OR_UNKNOWN")),
     };
     const service = extraction(prisma, owner.bytes, provider, 1);
     const request = await declareConsent(prisma, owner);
@@ -395,21 +399,35 @@ describe("POST attachment analyze v2 direct OCR", () => {
   });
 
   it.each([
-    ["MALFORMED_RESPONSE", "OCR_MALFORMED_RESPONSE"],
-    ["AUTH", "OCR_UNAVAILABLE"],
-    ["RATE_LIMITED", "OCR_UNAVAILABLE"],
-    ["UPSTREAM", "OCR_UNAVAILABLE"],
+    [
+      "MALFORMED_RESPONSE",
+      "DISPATCHED_OR_UNKNOWN",
+      "OCR_MALFORMED_RESPONSE",
+      "MALFORMED_RESPONSE",
+    ],
+    [
+      "MALFORMED_RESPONSE",
+      "NOT_DISPATCHED",
+      "OCR_UNAVAILABLE",
+      "NOT_DISPATCHED",
+    ],
+    ["AUTH", "NOT_DISPATCHED", "OCR_UNAVAILABLE", "NOT_DISPATCHED"],
+    ["RATE_LIMITED", "DISPATCHED_OR_UNKNOWN", "OCR_ATTEMPT_UNKNOWN", "UNKNOWN"],
+    ["UPSTREAM", "DISPATCHED_OR_UNKNOWN", "OCR_ATTEMPT_UNKNOWN", "UNKNOWN"],
   ] as const)(
-    "persists and replays terminal %s without retry",
-    async (failure, code) => {
-      const owner = await fixture(prisma, `terminal-${failure}`);
+    "persists and replays terminal %s/%s without retry",
+    async (failure, dispatchState, code, outcome) => {
+      const owner = await fixture(
+        prisma,
+        `terminal-${failure}-${dispatchState}`,
+      );
       const provider = {
         provider: PDF_OCR_PROVIDER_ID,
         model: PDF_OCR_MODEL_ID,
         ready: () => true,
         extractPdf: jest
           .fn()
-          .mockRejectedValue(new PdfOcrProviderError(failure)),
+          .mockRejectedValue(providerError(failure, dispatchState)),
       };
       const service = extraction(prisma, owner.bytes, provider, 1);
       const request = await declareConsent(prisma, owner);
@@ -427,8 +445,58 @@ describe("POST attachment analyze v2 direct OCR", () => {
         await prisma.importOcrUsage.findFirstOrThrow({
           where: { sessionId: owner.sessionId },
         }),
-      ).toMatchObject({ outcome: failure });
+      ).toMatchObject({ outcome });
       expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
+    },
+  );
+
+  it.each([
+    ["RATE_LIMITED", "OCR_ATTEMPT_UNKNOWN"],
+    ["UPSTREAM", "OCR_ATTEMPT_UNKNOWN"],
+    ["ATTEMPTED", "OCR_ATTEMPT_UNKNOWN"],
+    ["UNKNOWN", "OCR_ATTEMPT_UNKNOWN"],
+    ["AUTH", "OCR_UNAVAILABLE"],
+    ["NOT_DISPATCHED", "OCR_UNAVAILABLE"],
+  ] as const)(
+    "replays legacy %s without retry as %s",
+    async (outcome, code) => {
+      const owner = await fixture(prisma, `legacy-${outcome}`);
+      const provider = {
+        provider: PDF_OCR_PROVIDER_ID,
+        model: PDF_OCR_MODEL_ID,
+        ready: () => true,
+        extractPdf: jest
+          .fn()
+          .mockRejectedValue(providerError("SAFETY", "DISPATCHED_OR_UNKNOWN")),
+      };
+      const service = extraction(prisma, owner.bytes, provider, 1);
+      const request = await declareConsent(prisma, owner);
+
+      await expect(
+        service.analyzeAttached(
+          owner.auth,
+          owner.sessionId,
+          owner.attachmentId,
+          request,
+          {},
+        ),
+      ).rejects.toMatchObject({ code: "OCR_SAFETY_BLOCKED" });
+      await prisma.importOcrUsage.updateMany({
+        where: { sessionId: owner.sessionId },
+        data: { outcome },
+      });
+      await expect(
+        service.analyzeAttached(
+          owner.auth,
+          owner.sessionId,
+          owner.attachmentId,
+          request,
+          {},
+        ),
+      ).rejects.toMatchObject({ code });
+      expect(provider.extractPdf).toHaveBeenCalledTimes(1);
+      expect(await financialCount(prisma, owner.tenantId)).toBe(0);
     },
   );
 

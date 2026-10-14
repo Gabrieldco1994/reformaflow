@@ -14,6 +14,7 @@ import { PrismaClient } from "@prisma/client";
 const ROOT = resolve(__dirname, "../../../../../..");
 const OCR_COLUMN_MIGRATION = "20261013180000_import_pdf_ocr_runtime";
 const OCR_LEDGER_MIGRATION = "20261013183000_import_ocr_usage_budget";
+const OCR_LEDGER_FK_MIGRATION = "20261013233000_import_ocr_usage_foreign_keys";
 
 function deploy(schema: string, database: string): void {
   execFileSync(
@@ -64,9 +65,14 @@ describe("PDF OCR migration fresh and populated upgrade", () => {
     const committed = readdirSync(join(ROOT, "prisma/migrations"))
       .filter((name) => /^\d/.test(name))
       .sort();
-    expect(committed.at(-1)).toBe(OCR_LEDGER_MIGRATION);
+    expect(committed.at(-1)).toBe(OCR_LEDGER_FK_MIGRATION);
     for (const migration of committed) {
-      if (!includeLedger && migration === OCR_LEDGER_MIGRATION) continue;
+      if (
+        !includeLedger &&
+        (migration === OCR_LEDGER_MIGRATION ||
+          migration === OCR_LEDGER_FK_MIGRATION)
+      )
+        continue;
       cpSync(
         join(ROOT, "prisma/migrations", migration),
         join(migrations, migration),

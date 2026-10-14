@@ -24,17 +24,27 @@ const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
 export function isAdmittedPdfOcrRequest(
   request: FixedPdfOcrProviderRequest,
 ): boolean {
+  const candidate: unknown = request;
+  if (
+    candidate === null ||
+    typeof candidate !== "object" ||
+    Array.isArray(candidate)
+  )
+    return false;
+  const value = candidate as Partial<FixedPdfOcrProviderRequest>;
   return (
-    HASH.test(request.artifactSha256) &&
-    Number.isSafeInteger(request.pageCount) &&
-    request.pageCount >= 1 &&
-    request.pageCount <= PDF_OCR_LIMITS.pagesPerFile &&
-    REQUEST_ID.test(request.requestId) &&
-    Buffer.isBuffer(request.pdfBytes) &&
-    request.pdfBytes.length > 0 &&
-    request.pdfBytes.subarray(0, 8).toString("ascii").startsWith("%PDF-") &&
-    request.signal instanceof AbortSignal &&
-    !request.signal.aborted
+    typeof value.artifactSha256 === "string" &&
+    HASH.test(value.artifactSha256) &&
+    Number.isSafeInteger(value.pageCount) &&
+    value.pageCount! >= 1 &&
+    value.pageCount! <= PDF_OCR_LIMITS.pagesPerFile &&
+    typeof value.requestId === "string" &&
+    REQUEST_ID.test(value.requestId) &&
+    Buffer.isBuffer(value.pdfBytes) &&
+    value.pdfBytes.length > 0 &&
+    value.pdfBytes.subarray(0, 8).toString("ascii").startsWith("%PDF-") &&
+    value.signal instanceof AbortSignal &&
+    !value.signal.aborted
   );
 }
 

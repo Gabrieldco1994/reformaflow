@@ -47,10 +47,26 @@ export type PdfOcrProviderFailure =
   | "MALFORMED_RESPONSE"
   | "SAFETY";
 
+export const PDF_OCR_DISPATCH_STATE = Object.freeze({
+  NOT_DISPATCHED: "NOT_DISPATCHED",
+  DISPATCHED_OR_UNKNOWN: "DISPATCHED_OR_UNKNOWN",
+} as const);
+export type PdfOcrDispatchState =
+  (typeof PDF_OCR_DISPATCH_STATE)[keyof typeof PDF_OCR_DISPATCH_STATE];
+
 export class PdfOcrProviderError extends Error {
-  constructor(readonly failure: PdfOcrProviderFailure) {
+  readonly failure: PdfOcrProviderFailure;
+  readonly dispatchState: PdfOcrDispatchState;
+
+  constructor(
+    failure: PdfOcrProviderFailure,
+    dispatchState: PdfOcrDispatchState,
+  ) {
     super(failure);
     this.name = "PdfOcrProviderError";
+    this.failure = failure;
+    this.dispatchState = dispatchState;
+    Object.freeze(this);
   }
 }
 
@@ -58,14 +74,23 @@ export interface VertexAccessTokenPort {
   accessToken(signal: AbortSignal): Promise<string>;
 }
 
-const aborted = (): PdfOcrProviderError => new PdfOcrProviderError("TIMEOUT");
+const aborted = (dispatchState: PdfOcrDispatchState): PdfOcrProviderError =>
+  new PdfOcrProviderError("TIMEOUT", dispatchState);
+const dispatchedFailure = (
+  failure: PdfOcrProviderFailure,
+): PdfOcrProviderError =>
+  new PdfOcrProviderError(
+    failure,
+    PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+  );
 async function abortable<T>(
   value: Promise<T>,
   signal: AbortSignal,
+  dispatchState: PdfOcrDispatchState,
 ): Promise<T> {
-  if (signal.aborted) throw aborted();
+  if (signal.aborted) throw aborted(dispatchState);
   return await new Promise<T>((resolve, reject) => {
-    const stop = () => reject(aborted());
+    const stop = () => reject(aborted(dispatchState));
     signal.addEventListener("abort", stop, { once: true });
     void value.then(resolve, reject).finally(() => {
       signal.removeEventListener("abort", stop);
@@ -77,9 +102,21 @@ export class GoogleAuthVertexAccessToken implements VertexAccessTokenPort {
   private readonly auth = new GoogleAuth({ scopes: [VERTEX_SCOPE] });
 
   async accessToken(signal: AbortSignal): Promise<string> {
-    const client = await abortable(this.auth.getClient(), signal);
-    const token = await abortable(client.getAccessToken(), signal);
-    if (!token.token) throw new PdfOcrProviderError("AUTH");
+    const client = await abortable(
+      this.auth.getClient(),
+      signal,
+      PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+    );
+    const token = await abortable(
+      client.getAccessToken(),
+      signal,
+      PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+    );
+    if (!token.token)
+      throw new PdfOcrProviderError(
+        "AUTH",
+        PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+      );
     return token.token;
   }
 }
@@ -199,32 +236,43 @@ async function readResponseBytes(
   body: ResponseBody,
   signal: AbortSignal,
 ): Promise<Buffer> {
-  if (!body) throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+  const dispatchState = PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN;
+  if (!body) throw new PdfOcrProviderError("MALFORMED_RESPONSE", dispatchState);
   const chunks: Buffer[] = [];
   let total = 0;
   const append = (chunk: Uint8Array): void => {
-    if (signal.aborted) throw aborted();
+    if (signal.aborted) throw aborted(dispatchState);
     if (!(chunk instanceof Uint8Array))
-      throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+      throw new PdfOcrProviderError("MALFORMED_RESPONSE", dispatchState);
     total += chunk.byteLength;
     if (total > PDF_OCR_LIMITS.providerResponseBytes)
-      throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+      throw new PdfOcrProviderError("MALFORMED_RESPONSE", dispatchState);
     chunks.push(Buffer.from(chunk));
   };
   if ("getReader" in body) {
     const reader = body.getReader();
     try {
       for (;;) {
-        const next = await abortable(reader.read(), signal);
+        const next = await abortable(reader.read(), signal, dispatchState);
         if (next.done) break;
         append(next.value);
       }
     } finally {
-      if (signal.aborted) void reader.cancel();
+      if (signal.aborted) void reader.cancel().catch(() => undefined);
       reader.releaseLock();
     }
   } else {
-    for await (const chunk of body) append(chunk);
+    const iterator = body[Symbol.asyncIterator]();
+    try {
+      for (;;) {
+        const next = await abortable(iterator.next(), signal, dispatchState);
+        if (next.done) break;
+        append(next.value);
+      }
+    } finally {
+      if (signal.aborted && iterator.return)
+        void iterator.return().catch(() => undefined);
+    }
   }
   return Buffer.concat(chunks, total);
 }
@@ -248,8 +296,16 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
   async extractPdf(
     request: FixedPdfOcrProviderRequest,
   ): Promise<PdfOcrDocumentV2> {
-    if (!this.projectId || !isAdmittedPdfOcrRequest(request))
-      throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+    const requestSignal = (
+      request as Partial<FixedPdfOcrProviderRequest> | null | undefined
+    )?.signal;
+    if (requestSignal instanceof AbortSignal && requestSignal.aborted)
+      throw aborted(PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED);
+    if (!this.ready() || !isAdmittedPdfOcrRequest(request))
+      throw new PdfOcrProviderError(
+        "MALFORMED_RESPONSE",
+        PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+      );
     const controller = new AbortController();
     const stop = () => controller.abort();
     request.signal.addEventListener("abort", stop, { once: true });
@@ -257,16 +313,35 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
     const startedAt = this.clock.now();
     try {
       const token = await abortable(
-        this.tokens.accessToken(controller.signal),
+        Promise.resolve().then(() =>
+          this.tokens.accessToken(controller.signal),
+        ),
         controller.signal,
+        PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
       ).catch((error: unknown) => {
-        if (error instanceof PdfOcrProviderError) throw error;
+        if (
+          error instanceof PdfOcrProviderError &&
+          (error.failure === "AUTH" || error.failure === "TIMEOUT")
+        )
+          throw new PdfOcrProviderError(
+            error.failure,
+            PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+          );
         throw new PdfOcrProviderError(
           controller.signal.aborted ? "TIMEOUT" : "AUTH",
+          PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
         );
       });
+      if (typeof token !== "string" || token.trim().length === 0)
+        throw new PdfOcrProviderError(
+          "AUTH",
+          PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+        );
       let response: Awaited<ReturnType<Fetcher>>;
       try {
+        // From this point on, the provider may have accepted the request even
+        // when this process never observes a response.
+        const dispatchState = PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN;
         response = await abortable(
           this.fetcher(this.url(), {
             method: "POST",
@@ -300,35 +375,47 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
             }),
           }),
           controller.signal,
+          dispatchState,
         );
       } catch (error) {
         if (error instanceof PdfOcrProviderError) throw error;
         throw new PdfOcrProviderError(
           controller.signal.aborted ? "TIMEOUT" : "UPSTREAM",
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
         );
       }
-      if (!response.ok || response.status < 200 || response.status >= 300)
-        throw new PdfOcrProviderError(
-          response.status === 429 ? "RATE_LIMITED" : "UPSTREAM",
-        );
-      const contentType = response.headers.get("content-type");
-      const contentLength = Number(response.headers.get("content-length"));
-      if (
-        !contentType?.toLowerCase().startsWith(JSON_MIME) ||
-        (Number.isFinite(contentLength) &&
-          contentLength > PDF_OCR_LIMITS.providerResponseBytes)
-      )
-        throw new PdfOcrProviderError("MALFORMED_RESPONSE");
-      const bytes = await readResponseBytes(response.body, controller.signal);
-      let wire: unknown;
       try {
-        wire = JSON.parse(
-          new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+        const dispatchState = PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN;
+        if (!response.ok || response.status < 200 || response.status >= 300)
+          throw new PdfOcrProviderError(
+            response.status === 429 ? "RATE_LIMITED" : "UPSTREAM",
+            dispatchState,
+          );
+        const contentType = response.headers.get("content-type");
+        const contentLength = Number(response.headers.get("content-length"));
+        if (
+          !contentType?.toLowerCase().startsWith(JSON_MIME) ||
+          (Number.isFinite(contentLength) &&
+            contentLength > PDF_OCR_LIMITS.providerResponseBytes)
+        )
+          throw new PdfOcrProviderError("MALFORMED_RESPONSE", dispatchState);
+        const bytes = await readResponseBytes(response.body, controller.signal);
+        let wire: unknown;
+        try {
+          wire = JSON.parse(
+            new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+          );
+        } catch {
+          throw new PdfOcrProviderError("MALFORMED_RESPONSE", dispatchState);
+        }
+        return this.parseWire(wire, request, startedAt);
+      } catch (error) {
+        if (error instanceof PdfOcrProviderError) throw error;
+        throw new PdfOcrProviderError(
+          controller.signal.aborted ? "TIMEOUT" : "UPSTREAM",
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
         );
-      } catch {
-        throw new PdfOcrProviderError("MALFORMED_RESPONSE");
       }
-      return this.parseWire(wire, request, startedAt);
     } finally {
       clearTimeout(timeout);
       request.signal.removeEventListener("abort", stop);
@@ -351,15 +438,15 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         "promptFeedback",
       ])
     )
-      throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+      throw dispatchedFailure("MALFORMED_RESPONSE");
     if (wire.promptFeedback !== undefined) {
       if (!record(wire.promptFeedback))
-        throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+        throw dispatchedFailure("MALFORMED_RESPONSE");
       if (
         wire.promptFeedback.blockReason !== undefined &&
         wire.promptFeedback.blockReason !== "BLOCK_REASON_UNSPECIFIED"
       )
-        throw new PdfOcrProviderError("SAFETY");
+        throw dispatchedFailure("SAFETY");
     }
     if (
       typeof wire.responseId !== "string" ||
@@ -369,13 +456,14 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       wire.candidates.length !== 1 ||
       !record(wire.candidates[0])
     )
-      throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+      throw dispatchedFailure("MALFORMED_RESPONSE");
     const candidate = wire.candidates[0];
     if (candidate.finishReason !== "STOP")
       throw new PdfOcrProviderError(
         SAFETY_FINISH_REASONS.has(candidate.finishReason as string)
           ? "SAFETY"
           : "MALFORMED_RESPONSE",
+        PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
       );
     if (
       !record(candidate.content) ||
@@ -387,7 +475,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       Buffer.byteLength(candidate.content.parts[0].text, "utf8") >
         PDF_OCR_LIMITS.providerResponseBytes
     )
-      throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+      throw dispatchedFailure("MALFORMED_RESPONSE");
     const inputTokens = record(wire.usageMetadata)
       ? counter(wire.usageMetadata.promptTokenCount)
       : undefined;
@@ -403,12 +491,12 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       totalTokens === undefined ||
       inputTokens + outputTokens !== totalTokens
     )
-      throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+      throw dispatchedFailure("MALFORMED_RESPONSE");
     let payload: unknown;
     try {
       payload = JSON.parse(candidate.content.parts[0].text);
     } catch {
-      throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+      throw dispatchedFailure("MALFORMED_RESPONSE");
     }
     const parsed = parsePdfOcrV2(payload, {
       artifactSha256: request.artifactSha256,
@@ -418,7 +506,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       usage: { inputTokens, outputTokens, totalTokens },
       latencyMs: Math.max(0, this.clock.now() - startedAt),
     });
-    if (!parsed.ok) throw new PdfOcrProviderError("MALFORMED_RESPONSE");
+    if (!parsed.ok) throw dispatchedFailure("MALFORMED_RESPONSE");
     return parsed.value;
   }
 

@@ -32,7 +32,7 @@ export async function runImportSessionWrite<T>(
     try {
       return await prisma.$transaction(
         async (tx) => {
-          await tx.$executeRaw`UPDATE tenants SET id = id WHERE id = ${auth.tenantId}`;
+          await tx.$executeRaw`UPDATE tenants SET updated_at = updated_at WHERE id = ${auth.tenantId}`;
           return work(tx, clock.now());
         },
         {

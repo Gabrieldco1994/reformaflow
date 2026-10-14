@@ -264,7 +264,30 @@ describe("direct Vertex PDF OCR", () => {
     );
     const pending = provider.extractPdf(request(controller.signal));
     controller.abort();
-    await expect(pending).rejects.toMatchObject({ failure: "TIMEOUT" });
+    await expect(pending).rejects.toMatchObject({
+      failure: "TIMEOUT",
+      dispatchState: "NOT_DISPATCHED",
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("classifies an ADC rejection as definitely not dispatched and never uploads", async () => {
+    const fetcher = jest.fn();
+    const provider = new VertexPdfOcrProvider(
+      "approved-project",
+      {
+        accessToken: jest
+          .fn()
+          .mockRejectedValue(new Error("sensitive ADC diagnostic")),
+      },
+      fetcher,
+    );
+
+    await expect(provider.extractPdf(request())).rejects.toMatchObject({
+      failure: "AUTH",
+      dispatchState: "NOT_DISPATCHED",
+      message: "AUTH",
+    });
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -282,10 +305,41 @@ describe("direct Vertex PDF OCR", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toMatchObject({ failure: "UPSTREAM", message: "UPSTREAM" });
+    expect(thrown).toMatchObject({
+      failure: "UPSTREAM",
+      dispatchState: "DISPATCHED_OR_UNKNOWN",
+      message: "UPSTREAM",
+    });
     expect(JSON.stringify(thrown)).not.toContain("sensitive-adc-token");
     expect(JSON.stringify(thrown)).not.toContain(secret);
+    expect(Object.isFrozen(thrown)).toBe(true);
   });
+
+  it.each([
+    [429, "RATE_LIMITED"],
+    [503, "UPSTREAM"],
+  ] as const)(
+    "keeps HTTP %s ambiguous after fetch invocation",
+    async (status, failure) => {
+      const fetcher = jest.fn().mockResolvedValue({
+        ...response(wire()),
+        ok: false,
+        status,
+      });
+      const provider = new VertexPdfOcrProvider(
+        "approved-project",
+        { accessToken: async () => "adc-token" },
+        fetcher,
+      );
+
+      await expect(provider.extractPdf(request())).rejects.toMatchObject({
+        failure,
+        dispatchState: "DISPATCHED_OR_UNKNOWN",
+        message: failure,
+      });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("rejects more than ten pages before ADC or Vertex", async () => {
     const fetcher = jest.fn();
@@ -297,7 +351,10 @@ describe("direct Vertex PDF OCR", () => {
     );
     await expect(
       provider.extractPdf({ ...request(), pageCount: 11 }),
-    ).rejects.toMatchObject({ name: "PdfOcrProviderError" });
+    ).rejects.toMatchObject({
+      name: "PdfOcrProviderError",
+      dispatchState: "NOT_DISPATCHED",
+    });
     expect(accessToken).not.toHaveBeenCalled();
     expect(fetcher).not.toHaveBeenCalled();
   });

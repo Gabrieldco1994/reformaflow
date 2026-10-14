@@ -161,8 +161,16 @@ daquela entrega.
 > única vez os bytes imutáveis de `application/pdf` ao Vertex regional
 > `southamerica-east1`, modelo fixo `gemini-2.5-flash`, via ADC. Não há API key,
 > Developer API, região global, renderização local, File API, cache, tools,
-> grounding ou fallback. Resultado ambíguo após a cerca `attemptedAt` nunca é
-> repetido. Candidatos entram não selecionados e `UNVERIFIED`; preparar uma linha
+> grounding ou fallback. A falha sanitizada do adapter carrega a fronteira
+> imutável `NOT_DISPATCHED` ou `DISPATCHED_OR_UNKNOWN`. Erro de validação,
+> ADC ou cancelamento antes de invocar `fetch` é reconciliado como
+> `NOT_DISPATCHED`/`OCR_UNAVAILABLE`; rede, timeout, 429 e demais respostas HTTP
+> depois da invocação tornam-se `UNKNOWN`/`OCR_ATTEMPT_UNKNOWN`. Bloqueio de
+> segurança e resposta malformada pós-dispatch preservam seus códigos conhecidos.
+> Nenhum desses resultados repete a chamada: inclusive ledgers legados
+> `RATE_LIMITED`, `UPSTREAM`, `ATTEMPTED` e `UNKNOWN` reabrem como tentativa
+> desconhecida, enquanto `AUTH` e `NOT_DISPATCHED` reabrem como indisponibilidade.
+> Candidatos entram não selecionados e `UNVERIFIED`; preparar uma linha
 > escolhida exige declarações documentais atuais. Evidência mínima e origem
 > permanecem visíveis ao retomar a sessão, vinculadas ao anexo, artefato e
 > candidato; conteúdo OCR é eliminado após sete dias mesmo se a expiração da
@@ -174,8 +182,14 @@ daquela entrega.
 > transcreve todas as ocorrências visíveis, em ordem, preservando duplicatas,
 > sinal e zero, sem classificar crédito, pagamento, tarifa, juros ou total. O
 > migration `20261013180000_import_pdf_ocr_runtime` permanece byte a byte igual
-> ao commit original de uma coluna; o ledger entra por migration aditiva nova,
-> com fixture de upgrade, checksums Prisma e FKs. A decisão do data owner aceita
+> ao commit original de uma coluna; o ledger entra em
+> `20261013183000_import_ocr_usage_budget` e a migration aditiva
+> `20261013233000_import_ocr_usage_foreign_keys` reconstrói somente esse ledger,
+> sem desligar FKs nem reparar órfãos. Ela preserva todas as colunas e linhas
+> válidas e restringe update/delete do tenant, sessão, referência de anexo e
+> artefato por chaves compostas tenant-scoped; `actorId` continua vínculo
+> validado pela aplicação, sem FK própria. Fixtures cobrem banco novo, upgrade
+> legado populado e rejeição de órfão/cross-tenant. A decisão do data owner aceita
 > explicitamente o risco residual do transporte do original completo e rejeita
 > rasterização local silenciosa neste release. A ativação ainda exige avaliação
 > ao vivo de documento denso com 24 linhas, `STOP`, envelope de 8k tokens,

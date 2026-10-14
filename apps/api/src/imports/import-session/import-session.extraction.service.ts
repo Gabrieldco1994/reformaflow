@@ -79,7 +79,10 @@ import {
   serializePdfOcrState,
   type PdfOcrAnalyzeRequestV2,
 } from "./ocr/pdf-ocr-state";
-import { PdfOcrProviderError } from "./ocr/vertex-pdf-ocr.provider";
+import {
+  PDF_OCR_DISPATCH_STATE,
+  PdfOcrProviderError,
+} from "./ocr/vertex-pdf-ocr.provider";
 import {
   newPdfOcrBudgetReservationId,
   PDF_OCR_USAGE_OUTCOME,
@@ -101,11 +104,24 @@ const ocrOutcomeProblem = (outcome: string, row: ImportSession) => {
     return problem(Code.OCR_MALFORMED_RESPONSE, row);
   if (
     outcome === PDF_OCR_USAGE_OUTCOME.AUTH ||
-    outcome === PDF_OCR_USAGE_OUTCOME.RATE_LIMITED ||
-    outcome === PDF_OCR_USAGE_OUTCOME.UPSTREAM
+    outcome === PDF_OCR_USAGE_OUTCOME.NOT_DISPATCHED
   )
     return problem(Code.OCR_UNAVAILABLE, row);
   return problem(Code.OCR_ATTEMPT_UNKNOWN, row);
+};
+type TerminalPdfOcrUsageOutcome = Exclude<
+  (typeof PDF_OCR_USAGE_OUTCOME)[keyof typeof PDF_OCR_USAGE_OUTCOME],
+  "ATTEMPTED" | "SUCCEEDED"
+>;
+const providerFailureOutcome = (
+  error: PdfOcrProviderError,
+): TerminalPdfOcrUsageOutcome => {
+  if (error.dispatchState === PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED)
+    return PDF_OCR_USAGE_OUTCOME.NOT_DISPATCHED;
+  if (error.failure === "SAFETY") return PDF_OCR_USAGE_OUTCOME.SAFETY;
+  if (error.failure === "MALFORMED_RESPONSE")
+    return PDF_OCR_USAGE_OUTCOME.MALFORMED_RESPONSE;
+  return PDF_OCR_USAGE_OUTCOME.UNKNOWN;
 };
 
 const HASH = new RegExp(P.hashPattern);
@@ -630,7 +646,7 @@ export class ImportSessionExtractionService {
     let settlement: ImportCsvSettlement | undefined;
     let ocrAttempted = false;
     let ocrBudgetReservationId: string | null = null;
-    let ocrFailure: string | null = null;
+    let ocrFailureOutcome: TerminalPdfOcrUsageOutcome | null = null;
     let ocrDocument: PdfOcrDocumentV2 | null = null;
     const publicationLive = (): undefined => {
       live();
@@ -900,23 +916,12 @@ export class ImportSessionExtractionService {
             ocrDocument = document;
             extraction = ocrExtraction(document);
           } catch (error) {
-            ocrFailure =
+            ocrFailureOutcome =
               error instanceof PdfOcrProviderError
-                ? error.failure
+                ? providerFailureOutcome(error)
                 : PDF_OCR_USAGE_OUTCOME.UNKNOWN;
-            if (ocrAttempted && error instanceof PdfOcrProviderError) {
-              if (error.failure === "SAFETY")
-                throw problem(Code.OCR_SAFETY_BLOCKED, capture.row);
-              if (error.failure === "MALFORMED_RESPONSE")
-                throw problem(Code.OCR_MALFORMED_RESPONSE, capture.row);
-              if (
-                error.failure === "AUTH" ||
-                error.failure === "RATE_LIMITED" ||
-                error.failure === "UPSTREAM"
-              )
-                throw problem(Code.OCR_UNAVAILABLE, capture.row);
-              throw problem(Code.OCR_ATTEMPT_UNKNOWN, capture.row);
-            }
+            if (ocrAttempted)
+              throw ocrOutcomeProblem(ocrFailureOutcome, capture.row);
             throw error;
           }
         } else {
@@ -1046,6 +1051,34 @@ export class ImportSessionExtractionService {
         return view;
       });
     } catch (error) {
+      if (ocrAttempted) {
+        try {
+          await runImportSessionWrite(
+            this.prisma,
+            this.clock,
+            auth,
+            async (tx, now) => {
+              if (ocrBudgetReservationId === null)
+                throw problem(Code.OCR_ATTEMPT_UNKNOWN, capture.row);
+              await reconcilePdfOcrBudget(
+                tx,
+                ocrBudgetReservationId,
+                ocrFailureOutcome ?? PDF_OCR_USAGE_OUTCOME.UNKNOWN,
+                now,
+                null,
+              );
+            },
+          );
+        } catch (reconciliationError) {
+          this.logger.error({
+            event: "import_ocr_reconciliation_failed",
+            errorClass:
+              reconciliationError instanceof Error
+                ? reconciliationError.name
+                : "Unknown",
+          });
+        }
+      }
       if (
         !this.gate.boot.stopped.aborted &&
         this.gate.boot.runtime() === runtime &&
@@ -1065,36 +1098,6 @@ export class ImportSessionExtractionService {
                   ...(capture.kind === "RAW" ? { state: "RAW_READY" } : {}),
                 },
               });
-              if (ocrAttempted) {
-                const row = await tx.importSession.findFirst({
-                  where: {
-                    id: sessionId,
-                    tenantId: auth.tenantId,
-                    ownerProjectId: capture.row.ownerProjectId,
-                    ownerUserId: auth.userId,
-                  },
-                });
-                if (row) {
-                  if (ocrBudgetReservationId === null)
-                    throw problem(Code.OCR_ATTEMPT_UNKNOWN, row);
-                  const known = ocrFailure ?? PDF_OCR_USAGE_OUTCOME.UNKNOWN;
-                  await reconcilePdfOcrBudget(
-                    tx,
-                    ocrBudgetReservationId,
-                    known === "TIMEOUT"
-                      ? PDF_OCR_USAGE_OUTCOME.UNKNOWN
-                      : known === "AUTH" ||
-                          known === "RATE_LIMITED" ||
-                          known === "UPSTREAM" ||
-                          known === "MALFORMED_RESPONSE" ||
-                          known === "SAFETY"
-                        ? known
-                        : PDF_OCR_USAGE_OUTCOME.UNKNOWN,
-                    this.clock.now(),
-                    null,
-                  );
-                }
-              }
               this.current(runtime);
             },
             () => this.current(runtime),
