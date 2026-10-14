@@ -1,0 +1,78 @@
+name: OCR recovery evidence producer
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+concurrency:
+  group: ocr-recovery-evidence
+  cancel-in-progress: false
+
+jobs:
+  protected-live-operation:
+    runs-on: ubuntu-latest
+    environment: ocr-recovery-operation
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Derive trusted source and reject stale or retried runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" && "$GITHUB_SHA" == "$GITHUB_WORKFLOW_SHA" ]]
+          [[ "$GITHUB_SHA" == "$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+      - name: Live off-volume backup restore and legacy upgrade operation is not authorized
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/live-receipts"
+          printf "%s\n" "RECOVERY_OPERATION_NOT_EXECUTED" >&2
+          exit 1
+      - name: Publish fixed-path live receipts only after operation success
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: ocr-recovery-live-receipts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/live-receipts/backup-restore-receipt.json
+            ${{ runner.temp }}/live-receipts/legacy-upgrade-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+
+  seal-live-evidence:
+    needs: protected-live-operation
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: ocr-recovery-live-receipts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/live-receipts
+      - name: Seal only live receipts at fixed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          tree="$(git rev-parse HEAD^{tree})"
+          jq -nc --arg repository "$GITHUB_REPOSITORY" --arg repositoryId "$GITHUB_REPOSITORY_ID" --arg ownerId "$GITHUB_REPOSITORY_OWNER_ID" --arg sha "$GITHUB_SHA" --arg tree "$tree" --arg workflowSha "$GITHUB_WORKFLOW_SHA" --arg runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" repository: > "$RUNNER_TEMP/recovery-context.json"
+          node scripts/ci/ocr-recovery-evidence.mjs create "$RUNNER_TEMP/live-receipts/backup-restore-receipt.json" "$RUNNER_TEMP/live-receipts/legacy-upgrade-receipt.json" "$RUNNER_TEMP/recovery-context.json" > "$RUNNER_TEMP/recovery-evidence.json"
+          [[ "$GITHUB_SHA" == "$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")" ]]
+      - id: evidence
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: ocr-recovery-evidence-v1
+          path: ${{ runner.temp }}/recovery-evidence.json
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,307 @@
+{
+  "policyVersion": "ocr-quality-closure-v2",
+  "validThroughUtc": "2026-10-21",
+  "maxOutputTokens": 8192,
+  "maxP95LatencyMs": 30000,
+  "maxProviderDeadlineMs": 60000,
+  "maxRequestBodyBytes": 20000000,
+  "maxTotalCostMicros": 502000,
+  "maxVmHwmBytes": 536870912,
+  "declaredLimits": {
+    "maxP95LatencyMs": 30000,
+    "maxTotalCostMicros": 502000,
+    "maxRequestBodyBytes": 20000000,
+    "maxProviderDeadlineMs": 60000,
+    "maxVmHwmBytes": 536870912
+  },
+  "thresholds": {
+    "scannedTaskSuccessRate": 1,
+    "exactMoneyRate": 1,
+    "exactSignRate": 1,
+    "exactDateRate": 1,
+    "exactDateExplicitnessRate": 1,
+    "exactInstallmentRate": 1,
+    "unknownPreservationRate": 1,
+    "visibleEvidenceRate": 1,
+    "schemaValidityRate": 1,
+    "inventedRows": 0,
+    "omittedRows": 0,
+    "tenantLeaks": 0,
+    "falseAutomations": 0,
+    "financialWrites": 0
+  },
+  "pricing": {
+    "currency": "USD",
+    "source": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+    "observedOn": "2026-10-14",
+    "recheckThroughUtc": "2026-10-21",
+    "inputMicrosPerMillionTokens": 300000,
+    "outputMicrosPerMillionTokens": 2500000
+  },
+  "durableBudgets": {
+    "tenantLimitMicros": 500000,
+    "globalLimitMicros": 500000,
+    "storage": "DATABASE"
+  },
+  "runtimeContract": {
+    "provider": "GOOGLE_VERTEX_AI",
+    "model": "gemini-2.5-flash",
+    "region": "southamerica-east1",
+    "endpoint": "https://southamerica-east1-aiplatform.googleapis.com",
+    "maxPages": 10,
+    "maxOccurrences": 24,
+    "maxOutputTokens": 8192,
+    "providerDeadlineMs": 60000,
+    "dailyBudgetCalls": {
+      "user": 25,
+      "tenant": 100,
+      "global": 1000
+    },
+    "dailyBudgetPages": {
+      "user": 250,
+      "tenant": 1000,
+      "global": 10000
+    },
+    "dailyBudgetBytes": {
+      "user": 250000000,
+      "tenant": 1000000000,
+      "global": 10000000000
+    },
+    "dailyBudgetCostUnits": {
+      "user": 819200,
+      "tenant": 3276800,
+      "global": 32768000
+    },
+    "reservedCostUnitsPerCall": 32768
+  },
+  "reviewArtifacts": {
+    "residualRiskAcceptance": "deploy/ocr/reviews/data-owner-risk-acceptance.json",
+    "securityReview": "deploy/ocr/reviews/security.json",
+    "privacyReview": "deploy/ocr/reviews/privacy.json",
+    "dataOwnerReview": "deploy/ocr/reviews/data-owner-final.json"
+  },
+  "jestConfigPath": "apps/api/src/imports/ocr-synth-v1/quality-closure-jest.config.cjs",
+  "qualificationSuiteFiles": [
+    "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts",
+    "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts",
+    "apps/api/src/imports/ocr-synth-v1/capture-live.spec.ts"
+  ],
+  "qualificationTests": [
+    {
+      "name": "[ROUTE] mixed-001",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-002",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-003",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-004",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-005",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-006",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-007",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-008",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-009",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[ROUTE] mixed-010",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] WRONG_ENDPOINT",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] WRONG_MODEL",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] WRONG_REGION",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] API_KEY_AUTH",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] ADC_SCOPE_BOUNDED",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] REQUEST_BODY_BOUNDED",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] DEADLINE_BOUNDED",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] GLOBAL_ENDPOINT_FALLBACK",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] TOOLS_PRESENT",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] FILE_URI_PRESENT",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] CACHE_PRESENT",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] TEXTUAL_PDF_PROVIDER_CALL",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] LOCAL_RASTER_SANDBOX",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] PAGE_11_ADMISSION",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] MIXED_LOCAL_PROVIDER_DUPLICATION",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] PARTIAL_RESPONSE",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] MALFORMED_RESPONSE",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] TRUNCATED_RESPONSE",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] SAFETY_BLOCKED_RESPONSE",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] AMBIGUOUS_TIMEOUT_RETRY",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] UNKNOWN_OUTCOME_NO_RETRY",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] DURABLE_TENANT_BUDGET",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] DURABLE_GLOBAL_BUDGET",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] EXACT_CONSENT_CAPABILITY",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] SELECTED_TRUE_DEFAULT",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] VERIFIED_DEFAULT",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] MISSING_CONSENT",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] MISSING_ATTESTATION",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] FINANCIAL_WRITE",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] KNOWN_SAFETY_FINISH_REASONS",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.spec.ts"
+    },
+    {
+      "name": "[PROBE] TERMINAL_FAILURE_REPLAY_NO_CALL",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] CAPABILITY_OFF",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] PRIOR_CONSENT_DECLARATION",
+      "sourcePath": "apps/api/src/imports/import-session/ocr/pdf-ocr-analyze.integration.spec.ts"
+    },
+    {
+      "name": "[PROBE] RESIDUAL_RISK_ACCEPTANCE",
+      "sourcePath": "apps/api/src/imports/ocr-synth-v1/capture-live.spec.ts"
+    }
+  ],
+  "configurationBindingFiles": [
+    "package-lock.json",
+    "tsconfig.json",
+    "apps/api/package.json",
+    "apps/api/tsconfig.json",
+    "apps/api/src/imports/ocr-synth-v1/quality-closure-jest.config.cjs",
+    "apps/api/test/jest.quality-global-setup.cjs",
+    "apps/api/test/jest.quality-global-teardown.cjs"
+  ],
+  "adapterBindingFiles": [
+    "apps/api/src/imports/import-session/ocr/pdf-ocr-parser.ts",
+    "apps/api/src/imports/import-session/ocr/strict-json.ts",
+    "apps/api/src/imports/import-session/ocr/vertex-auth.config.ts",
+    "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.ts",
+    "apps/api/src/imports/import-session/ocr/vertex-provider.factory.ts"
+  ],
+  "runtimeBindingFiles": [
+    "packages/domain/src/import-ocr.ts",
+    "packages/domain/src/import-session.ts",
+    "apps/api/src/imports/import-session/import-session.controller.ts",
+    "apps/api/src/imports/import-session/import-session.service.ts",
+    "apps/api/src/imports/import-session/ocr/pdf-ocr-budget.ts",
+    "apps/api/src/imports/import-session/ocr/pdf-ocr-outcome.ts",
+    "apps/api/src/imports/import-session/import-session.extraction.service.ts",
+    "apps/api/src/imports/ocr-synth-v1/capture-live.ts",
+    "apps/api/src/imports/ocr-synth-v1/capture-live-core.ts",
+    "apps/api/src/imports/ocr-synth-v1/capture-live-file.ts",
+    "apps/api/src/imports/ocr-synth-v1/corpus.ts",
+    "apps/api/src/imports/ocr-synth-v1/evaluator.ts",
+    "apps/api/src/imports/ocr-synth-v1/fixture-generator.ts",
+    "apps/api/src/imports/ocr-synth-v1/live-evidence-parser.ts",
+    "apps/api/src/imports/ocr-synth-v1/provider-native-outcome.ts",
+    "apps/api/src/imports/ocr-synth-v1/qualify-live.ts",
+    "apps/api/src/imports/ocr-synth-v1/quality-closure-attestation.ts",
+    "apps/api/src/imports/ocr-synth-v1/types.ts"
+  ]
+}

@@ -1,8 +1,83 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { ExpenseType, PaymentForm, ProjectType } from "@reformaflow/domain";
+
+const CANONICAL_RETENTION_MIGRATION =
+  "20261009193000_canonical_import_linkage_retention";
+const RETIREMENT_MIGRATION = "20261010100000_retire_unlinked_import_artifacts";
+
+async function insertHistoricalSession(
+  prisma: PrismaClient,
+  input: {
+    tenantId: string;
+    ownerProjectId: string;
+    ownerUserId: string;
+    cardId: string;
+    state: "DRAFT" | "APPLIED";
+    revision: number;
+    createRequestId: string;
+    createPayloadHash: string;
+    instant: Date;
+    expiresAt: Date;
+    draftJson: string;
+    proposalHash?: string;
+    financialRequestId?: string;
+    confirmedRevision?: number;
+    confirmedSessionVersion?: number;
+    confirmedAt?: Date;
+    receiptJson?: string;
+    closedAt?: Date;
+  },
+): Promise<{ id: string }> {
+  const id = randomUUID();
+  const kind = "CREATE_CARD_PURCHASES";
+  const consentPolicyVersion = 1;
+  await prisma.$executeRaw`
+    INSERT INTO import_sessions (
+      id, tenant_id, owner_user_id, owner_project_id, card_id, kind, state,
+      revision, create_request_id, create_payload_hash,
+      consent_policy_version, consented_at, updated_at, last_user_edit_at,
+      expires_at, draft_json, proposal_hash, financial_request_id,
+      confirmed_revision, confirmed_session_version, confirmed_at,
+      receipt_json, closed_at
+    ) VALUES (
+      ${id}, ${input.tenantId}, ${input.ownerUserId}, ${input.ownerProjectId},
+      ${input.cardId}, ${kind}, ${input.state}, ${input.revision},
+      ${input.createRequestId}, ${input.createPayloadHash},
+      ${consentPolicyVersion}, ${input.instant}, ${input.instant},
+      ${input.instant}, ${input.expiresAt}, ${input.draftJson},
+      ${input.proposalHash ?? null}, ${input.financialRequestId ?? null},
+      ${input.confirmedRevision ?? null},
+      ${input.confirmedSessionVersion ?? null}, ${input.confirmedAt ?? null},
+      ${input.receiptJson ?? null}, ${input.closedAt ?? null}
+    )`;
+  return { id };
+}
+
+async function readHistoricalSession(
+  prisma: PrismaClient,
+  id: string,
+): Promise<Record<string, unknown>> {
+  const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+    SELECT
+      id, tenant_id, owner_user_id, owner_project_id, card_id,
+      protocol_version, kind, state, revision, create_request_id,
+      create_payload_hash, consent_policy_version, consented_at, created_at,
+      updated_at, last_user_edit_at, expires_at, draft_json, search_json,
+      proposal_json, proposal_hash, preflight_hash, challenge_json,
+      prepare_generation, prepare_lease_json, financial_request_id,
+      confirmed_revision, confirmed_session_version, confirmed_at,
+      receipt_json, closed_at
+    FROM import_sessions
+    WHERE id = ${id}`;
+  if (rows.length !== 1) {
+    throw new Error(`historical import session ${id} was not found`);
+  }
+  return rows[0];
+}
 
 // setupFiles loads test-db-env.cjs before this module initializes Prisma.
 describe("guarded nullable identity upgrade at interrupted purge", () => {
@@ -30,16 +105,21 @@ describe("guarded nullable identity upgrade at interrupted purge", () => {
       const migrations = readdirSync(committed)
         .filter((name) => /^\d/.test(name))
         .sort();
-      // QA f2d4c90 fixture: seed through 71, then deploy the unshipped table copy.
-      expect(migrations).toHaveLength(72);
-      const previousCount = 71;
+      // Preserve the named 71 -> 72 historical boundary even as later
+      // migrations are added to the repository.
+      const retirementIndex = migrations.indexOf(RETIREMENT_MIGRATION);
+      expect(retirementIndex).toBe(71);
+      expect(migrations[retirementIndex - 1]).toBe(
+        CANONICAL_RETENTION_MIGRATION,
+      );
+      const historicalMigrations = migrations.slice(0, retirementIndex);
       mkdirSync(migrationRoot);
       cpSync(join(root, "prisma/schema.prisma"), schema);
       cpSync(
         join(committed, "migration_lock.toml"),
         join(migrationRoot, "migration_lock.toml"),
       );
-      for (const name of migrations.slice(0, previousCount))
+      for (const name of historicalMigrations)
         cpSync(join(committed, name), join(migrationRoot, name), {
           recursive: true,
         });
@@ -96,31 +176,27 @@ describe("guarded nullable identity upgrade at interrupted purge", () => {
             dueDay: 10,
           },
         });
-        const session = await prisma.importSession.create({
-          data: {
-            tenantId: tenant.id,
-            ownerProjectId: project.id,
-            ownerUserId: user.id,
-            cardId: card.id,
-            kind: "CREATE_CARD_PURCHASES",
-            state: "APPLIED",
-            revision: 2,
-            createRequestId: "interrupted-purge-create",
-            createPayloadHash: "a".repeat(64),
-            consentPolicyVersion: 1,
-            consentedAt: instant,
-            lastUserEditAt: instant,
-            expiresAt: new Date("2026-10-16T20:00:00.000Z"),
-            draftJson: '{"legacy":"terminal"}',
-            proposalHash: "d".repeat(64),
-            financialRequestId: "interrupted-purge-financial-request",
-            confirmedRevision: 2,
-            confirmedSessionVersion: 0,
-            confirmedAt: instant,
-            receiptJson: '{"version":1,"immutable":"APPLIED receipt bytes"}',
-            closedAt: instant,
-          },
+        const session = await insertHistoricalSession(prisma, {
+          tenantId: tenant.id,
+          ownerProjectId: project.id,
+          ownerUserId: user.id,
+          cardId: card.id,
+          state: "APPLIED",
+          revision: 2,
+          createRequestId: "interrupted-purge-create",
+          createPayloadHash: "a".repeat(64),
+          instant,
+          expiresAt: new Date("2026-10-16T20:00:00.000Z"),
+          draftJson: '{"legacy":"terminal"}',
+          proposalHash: "d".repeat(64),
+          financialRequestId: "interrupted-purge-financial-request",
+          confirmedRevision: 2,
+          confirmedSessionVersion: 0,
+          confirmedAt: instant,
+          receiptJson: '{"version":1,"immutable":"APPLIED receipt bytes"}',
+          closedAt: instant,
         });
+        const sessionBefore = await readHistoricalSession(prisma, session.id);
         const expense = await prisma.expense.create({
           data: {
             tenantId: tenant.id,
@@ -159,23 +235,18 @@ describe("guarded nullable identity upgrade at interrupted purge", () => {
           },
         });
         if (scenario === "never-claimed-intake") {
-          const intake = await prisma.importSession.create({
-            data: {
-              tenantId: tenant.id,
-              ownerProjectId: project.id,
-              ownerUserId: user.id,
-              cardId: card.id,
-              kind: "CREATE_CARD_PURCHASES",
-              state: "DRAFT",
-              revision: 1,
-              createRequestId: "never-claimed-intake",
-              createPayloadHash: "c".repeat(64),
-              consentPolicyVersion: 1,
-              consentedAt: instant,
-              lastUserEditAt: instant,
-              expiresAt: new Date("2026-10-16T20:00:00.000Z"),
-              draftJson: '{"legacy":"active intake"}',
-            },
+          const intake = await insertHistoricalSession(prisma, {
+            tenantId: tenant.id,
+            ownerProjectId: project.id,
+            ownerUserId: user.id,
+            cardId: card.id,
+            state: "DRAFT",
+            revision: 1,
+            createRequestId: "never-claimed-intake",
+            createPayloadHash: "c".repeat(64),
+            instant,
+            expiresAt: new Date("2026-10-16T20:00:00.000Z"),
+            draftJson: '{"legacy":"active intake"}',
           });
           await prisma.importSessionArtifact.create({
             data: {
@@ -219,11 +290,20 @@ describe("guarded nullable identity upgrade at interrupted purge", () => {
           SELECT * FROM expenses WHERE id = ${expense.id}`;
         const receiptsBefore = await prisma.$queryRaw`
           SELECT * FROM receipts WHERE id = ${receipt.id}`;
+        const appliedBefore = await prisma.$queryRaw<
+          Array<{ migration_name: string }>
+        >`SELECT migration_name FROM _prisma_migrations
+          WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+          ORDER BY migration_name`;
+        expect(
+          appliedBefore.map(({ migration_name }) => migration_name),
+        ).toEqual(historicalMigrations);
         await prisma.$disconnect();
-        for (const name of migrations.slice(previousCount))
-          cpSync(join(committed, name), join(migrationRoot, name), {
-            recursive: true,
-          });
+        cpSync(
+          join(committed, RETIREMENT_MIGRATION),
+          join(migrationRoot, RETIREMENT_MIGRATION),
+          { recursive: true },
+        );
         deploy();
         const after = await prisma.importArtifact.findUniqueOrThrow({
           where: { id: artifact.id },
@@ -247,11 +327,9 @@ describe("guarded nullable identity upgrade at interrupted purge", () => {
             orderBy: { reference: "asc" },
           }),
         ).toEqual(claims);
-        expect(
-          await prisma.importSession.findUniqueOrThrow({
-            where: { id: session.id },
-          }),
-        ).toEqual(session);
+        expect(await readHistoricalSession(prisma, session.id)).toEqual(
+          sessionBefore,
+        );
         expect(
           await prisma.$queryRaw`SELECT * FROM expenses WHERE id = ${expense.id}`,
         ).toEqual(financeBefore);
@@ -259,6 +337,15 @@ describe("guarded nullable identity upgrade at interrupted purge", () => {
           await prisma.$queryRaw`SELECT * FROM receipts WHERE id = ${receipt.id}`,
         ).toEqual(receiptsBefore);
         expect(await prisma.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+        const appliedAfter = await prisma.$queryRaw<
+          Array<{ migration_name: string }>
+        >`SELECT migration_name FROM _prisma_migrations
+          WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+          ORDER BY migration_name`;
+        expect(
+          appliedAfter.map(({ migration_name }) => migration_name),
+        ).toEqual([...historicalMigrations, RETIREMENT_MIGRATION]);
+        expect(appliedAfter).toHaveLength(72);
       } finally {
         await prisma.$disconnect();
         rmSync(fixture, { recursive: true });

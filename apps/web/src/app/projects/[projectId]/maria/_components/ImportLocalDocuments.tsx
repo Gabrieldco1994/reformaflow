@@ -211,9 +211,11 @@ export function ImportLocalDocuments({
       </p>
       {supportedFormats.includes("PDF") && (
         <p className="text-sm text-gray-600">
-          PDF textual sem imagens; documentos com imagens podem exigir OCR,
-          ainda indisponível. Isso inclui imagens como logotipos de bancos. Use
-          um arquivo com texto e sem imagens ou cancele; nenhum lançamento será
+          A análise começa localmente. PDFs textuais permanecem locais. Nesta
+          primeira versão, PDFs mistos ou pesquisáveis não são enviados para
+          leitura externa; somente um PDF totalmente digitalizado pode oferecer
+          uma autorização separada para envio. Sem autorização ou
+          disponibilidade, use um PDF textual ou CSV; nenhum lançamento será
           confirmado.
         </p>
       )}
@@ -250,14 +252,16 @@ export function ImportLocalDocuments({
       <p className="text-sm text-gray-600">
         Ao escolher Analisar e guardar rascunho, você autoriza o envio e
         processamento dos documentos para análise e armazenamento privado do
-        rascunho. OCR não está disponível nesta importação. Não cria despesas,
-        pagamentos ou rateios. O rascunho pendente e sua referência ao original
-        expiram após 7 dias sem edição sua; consultas não renovam esse prazo.
+        rascunho. Essa autorização inicial não permite processamento externo.
+        Não cria despesas, pagamentos ou rateios. O rascunho pendente e sua
+        referência ao original expiram após 7 dias sem edição sua; consultas não
+        renovam esse prazo.
       </p>
       <p className="text-sm text-gray-600">
         Esta análise privada usa parsers determinísticos locais e do servidor.
-        No fluxo ativo de CSV e PDF textual, nenhum documento é enviado a LLM ou
-        OCR. Qualquer lançamento financeiro exige confirmação separada.
+        CSV e PDF textual permanecem nesse fluxo local. Uma leitura externa só
+        pode ocorrer depois de uma autorização explícita para o documento.
+        Qualquer lançamento financeiro exige confirmação separada.
       </p>
       {error && (
         <p role="alert" className="text-sm text-darc-red">

@@ -8,13 +8,14 @@ Entrega [#689](https://github.com/Gabrieldco1994/reformaflow/issues/689):
 Reutiliza as PRs #687/#688, mergeadas na base `9587a19f`; este documento não
 comprova deploy. A verificação de toque também cobre a #662, sem encerrá-la por antecipação.
 
-**Recorte Maria na árvore candidata atual da #718:** o comportamento descrito está
-presente na árvore; `881e9b5c` foi uma base histórica de implementação, não o
-candidato final atual. Antes de merge ou release, o SHA exato da composição final
-**MUST** ser atestado por checks externos correspondentes da PR #718; enquanto eles
-não corresponderem ao SHA final, esta documentação não o atesta nem fixa um SHA
-final futuro ou circular. Merge, ativação, produção, Linux, Journey e release não
-são inferidos desta documentação. O recorte de
+**Recorte Maria no snapshot de implementação
+`6867ba991f4c39deb19bb48ead0cda62a2a9a131`:** a árvore contém a importação guiada
+CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da #719. A
+verdade de release será o HEAD corrente da PR `feat/719-final-ocr` quando ela for aberta.
+`881e9b5c` permanece apenas uma base histórica. OCR e vault estão OFF por padrão, e não há
+qualificação Vertex ao vivo; este documento não afirma merge, ativação, deploy, produção, Linux,
+Journey nem release. PNG/JPEG/WEBP, fotos e imagens avulsas continuam futuros e não são entregues
+pela #719. O recorte de
 [importação conversacional](#importação-conversacional-na-maria) é separado da entrega #689.
 Não libera todo E5, não dispensa H1–H5 e não comprova disponibilidade ou deploy.
 
@@ -145,13 +146,85 @@ daquela entrega.
    outra referência/retenção autorizada. Comprovantes e proveniência financeira mínima ficam
    preservados conforme seu contrato, sem guardar a imagem por omissão.
 
+> **OCR #719 continua desabilitado.** `IMPORT_OCR_ENABLED` permanece falso por
+> omissão, portanto scans continuam exigindo entrada manual e PDFs
+> mistos/pesquisáveis nunca são enviados ao provedor. O slice inerte não cria endpoint: a versão 2
+> estrita do mesmo `POST .../attachments/:attachmentId/analyze` aceita somente
+> revisão, request id e a referência ao consentimento explícito. Antes disso, a
+> pessoa precisa registrar pelo `documentary-answer` uma declaração afirmativa
+> persistida e vinculada ao ator, sessão, revisão, anexo, artefato e payload.
+> A declaração informa provedor, finalidade, região e retenção de sete dias e
+> afirma que o **arquivo original completo**, inclusive metadados e conteúdo
+> potencialmente não visível/embutido, será enviado externamente. O servidor inspeciona primeiro o
+> PDF original; PDF textual termina localmente e faz zero chamadas externas.
+> Apenas PDF integralmente raster, sem qualquer texto pesquisável e com 1–10
+> páginas observadas, pode, depois da ativação, enviar uma
+> única vez os bytes imutáveis de `application/pdf` ao Vertex regional
+> `southamerica-east1`, modelo fixo `gemini-2.5-flash`, via uma fonte explícita. Em produção,
+> aceita-se somente o principal
+> `reformaflow-ocr@<GOOGLE_CLOUD_PROJECT>.iam.gserviceaccount.com` no arquivo fixo
+> `/secrets/vertex-sa.json`; o `apps/api/fly.toml` do candidato ainda não possui esse mount,
+> intencionalmente, até o secret existir. Localmente, aceita-se somente o arquivo owner-only
+> `~/.config/gcloud/application_default_credentials.json` no shape `authorized_user` gerado pelo
+> gcloud, sem descoberta ambiente. Não há API key,
+> Developer API, região global, renderização local, File API, cache, tools,
+> grounding ou fallback. WIF foi avaliado e adiado porque o caminho STS suportado por
+> `google-auth-library` não fornece o controle explícito de timeout/cancelamento e ausência de retry
+> exigido para esta fronteira. A falha sanitizada do adapter carrega a fronteira
+> imutável `NOT_DISPATCHED` ou `DISPATCHED_OR_UNKNOWN`. Erro de validação,
+> ADC ou cancelamento antes de invocar `fetch` é reconciliado como
+> `NOT_DISPATCHED`/`OCR_UNAVAILABLE`; rede, timeout, 429 e demais respostas HTTP
+> depois da invocação tornam-se `UNKNOWN`/`OCR_ATTEMPT_UNKNOWN`. Bloqueio de
+> segurança e resposta malformada pós-dispatch preservam seus códigos conhecidos.
+> Nenhum desses resultados repete a chamada: inclusive ledgers legados
+> `RATE_LIMITED`, `UPSTREAM`, `ATTEMPTED` e `UNKNOWN` reabrem como tentativa
+> desconhecida, enquanto `AUTH` e `NOT_DISPATCHED` reabrem como indisponibilidade.
+> Candidatos entram não selecionados e `UNVERIFIED`; preparar uma linha
+> escolhida exige declarações documentais atuais. Evidência mínima e origem
+> permanecem visíveis ao retomar a sessão, vinculadas ao anexo, artefato e
+> candidato. O conteúdo OCR derivado do PDF original completo, o resultado e a evidência OCR
+> tornam-se ilegíveis no limite absoluto `ImportOcrUsage.createdAt + 7 × 24 horas`. Toda
+> leitura/escrita relevante aplica essa barreira antes de responder, independentemente do cron;
+> edição, polling e extensão da sessão não renovam o prazo. Conclusão/cancelamento ou liberação da
+> referência local do vault podem apagar antes. O original privado no vault segue a retenção local
+> separada da sessão; ela pode soltá-lo antes e nunca renova nem torna novamente legível o conteúdo
+> OCR após o limite. Permanecem somente auditoria/proveniência não-conteúdo duráveis:
+> consentimento, modelo configurado, `modelVersion` do provedor, região, `authTrace`, correlação,
+> contadores, resultado e instante da limpeza. Não permanecem bytes/base64 do PDF, texto ou
+> evidência extraídos, resposta/erro bruto, token, secret, chave ou documento de credencial.
+> Reservas diárias duráveis limitam chamadas, páginas, bytes e unidades de tokens por pessoa,
+> tenant e globalmente. Indisponibilidade
+> antes da chamada, bloqueio de segurança/resposta inválida e resultado
+> desconhecido sem repetição são erros distintos e orientam entrada manual,
+> substituição ou cancelamento; nenhum deles grava finanças. O modelo apenas
+> transcreve todas as ocorrências visíveis, em ordem, preservando duplicatas,
+> sinal e zero, sem classificar crédito, pagamento, tarifa, juros ou total. O
+> migration `20261013180000_import_pdf_ocr_runtime` permanece byte a byte igual
+> ao commit original de uma coluna; o ledger entra em
+> `20261013183000_import_ocr_usage_budget` e a migration aditiva
+> `20261013233000_import_ocr_usage_foreign_keys` reconstrói somente esse ledger,
+> sem desligar FKs nem reparar órfãos. Ela preserva todas as colunas e linhas
+> válidas e restringe update/delete do tenant, sessão, referência de anexo e
+> artefato por chaves compostas tenant-scoped; `actorId` continua vínculo
+> validado pela aplicação, sem FK própria. Fixtures cobrem banco novo, upgrade
+> legado populado e rejeição de órfão/cross-tenant. A decisão do data owner aceita
+> explicitamente o risco residual do transporte do original completo e rejeita
+> rasterização local silenciosa neste release. A ativação ainda exige uma captura real única dos
+> 18 scans, com 18/18 de qualidade, 10/10 casos mistos/pesquisáveis sem chamada, 35/35 probes de
+> serviço, documento denso com 24 linhas, `finishReason=STOP`, `maxOutputTokens=8192`, limites
+> pré-declarados de custo/latência/RSS, autenticação `SERVICE_ACCOUNT_FILE_ADC`, aprovação do
+> provedor e revisões finais de Security, Privacy e data owner. O código não comprova rollout,
+> aprovação do fornecedor nem disponibilidade em produção; qualquer evidência ausente mantém GAPS
+> e OCR OFF.
+
 Durante uma sessão ativa, as pendências são resolvidas por controles manuais e determinísticos:
 
 - perguntas focadas do rascunho usam `PATCH /import-sessions/:id/draft`, sem modelo ou tool;
   atestações documentais continuam no writer nativo separado, também sem `/agent/chat`;
 - a arquitetura contextual de sessão não existe mais: sem turno/outcome de importação, texto
-  livre, aprovação de escopo ou tool contextual. O PATCH legado só altera `selectedLineIds`,
-  com `questionId: null` e `replaceLines: []`;
+  livre, aprovação de escopo ou tool contextual. O PATCH legado continua
+  selection-only para documentos locais; apenas linhas OCR aceitam correções
+  estritamente validadas, sem permitir trocar os IDs das observações;
 - dinheiro, datas, parcelas e significado aceitam somente literais estritos; enums e decisões
   vêm de opções tipadas e autorizadas; finalidade exige `NO_TARGETS` explícito ou um único
   `TARGET` integral em REFORMA ativa, acessível e diferente da proprietária, sem destino
@@ -208,17 +281,18 @@ Os controles e a serialização vivem em
 `apps/web/src/app/projects/[projectId]/maria/_components/ImportFocusedDraftQuestion.tsx` e
 `apps/web/src/app/projects/[projectId]/maria/_lib/import-focused-draft-transport.ts`.
 O módulo público de conversa contextual e seus adaptadores de UI foram removidos; o contrato
-público conserva somente a ação de entrada e a proveniência de canal. O PATCH legado é
-selection-only, enquanto respostas passam pelo envelope focado ou pelo endpoint documental.
+público conserva somente a ação de entrada e a proveniência de canal. O PATCH legado mantém
+seleção para documentos locais e aceita correções estritas somente em linhas OCR; respostas
+documentais continuam no envelope focado ou no endpoint documental.
 `POST /import-sessions/:id/prepare` e `GET /import-sessions/:id/result` permanecem caminhos
 diretos. Estes locatores descrevem o candidato, não atestam merge, Linux, release ou produção.
 
 A métrica de projeção de contexto elegível do corpus puro cobre somente o
 resultado e a projeção de contexto do avaliador. Ela não comprova autenticação,
-isolamento de tenant, passagem pela API nem revalidação do servidor. Essas
-garantias dependem de checks externos correspondentes da PR #718. Antes de merge
-ou release, esses checks **MUST** atestar o SHA exato da composição final; o
-avaliador puro não concede autorização nem substitui essa evidência.
+isolamento de tenant, passagem pela API nem revalidação do servidor. O snapshot inspecionado é
+`6867ba991f4c39deb19bb48ead0cda62a2a9a131`; a decisão de merge/release usa o HEAD
+corrente da PR `feat/719-final-ocr` e seus checks vivos, e o avaliador puro não concede autorização
+nem substitui essa evidência.
 
 ## Apêndice histórico
 

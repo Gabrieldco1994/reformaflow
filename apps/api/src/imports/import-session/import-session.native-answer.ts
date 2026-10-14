@@ -3,11 +3,18 @@ import {
   IMPORT_CHAT_CHANNEL,
   IMPORT_SESSION_PROTOCOL_VERSION,
   IMPORT_SESSION_PRIMITIVES as P,
+  PDF_OCR_CONSENT_POLICY_VERSION,
+  PDF_OCR_CONSENT_PURPOSE,
+  PDF_OCR_PROVIDER_ID,
+  PDF_OCR_REGION,
+  PDF_OCR_RETENTION_DAYS,
   ImportSessionErrorCode as Code,
   normalizeImportDeclaration,
   type ImportDeclarationContextV1,
   type ImportHumanFactFieldV1,
   type ImportSessionDocumentaryAnswerRequestV1,
+  type ImportSessionFactDocumentaryAnswerRequestV1,
+  type ImportSessionOcrConsentAnswerRequestV1,
 } from "@reformaflow/domain";
 import { canonical } from "../../common/canonical";
 import type { UiImportGrantScope } from "./import-session.contract";
@@ -23,7 +30,7 @@ const FIELDS: readonly ImportHumanFactFieldV1[] = [
   "installmentIndex",
 ];
 const REQUEST_ID = new RegExp(P.requestIdPattern);
-const QUESTION_ID = /^oq_[0-9a-f]{64}$/;
+const QUESTION_ID = /^(?:oq|ocrq)_[0-9a-f]{64}$/;
 const invalid = (): ImportSessionError =>
   new ImportSessionError(Code.INVALID_INPUT);
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -61,13 +68,61 @@ export function parseDocumentaryAnswerRequest(
     (body.channel !== IMPORT_CHAT_CHANNEL.TEXT &&
       body.channel !== IMPORT_CHAT_CHANNEL.VOICE) ||
     !record(body.input) ||
-    !record(body.answer) ||
-    !exact(body.answer, ["field", "value", "meaningContext"])
+    !record(body.answer)
   )
     throw invalid();
   const answer = body.answer;
-  if (!FIELDS.some((field) => field === answer.field)) throw invalid();
   const input = body.input;
+  if (answer.field === "externalOcrConsent") {
+    if (
+      body.channel !== IMPORT_CHAT_CHANNEL.TEXT ||
+      !exact(input, ["kind", "text"]) ||
+      input.kind !== "VALUE" ||
+      input.text !== "ALLOW_EXTERNAL_PROCESSING" ||
+      !exact(answer, [
+        "field",
+        "value",
+        "attachmentId",
+        "requestId",
+        "consentPolicyVersion",
+        "provider",
+        "purpose",
+        "region",
+        "retentionDays",
+        "sendsFullOriginal",
+        "includesMetadataAndEmbeddedContent",
+        "includesPotentiallyNonVisibleContent",
+      ]) ||
+      answer.value !== "ALLOW_EXTERNAL_PROCESSING" ||
+      typeof answer.attachmentId !== "string" ||
+      !new RegExp(P.idPattern).test(answer.attachmentId) ||
+      typeof answer.requestId !== "string" ||
+      !REQUEST_ID.test(answer.requestId) ||
+      answer.consentPolicyVersion !== PDF_OCR_CONSENT_POLICY_VERSION ||
+      answer.provider !== PDF_OCR_PROVIDER_ID ||
+      answer.purpose !== PDF_OCR_CONSENT_PURPOSE ||
+      answer.region !== PDF_OCR_REGION ||
+      answer.retentionDays !== PDF_OCR_RETENTION_DAYS ||
+      answer.sendsFullOriginal !== true ||
+      answer.includesMetadataAndEmbeddedContent !== true ||
+      answer.includesPotentiallyNonVisibleContent !== true
+    )
+      throw invalid();
+    return structuredClone({
+      version: IMPORT_SESSION_PROTOCOL_VERSION,
+      answerRequestId: body.answerRequestId,
+      ...parseRevisionRequest({ expectedRevision: body.expectedRevision }),
+      questionId: body.questionId,
+      channel: body.channel,
+      input,
+      answer,
+    }) as ImportSessionOcrConsentAnswerRequestV1;
+  }
+  if (
+    !exact(answer, ["field", "value", "meaningContext"]) ||
+    !FIELDS.some((field) => field === answer.field)
+  )
+    throw invalid();
   if (input.kind === "VALUE") {
     if (!exact(input, ["kind", "text"]) || typeof input.text !== "string")
       throw invalid();
@@ -84,7 +139,7 @@ export function parseDocumentaryAnswerRequest(
     channel: body.channel,
     input,
     answer: body.answer,
-  }) as ImportSessionDocumentaryAnswerRequestV1;
+  }) as ImportSessionFactDocumentaryAnswerRequestV1;
   const preview = normalizeImportDeclaration(
     {
       field: request.answer.field,

@@ -6,8 +6,11 @@ import type {
   ImportSessionArtifact,
 } from "@prisma/client";
 import {
+  PDF_OCR_LEGACY_PARSER_VERSION,
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PRIMITIVES as P,
+  PDF_OCR_PARSER_VERSION,
+  PDF_OCR_VERSION,
   ImportSessionErrorCode as Code,
   isInvoiceDueMonth,
   type ExpenseScheduleV1,
@@ -15,6 +18,7 @@ import {
   type ImportSessionDraftQuestionV1,
   type ImportSessionStoredDraftV1,
   type ImportSessionViewV1,
+  type PdfOcrDocumentV2,
 } from "@reformaflow/domain";
 import { canonical } from "../../common/canonical";
 import { hasUnknownCardOccurrenceFacts } from "./card-import-identity";
@@ -117,7 +121,11 @@ export function supportsImportExtraction(
     case "OFX":
       return artifact.parserVersion === "card-local-text-v1";
     case "PDF":
-      return artifact.parserVersion === "card-local-pdf-v1";
+      return (
+        artifact.parserVersion === "card-local-pdf-v1" ||
+        artifact.parserVersion === PDF_OCR_LEGACY_PARSER_VERSION ||
+        artifact.parserVersion === PDF_OCR_PARSER_VERSION
+      );
     case "XLS":
       return artifact.parserVersion === "card-local-xls-v1";
     case "XLSX":
@@ -238,6 +246,11 @@ export interface ImportMaterializationInput {
   draft: ImportSessionStoredDraftV1;
   observations: readonly ImportObservation[];
   newIds: ReadonlyMap<string, { observationId: string; lineId: string }>;
+  ocr?: Readonly<{
+    usageId: string;
+    document: PdfOcrDocumentV2;
+    authTrace: "LOCAL_ADC" | "SERVICE_ACCOUNT_FILE_ADC";
+  }> | null;
 }
 export interface ImportMaterializationPlan {
   draft: ImportSessionStoredDraftV1;
@@ -290,6 +303,9 @@ export function buildImportMaterialization(
   )
     throw new ImportSessionError(Code.REVIEW_REQUIRED);
   const plan: ImportMaterializationPlan = { draft, observations: [] };
+  const isOcrExtraction =
+    extraction.parserVersion === PDF_OCR_LEGACY_PARSER_VERSION ||
+    extraction.parserVersion === PDF_OCR_PARSER_VERSION;
   for (const occurrence of extraction.occurrences) {
     const previous = existing.get(occurrence.reference);
     if (
@@ -300,18 +316,37 @@ export function buildImportMaterialization(
       continue;
     const ids = newIds.get(occurrence.reference);
     if (!ids) throw new ImportSessionCorruptStateError("extraction_ids");
-    const text = [
-      occurrence.dateOnly,
-      occurrence.merchant,
-      occurrence.amountCents === null
-        ? null
-        : `${occurrence.amountCents} centavos`,
-      occurrence.installmentIndex === null
-        ? null
-        : `${occurrence.installmentIndex}/${occurrence.installmentCount}`,
-    ]
-      .filter((part) => part !== null)
-      .join(" · ");
+    const ocrCandidate = isOcrExtraction
+      ? input.ocr?.document.candidates[occurrence.sourceOrdinal]
+      : undefined;
+    const ocrPage = isOcrExtraction
+      ? /^ocr:page:(\d+):candidate:\d+$/.exec(occurrence.reference)
+      : null;
+    if (
+      isOcrExtraction &&
+      (!input.ocr ||
+        !ocrCandidate ||
+        !ocrPage ||
+        !Number.isSafeInteger(Number(ocrPage[1])) ||
+        Number(ocrPage[1]) !== ocrCandidate.pageNumber)
+    )
+      throw new ImportSessionCorruptStateError("ocr_reference");
+    if (!isOcrExtraction && input.ocr != null)
+      throw new ImportSessionCorruptStateError("ocr_reference");
+    const text = isOcrExtraction
+      ? ocrCandidate!.evidence.text
+      : [
+          occurrence.dateOnly,
+          occurrence.merchant,
+          occurrence.amountCents === null
+            ? null
+            : `${occurrence.amountCents} centavos`,
+          occurrence.installmentIndex === null
+            ? null
+            : `${occurrence.installmentIndex}/${occurrence.installmentCount}`,
+        ]
+          .filter((part): part is string => part !== null)
+          .join(" · ");
     const evidence: Evidence = {
       sourceDescription: occurrence.raw.description,
       version: 1,
@@ -329,6 +364,33 @@ export function buildImportMaterialization(
         fitId: occurrence.fitId,
         fileContentHash: importFileContentHash(artifact.documentSha256),
       },
+      ...(isOcrExtraction
+        ? {
+            ocr: {
+              provenanceVersion: PDF_OCR_VERSION,
+              usageId: input.ocr!.usageId,
+              attachmentId: attachment.id,
+              artifactSha256: artifact.documentSha256,
+              provider: input.ocr!.document.provenance.provider,
+              model: input.ocr!.document.provenance.model,
+              modelVersion: input.ocr!.document.provenance.modelVersion,
+              region: input.ocr!.document.provenance.region,
+              authTrace: input.ocr!.authTrace,
+              requestId: input.ocr!.document.provenance.requestId,
+              responseId: input.ocr!.document.provenance.responseId,
+              candidateFingerprint: createHash("sha256")
+                .update(
+                  canonical({
+                    artifactSha256: artifact.documentSha256,
+                    reference: occurrence.reference,
+                    candidate: ocrCandidate,
+                  }),
+                )
+                .digest("hex"),
+              pageNumber: Number(ocrPage![1]),
+            },
+          }
+        : {}),
     };
     const evidenceJson = canonical(evidence);
     // A valid extraction may contain raw descriptions larger than this storage

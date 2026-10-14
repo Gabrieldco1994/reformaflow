@@ -10,6 +10,8 @@ import {
   IMPORT_SESSION_PROTOCOL_VERSION as VERSION,
   ImportSessionAmountMeaning,
   ImportSessionState,
+  IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION,
+  PDF_OCR_MODEL_VERSION_PATTERN,
   isInvoiceDueMonth,
   parseExpenseSchedule,
   parseInstallmentDateOnlyUtc,
@@ -19,7 +21,6 @@ import {
   type ImportSessionConfirmationRefV1,
   type ImportSessionConfirmResponseV1,
   type ImportSessionDecisionV1,
-  type ImportSessionDraftLineV1,
   type ImportSessionIgnoredAuditItemV1,
   type ImportSessionObservationViewV1,
   type ImportSessionPageV1,
@@ -28,6 +29,7 @@ import {
   type ImportSessionReceiptV1,
   type ImportSessionReceiptLineSnapshotV1,
   type ImportSessionTargetInputV1,
+  type ImportSessionTerminalOutcomesV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
 import {
@@ -40,6 +42,13 @@ import {
   isImportReviewBlockers,
   isRecord,
 } from "./import-session-read";
+import type {
+  ImportOcrSessionViewV1,
+  OcrCapabilityV1,
+  OcrReviewEvidenceV1,
+  OcrReviewLineV1,
+  OcrTerminalOutcomeV1,
+} from "../_types";
 
 export class ImportWorkflowResponseError extends Error {
   constructor() {
@@ -52,7 +61,10 @@ export type ImportObservationView = ImportSessionObservationViewV1 & {
   ignoredReason?: "INVOICE_PAYMENT" | null;
 };
 export type ImportWorkflowAuditItem = ImportSessionIgnoredAuditItemV1;
-export type ImportWorkflowReceipt = Omit<ImportSessionReceiptV1, "auditItems"> & {
+export type ImportWorkflowReceipt = Omit<
+  ImportSessionReceiptV1,
+  "auditItems"
+> & {
   auditItems: ImportWorkflowAuditItem[];
 };
 export type ImportWorkflowProposal = ImportSessionProposalV1;
@@ -304,7 +316,36 @@ function target(v: unknown): v is ImportSessionTargetInputV1 {
     purchase(v.amountCents)
   );
 }
-function draftLine(v: unknown): v is ImportSessionDraftLineV1 {
+function ocrEvidence(v: unknown): v is OcrReviewEvidenceV1 {
+  return (
+    isRecord(v) &&
+    exact(v, [
+      "origin",
+      "model",
+      "modelVersion",
+      "region",
+      "authTrace",
+      "attachmentId",
+      "artifactFingerprint",
+      "candidateFingerprint",
+      "pageNumber",
+      "text",
+    ]) &&
+    v.origin === "GOOGLE_VERTEX_AI" &&
+    v.model === "gemini-2.5-flash" &&
+    matches(v.modelVersion, PDF_OCR_MODEL_VERSION_PATTERN) &&
+    v.region === "southamerica-east1" &&
+    oneOf(v.authTrace, ["LOCAL_ADC", "SERVICE_ACCOUNT_FILE_ADC"]) &&
+    id(v.attachmentId) &&
+    hash(v.artifactFingerprint) &&
+    hash(v.candidateFingerprint) &&
+    integer(v.pageNumber, 1, 10) &&
+    text(v.text, 1, P.maxObservationTextLength)
+  );
+}
+
+function draftLine(v: unknown): v is OcrReviewLineV1 {
+  const hasOcrEvidence = isRecord(v) && Object.hasOwn(v, "ocrEvidence");
   return (
     isRecord(v) &&
     exact(v, [
@@ -321,6 +362,7 @@ function draftLine(v: unknown): v is ImportSessionDraftLineV1 {
       "firstDueDate",
       "targets",
       "decision",
+      ...(hasOcrEvidence ? ["ocrEvidence"] : []),
     ]) &&
     id(v.id) &&
     ids(v.observationIds, 1, L.observationsPerLine) &&
@@ -339,8 +381,105 @@ function draftLine(v: unknown): v is ImportSessionDraftLineV1 {
     (v.targets === null ||
       (every(v.targets, target, 0, L.targetsPerPurchase) &&
         distinct(v.targets.map((t) => t.projectId)))) &&
-    decision(v.decision)
+    decision(v.decision) &&
+    (!hasOcrEvidence || ocrEvidence(v.ocrEvidence))
   );
+}
+
+function ocrCapability(v: unknown): v is OcrCapabilityV1 {
+  const hasTerminalOutcomes =
+    isRecord(v) && Object.hasOwn(v, "terminalOutcomes");
+  return (
+    isRecord(v) &&
+    exact(v, [
+      "status",
+      "consentPolicyVersion",
+      "provider",
+      "purpose",
+      "region",
+      "retentionDays",
+      "sendsFullOriginal",
+      "includesMetadataAndEmbeddedContent",
+      "includesPotentiallyNonVisibleContent",
+      "attachments",
+      ...(hasTerminalOutcomes ? ["terminalOutcomes"] : []),
+    ]) &&
+    oneOf(v.status, ["DISABLED", "UNAVAILABLE", "AVAILABLE"]) &&
+    v.consentPolicyVersion === 1 &&
+    v.provider === "GOOGLE_VERTEX_AI" &&
+    v.purpose === "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW" &&
+    v.region === "southamerica-east1" &&
+    v.retentionDays === 7 &&
+    v.sendsFullOriginal === true &&
+    v.includesMetadataAndEmbeddedContent === true &&
+    v.includesPotentiallyNonVisibleContent === true &&
+    every(
+      v.attachments,
+      (attachment): attachment is OcrCapabilityV1["attachments"][number] =>
+        isRecord(attachment) &&
+        exact(attachment, [
+          "attachmentId",
+          "questionId",
+          "consentedRequestId",
+          "consentedRevision",
+        ]) &&
+        id(attachment.attachmentId) &&
+        id(attachment.questionId) &&
+        (attachment.consentedRequestId === null ||
+          requestId(attachment.consentedRequestId)) &&
+        (attachment.consentedRevision === null ||
+          revision(attachment.consentedRevision)) &&
+        (attachment.consentedRequestId === null) ===
+          (attachment.consentedRevision === null),
+      0,
+      L.filesPerSession,
+    ) &&
+    distinct(v.attachments.map((attachment) => attachment.attachmentId)) &&
+    (!hasTerminalOutcomes ||
+      (every(v.terminalOutcomes, terminalOutcome, 0, L.filesPerSession) &&
+        distinct(v.terminalOutcomes.map((outcome) => outcome.attachmentId))))
+  );
+}
+
+const OCR_TERMINAL_CODES: readonly OcrTerminalOutcomeV1["code"][] = [
+  "OCR_UNAVAILABLE",
+  "OCR_SAFETY_BLOCKED",
+  "OCR_MALFORMED_RESPONSE",
+  "OCR_ATTEMPT_UNKNOWN",
+  "LIMIT_EXCEEDED",
+  "DOCUMENT_UNREADABLE",
+];
+
+function terminalOutcome(v: unknown): v is OcrTerminalOutcomeV1 {
+  return (
+    isRecord(v) &&
+    exact(v, ["attachmentId", "code"]) &&
+    id(v.attachmentId) &&
+    oneOf(v.code, OCR_TERMINAL_CODES)
+  );
+}
+
+export function readImportTerminalOutcomes(
+  value: unknown,
+  expectedSessionId: string,
+): ImportSessionTerminalOutcomesV1 {
+  if (
+    !isRecord(value) ||
+    !exact(value, ["version", "sessionId", "revision", "outcomes"]) ||
+    value.version !== IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION ||
+    !id(value.sessionId) ||
+    value.sessionId !== expectedSessionId ||
+    !revision(value.revision) ||
+    !every(value.outcomes, terminalOutcome, 0, L.filesPerSession) ||
+    !distinct(value.outcomes.map((outcome) => outcome.attachmentId))
+  )
+    return invalid();
+  return {
+    version: IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION,
+    sessionId: value.sessionId,
+    revision: value.revision,
+    outcomes: value.outcomes,
+  };
 }
 export const QUESTION_FIELDS: readonly ImportSessionQuestionV1["field"][] = [
   ...IMPORT_DRAFT_QUESTION_FIELDS,
@@ -788,10 +927,11 @@ const ACTIONS: readonly ImportSessionViewV1["actions"][number][] = [
   "READ_RESULT",
 ];
 
-export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
+export function readImportWorkflowView(value: unknown): ImportOcrSessionViewV1 {
   const draftQuestionLimit =
     L.editableLines * IMPORT_DRAFT_QUESTION_FIELDS.length;
   const documentaryFieldLimit = L.editableLines * L.observationsPerLine * 6;
+  const capabilityValue = isRecord(value) ? value.ocrCapability : null;
   if (
     !isRecord(value) ||
     !exact(value, [
@@ -808,6 +948,7 @@ export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
       "questions",
       "declaredFacts",
       "reviewBlockers",
+      "ocrCapability",
       "searchComplete",
       "proposal",
       "confirmation",
@@ -830,6 +971,7 @@ export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
     !distinct(value.lines.map((l) => l.id)) ||
     !ids(value.selectedLineIds, 0, L.selectedLines) ||
     !isImportReviewBlockers(value.reviewBlockers) ||
+    !ocrCapability(capabilityValue) ||
     !every(
       value.questions,
       isImportQuestion,
@@ -873,8 +1015,35 @@ export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
   )
     return invalid();
   const { lines, selectedLineIds, questions, attachments } = value;
+  const capability = capabilityValue;
   const selected = lines.filter((line) => selectedLineIds.includes(line.id));
   if (
+    capability.attachments.some((candidate) =>
+      attachments.every(
+        (attachment) => attachment.id !== candidate.attachmentId,
+      ),
+    ) ||
+    (capability.terminalOutcomes ?? []).some((outcome) => {
+      const attachment = attachments.find(
+        (candidate) => candidate.id === outcome.attachmentId,
+      );
+      return !attachment || attachment.canAnalyze;
+    }) ||
+    (value.actions.includes("ANALYZE") &&
+      attachments
+        .filter((attachment) => attachment.canAnalyze)
+        .every((attachment) =>
+          (capability.terminalOutcomes ?? []).some(
+            (outcome) => outcome.attachmentId === attachment.id,
+          ),
+        )) ||
+    lines.some(
+      (line) =>
+        line.ocrEvidence &&
+        attachments.every(
+          (attachment) => attachment.id !== line.ocrEvidence?.attachmentId,
+        ),
+    ) ||
     !boundedJson({
       version: VERSION,
       lines,
@@ -943,7 +1112,7 @@ export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
       ? null
       : readImportWorkflowReceipt(value.receipt, value.ownerProjectId);
   if (value.state === "APPLIED" && receipt === null) return invalid();
-  const view: ImportSessionViewV1 = {
+  const view: ImportOcrSessionViewV1 = {
     version: VERSION,
     id: value.id,
     ownerProjectId: value.ownerProjectId,
@@ -957,6 +1126,7 @@ export function readImportWorkflowView(value: unknown): ImportSessionViewV1 {
     questions,
     declaredFacts: value.declaredFacts,
     reviewBlockers: value.reviewBlockers,
+    ocrCapability: capability,
     searchComplete: value.searchComplete,
     proposal: p,
     confirmation: c,

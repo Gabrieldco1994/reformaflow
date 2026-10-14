@@ -7,8 +7,14 @@ import type {
 /** Exact future wire boundary until the independently owned domain is integrated. */
 export type PdfDocumentErrorCode =
   | "OCR_REQUIRED"
+  | "OCR_UNAVAILABLE"
+  | "OCR_SAFETY_BLOCKED"
+  | "OCR_MALFORMED_RESPONSE"
+  | "OCR_ATTEMPT_UNKNOWN"
+  | "OCR_BUDGET_EXHAUSTED"
   | "DOCUMENT_UNREADABLE"
-  | "PDF_PASSWORD_REQUIRED";
+  | "PDF_PASSWORD_REQUIRED"
+  | "UNSUPPORTED_DOCUMENT";
 export type ImportWireErrorCode = ImportSessionErrorCode | PdfDocumentErrorCode;
 export type ImportWireError = Omit<ImportSessionErrorV1, "code"> & {
   code: ImportWireErrorCode;
@@ -19,8 +25,14 @@ export function isPdfDocumentErrorCode(
 ): value is PdfDocumentErrorCode {
   return (
     value === "OCR_REQUIRED" ||
+    value === "OCR_UNAVAILABLE" ||
+    value === "OCR_SAFETY_BLOCKED" ||
+    value === "OCR_MALFORMED_RESPONSE" ||
+    value === "OCR_ATTEMPT_UNKNOWN" ||
+    value === "OCR_BUDGET_EXHAUSTED" ||
     value === "DOCUMENT_UNREADABLE" ||
-    value === "PDF_PASSWORD_REQUIRED"
+    value === "PDF_PASSWORD_REQUIRED" ||
+    value === "UNSUPPORTED_DOCUMENT"
   );
 }
 
@@ -40,10 +52,23 @@ export type ImportFailure =
   | { kind: "malformed" }
   | { kind: "unknown" };
 
+export const OCR_LIMIT_EXCEEDED_COPY =
+  "A leitura excedeu um limite permitido e não pode continuar para este documento. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.";
+
 /** Fixed copy per wire code. The server never sends a message and none is ever rendered. */
 export const IMPORT_ERROR_COPY: Record<ImportWireErrorCode, string> = {
   OCR_REQUIRED:
-    "Este PDF contém imagens e pode exigir OCR, ainda indisponível nesta importação. Use um PDF textual sem imagens (inclusive sem logotipos) ou um CSV, conforme os formatos disponíveis, ou cancele a importação.",
+    "A análise local não pôde continuar sem leitura externa. Se o servidor confirmar que este documento é elegível, a tela poderá oferecer uma autorização separada somente para ele. PDFs textuais permanecem locais; PDFs mistos ou pesquisáveis não são enviados nesta versão. Sem essa oferta ou disponibilidade, use um PDF textual ou CSV, conforme os formatos oferecidos, ou cancele a importação.",
+  OCR_UNAVAILABLE:
+    "A falha aconteceu antes de o PDF ser enviado. Use entrada manual, substitua o documento ou cancele a importação.",
+  OCR_SAFETY_BLOCKED:
+    "O provedor bloqueou a leitura deste documento por segurança. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+  OCR_MALFORMED_RESPONSE:
+    "O provedor devolveu uma leitura inválida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+  OCR_ATTEMPT_UNKNOWN:
+    "O envio começou ou pode ter ocorrido, e o PDF pode ter sido enviado ao Google Cloud Vertex AI, mas não foi possível confirmar o resultado do OCR. Esta tentativa não pode ser repetida. Nenhum lançamento foi criado; use entrada manual, substitua o documento ou cancele a importação.",
+  OCR_BUDGET_EXHAUSTED:
+    "O limite diário de OCR foi atingido antes do envio. Use entrada manual, substitua o documento ou cancele a importação.",
   DOCUMENT_UNREADABLE:
     "Não foi possível ler este documento. Substitua por um arquivo legível ou cancele a importação.",
   PDF_PASSWORD_REQUIRED:

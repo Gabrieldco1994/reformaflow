@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiResponseError } from "@/lib/api";
 import {
+  analyzeImportAttachment,
   answerImportDocumentaryQuestion,
   answerImportFocusedDraftQuestion,
+  getFullImportSession,
   getImportResult,
   prepareImportSession,
   uploadImportSessionAttachment,
@@ -26,7 +29,16 @@ vi.mock("@/lib/api", () => ({
     patch: api.patch,
     get: api.get,
   },
-  ApiResponseError: class ApiResponseError extends Error {},
+  ApiResponseError: class ApiResponseError extends Error {
+    constructor(
+      message: string,
+      public readonly status: number,
+      public readonly body?: unknown,
+    ) {
+      super(message);
+      this.name = "ApiResponseError";
+    }
+  },
 }));
 
 const sourceAttachment = {
@@ -51,12 +63,337 @@ const view = {
   questions: [],
   declaredFacts: [],
   reviewBlockers: [],
+  ocrCapability: {
+    status: "DISABLED",
+    consentPolicyVersion: 1,
+    provider: "GOOGLE_VERTEX_AI",
+    purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+    region: "southamerica-east1",
+    retentionDays: 7,
+    sendsFullOriginal: true,
+    includesMetadataAndEmbeddedContent: true,
+    includesPotentiallyNonVisibleContent: true,
+    attachments: [],
+    terminalOutcomes: [],
+  },
   searchComplete: false,
   proposal: null,
   confirmation: null,
   receipt: null,
   actions: ["UPLOAD", "CANCEL"],
 };
+
+describe("readImportWorkflowView OCR reload contract", () => {
+  const terminalCapability = (
+    code:
+      | "OCR_UNAVAILABLE"
+      | "OCR_SAFETY_BLOCKED"
+      | "OCR_MALFORMED_RESPONSE"
+      | "OCR_ATTEMPT_UNKNOWN"
+      | "LIMIT_EXCEEDED"
+      | "DOCUMENT_UNREADABLE",
+  ) => ({
+    ...view.ocrCapability,
+    terminalOutcomes: [{ attachmentId: "source", code }],
+  });
+
+  it.each([
+    "OCR_UNAVAILABLE",
+    "OCR_SAFETY_BLOCKED",
+    "OCR_MALFORMED_RESPONSE",
+    "OCR_ATTEMPT_UNKNOWN",
+    "LIMIT_EXCEEDED",
+    "DOCUMENT_UNREADABLE",
+  ] as const)("accepts exact persisted terminal outcome %s", (code) => {
+    expect(
+      readImportWorkflowView({
+        ...view,
+        ocrCapability: terminalCapability(code),
+      }).ocrCapability.terminalOutcomes,
+    ).toEqual([{ attachmentId: "source", code }]);
+  });
+
+  it("preserves a legacy session view omission without synthesizing terminal outcomes", () => {
+    const { terminalOutcomes: _missing, ...withoutTerminalOutcomes } =
+      view.ocrCapability;
+    const parsed = readImportWorkflowView({
+      ...view,
+      ocrCapability: withoutTerminalOutcomes,
+    });
+
+    expect(Object.hasOwn(parsed.ocrCapability, "terminalOutcomes")).toBe(false);
+  });
+
+  it.each([
+    {
+      label: "unknown code",
+      outcomes: [{ attachmentId: "source", code: "UNKNOWN_TERMINAL" }],
+    },
+    {
+      label: "extra outcome field",
+      outcomes: [
+        {
+          attachmentId: "source",
+          code: "OCR_UNAVAILABLE",
+          retryable: false,
+        },
+      ],
+    },
+    {
+      label: "duplicate attachment",
+      outcomes: [
+        { attachmentId: "source", code: "OCR_UNAVAILABLE" },
+        { attachmentId: "source", code: "DOCUMENT_UNREADABLE" },
+      ],
+    },
+    {
+      label: "missing attachment reference",
+      outcomes: [{ attachmentId: "missing-source", code: "OCR_UNAVAILABLE" }],
+    },
+  ])("rejects $label in terminalOutcomes", ({ outcomes }) => {
+    expect(() =>
+      readImportWorkflowView({
+        ...view,
+        ocrCapability: { ...view.ocrCapability, terminalOutcomes: outcomes },
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+  });
+
+  it("rejects a terminal attachment that remains analyzable", () => {
+    expect(() =>
+      readImportWorkflowView({
+        ...view,
+        attachments: [
+          {
+            ...sourceAttachment,
+            materializedInSession: false,
+            canAnalyze: true,
+          },
+        ],
+        actions: ["ANALYZE", "CANCEL"],
+        ocrCapability: terminalCapability("DOCUMENT_UNREADABLE"),
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+  });
+
+  it("rejects ANALYZE when every attached document is terminal", () => {
+    expect(() =>
+      readImportWorkflowView({
+        ...view,
+        actions: ["ANALYZE", "CANCEL"],
+        ocrCapability: terminalCapability("LIMIT_EXCEEDED"),
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+  });
+
+  it.each([
+    [-1001, "ESTORNO -10,01"],
+    [0, "AJUSTE 0,00"],
+    [null, "VALOR NÃO IDENTIFICADO"],
+  ] as const)(
+    "keeps signed, zero, and unknown amount %s with server evidence",
+    (amountCents, evidenceText) => {
+      const authTrace =
+        amountCents === 0 ? "SERVICE_ACCOUNT_FILE_ADC" : "LOCAL_ADC";
+      const response = {
+        ...view,
+        attachments: [
+          {
+            id: "scan",
+            fileName: "digitalizado.pdf",
+            declaredBytes: 123,
+            state: "ATTACHED",
+            materializedInSession: true,
+            canAnalyze: false,
+          },
+        ],
+        lines: [
+          {
+            id: "ocr-line",
+            observationIds: ["ocr-observation"],
+            titulo: "Linha OCR",
+            fornecedor: null,
+            tipoDespesa: null,
+            categoriaMaoDeObra: null,
+            amountMeaning: "UNKNOWN",
+            amountCents,
+            installmentCount: null,
+            dataCompra: null,
+            firstDueDate: null,
+            targets: null,
+            decision: { kind: "UNRESOLVED" },
+            ocrEvidence: {
+              origin: "GOOGLE_VERTEX_AI",
+              model: "gemini-2.5-flash",
+              modelVersion: "provider-build-20261013",
+              region: "southamerica-east1",
+              authTrace,
+              attachmentId: "scan",
+              artifactFingerprint: "a".repeat(64),
+              candidateFingerprint: "b".repeat(64),
+              pageNumber: 1,
+              text: evidenceText,
+            },
+          },
+        ],
+        ocrCapability: {
+          status: "AVAILABLE",
+          consentPolicyVersion: 1,
+          provider: "GOOGLE_VERTEX_AI",
+          purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+          region: "southamerica-east1",
+          retentionDays: 7,
+          sendsFullOriginal: true,
+          includesMetadataAndEmbeddedContent: true,
+          includesPotentiallyNonVisibleContent: true,
+          attachments: [],
+          terminalOutcomes: [],
+        },
+      };
+
+      const parsed = readImportWorkflowView(response);
+      expect(parsed.lines[0]).toMatchObject({
+        amountMeaning: "UNKNOWN",
+        amountCents,
+        ocrEvidence: {
+          text: evidenceText,
+          modelVersion: "provider-build-20261013",
+          authTrace,
+        },
+      });
+      expect(parsed.lines[0]?.amountCents).toBe(amountCents);
+    },
+  );
+
+  it.each(["DISABLED", "UNAVAILABLE", "AVAILABLE"] as const)(
+    "requires the exact non-visible-content capability literal for %s",
+    (status) => {
+      const capability = { ...view.ocrCapability, status };
+      expect(
+        readImportWorkflowView({ ...view, ocrCapability: capability }),
+      ).toMatchObject({
+        ocrCapability: {
+          status,
+          includesPotentiallyNonVisibleContent: true,
+        },
+      });
+
+      const { includesPotentiallyNonVisibleContent: _missing, ...missing } =
+        capability;
+      expect(() =>
+        readImportWorkflowView({ ...view, ocrCapability: missing }),
+      ).toThrow(ImportWorkflowResponseError);
+      expect(() =>
+        readImportWorkflowView({
+          ...view,
+          ocrCapability: {
+            ...capability,
+            includesPotentiallyNonVisibleContent: false,
+          },
+        }),
+      ).toThrow(ImportWorkflowResponseError);
+    },
+  );
+
+  it("rejects mutated OCR provenance and preserves a line with no authoritative evidence", () => {
+    const evidence = {
+      origin: "GOOGLE_VERTEX_AI",
+      model: "gemini-2.5-flash",
+      modelVersion: "provider-build-20261013",
+      region: "southamerica-east1",
+      authTrace: "LOCAL_ADC",
+      attachmentId: "scan",
+      artifactFingerprint: "a".repeat(64),
+      candidateFingerprint: "b".repeat(64),
+      pageNumber: 1,
+      text: "MERCADO ORIGINAL",
+    };
+    const line = {
+      id: "ocr-line",
+      observationIds: ["ocr-observation"],
+      titulo: "Linha OCR",
+      fornecedor: null,
+      tipoDespesa: null,
+      categoriaMaoDeObra: null,
+      amountMeaning: "UNKNOWN",
+      amountCents: 0,
+      installmentCount: null,
+      dataCompra: null,
+      firstDueDate: null,
+      targets: null,
+      decision: { kind: "UNRESOLVED" },
+    };
+    const response = {
+      ...view,
+      attachments: [
+        {
+          id: "scan",
+          fileName: "digitalizado.pdf",
+          declaredBytes: 123,
+          state: "ATTACHED",
+          materializedInSession: true,
+          canAnalyze: false,
+        },
+      ],
+      lines: [{ ...line, ocrEvidence: evidence }],
+    };
+
+    expect(() =>
+      readImportWorkflowView({
+        ...response,
+        lines: [
+          {
+            ...line,
+            ocrEvidence: { ...evidence, model: "mutated-provider-model" },
+          },
+        ],
+      }),
+    ).toThrow(ImportWorkflowResponseError);
+    const { modelVersion: _modelVersion, ...withoutModelVersion } = evidence;
+    const { authTrace: _authTrace, ...withoutAuthTrace } = evidence;
+    for (const malformedEvidence of [
+      withoutModelVersion,
+      withoutAuthTrace,
+      { ...evidence, modelVersion: "" },
+      { ...evidence, authTrace: "UNKNOWN_ADC" },
+    ]) {
+      expect(() =>
+        readImportWorkflowView({
+          ...response,
+          lines: [{ ...line, ocrEvidence: malformedEvidence }],
+        }),
+      ).toThrow(ImportWorkflowResponseError);
+    }
+    for (const extraField of [
+      "requestId",
+      "responseId",
+      "serviceAccountIdentity",
+      "serviceAccountEmail",
+      "credentialPath",
+      "credentialEmail",
+      "credentialKey",
+      "accessToken",
+    ]) {
+      expect(() =>
+        readImportWorkflowView({
+          ...response,
+          lines: [
+            {
+              ...line,
+              ocrEvidence: {
+                ...evidence,
+                [extraField]: "must-not-be-accepted",
+              },
+            },
+          ],
+        }),
+      ).toThrow(ImportWorkflowResponseError);
+    }
+    expect(
+      readImportWorkflowView({ ...response, lines: [line] }).lines[0],
+    ).not.toHaveProperty("ocrEvidence");
+  });
+});
 
 const appliedReceipt = {
   version: 1,
@@ -280,6 +617,34 @@ describe("direct review and result endpoints", () => {
     api.get.mockReset();
   });
 
+  it("posts the exact v2 external-consent body to the existing analyze endpoint", async () => {
+    const signal = new AbortController().signal;
+    const request = {
+      version: 2 as const,
+      expectedRevision: 1,
+      requestId: "12345678-1234-4123-8123-123456789abc",
+      consentExternalProcessing: true as const,
+    };
+    api.post.mockResolvedValue(view);
+
+    await analyzeImportAttachment("session", "source", request, signal);
+
+    expect(api.post).toHaveBeenCalledWith(
+      "/import-sessions/session/attachments/source/analyze",
+      request,
+      {
+        headers: { "x-rf-import-ui": "1" },
+        signal,
+      },
+    );
+    expect(Object.keys(api.post.mock.calls[0][1]).sort()).toEqual([
+      "consentExternalProcessing",
+      "expectedRevision",
+      "requestId",
+      "version",
+    ]);
+  });
+
   it("prepares the exact admitted revision and preserves the abort signal", async () => {
     const signal = new AbortController().signal;
     api.post.mockResolvedValue(view);
@@ -305,6 +670,188 @@ describe("direct review and result endpoints", () => {
       signal,
     });
     expect(api.post).not.toHaveBeenCalled();
+  });
+
+  const strictTerminalPath = "/import-sessions/session/terminal-outcomes-v1";
+  const strictTerminalEnvelope = {
+    version: 1,
+    sessionId: "session",
+    revision: 2,
+    outcomes: [
+      {
+        attachmentId: "source",
+        code: "DOCUMENT_UNREADABLE",
+      },
+    ],
+  };
+
+  it("reads the exact terminal-outcomes-v1 envelope without touching the legacy session", async () => {
+    const signal = new AbortController().signal;
+    api.get.mockResolvedValue(strictTerminalEnvelope);
+
+    await expect(getFullImportSession("session", signal)).resolves.toEqual(
+      strictTerminalEnvelope,
+    );
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.get).toHaveBeenCalledWith(strictTerminalPath, { signal });
+  });
+
+  it("accepts outcomes: [] only in the explicit strict envelope", async () => {
+    const empty = { ...strictTerminalEnvelope, outcomes: [] };
+    api.get.mockResolvedValue(empty);
+
+    await expect(getFullImportSession("session")).resolves.toEqual(empty);
+    expect(api.get.mock.calls).toEqual([[strictTerminalPath]]);
+  });
+
+  it.each([
+    {
+      label: "missing version",
+      response: {
+        sessionId: "session",
+        revision: 2,
+        outcomes: [],
+      },
+    },
+    {
+      label: "wrong version",
+      response: { ...strictTerminalEnvelope, version: 2 },
+    },
+    {
+      label: "extra root key",
+      response: { ...strictTerminalEnvelope, source: "legacy-query" },
+    },
+    {
+      label: "missing outcomes",
+      response: {
+        version: 1,
+        sessionId: "session",
+        revision: 2,
+      },
+    },
+    {
+      label: "null outcomes",
+      response: { ...strictTerminalEnvelope, outcomes: null },
+    },
+    {
+      label: "extra outcome key",
+      response: {
+        ...strictTerminalEnvelope,
+        outcomes: [
+          {
+            ...strictTerminalEnvelope.outcomes[0],
+            retryable: false,
+          },
+        ],
+      },
+    },
+    {
+      label: "duplicate attachment",
+      response: {
+        ...strictTerminalEnvelope,
+        outcomes: [
+          strictTerminalEnvelope.outcomes[0],
+          {
+            attachmentId: "source",
+            code: "LIMIT_EXCEEDED",
+          },
+        ],
+      },
+    },
+    {
+      label: "unknown code",
+      response: {
+        ...strictTerminalEnvelope,
+        outcomes: [
+          {
+            attachmentId: "source",
+            code: "UNKNOWN_TERMINAL",
+          },
+        ],
+      },
+    },
+    {
+      label: "different session",
+      response: { ...strictTerminalEnvelope, sessionId: "other-session" },
+    },
+    {
+      label: "malformed revision",
+      response: { ...strictTerminalEnvelope, revision: -1 },
+    },
+  ])(
+    "hard-fails strict 200 with $label and never falls back",
+    async ({ response }) => {
+      api.get.mockResolvedValue(response);
+
+      await expect(getFullImportSession("session")).rejects.toThrow(
+        ImportWorkflowResponseError,
+      );
+      expect(api.get.mock.calls).toEqual([[strictTerminalPath]]);
+    },
+  );
+
+  it("falls back exactly once on strict-route 404 and returns separate legacy state", async () => {
+    const signal = new AbortController().signal;
+    const { terminalOutcomes: _missing, ...legacyCapability } =
+      view.ocrCapability;
+    const legacyView = {
+      ...view,
+      ocrCapability: legacyCapability,
+    };
+    api.get
+      .mockRejectedValueOnce(
+        new ApiResponseError("unsupported projection", 404, {
+          code: "NOT_FOUND",
+        }),
+      )
+      .mockResolvedValueOnce(legacyView);
+
+    await expect(getFullImportSession("session", signal)).resolves.toEqual({
+      support: "LEGACY_UNSUPPORTED",
+      outcomes: null,
+    });
+    expect(api.get.mock.calls).toEqual([
+      [strictTerminalPath, { signal }],
+      ["/import-sessions/session", { signal }],
+    ]);
+    expect(Object.hasOwn(legacyView.ocrCapability, "terminalOutcomes")).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    ["401", new ApiResponseError("unauthorized", 401)],
+    ["403", new ApiResponseError("forbidden", 403)],
+    ["409", new ApiResponseError("conflict", 409)],
+    ["429", new ApiResponseError("limited", 429)],
+    ["5xx", new ApiResponseError("upstream", 503)],
+    [
+      "timeout",
+      Object.assign(new Error("timeout"), { name: "ApiTimeoutError" }),
+    ],
+    ["offline", new TypeError("offline")],
+    ["abort", Object.assign(new Error("aborted"), { name: "AbortError" })],
+    ["untyped 404", Object.assign(new Error("not found"), { status: 404 })],
+  ])(
+    "does not fallback for strict-route %s failure",
+    async (_label, failure) => {
+      api.get.mockRejectedValue(failure);
+
+      await expect(getFullImportSession("session")).rejects.toBe(failure);
+      expect(api.get.mock.calls).toEqual([[strictTerminalPath]]);
+    },
+  );
+
+  it("propagates the legacy error after the one allowed 404 fallback", async () => {
+    const primary = new ApiResponseError("unsupported", 404);
+    const legacy = new ApiResponseError("legacy unavailable", 503);
+    api.get.mockRejectedValueOnce(primary).mockRejectedValueOnce(legacy);
+
+    await expect(getFullImportSession("session")).rejects.toBe(legacy);
+    expect(api.get.mock.calls).toEqual([
+      [strictTerminalPath],
+      ["/import-sessions/session"],
+    ]);
   });
 });
 

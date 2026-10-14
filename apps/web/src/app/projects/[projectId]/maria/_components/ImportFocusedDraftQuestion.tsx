@@ -11,6 +11,7 @@ import {
   type LaborCategory,
   type ImportSessionCandidateV1,
   type ImportSessionDraftLineV1,
+  type ImportSessionLineViewV1,
   type ImportSessionObservationViewV1,
   type ImportSessionQuestionV1,
 } from "@reformaflow/domain";
@@ -78,13 +79,14 @@ export type ImportPurchaseContextLine = Pick<
 > &
   Partial<
     Pick<
-      ImportSessionDraftLineV1,
+      ImportSessionLineViewV1,
       | "observationIds"
       | "fornecedor"
       | "amountMeaning"
       | "amountCents"
       | "dataCompra"
       | "installmentCount"
+      | "ocrEvidence"
     >
   > & {
     availableAmountCents?: number | null;

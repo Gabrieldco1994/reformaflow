@@ -41,6 +41,7 @@ import {
   withImportObservationContext,
 } from "./ImportFocusedDraftQuestion";
 import { questionIntersectsSelectedLines } from "../_lib/import-question-selection";
+import { ImportOcrFoundation } from "./ImportOcrFoundation";
 type AgentChannel = "TEXT" | "VOICE";
 
 function Conversation({
@@ -76,7 +77,25 @@ function Conversation({
   const [cancelPending, setCancelPending] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const busy = conversation.busy || documents.busy;
-  const documentBlocked = isPdfDocumentErrorCode(documents.error?.code);
+  const ocrUiStates =
+    documents.ocrUiStates ??
+    (documents.ocrUiState ? [documents.ocrUiState] : []);
+  const documentBlocked =
+    isPdfDocumentErrorCode(documents.error?.code) || ocrUiStates.length > 0;
+  const ocrPresentations = ocrUiStates.flatMap((state) => {
+    const attachment = documents.view?.attachments.find(
+      (candidate) => candidate.id === state.attachmentId,
+    );
+    return attachment ? [{ state, attachment }] : [];
+  });
+  const firstOcrState = ocrUiStates[0] ?? null;
+  const ocrAttachment = ocrPresentations[0]?.attachment;
+  const ocrActivationAvailable = ocrUiStates.some(
+    (state) =>
+      state.kind === "CONSENT_REQUIRED" ||
+      state.kind === "CONSENTED_READY" ||
+      state.kind === "REQUESTING",
+  );
   const privateContextLost =
     error?.privateContextLost || documents.error?.privateContextLost;
   const guided =
@@ -332,14 +351,24 @@ function Conversation({
           >
             <h3 className="font-semibold">
               {documentBlocked
-                ? "Este documento não pode ser analisado"
+                ? ocrAttachment
+                  ? ocrActivationAvailable
+                    ? "Este documento pode usar leitura externa"
+                    : "A leitura externa não está disponível"
+                  : "Este documento não pode ser analisado"
                 : "Nenhuma compra para revisar"}
             </h3>
             {documentBlocked ? (
               <p>
-                Para substituir o documento, cancele esta importação e peça
-                outra à Maria com um arquivo legível. Não há confirmação
-                financeira nem tentativa de OCR aqui.
+                {ocrAttachment
+                  ? firstOcrState?.kind === "CONSENT_REQUIRED"
+                    ? "A leitura externa só ocorrerá após sua autorização e poderá ser solicitada uma única vez para este documento."
+                    : firstOcrState?.kind === "CONSENTED_READY"
+                      ? "A autorização já está guardada. A leitura externa só continuará quando você solicitar explicitamente."
+                      : firstOcrState?.kind === "REQUESTING"
+                        ? "Uma chamada externa está em andamento. Esta tela não iniciará outra para o documento."
+                        : "A leitura externa não pode continuar neste estado e não será repetida. Use uma das alternativas abaixo."
+                  : "Para substituir o documento, cancele esta importação e peça outra à Maria com um arquivo legível. Não há confirmação financeira nesta etapa."}
               </p>
             ) : (
               <p>
@@ -348,6 +377,24 @@ function Conversation({
                 compras.
               </p>
             )}
+            {ocrPresentations.map(({ state, attachment }) => (
+              <ImportOcrFoundation
+                key={attachment.id}
+                state={state}
+                scope={{
+                  key: JSON.stringify([
+                    conversation.userId,
+                    projectId,
+                    sessionId,
+                    attachment.id,
+                  ]),
+                  fileName: attachment.fileName,
+                }}
+                onConsent={() =>
+                  void documents.consentExternalProcessing(attachment.id)
+                }
+              />
+            ))}
             {view?.actions.includes("CANCEL") ? (
               <button
                 type="button"

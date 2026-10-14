@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "role": "SECURITY",
+  "policySha256": "d0baa742cd4db8515b5df7d947c8079b50864c7b296062a7fe66d27cf14a3f57",
+  "scope": "OCR_QUALIFICATION_V1"
+}

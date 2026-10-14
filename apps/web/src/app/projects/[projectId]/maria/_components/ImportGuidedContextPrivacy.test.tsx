@@ -11,6 +11,7 @@ import {
   ImportSessionAmountMeaning,
   ProjectType,
   type ImportDeclaredFactViewV1,
+  type ImportOcrReviewEvidenceV1,
   type ImportObservationQuestionV1,
   type ImportSessionObservationViewV1,
   type ImportSessionDraftLineV1,
@@ -594,6 +595,111 @@ it("uses neutral Compra for legacy declarations with only an internal line key",
     }),
   ).toHaveTextContent("Nome do estabelecimento · Compra");
   expectNoInternalPresentationText();
+});
+
+it("shows a corrected field attestation as invalidated and outside the current selection", () => {
+  const fact: ImportDeclaredFactViewV1 = {
+    lineId: LINE_ID,
+    observationId: OBSERVATION_ID,
+    questionId: QUESTION_ID,
+    origin: "USER_ATTESTATION",
+    field: "amountCents",
+    meaningContext: "TOTAL_PURCHASE",
+    status: "CURRENT",
+    value: 12_345,
+  };
+  const { rerender } = render(
+    <>
+      <ImportDeclaredFacts line={draftLine()} facts={[fact]} />
+      <ImportReviewBlockerNotice
+        line={draftLine()}
+        blockers={[]}
+        selected
+        showLine
+      />
+    </>,
+  );
+  expect(screen.getByText("Informado por você")).toBeVisible();
+  expect(screen.getByText("Selecionada para revisão.")).toBeVisible();
+
+  rerender(
+    <>
+      <ImportDeclaredFacts
+        line={draftLine()}
+        facts={[{ ...fact, status: "CONTEXT_CHANGED" }]}
+      />
+      <ImportReviewBlockerNotice
+        line={draftLine()}
+        blockers={[]}
+        selected={false}
+        showLine
+      />
+    </>,
+  );
+  expect(screen.getByText("Informação anterior")).toBeVisible();
+  expect(
+    screen.getByText("Informação não utilizada no contexto atual."),
+  ).toBeVisible();
+  expect(screen.getByText("Fora da seleção.")).toBeVisible();
+});
+
+it("shows provider evidence text and origin on an externally extracted candidate", () => {
+  const ocrEvidence: ImportOcrReviewEvidenceV1 = {
+    origin: "GOOGLE_VERTEX_AI",
+    model: "gemini-2.5-flash",
+    modelVersion: "fixture-model-v1",
+    region: "southamerica-east1",
+    authTrace: "LOCAL_ADC",
+    attachmentId: "attachment",
+    artifactFingerprint: "a".repeat(64),
+    candidateFingerprint: "b".repeat(64),
+    pageNumber: 1,
+    text: "MERCADO ORIGINAL",
+  };
+  Object.defineProperties(ocrEvidence, {
+    origin: { value: "SERVER_OCR_ORIGIN", enumerable: true },
+    model: { value: "server-model", enumerable: true },
+    region: { value: "server-region", enumerable: true },
+  });
+  const { rerender } = render(
+    <ImportReviewBlockerNotice
+      line={{ ...draftLine(), ocrEvidence }}
+      blockers={[]}
+      selected={false}
+      showLine
+    />,
+  );
+
+  const evidence = screen.getByRole("note", {
+    name: "Evidência da extração externa",
+  });
+  expect(evidence).toHaveTextContent(
+    /Texto extraído para conferência: MERCADO ORIGINAL/i,
+  );
+  expect(evidence).toHaveTextContent(
+    /Origem: PDF original.*SERVER_OCR_ORIGIN/i,
+  );
+  expect(evidence).toHaveTextContent(/Modelo configurado: server-model/i);
+  expect(evidence).toHaveTextContent(
+    /Versão informada pelo provedor: fixture-model-v1/i,
+  );
+  expect(evidence).toHaveTextContent(/Região: server-region/i);
+  expect(evidence).toHaveTextContent(
+    /Rastro de autenticação: LOCAL_ADC.*credenciais padrão locais/i,
+  );
+  expect(evidence).toHaveTextContent(/revise no documento original/i);
+
+  rerender(
+    <ImportReviewBlockerNotice
+      line={draftLine()}
+      blockers={[]}
+      selected={false}
+      showLine
+    />,
+  );
+  expect(
+    screen.queryByRole("note", { name: "Evidência da extração externa" }),
+  ).not.toBeInTheDocument();
 });
 
 it("keeps blocker focus management and answer-field focus when pending settles", async () => {

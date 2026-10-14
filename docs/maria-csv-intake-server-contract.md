@@ -1,12 +1,13 @@
 # Maria CSV — contrato delimitado do servidor
 
-**Estado em 2026-10-11: comportamento presente na árvore candidata atual; merge,
-ativação, produção, jornadas Linux/Journey e release não verificados.** `881e9b5c`
-foi uma base histórica de implementação, não o candidato final atual. Antes de
-merge ou release, o SHA exato da composição final **MUST** ser atestado por checks
-externos correspondentes da PR #718; enquanto eles não corresponderem ao SHA
-final, este documento não o atesta nem fixa um SHA final futuro ou circular. O
-documento define o contrato do candidato, não capacidades implantadas.
+**No snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131`, o
+comportamento CSV/PDF textual da #718 está presente na árvore; merge, ativação, produção, jornadas
+Linux/Journey e release não são afirmados aqui.** A verdade de release será o HEAD corrente da PR
+`feat/719-final-ocr` quando ela for aberta. `881e9b5c` foi uma base histórica. O snapshot também
+contém a implementação separada da #719 para PDF integralmente digitalizado, ainda OFF e sem
+qualificação Vertex ao vivo; isso não amplia este contrato de intake textual nem entrega
+PNG/JPEG/WEBP, fotos ou imagens avulsas. O documento define o contrato do snapshot, não capacidades
+implantadas.
 O [ledger #711](https://github.com/Gabrieldco1994/reformaflow/issues/711) é a referência de
 aceite; o contrato prospectivo M1/M2 já aprovado não comprova entrega funcional.
 
@@ -28,7 +29,8 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
   no mesmo vault e workflow; CSV qualificado isoladamente permanece compatível.
   Não habilita OFX, planilhas, imagens, OCR ou o kill switch financeiro amplo.
   Worker local terminável audita todas as páginas por operadores públicos PDF.js:
-  qualquer raster pintado, inclusive logotipo, exige `OCR_REQUIRED` no arquivo inteiro.
+  PDF textual completo permanece local mesmo com logotipo; somente raster integral sem
+  texto pesquisável pode exigir `OCR_REQUIRED`, e conteúdo misto/ambíguo falha sem OCR.
   Diagnóstico de warning/error retido apenas como booleano, até o cleanup, rejeita
   `DOCUMENT_UNREADABLE`; senha exige `PDF_PASSWORD_REQUIRED`. Nenhum texto diagnóstico
   é persistido/emitido. A cerca de diagnósticos é conservadora, não prova matemática
@@ -171,9 +173,10 @@ IDs, centavos, cronogramas documentais, trilhas de fatura e `foreign_key_check`.
 
 ## Referência de implementação
 
-A árvore candidata atual contém o subsistema import-session e os controles
-determinísticos descritos aqui. Isso identifica o comportamento inspecionado, sem
-afirmar merge, ativação, jornada Linux, release ou produção. Locatores principais:
+O snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131` contém o
+subsistema import-session e os controles determinísticos descritos aqui. A verdade de release será
+o HEAD corrente da PR `feat/719-final-ocr` quando ela for aberta. Isso identifica o comportamento
+inspecionado, sem afirmar merge, ativação, jornada Linux, release ou produção. Locatores principais:
 
 - contrato wire: `packages/domain/src/import-session.ts` e
   `packages/domain/src/import-focused-answer.ts`;
@@ -315,9 +318,10 @@ múltiplo ou presumido. O projeto-alvo precisa ser REFORMA ativa do mesmo tenant
 projeto proprietário e autorizada; eventual cômodo precisa estar ativo e pertencer a ela.
 Retorna `ImportSessionViewV1`.
 
-O envelope legado do mesmo PATCH é **selection-only**: exige `questionId: null`,
-`replaceLines: []` e apenas a lista `selectedLineIds` com IDs únicos e dentro do limite.
-Qualquer tentativa de responder pergunta ou substituir linha por esse formato é rejeitada.
+O envelope legado do mesmo PATCH exige `questionId: null` e `selectedLineIds` com IDs
+únicos dentro do limite. CSV e PDF local permanecem `replaceLines: []`; somente linhas
+OCR aceitam correções documentais estritamente validadas. A substituição não pode trocar
+IDs das observações nem responder perguntas; correções invalidam declarações anteriores.
 
 Dinheiro aceita um único token monetário não negativo; quantidade, um único inteiro positivo
 dentro do limite; datas, somente `AAAA-MM-DD` ou `DD/MM/AAAA` completas e válidas;
@@ -334,10 +338,9 @@ financeiros antes da confirmação.
 
 A métrica de projeção de contexto elegível do corpus puro mede somente o resultado
 e a projeção de contexto do avaliador. Ela não prova autenticação, isolamento de
-tenant, passagem pela API nem revalidação do servidor. Essas garantias exigem
-checks externos correspondentes da PR #718. Antes de merge ou release, esses
-checks **MUST** atestar o SHA exato da composição final; o avaliador puro não
-concede autorização nem substitui essa evidência.
+tenant, passagem pela API nem revalidação do servidor. O SHA inspecionado é o snapshot acima; o
+HEAD corrente da PR e seus checks vivos governam qualquer decisão de merge/release, e o avaliador
+puro não concede autorização nem substitui essa evidência.
 
 Na UI, voz apenas fornece a transcrição ao parser determinístico e abre a mesma prévia manual.
 Ela nunca envia automaticamente nem cai para LLM/tool. O usuário ainda precisa conferir e
@@ -354,7 +357,7 @@ lê o estado/recibo autorizado. Nenhum deles confirma. Challenge, confirmação 
 autenticada e execução permanecem ações separadas. O vault OFF por padrão e a retenção de sete
 dias sem edição permanecem exatamente como definidos acima.
 
-Não existe arquitetura contextual de importação na árvore candidata atual: o contrato público
+Não existe arquitetura contextual de importação no snapshot acima: o contrato público
 contextual, seus leitores/cópias na UI, portas de texto livre e aprovação de escopo foram
 removidos. A Maria genérica detecta deterministicamente apenas o pedido inicial e pode devolver
 `START_CARD_INVOICE_IMPORT` com os formatos habilitados antes de consultar provider; isso não é

@@ -1,0 +1,457 @@
+name: OCR qualification and KMS attestation
+on:
+  workflow_dispatch:
+
+permissions: {}
+concurrency: { group: ocr-qualification, cancel-in-progress: false }
+env:
+  QUALIFICATION_TAG: reformaflow-ocr-qualification:${{ github.sha }}
+
+jobs:
+  offline-materialize:
+    runs-on: ubuntu-latest
+    environment: ocr-qualification-materialize
+    permissions: { actions: read, contents: read }
+    outputs:
+      subject_tree: ${{ steps.identity.outputs.subject_tree }}
+      image_digest: ${{ steps.oci.outputs.image_digest }}
+      config_digest: ${{ steps.oci.outputs.config_digest }}
+      executable_digest: ${{ steps.closure.outputs.executable_digest }}
+      document_set_sha256: ${{ steps.documents.outputs.document_set_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { ref: main, fetch-depth: 0, persist-credentials: false }
+      - id: identity
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" && "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_SHA" == "$GITHUB_WORKFLOW_SHA" ]]
+          current_main="$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")"
+          [[ "$GITHUB_SHA" == "$current_main" && "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          printf "subject_tree=%s\n" "$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
+      - name: Block until deployment and recovery producer contracts are authorized
+        run: node deploy/ocr/external-producer-gate.mjs deploy/ocr/external-producer-contracts.json
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Select and verify exact-SHA canonical producer artifacts
+        id: producers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          SUBJECT_TREE: ${{ steps.identity.outputs.subject_tree }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/producers/runtime" "$RUNNER_TEMP/producers/recovery"
+          resolve_artifact() {
+            workflow="$1"; artifact_name="$2"; payload_name="$3"; directory="$4"; helper="$5"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=main&event=workflow_dispatch&status=completed&head_sha=$GITHUB_SHA&per_page=100" > "$directory/runs.json"
+            jq -ce --arg sha "$GITHUB_SHA" "[.workflow_runs[] | select(.head_sha == \$sha and .conclusion == \"success\" and .event == \"workflow_dispatch\" and .run_attempt == 1)] | sort_by(.id) | last // error(\"NO_CANONICAL_PRODUCER_RUN\")" "$directory/runs.json" > "$directory/run.json"
+            run_id="$(jq -er .id "$directory/run.json")"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" > "$directory/artifacts.json"
+            jq -ce --arg name "$artifact_name" "[.artifacts[] | select(.name == \$name and .expired == false)] | if length == 1 then .[0] else error(\"ARTIFACT_NOT_UNIQUE\") end" "$directory/artifacts.json" > "$directory/metadata.json"
+            artifact_id="$(jq -er .id "$directory/metadata.json")"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$directory/artifact.zip"
+            [[ "$(unzip -Z1 "$directory/artifact.zip")" == "$payload_name" ]]
+            unzip -q "$directory/artifact.zip" -d "$directory/unpacked"
+            jq -nc --arg artifactId "$artifact_id" --arg repositoryId "$GITHUB_REPOSITORY_ID" --arg runId "$run_id" --argjson runAttempt 1 --arg commitSha "$GITHUB_SHA" --arg treeSha "$SUBJECT_TREE" --arg workflowSha "$GITHUB_SHA" "{artifactId:\$artifactId,repositoryId:\$repositoryId,runId:\$runId,runAttempt:\$runAttempt,commitSha:\$commitSha,treeSha:\$treeSha,workflowSha:\$workflowSha}" > "$directory/expected.json"
+            node "$helper" verify-artifact "$directory/metadata.json" "$directory/artifact.zip" "$directory/unpacked/$payload_name" "$directory/expected.json" > "$directory/verified.json"
+          }
+          resolve_artifact ocr-runtime-subject.yml ocr-runtime-subject-v1 runtime-subject.json "$RUNNER_TEMP/producers/runtime" scripts/ci/ocr-runtime-subject.mjs
+          resolve_artifact ocr-recovery-evidence.yml ocr-recovery-evidence-v1 recovery-evidence.json "$RUNNER_TEMP/producers/recovery" scripts/ci/ocr-recovery-evidence.mjs
+          image="$(jq -er .receipt.image.reference "$RUNNER_TEMP/producers/runtime/verified.json")"
+          flyctl auth docker
+          docker pull --platform linux/amd64 "$image"
+          docker image inspect "$image" > "$RUNNER_TEMP/producers/runtime/image-inspect.json"
+          entrypoint="$(node scripts/ci/ocr-runtime-subject.mjs resolve-path "$RUNNER_TEMP/producers/runtime/image-inspect.json")"
+          container_id="$(docker create "$image")"
+          cleanup() { docker rm -f "$container_id" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker cp -L "$container_id:$entrypoint" "$RUNNER_TEMP/producers/runtime/application-entrypoint"
+          jq -c ".receipt | {repository:.repository.name,repositoryId:.repository.id,repositoryOwnerId:.repository.ownerId,commitSha:.git.commitSha,treeSha:.git.treeSha,workflowSha:.workflow.sha,runId:.workflow.runId,runAttempt:.workflow.runAttempt,imageReference:.image.reference,observedAt:.observedAt}" "$RUNNER_TEMP/producers/runtime/verified.json" > "$RUNNER_TEMP/producers/runtime/context.json"
+          node scripts/ci/ocr-runtime-subject.mjs verify "$RUNNER_TEMP/producers/runtime/unpacked/runtime-subject.json" "$RUNNER_TEMP/producers/runtime/image-inspect.json" "$RUNNER_TEMP/producers/runtime/application-entrypoint" "$RUNNER_TEMP/producers/runtime/context.json"
+          [[ "$GITHUB_SHA" == "$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")" ]]
+      - id: documents
+        env: { SUBJECT_SHA: "${{ github.sha }}" }
+        run: |
+          node deploy/ocr/verify-reviews.mjs "$GITHUB_WORKSPACE" "$SUBJECT_SHA" > "$RUNNER_TEMP/review-documents.json"
+          printf "document_set_sha256=%s\n" "$(jq -er .documentSetSha256 "$RUNNER_TEMP/review-documents.json")" >> "$GITHUB_OUTPUT"
+      - run: |
+          set -euo pipefail
+          [[ "$(sha256sum apps/api/src/imports/ocr-synth-v1/quality-closure-policy.json | awk "{print \$1}")" == "$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" ]]
+          [[ "$(sha256sum apps/api/src/imports/ocr-synth-v1/ground-truth.json | awk "{print \$1}")" == "$(jq -r .corpus.sha256 deploy/ocr/infra-policy.json)" ]]
+          node --test deploy/ocr/test/*.test.mjs
+      - id: closure
+        run: |
+          node deploy/ocr/executable-closure.mjs . > "$RUNNER_TEMP/executable-closure.json"
+          printf "executable_digest=%s\n" "$(jq -er .digest "$RUNNER_TEMP/executable-closure.json")" >> "$GITHUB_OUTPUT"
+      - env:
+          NODE_IMAGE: ${{ vars.QUALIFICATION_NODE_IMAGE }}
+          SUBJECT_SHA: ${{ github.sha }}
+          SUBJECT_TREE: ${{ steps.identity.outputs.subject_tree }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/material"
+          docker buildx build --provenance=false --file deploy/ocr/Dockerfile --tag "$QUALIFICATION_TAG" --build-arg "NODE_IMAGE=$NODE_IMAGE" --build-arg "SUBJECT_SHA=$SUBJECT_SHA" --build-arg "SUBJECT_TREE=$SUBJECT_TREE" --build-arg "WORKFLOW_SHA=$GITHUB_WORKFLOW_SHA" --output "type=oci,dest=$RUNNER_TEMP/material/qualification.oci.tar" .
+          node deploy/ocr/artifact-digest.mjs create "$RUNNER_TEMP/material" qualification.oci.tar > "$RUNNER_TEMP/material/qualification.oci.digest.json"
+      - id: oci
+        run: |
+          set -euo pipefail
+          node deploy/ocr/artifact-digest.mjs verify "$RUNNER_TEMP/material" qualification.oci.digest.json
+          mkdir "$RUNNER_TEMP/layout" && tar -xf "$RUNNER_TEMP/material/qualification.oci.tar" -C "$RUNNER_TEMP/layout"
+          node deploy/ocr/oci-layout.mjs "$RUNNER_TEMP/layout" > "$RUNNER_TEMP/material/oci-identity.json"
+          printf "image_digest=%s\nconfig_digest=%s\n" "$(jq -er .imageDigest "$RUNNER_TEMP/material/oci-identity.json")" "$(jq -er .configDigest "$RUNNER_TEMP/material/oci-identity.json")" >> "$GITHUB_OUTPUT"
+      - name: Materialize no-Git capture snapshot authority
+        env:
+          OCR_SUBJECT_SHA: ${{ github.sha }}
+          OCR_SUBJECT_TREE: ${{ steps.identity.outputs.subject_tree }}
+          OCR_EXECUTABLE_DIGEST: ${{ steps.closure.outputs.executable_digest }}
+          OCR_QUALIFICATION_IMAGE_DIGEST: ${{ steps.oci.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          docker load --input "$RUNNER_TEMP/material/qualification.oci.tar"
+          docker run --rm --read-only --network none --cap-drop ALL --security-opt no-new-privileges --env OCR_SUBJECT_SHA --env OCR_SUBJECT_TREE --env OCR_EXECUTABLE_DIGEST --env OCR_QUALIFICATION_IMAGE_DIGEST "$QUALIFICATION_TAG" snapshot-authority > "$RUNNER_TEMP/material/capture-snapshot-authority.json"
+          node deploy/ocr/artifact-digest.mjs create "$RUNNER_TEMP/material" capture-snapshot-authority.json > "$RUNNER_TEMP/material/capture-snapshot-authority.digest.json"
+      - run: |
+          cp "$RUNNER_TEMP/review-documents.json" "$RUNNER_TEMP/executable-closure.json" "$RUNNER_TEMP/material/"
+          cp "$RUNNER_TEMP/producers/runtime/verified.json" "$RUNNER_TEMP/material/runtime-subject-binding.json"
+          cp "$RUNNER_TEMP/producers/recovery/verified.json" "$RUNNER_TEMP/material/recovery-evidence-binding.json"
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-qualification-oci-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/material/",
+            if-no-files-found: error,
+            retention-days: 7,
+          }
+
+  protected-reviews:
+    needs: offline-materialize
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              role: DATA_OWNER_RISK_ACCEPTANCE,
+              environment: ocr-review-data-owner-risk,
+              file: approval-data-owner-risk.json,
+              artifact: risk,
+            }
+          - {
+              role: SECURITY,
+              environment: ocr-review-security,
+              file: approval-security.json,
+              artifact: security,
+            }
+          - {
+              role: PRIVACY,
+              environment: ocr-review-privacy,
+              file: approval-privacy.json,
+              artifact: privacy,
+            }
+          - {
+              role: DATA_OWNER_FINAL,
+              environment: ocr-review-data-owner-final,
+              file: approval-data-owner-final.json,
+              artifact: owner,
+            }
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}
+    permissions: { actions: read, contents: read }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { ref: "${{ github.sha }}", persist-credentials: false }
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" > "$RUNNER_TEMP/history.json"
+          observed_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          node deploy/ocr/github-approval-evidence.mjs "$RUNNER_TEMP/history.json" "${{ matrix.role }}" "${{ matrix.environment }}" "$GITHUB_RUN_ID" "$GITHUB_WORKFLOW_SHA" "$observed_at" > "$RUNNER_TEMP/${{ matrix.file }}"
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-approval-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/${{ matrix.file }}",
+            if-no-files-found: error,
+            retention-days: 7,
+          }
+
+  capture-vertex:
+    needs: [offline-materialize, protected-reviews]
+    runs-on: ubuntu-latest
+    environment: ocr-qualification-capture
+    permissions: { actions: read, contents: read, id-token: write }
+    outputs:
+      raw_artifact_id: ${{ steps.raw.outputs.artifact-id }}
+      raw_artifact_digest: ${{ steps.raw.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          {
+            ref: "${{ github.sha }}",
+            fetch-depth: 0,
+            persist-credentials: false,
+          }
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          {
+            pattern: "ocr-*-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/transfer",
+            merge-multiple: true,
+          }
+      - id: reviews
+        env:
+          SUBJECT_SHA: ${{ github.sha }}
+          EXPECTED_DOCUMENT_SET: ${{ needs.offline-materialize.outputs.document_set_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$SUBJECT_SHA" == "$(git ls-remote origin refs/heads/main | awk "{print \$1}")" ]]
+          node deploy/ocr/artifact-digest.mjs verify "$RUNNER_TEMP/transfer" qualification.oci.digest.json
+          node deploy/ocr/artifact-digest.mjs verify "$RUNNER_TEMP/transfer" capture-snapshot-authority.digest.json
+          node deploy/ocr/verify-reviews.mjs . "$SUBJECT_SHA" "$RUNNER_TEMP/transfer" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/bound-reviews.json"
+          [[ "$(jq -er .documentSetSha256 "$RUNNER_TEMP/bound-reviews.json")" == "$EXPECTED_DOCUMENT_SET" ]]
+          jq -c .reviews "$RUNNER_TEMP/bound-reviews.json" > "$RUNNER_TEMP/reviews.json"
+          node scripts/ci/ocr-attestation.mjs canonicalize "$RUNNER_TEMP/reviews.json" > "$RUNNER_TEMP/canonical-reviews.json"
+          mv "$RUNNER_TEMP/canonical-reviews.json" "$RUNNER_TEMP/reviews.json"
+      - env:
+          {
+            EXPECTED_CONFIG_DIGEST: "${{ needs.offline-materialize.outputs.config_digest }}",
+          }
+        run: |
+          docker load --input "$RUNNER_TEMP/transfer/qualification.oci.tar"
+          [[ "$(docker image inspect "$QUALIFICATION_TAG" --format "{{.Id}}")" == "$EXPECTED_CONFIG_DIGEST" ]]
+      - env:
+          SUBJECT_SHA: ${{ github.sha }}
+          SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
+          QUALIFICATION_IMAGE_DIGEST: ${{ needs.offline-materialize.outputs.image_digest }}
+          EXECUTABLE_DIGEST: ${{ needs.offline-materialize.outputs.executable_digest }}
+        run: |
+          set -euo pipefail
+          PRODUCTION_IMAGE="$(jq -er .receipt.image.reference "$RUNNER_TEMP/transfer/runtime-subject-binding.json")"
+          [[ "$PRODUCTION_IMAGE" =~ ^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$ ]]
+          jq -nc --arg sha "$SUBJECT_SHA" --arg tree "$SUBJECT_TREE" --arg production "$PRODUCTION_IMAGE" --arg image "$QUALIFICATION_IMAGE_DIGEST" --arg executable "$EXECUTABLE_DIGEST" --arg workflow "$GITHUB_WORKFLOW_SHA" --arg policy "$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" --arg corpus "$(jq -r .corpus.sha256 deploy/ocr/infra-policy.json)" --arg reviews "$(sha256sum "$RUNNER_TEMP/reviews.json" | awk "{print \$1}")" --arg run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" --arg alias "$(jq -r .provider.requestedModelAlias deploy/ocr/infra-policy.json)" --arg prompt "$(jq -r .provider.promptSha256 deploy/ocr/infra-policy.json)" --arg admittedAt "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" --argjson limit "$(jq -r .pricing.maxTotalCostMicros deploy/ocr/infra-policy.json)" --argjson inputRate "$(jq -r .pricing.inputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --argjson outputRate "$(jq -r .pricing.outputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --argjson cases "$(jq -r .qualification.candidateCaseCount deploy/ocr/infra-policy.json)" "{schemaVersion:1,subjectSha:\$sha,subjectTree:\$tree,productionImage:\$production,qualificationImageDigest:\$image,executableDigest:\$executable,workflowSha:\$workflow,policySha256:\$policy,corpusSha256:\$corpus,reviewSetSha256:\$reviews,runId:\$run,runAttempt:\$attempt,currency:\"USD\",hardLimitMicros:\$limit,reservedMicros:\$limit,provider:\"GOOGLE_VERTEX_AI\",requestedModelAlias:\$alias,region:\"southamerica-east1\",endpoint:\"https://southamerica-east1-aiplatform.googleapis.com\",promptSha256:\$prompt,inputMicrosPerMillionTokens:\$inputRate,outputMicrosPerMillionTokens:\$outputRate,expectedCaseCount:\$cases,admittedAt:\$admittedAt}" > "$RUNNER_TEMP/spend-request.json"
+      - id: auth
+        uses: google-github-actions/auth@ba79af03959ebeac9769e648f473a284504d9193
+        with:
+          {
+            workload_identity_provider: "${{ secrets.GCP_CAPTURE_WIF_PROVIDER }}",
+            service_account: "${{ secrets.GCP_CAPTURE_SERVICE_ACCOUNT }}",
+            token_format: access_token,
+            create_credentials_file: false,
+            export_environment_variables: false,
+          }
+      - env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          OCR_GCP_PROJECT_ID: ${{ vars.GCP_CAPTURE_PROJECT_ID }}
+          SUBJECT_SHA: ${{ github.sha }}
+          SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
+          QUALIFICATION_IMAGE_DIGEST: ${{ needs.offline-materialize.outputs.image_digest }}
+          EXECUTABLE_DIGEST: ${{ needs.offline-materialize.outputs.executable_digest }}
+        run: |
+          set -euo pipefail
+          PRODUCTION_IMAGE="$(jq -er .receipt.image.reference "$RUNNER_TEMP/transfer/runtime-subject-binding.json")"
+          printf "%s" "$ACCESS_TOKEN" | docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --mount type=volume,destination=/opt/qualification/prisma --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m --env OCR_CAPTURE_AUTH_MODE=GITHUB_OIDC_WIF --env OCR_GCP_PROJECT_ID --env OCR_SUBJECT_SHA="$SUBJECT_SHA" --env OCR_SUBJECT_TREE="$SUBJECT_TREE" --env OCR_PRODUCTION_IMAGE="$PRODUCTION_IMAGE" --env OCR_QUALIFICATION_IMAGE_DIGEST="$QUALIFICATION_IMAGE_DIGEST" --env OCR_EXECUTABLE_DIGEST="$EXECUTABLE_DIGEST" --env OCR_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" --env OCR_WORKFLOW_RUN_ID="$GITHUB_RUN_ID" --env OCR_WORKFLOW_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" --env OCR_POLICY_SHA256="$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" --env OCR_CORPUS_SHA256="$(jq -r .corpus.sha256 deploy/ocr/infra-policy.json)" --env OCR_MAX_TOTAL_COST_MICROS="$(jq -r .pricing.maxTotalCostMicros deploy/ocr/infra-policy.json)" --env OCR_REQUESTED_MODEL_ALIAS="$(jq -r .provider.requestedModelAlias deploy/ocr/infra-policy.json)" --env OCR_PROMPT_SHA256="$(jq -r .provider.promptSha256 deploy/ocr/infra-policy.json)" --env OCR_INPUT_MICROS_PER_MILLION_TOKENS="$(jq -r .pricing.inputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --env OCR_OUTPUT_MICROS_PER_MILLION_TOKENS="$(jq -r .pricing.outputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --env OCR_EXPECTED_CASE_COUNT="$(jq -r .qualification.candidateCaseCount deploy/ocr/infra-policy.json)" --env OCR_REVIEW_SET_B64="$(base64 -w0 "$RUNNER_TEMP/reviews.json")" --env OCR_SPEND_REQUEST_B64="$(base64 -w0 "$RUNNER_TEMP/spend-request.json")" --env OCR_CAPTURE_AUTHORITY_B64="$(base64 -w0 "$RUNNER_TEMP/transfer/capture-snapshot-authority.json")" "$QUALIFICATION_TAG" capture > "$RUNNER_TEMP/raw-evidence.json"
+          mkdir "$RUNNER_TEMP/raw" && cp "$RUNNER_TEMP/raw-evidence.json" "$RUNNER_TEMP/reviews.json" "$RUNNER_TEMP/spend-request.json" "$RUNNER_TEMP/raw/"
+      - id: raw
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-raw-evidence-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/raw/",
+            if-no-files-found: error,
+            retention-days: 7,
+          }
+
+  verify-offline:
+    needs: [offline-materialize, capture-vertex]
+    runs-on: ubuntu-latest
+    permissions: { actions: read, contents: read }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { ref: "${{ github.sha }}", persist-credentials: false }
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          {
+            pattern: "ocr-*-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/verify",
+            merge-multiple: true,
+          }
+      - run: |
+          node deploy/ocr/artifact-digest.mjs verify "$RUNNER_TEMP/verify" qualification.oci.digest.json
+          docker load --input "$RUNNER_TEMP/verify/qualification.oci.tar"
+          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" offline-report < "$RUNNER_TEMP/verify/raw-evidence.json" > "$RUNNER_TEMP/report.json"
+      - id: report
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-offline-report-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/report.json",
+            if-no-files-found: error,
+            retention-days: 7,
+          }
+      - name: verify-candidate-artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAW_ARTIFACT_ID: ${{ needs.capture-vertex.outputs.raw_artifact_id }}
+          RAW_ARTIFACT_DIGEST: ${{ needs.capture-vertex.outputs.raw_artifact_digest }}
+          SUBJECT_SHA: ${{ github.sha }}
+          SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RAW_ARTIFACT_ID" > "$RUNNER_TEMP/verify/raw-artifact-metadata.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RAW_ARTIFACT_ID/zip" > "$RUNNER_TEMP/verify/raw-artifact.zip"
+          [[ "$(jq -er .digest "$RUNNER_TEMP/verify/raw-artifact-metadata.json")" == "sha256:$RAW_ARTIFACT_DIGEST" ]]
+          unzip -p "$RUNNER_TEMP/verify/raw-artifact.zip" raw-evidence.json | cmp - "$RUNNER_TEMP/verify/raw-evidence.json"
+          base64 -w0 "$RUNNER_TEMP/verify/raw-artifact.zip" > "$RUNNER_TEMP/verify/raw-artifact.zip.b64"
+          jq -n --rawfile archive "$RUNNER_TEMP/verify/raw-artifact.zip.b64" --argjson repositoryId "$GITHUB_REPOSITORY_ID" --arg workflowPath ".github/workflows/ocr-qualification.yml" --arg workflowSha "$GITHUB_WORKFLOW_SHA" --argjson runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg headSha "$SUBJECT_SHA" --arg headTree "$SUBJECT_TREE" --argjson artifactId "$RAW_ARTIFACT_ID" --arg artifactName "ocr-raw-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --arg artifactDigest "sha256:$RAW_ARTIFACT_DIGEST" --arg memberName "raw-evidence.json" '{expected:{repositoryId:$repositoryId,workflowPath:$workflowPath,workflowRunId:$runId,workflowRunAttempt:$runAttempt,artifactId:$artifactId,artifactName:$artifactName,workflowSha:$workflowSha,workflowHeadSha:$headSha,workflowHeadTree:$headTree,subjectSha:$headSha,subjectTree:$headTree,memberName:$memberName},metadata:{id:$artifactId,name:$artifactName,expired:false,digest:$artifactDigest,workflow_run:{id:$runId,head_sha:$headSha}},archiveBytesBase64:$archive,bindings:{workflowPath:$workflowPath,workflowSha:$workflowSha,workflowHeadTree:$headTree,subjectSha:$headSha,subjectTree:$headTree}}' > "$RUNNER_TEMP/verify/candidate-artifact.json"
+      - env:
+          EVIDENCE_CLASS: LIVE
+          OCR_RAW_ARTIFACT_ID: ${{ needs.capture-vertex.outputs.raw_artifact_id }}
+          OCR_RAW_ARTIFACT_DIGEST: sha256:${{ needs.capture-vertex.outputs.raw_artifact_digest }}
+          OCR_RAW_ARTIFACT_NAME: ocr-raw-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          OCR_RAW_ARTIFACT_MEMBER: raw-evidence.json
+          OCR_AUTH_WORKFLOW_PATH: .github/workflows/ocr-qualification.yml
+          OCR_AUTH_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          OCR_AUTH_WORKFLOW_HEAD_SHA: ${{ github.sha }}
+          OCR_AUTH_WORKFLOW_HEAD_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
+          OCR_SUBJECT_SHA: ${{ github.sha }}
+          OCR_SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
+        run: |
+          set -euo pipefail
+          jq -n --arg evidenceClass "$EVIDENCE_CLASS" --slurpfile evidence "$RUNNER_TEMP/verify/raw-evidence.json" --slurpfile report "$RUNNER_TEMP/report.json" --slurpfile candidate "$RUNNER_TEMP/verify/candidate-artifact.json" '{evidenceClass:$evidenceClass,report:$report[0],rawEvidence:$evidence[0],candidateArtifact:$candidate[0]}' > "$RUNNER_TEMP/assessment-bundle.json"
+          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m --env GITHUB_REPOSITORY_ID --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT --env OCR_RAW_ARTIFACT_ID --env OCR_RAW_ARTIFACT_DIGEST --env OCR_RAW_ARTIFACT_NAME --env OCR_RAW_ARTIFACT_MEMBER --env OCR_AUTH_WORKFLOW_PATH --env OCR_AUTH_WORKFLOW_SHA --env OCR_AUTH_WORKFLOW_HEAD_SHA --env OCR_AUTH_WORKFLOW_HEAD_TREE --env OCR_SUBJECT_SHA --env OCR_SUBJECT_TREE "$QUALIFICATION_TAG" assess-report - < "$RUNNER_TEMP/assessment-bundle.json" > "$RUNNER_TEMP/report-assessment.json"
+      - id: assessment
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-report-assessment-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/report-assessment.json",
+            if-no-files-found: error,
+            retention-days: 7,
+          }
+      - name: Block signing unless independently recomputed V4 assessment passes
+        run: |
+          set -euo pipefail
+          jq -e ".reportSchemaVersion == 4 and .releaseStatus == \"PASS\" and .signable == true and (.issues | length) == 0" "$RUNNER_TEMP/report-assessment.json"
+      - name: Build payload and unsigned package only after persisted PASS
+        env:
+          OCR_SUBJECT_SHA: ${{ github.sha }}
+          OCR_SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
+          OCR_IMAGE_DIGEST: ${{ needs.offline-materialize.outputs.image_digest }}
+          OCR_EXECUTABLE_DIGEST: ${{ needs.offline-materialize.outputs.executable_digest }}
+          OCR_RAW_ARTIFACT_ID: ${{ needs.capture-vertex.outputs.raw_artifact_id }}
+          OCR_REPORT_ARTIFACT_ID: ${{ steps.report.outputs.artifact-id }}
+          OCR_KMS_KEY_RESOURCE: ${{ vars.GCP_KMS_KEY_RESOURCE }}
+          OCR_KMS_KEY_VERSION: ${{ vars.GCP_KMS_CRYPTO_KEY_VERSION }}
+          OCR_KMS_PUBLIC_KEY_SHA256: ${{ vars.GCP_KMS_PUBLIC_KEY_SHA256 }}
+          OCR_ASSESSMENT_ARTIFACT_ID: ${{ steps.assessment.outputs.artifact-id }}
+          OCR_ASSESSMENT_ARTIFACT_DIGEST: sha256:${{ steps.assessment.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/unsigned"
+          node deploy/ocr/workflow-payload-template.mjs "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/reviews.json" deploy/ocr/infra-policy.json "$RUNNER_TEMP/verify/runtime-subject-binding.json" "$RUNNER_TEMP/verify/recovery-evidence-binding.json" "$RUNNER_TEMP/report-assessment.json" "$RUNNER_TEMP/verify/spend-request.json" > "$RUNNER_TEMP/template.json"
+          node deploy/ocr/evidence-bundle.mjs "$RUNNER_TEMP/template.json" "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/spend-request.json" "$RUNNER_TEMP/report-assessment.json" > "$RUNNER_TEMP/unsigned-bundle.json"
+          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" build-unsigned - < "$RUNNER_TEMP/unsigned-bundle.json" > "$RUNNER_TEMP/unsigned/unsigned-package.json"
+          node scripts/ci/ocr-attestation.mjs extract-activation-draft "$RUNNER_TEMP/unsigned/unsigned-package.json" > "$RUNNER_TEMP/unsigned/activation-payload-draft.json"
+          node scripts/ci/ocr-attestation.mjs extract-runtime-payload "$RUNNER_TEMP/unsigned/unsigned-package.json" > "$RUNNER_TEMP/unsigned/runtime-payload.json"
+          cmp "$RUNNER_TEMP/unsigned/runtime-payload.json" <(node scripts/ci/ocr-attestation.mjs canonicalize "$RUNNER_TEMP/unsigned/runtime-payload.json")
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-unsigned-attestation-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/unsigned/",
+            if-no-files-found: error,
+            retention-days: 7,
+          }
+
+  sign-kms:
+    needs: verify-offline
+    runs-on: ubuntu-latest
+    environment: ocr-qualification-signing
+    permissions: { actions: read, contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { ref: "${{ github.sha }}", persist-credentials: false }
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          {
+            name: "ocr-unsigned-attestation-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/unsigned",
+          }
+      - name: Fail before KMS unless trust and exact unsigned bytes are ready
+        env:
+          SUBJECT_SHA: ${{ github.sha }}
+          KEY_ID: ${{ vars.GCP_KMS_CRYPTO_KEY_VERSION }}
+          PUBLIC_KEY_SHA256: ${{ vars.GCP_KMS_PUBLIC_KEY_SHA256 }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]
+          [[ "$SUBJECT_SHA" == "$(git ls-remote origin refs/heads/main | awk "{print \$1}")" ]]
+          node scripts/ci/ocr-attestation.mjs validate-trust apps/api/src/imports/import-session/ocr/ocr-release-trust.json
+          jq -e --arg keyId "$KEY_ID" --arg hash "$PUBLIC_KEY_SHA256" --arg workflow "$GITHUB_WORKFLOW_SHA" ".keys[] | select(.keyId==\$keyId and .algorithm==\"EC_SIGN_P256_SHA256\" and .publicKeySha256==\$hash and .allowedWorkflowSha==\$workflow)" apps/api/src/imports/import-session/ocr/ocr-release-trust.json >/dev/null
+          cmp "$RUNNER_TEMP/unsigned/runtime-payload.json" <(node scripts/ci/ocr-attestation.mjs canonicalize "$RUNNER_TEMP/unsigned/runtime-payload.json")
+          runtime_digest="$(openssl dgst -sha256 -binary "$RUNNER_TEMP/unsigned/runtime-payload.json" | base64 -w0)"
+          jq -nc --arg digest "$runtime_digest" "{digest:{sha256:\$digest}}" > "$RUNNER_TEMP/runtime-kms-request.json"
+      - id: auth
+        uses: google-github-actions/auth@ba79af03959ebeac9769e648f473a284504d9193
+        with:
+          {
+            workload_identity_provider: "${{ secrets.GCP_SIGNING_WIF_PROVIDER }}",
+            service_account: "${{ secrets.GCP_SIGNING_SERVICE_ACCOUNT }}",
+            token_format: access_token,
+            create_credentials_file: false,
+            export_environment_variables: false,
+          }
+      - name: Sign exact runtime bytes then cross-bound rich activation subject
+        env:
+          KMS_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          KEY_RESOURCE: ${{ vars.GCP_KMS_KEY_RESOURCE }}
+          KEY_ID: ${{ vars.GCP_KMS_CRYPTO_KEY_VERSION }}
+          PUBLIC_KEY_SHA256: ${{ vars.GCP_KMS_PUBLIC_KEY_SHA256 }}
+        run: |
+          set -euo pipefail
+          endpoint="https://cloudkms.googleapis.com/v1/${KEY_ID}:asymmetricSign"
+          runtime_config="$RUNNER_TEMP/runtime-kms-curl.conf"
+          activation_config="$RUNNER_TEMP/activation-kms-curl.conf"
+          cleanup() { rm -f "$runtime_config" "$activation_config"; }
+          trap cleanup EXIT
+
+          node deploy/ocr/kms-curl-config.mjs "$runtime_config" "$RUNNER_TEMP/runtime-kms-request.json" "$RUNNER_TEMP/runtime-kms-response.json" "$endpoint"
+          [[ "$(stat -c %a "$runtime_config")" == "600" ]]
+          curl --config "$runtime_config"
+          rm -f "$runtime_config"
+          jq -nc --arg keyId "$KEY_ID" --arg signature "$(jq -er .signature "$RUNNER_TEMP/runtime-kms-response.json")" "{keyId:\$keyId,algorithm:\"EC_SIGN_P256_SHA256\",valueBase64:\$signature}" > "$RUNNER_TEMP/runtime-signature.json"
+          node scripts/ci/ocr-attestation.mjs make-runtime-envelope "$RUNNER_TEMP/unsigned/runtime-payload.json" "$RUNNER_TEMP/runtime-signature.json" > "$RUNNER_TEMP/runtime-release-envelope.json"
+          node scripts/ci/ocr-attestation.mjs verify-runtime "$RUNNER_TEMP/runtime-release-envelope.json" apps/api/src/imports/import-session/ocr/ocr-release-trust.json > "$RUNNER_TEMP/verified-runtime-payload.json"
+          cmp "$RUNNER_TEMP/unsigned/runtime-payload.json" "$RUNNER_TEMP/verified-runtime-payload.json"
+
+          node scripts/ci/ocr-attestation.mjs finalize-activation "$RUNNER_TEMP/unsigned/activation-payload-draft.json" "$RUNNER_TEMP/runtime-release-envelope.json" > "$RUNNER_TEMP/activation-payload.json"
+          activation_digest="$(openssl dgst -sha256 -binary "$RUNNER_TEMP/activation-payload.json" | base64 -w0)"
+          jq -nc --arg digest "$activation_digest" "{digest:{sha256:\$digest}}" > "$RUNNER_TEMP/activation-kms-request.json"
+          node deploy/ocr/kms-curl-config.mjs "$activation_config" "$RUNNER_TEMP/activation-kms-request.json" "$RUNNER_TEMP/activation-kms-response.json" "$endpoint"
+          unset KMS_ACCESS_TOKEN
+          [[ "$(stat -c %a "$activation_config")" == "600" ]]
+          curl --config "$activation_config"
+          rm -f "$activation_config"
+          trap - EXIT
+
+          jq -nc --arg key "$KEY_RESOURCE" --arg version "$KEY_ID" --arg hash "$PUBLIC_KEY_SHA256" --arg signature "$(jq -er .signature "$RUNNER_TEMP/activation-kms-response.json")" "{keyResource:\$key,cryptoKeyVersion:\$version,algorithm:\"EC_SIGN_P256_SHA256\",publicKeySha256:\$hash,valueBase64:\$signature}" > "$RUNNER_TEMP/activation-signature.json"
+          node scripts/ci/ocr-attestation.mjs make-envelope "$RUNNER_TEMP/activation-payload.json" "$RUNNER_TEMP/activation-signature.json" > "$RUNNER_TEMP/attestation-envelope.json"
+          node scripts/ci/ocr-attestation.mjs verify "$RUNNER_TEMP/attestation-envelope.json" apps/api/src/imports/import-session/ocr/ocr-release-trust.json > "$RUNNER_TEMP/verified-activation-payload.json"
+          node scripts/ci/ocr-attestation.mjs verify-cross-binding "$RUNNER_TEMP/verified-activation-payload.json" "$RUNNER_TEMP/runtime-release-envelope.json"
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-runtime-release-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/runtime-release-envelope.json",
+            if-no-files-found: error,
+            retention-days: 30,
+          }
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-signed-attestation-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/attestation-envelope.json",
+            if-no-files-found: error,
+            retention-days: 30,
+          }

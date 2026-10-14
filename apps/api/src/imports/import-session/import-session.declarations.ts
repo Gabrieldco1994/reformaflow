@@ -13,7 +13,7 @@ import {
   parseImportDeclarationLiteral,
   type ImportDeclarationAnswerV1,
   type ImportDeclarationContextV1,
-  type ImportSessionDocumentaryAnswerRequestV1,
+  type ImportSessionFactDocumentaryAnswerRequestV1,
   type ImportSessionQuestionV1,
   type ImportDeclaredFactViewV1,
   type ImportHumanFactFieldV1,
@@ -353,6 +353,7 @@ export function resolveImportDeclarations(
             ? original.identity.merchant
             : original[item.field];
         if (
+          !original.ocr &&
           known !== null &&
           known !== "UNKNOWN" &&
           item.value !== null &&
@@ -369,7 +370,7 @@ export function resolveImportDeclarations(
         if (!item || !hasValue(item)) continue;
         const known =
           field === "merchant" ? original.identity.merchant : original[field];
-        if (known !== null && known !== "UNKNOWN") continue;
+        if (!original.ocr && known !== null && known !== "UNKNOWN") continue;
         if (
           field === "amountCents" &&
           item.meaningContext !== effective.amountMeaning
@@ -392,6 +393,9 @@ export function resolveImportDeclarations(
       const wanted = new Set<ImportHumanFactFieldV1>(
         stored.map((item) => item.field),
       );
+      // Direct OCR is evidence, never authority. Even complete provider fields
+      // require a current native documentary answer before preparation.
+      if (original.ocr) for (const field of fields) wanted.add(field);
       if (original.dataCompra === null) wanted.add("dataCompra");
       if (original.identity.merchant === null) wanted.add("merchant");
       if (original.amountMeaning === "UNKNOWN") wanted.add("amountMeaning");
@@ -411,7 +415,7 @@ export function resolveImportDeclarations(
         !(
           effective.installmentCount === 1 &&
           (line.decision.kind === "KEEP_EXISTING" ||
-            effective.amountMeaning === "INSTALLMENT_CHARGE")
+            effective.amountMeaning === Meaning.INSTALLMENT_CHARGE)
         )
       )
         wanted.add("installmentIndex");
@@ -511,7 +515,7 @@ export function recordImportDeclaration(
     userId: string;
     turnId: string;
     now: Date;
-    channel: ImportSessionDocumentaryAnswerRequestV1["channel"];
+    channel: ImportSessionFactDocumentaryAnswerRequestV1["channel"];
   },
   originalLiteralHash?: string,
 ): ImportSessionStoredDraftV1 {
@@ -761,12 +765,67 @@ export function reconcileImportDeclarationDraft(
   return validateStoredDraft({ ...draft, lines, questions });
 }
 
+/** Selected OCR evidence must be bound to this artifact and explicitly attested. */
+export function assertSelectedOcrAttestationsCurrent(
+  draft: ImportSessionStoredDraftV1,
+  resolution: ImportDeclarationResolution,
+  material: ImportDeclarationMaterial,
+): void {
+  for (const line of draft.lines) {
+    if (!draft.selectedLineIds.includes(line.id)) continue;
+    const byObservation = resolution.byLine.get(line.id);
+    if (!byObservation) throw stale();
+    for (const [observationId, resolved] of byObservation) {
+      const ocr = resolved.original.ocr;
+      if (!ocr) continue;
+      const row = material.observations.find(
+        (item) => item.id === observationId,
+      );
+      const binding = material.references.find(
+        ({ ref }) => ref.artifactId === row?.artifactId,
+      );
+      if (
+        !row ||
+        !binding?.artifact ||
+        binding.ref.id !== ocr.attachmentId ||
+        binding.artifact.documentSha256 !== ocr.artifactSha256
+      )
+        throw new ImportSessionError(Code.REVIEW_REQUIRED);
+      const questions = resolution.questions.filter(
+        (question) =>
+          question.lineIds[0] === line.id &&
+          question.subject.observationId === observationId,
+      );
+      if (
+        fields.some(
+          (field) =>
+            !questions.some(
+              (question) =>
+                question.field === field && question.answerState === "DECLARED",
+            ),
+        )
+      )
+        throw new ImportSessionError(Code.REVIEW_REQUIRED);
+      const facts = resolved.effective;
+      if (
+        line.titulo !== facts.merchant ||
+        line.fornecedor !== facts.merchant ||
+        line.dataCompra !== facts.dataCompra ||
+        line.amountMeaning !== facts.amountMeaning ||
+        line.installmentCount !== facts.installmentCount ||
+        line.amountCents !== facts.amountCents
+      )
+        throw new ImportSessionError(Code.REVIEW_REQUIRED);
+    }
+  }
+}
+
 /** Resolve hashed question, fingerprint, claim and meaning only from locked server material. */
 export function recordNativeImportDeclaration(
   session: Session,
   draft: ImportSessionStoredDraftV1,
   material: ImportDeclarationMaterial,
-  request: ImportSessionDocumentaryAnswerRequestV1,
+  request: ImportSessionFactDocumentaryAnswerRequestV1,
   actor: { userId: string; now: Date },
 ): ImportSessionStoredDraftV1 {
   const resolution = resolveImportDeclarations(session, draft, material);

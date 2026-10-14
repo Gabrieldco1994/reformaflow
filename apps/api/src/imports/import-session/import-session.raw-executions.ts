@@ -12,7 +12,7 @@ import {
   importIntakeEnabled,
 } from "./import-session.capability";
 import { extractCardStatementDocument } from "../../credit-card/parsers/statement-document";
-import { extractPdfDocument } from "../../credit-card/parsers/pdf-document";
+import { inspectPdfDocument } from "../../credit-card/parsers/pdf-document";
 import {
   DocumentExtractionError,
   type DocumentExtractionV1,
@@ -27,7 +27,8 @@ export interface ImportCsvSettlement {
 }
 export interface ImportCsvRunHandle {
   readonly result: Promise<
-    Readonly<{ kind: "SUCCESS"; document: DocumentExtractionV1 }>
+    | Readonly<{ kind: "SUCCESS"; document: DocumentExtractionV1 }>
+    | Readonly<{ kind: "OCR_ELIGIBLE"; pageCount: number }>
   >;
   readonly settled: Promise<ImportCsvSettlement>;
 }
@@ -235,13 +236,15 @@ export class ImportRawExecutions {
     if (entry.started || entry.input.documentFormat !== "PDF")
       throw new ImportSessionError(Code.LEASE_CONFLICT);
     entry.started = true;
-    const result = extractPdfDocument(
+    const result = inspectPdfDocument(
       bytes,
       admission.signal,
       entry.input.deadlineMonotonicMs - performance.now(),
-    ).then((document) => {
+    ).then((inspection) => {
       this.assertLive(admission);
-      return { kind: "SUCCESS" as const, document };
+      return inspection.kind === "LOCAL"
+        ? { kind: "SUCCESS" as const, document: inspection.document }
+        : inspection;
     });
     const settled = result.then(
       () => ({ cleanup: "CLEAN" as const }),

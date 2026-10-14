@@ -12,6 +12,7 @@ export * from "./price-monitor";
 export * from "./import-session";
 export * from "./import-focused-answer";
 export * from "./import-declaration";
+export * from "./import-ocr";
 export * from "./money-parse";
 // NÃO exportar `./testing/*` aqui: são builders de fixture (com sequência
 // mutável de ids) e não fazem parte da API pública do domínio. Testes os

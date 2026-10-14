@@ -24,6 +24,7 @@ model Tenant {
   projects Project[]
   agentDailyQuotas AgentDailyQuota[]
   demoSeeds DemoSeed[]
+  importOcrUsages ImportOcrUsage[]
 
   @@map("tenants")
 }
@@ -1366,11 +1367,13 @@ model ImportSession {
   confirmedAt             DateTime? @map("confirmed_at")
   receiptJson             String?   @map("receipt_json")
   closedAt                DateTime? @map("closed_at")
+  ocrJson                 String?   @map("ocr_json")
 
   ownerUser           User                    @relation(fields: [tenantId, ownerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   ownerProject        Project                 @relation(fields: [tenantId, ownerProjectId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   card                CreditCard              @relation(fields: [tenantId, ownerProjectId, cardId], references: [tenantId, projectId, id], onDelete: Restrict, onUpdate: Restrict)
   attachments         ImportSessionArtifact[]
+  ocrUsages           ImportOcrUsage[]
   leasedArtifacts     ImportArtifact[]        @relation("ImportArtifactLeaseSession")
   claimedObservations ImportObservation[]     @relation("ImportObservationClaimSession")
 
@@ -1379,6 +1382,47 @@ model ImportSession {
   @@unique([tenantId, ownerProjectId, id])
   @@index([state, expiresAt])
   @@map("import_sessions")
+}
+
+model ImportOcrUsage {
+  id                String   @id @default(uuid())
+  day               String
+  tenantId          String   @map("tenant_id")
+  ownerProjectId    String   @map("owner_project_id")
+  actorId           String   @map("actor_id")
+  sessionId         String   @map("session_id")
+  attachmentId      String   @map("attachment_id")
+  artifactId        String   @map("artifact_id")
+  artifactSha256    String   @map("artifact_sha256")
+  requestId         String   @map("request_id")
+  provider          String
+  model             String
+  region            String?
+  modelVersion      String?  @map("model_version")
+  authTrace         String?  @map("auth_trace")
+  reservedCalls     Int      @map("reserved_calls")
+  reservedPages     Int      @map("reserved_pages")
+  reservedBytes     Int      @map("reserved_bytes")
+  reservedCostUnits Int      @map("reserved_cost_units")
+  inputTokens       Int?     @map("input_tokens")
+  outputTokens      Int?     @map("output_tokens")
+  totalTokens       Int?     @map("total_tokens")
+  responseId        String?  @map("response_id")
+  outcome           String
+  contentPurgedAt   DateTime? @map("content_purged_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  session    ImportSession         @relation(fields: [tenantId, ownerProjectId, sessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+  attachment ImportSessionArtifact @relation(fields: [tenantId, ownerProjectId, sessionId, attachmentId], references: [tenantId, ownerProjectId, sessionId, id], onDelete: Restrict, onUpdate: Restrict)
+  artifact   ImportArtifact        @relation(fields: [tenantId, ownerProjectId, artifactId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, sessionId, attachmentId])
+  @@index([day])
+  @@index([day, tenantId])
+  @@index([day, tenantId, actorId])
+  @@map("import_ocr_usage")
 }
 
 model ImportArtifact {
@@ -1404,6 +1448,7 @@ model ImportArtifact {
   leaseSession ImportSession?          @relation("ImportArtifactLeaseSession", fields: [tenantId, ownerProjectId, leaseSessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
   references   ImportSessionArtifact[]
   observations ImportObservation[]
+  ocrUsages    ImportOcrUsage[]
 
   @@unique([tenantId, ownerProjectId, documentSha256])
   @@unique([tenantId, ownerProjectId, id])
@@ -1435,9 +1480,11 @@ model ImportSessionArtifact {
 
   session  ImportSession   @relation(fields: [tenantId, ownerProjectId, sessionId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
   artifact ImportArtifact? @relation(fields: [tenantId, ownerProjectId, artifactId], references: [tenantId, ownerProjectId, id], onDelete: Restrict, onUpdate: Restrict)
+  ocrUsages ImportOcrUsage[]
 
   @@unique([sessionId, position])
   @@unique([sessionId, artifactId])
+  @@unique([tenantId, ownerProjectId, sessionId, id])
   @@index([tenantId, ownerProjectId, artifactId])
   @@map("import_session_artifacts")
 }

@@ -175,8 +175,21 @@ function viewFixture(
     declaredFacts: [],
     reviewBlockers: [],
     actions: ["CANCEL"],
+    ocrCapability: {
+      status: "DISABLED",
+      consentPolicyVersion: 1,
+      provider: "GOOGLE_VERTEX_AI",
+      purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+      region: "southamerica-east1",
+      retentionDays: 7,
+      sendsFullOriginal: true,
+      includesMetadataAndEmbeddedContent: true,
+      includesPotentiallyNonVisibleContent: true,
+      attachments: [],
+      terminalOutcomes: [],
+    },
     ...overrides,
-  };
+  } as ImportSessionViewV1;
 }
 
 function documentaryView(
@@ -320,6 +333,29 @@ beforeEach(() => {
           entry,
         });
       if (path === "/tenant/credit-cards") return reply([CARD]);
+      const terminalOutcomes = path.match(
+        /^\/import-sessions\/([^/]+)\/terminal-outcomes-v1$/,
+      );
+      if (terminalOutcomes) {
+        const requestedId = decodeURIComponent(terminalOutcomes[1]);
+        const legacyPath = `/import-sessions/${terminalOutcomes[1]}`;
+        const legacyResponse = await sessionRead(requestedId, {
+          ...request,
+          path: legacyPath,
+        });
+        if (!legacyResponse.ok) return legacyResponse;
+        const legacyView = (await legacyResponse.json()) as {
+          revision?: unknown;
+        };
+        if (!Number.isInteger(legacyView.revision))
+          throw new Error("Supported session fixture requires a revision");
+        return reply({
+          version: 1,
+          sessionId: requestedId,
+          revision: legacyView.revision,
+          outcomes: [],
+        });
+      }
       const session = path.match(/^\/import-sessions\/([^/]+)$/);
       if (session) return sessionRead(decodeURIComponent(session[1]), request);
       throw new Error(`Unexpected readonly request ${path}`);

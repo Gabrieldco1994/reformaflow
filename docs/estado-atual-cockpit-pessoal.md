@@ -60,12 +60,15 @@ estar em andamento; ela não altera esta tela nem os contratos abaixo.
   `NEXT_PUBLIC_FEATURE_CONTA_LENTE_POR_TIPO` (padrão desabilitado); ativação em produção não
   verificada. #456 permanece OPEN para o restante do escopo; `upcoming`/`top-suppliers` (#635) é
   follow-up separado.
-- Maria agent-first integral permanece FUTURO. **Em 2026-09-28, novo gate PO autorizou
-  somente o recorte de importação M1/M2 — NÃO ENTREGUE**, com consentimento documental
-  separado de **Confirmar lote**, card por revisão e retenção de sete dias sem edição.
-  Security PASS é conceitual; **seis gaps técnicos continuam pendentes com architect**.
-  O contrato prospectivo deve ser commitado antes do código consumidor de novas sessões;
-  não comprova conformidade do runtime, release ou deploy. Ver
+- Maria agent-first integral permanece FUTURO. O snapshot de implementação
+  `6867ba991f4c39deb19bb48ead0cda62a2a9a131` contém o recorte M1/M2 de importação
+  CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da #719, com
+  consentimento documental separado de **Confirmar lote**. A verdade de release será o HEAD
+  corrente da PR `feat/719-final-ocr` quando ela for aberta. Isso não comprova merge, release,
+  deploy, produção ou disponibilidade: vault e OCR permanecem OFF por padrão, e o OCR ainda exige
+  a qualificação Vertex ao vivo e revisões finais do
+  [runbook #732](732-direct-pdf-vertex-eval.md). PNG/JPEG/WEBP, fotos e imagens avulsas continuam
+  futuros. Ver
   [limites no SDD](plano-centro-financeiro-sdd.md#24-recorte-de-importação-maria) e
   [contrato Maria](maria-ia.md#importação-consentimentos-confirmação-e-retenção).
 - Hardening H1–H5 está bloqueado e separado; não foi entregue pelo programa.
@@ -141,7 +144,7 @@ refletido aqui pelo D0 somente quando uma mudança de runtime for entregue.
   nunca lança nada sozinho. e2e cobre criação de cenário + item financiamento +
   troca de horizonte sem novo fetch, e a pré-carga via deep-link.
 - ✅ **Detalhe e manutenção segura do rateio** (issues #423 e #428): `GET
-  :id/rateio` aceita como âncora a fonte ou um alvo, resolve o
+:id/rateio` aceita como âncora a fonte ou um alvo, resolve o
   `sourceExpenseId` canônico e enumera o conjunto completo de
   `RateioAllocation` autorizado (não só a primeira, que é o que
   `linkedExpenseId` reflete). Na fonte PESSOAL, o `RatearCompraModal`

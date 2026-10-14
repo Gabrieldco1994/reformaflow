@@ -7,6 +7,11 @@ import {
   IMPORT_SESSION_LIMITS,
   IMPORT_SESSION_PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
+  PDF_OCR_MODEL_ID,
+  PDF_OCR_MODEL_VERSION_PATTERN,
+  PDF_OCR_PROVIDER_ID,
+  PDF_OCR_REGION,
+  PDF_OCR_VERSION,
   ImportSessionAmountMeaning,
   ImportSessionAttachmentState,
   ImportSessionErrorCode,
@@ -49,6 +54,22 @@ export interface StoredImportObservationEvidenceV1 {
     ordinal: number | null;
     fileContentHash: string | null;
   };
+  /** Server-derived binding for direct Vertex candidates; absent on local/legacy rows. */
+  ocr?: {
+    provenanceVersion: 2;
+    usageId: string;
+    attachmentId: string;
+    artifactSha256: string;
+    provider: typeof PDF_OCR_PROVIDER_ID;
+    model: typeof PDF_OCR_MODEL_ID;
+    modelVersion: string;
+    region: typeof PDF_OCR_REGION;
+    authTrace: "LOCAL_ADC" | "SERVICE_ACCOUNT_FILE_ADC";
+    requestId: string;
+    responseId: string;
+    candidateFingerprint: string;
+    pageNumber: number;
+  };
 }
 
 const EVIDENCE_KEYS = [
@@ -69,8 +90,25 @@ const IDENTITY_KEYS = [
   "ordinal",
   "fileContentHash",
 ];
+const OCR_KEYS = [
+  "provenanceVersion",
+  "usageId",
+  "attachmentId",
+  "artifactSha256",
+  "provider",
+  "model",
+  "modelVersion",
+  "region",
+  "authTrace",
+  "requestId",
+  "responseId",
+  "candidateFingerprint",
+  "pageNumber",
+];
 const FILE_CONTENT_HASH = /^[0-9a-f]{32}$/;
 const ID = new RegExp(IMPORT_SESSION_PRIMITIVES.idPattern);
+const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
+const MODEL_VERSION = new RegExp(PDF_OCR_MODEL_VERSION_PATTERN);
 const id = (value: unknown): value is string =>
   typeof value === "string" && ID.test(value);
 const corrupt = () => new ImportSessionCorruptStateError("evidence_json");
@@ -127,7 +165,9 @@ export function parseStoredImportObservationEvidence(
     !record(value) ||
     !(
       exact(value, EVIDENCE_KEYS) ||
-      exact(value, [...EVIDENCE_KEYS, "sourceDescription"])
+      exact(value, [...EVIDENCE_KEYS, "sourceDescription"]) ||
+      exact(value, [...EVIDENCE_KEYS, "ocr"]) ||
+      exact(value, [...EVIDENCE_KEYS, "sourceDescription", "ocr"])
     ) ||
     ("sourceDescription" in value &&
       // Documentary raw fields are intentionally neither NFC nor display-length
@@ -150,6 +190,38 @@ export function parseStoredImportObservationEvidence(
   )
     throw corrupt();
   const identity = value.identity;
+  const ocr = "ocr" in value && record(value.ocr) ? value.ocr : null;
+  if (
+    "ocr" in value &&
+    (!ocr ||
+      !exact(ocr, OCR_KEYS) ||
+      ocr.provenanceVersion !== PDF_OCR_VERSION ||
+      typeof ocr.usageId !== "string" ||
+      !ID.test(ocr.usageId) ||
+      typeof ocr.attachmentId !== "string" ||
+      !ID.test(ocr.attachmentId) ||
+      typeof ocr.artifactSha256 !== "string" ||
+      !new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern).test(
+        ocr.artifactSha256,
+      ) ||
+      ocr.provider !== PDF_OCR_PROVIDER_ID ||
+      ocr.model !== PDF_OCR_MODEL_ID ||
+      typeof ocr.modelVersion !== "string" ||
+      !MODEL_VERSION.test(ocr.modelVersion) ||
+      ocr.region !== PDF_OCR_REGION ||
+      (ocr.authTrace !== "LOCAL_ADC" &&
+        ocr.authTrace !== "SERVICE_ACCOUNT_FILE_ADC") ||
+      typeof ocr.requestId !== "string" ||
+      !REQUEST_ID.test(ocr.requestId) ||
+      !text(ocr.responseId, 1, IMPORT_SESSION_PRIMITIVES.maxReferenceLength) ||
+      typeof ocr.candidateFingerprint !== "string" ||
+      !new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern).test(
+        ocr.candidateFingerprint,
+      ) ||
+      !Number.isSafeInteger(ocr.pageNumber) ||
+      (ocr.pageNumber as number) < 1)
+  )
+    throw corrupt();
   if (
     !nullableText(
       identity.merchant,
@@ -191,6 +263,27 @@ export function parseStoredImportObservationEvidence(
       ordinal: identity.ordinal,
       fileContentHash: identity.fileContentHash,
     }),
+    ...(ocr
+      ? {
+          ocr: Object.freeze({
+            provenanceVersion: PDF_OCR_VERSION,
+            usageId: ocr.usageId as string,
+            attachmentId: ocr.attachmentId as string,
+            artifactSha256: ocr.artifactSha256 as string,
+            provider: PDF_OCR_PROVIDER_ID,
+            model: PDF_OCR_MODEL_ID,
+            modelVersion: ocr.modelVersion as string,
+            region: PDF_OCR_REGION,
+            authTrace: ocr.authTrace as
+              | "LOCAL_ADC"
+              | "SERVICE_ACCOUNT_FILE_ADC",
+            requestId: ocr.requestId as string,
+            responseId: ocr.responseId as string,
+            candidateFingerprint: ocr.candidateFingerprint as string,
+            pageNumber: ocr.pageNumber as number,
+          }),
+        }
+      : {}),
   });
 }
 
@@ -240,6 +333,7 @@ export function projectImportObservation(
 export function ignoredImportObservation(
   evidence: StoredImportObservationEvidenceV1,
 ): ReturnType<typeof invoicePaymentIgnoredReason> {
+  if (evidence.ocr?.provenanceVersion === 2) return null;
   return invoicePaymentIgnoredReason(
     evidence.sourceDescription === undefined
       ? evidence.identity.merchant

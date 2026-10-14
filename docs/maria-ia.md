@@ -91,8 +91,9 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
   próprio e também não passa por `/agent/chat`.
 - A arquitetura contextual de importação foi removida: não há contrato público de turno/outcome,
   resposta livre, aprovação de escopo nem tool contextual durante a sessão. O PATCH legado
-  aceita somente `questionId: null`, `replaceLines: []` e a lista explícita
-  `selectedLineIds`; ele não é uma porta alternativa para editar linhas ou responder perguntas.
+  exige `questionId: null` e mantém a lista explícita `selectedLineIds`; substituições ficam
+  limitadas a campos documentais de linhas OCR, sem trocar IDs de observação. Ele não é uma
+  porta alternativa para responder perguntas documentais.
 - Literais de dinheiro, quantidade, data e significado precisam ser aceitos pelo parser estrito
   e corresponder ao valor exibido. Tipo, categoria e decisão usam opções tipadas/autorizadas.
   Finalidade é explicitamente `NO_TARGETS` ou um único `TARGET` autorizado, integral e com
@@ -113,19 +114,38 @@ auth/tenant e persistência continuam nas fontes e serviços determinísticos do
   Detectar deterministicamente o pedido inicial pode devolver a ação de entrada CSV/PDF sem
   chamar o provider, mas não devolve o controle da sessão ao modelo.
 - CSV e PDF textual usam a mesma seleção local e o mesmo consentimento explícito antes do upload
-  privado; PDF com raster continua exigindo OCR fora deste recorte. Este caminho não altera
-  habilitação do vault nem retenção: vault OFF por padrão continua fail-closed; rascunho pendente
-  continua expirando após sete dias sem edição, sem renovação por consulta.
+  privado; somente PDF integralmente raster e sem texto pesquisável pode ser elegível ao OCR
+  externo inerte de #719. Conteúdo detectado como misto/texto oculto nunca é enviado;
+  ficam no caminho local quando a extração textual é completa ou falham de forma tipada.
+  PNG/JPEG/WEBP, fotos e imagens avulsas permanecem inventário futuro: a #719 não os admite nem
+  entrega suporte de produto para esses formatos.
+  Quando o OCR for explicitamente habilitado, a declaração persistida informa que o arquivo
+  original completo — incluindo metadados e conteúdo potencialmente não visível/embutido — será
+  enviado ao Google Cloud Vertex AI, modelo Gemini 2.5 Flash, na região `southamerica-east1`,
+  exclusivamente para transcrição das linhas para revisão humana, não para classificação financeira.
+  O prazo absoluto do conteúdo associado ao processamento externo é
+  `ImportOcrUsage.createdAt + 7 × 24 horas`: uma barreira em toda leitura/escrita relevante remove
+  ou limpa resultado e evidência OCR antes de responder, sem depender do cron e sem renovação por
+  edição, polling ou prorrogação da sessão. Concluir/cancelar e soltar referências do vault podem
+  tornar original, resultado e evidência ilegíveis antes. A retenção local da sessão/vault é
+  separada e nunca reinicia nem estende esse limite. Depois da limpeza sobrevivem apenas auditoria
+  e proveniência não-conteúdo duráveis, incluindo consentimento, modelo configurado,
+  `modelVersion` retornado pelo provedor, região, `authTrace`, correlação, contadores, resultado e
+  instante da limpeza; não sobrevivem PDF/base64 legível, texto/linhas/evidência extraídos, corpo
+  ou erro bruto do provedor, tokens, secrets, chaves ou documento de credencial. Essa é uma
+  aceitação explícita de risco residual pelo data owner; este release não cria raster derivado
+  local.
 
-Esse comportamento está presente na árvore candidata atual da #718. A métrica de
-projeção de contexto elegível do corpus puro cobre somente o resultado e a projeção
-de contexto do avaliador; não comprova autenticação, isolamento de tenant, passagem
-pela API nem revalidação do servidor. Antes de merge ou release, essas garantias e
-o SHA exato da composição final **MUST** ser atestados por checks externos
-correspondentes da PR #718; enquanto eles não corresponderem ao SHA final, esta
-documentação não os atesta, e o avaliador puro não concede autorização. Este
-documento não fixa um SHA final futuro ou circular; `881e9b5c` é apenas uma base
-histórica de implementação, não o candidato final atual.
+O snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131` contém os
+caminhos de CSV/PDF textual da #718 e a implementação de OCR de PDF integralmente digitalizado da
+#719. A verdade de release será o HEAD corrente da PR `feat/719-final-ocr` quando ela for aberta.
+OCR e vault permanecem OFF por padrão; não há qualificação Vertex ao vivo nem afirmação de merge,
+deploy, produção ou disponibilidade. A liberação da #719 exige o runbook
+[`732-direct-pdf-vertex-eval.md`](732-direct-pdf-vertex-eval.md): 18/18 scans, 10/10 rotas
+mistos/pesquisáveis sem chamada, 35/35 probes de serviço, documento denso de 24 linhas,
+`finishReason=STOP`, 8192 tokens máximos, custos/latência/RSS dentro dos limites, autenticação de
+produção e revisões finais de Security, Privacy, data owner e fornecedor. Até lá, GAPS mantém OCR
+OFF.
 
 O recorte e a sequência da jornada estão na
 [experiência de importação](experiencia-importacao.md#importação-conversacional-na-maria).

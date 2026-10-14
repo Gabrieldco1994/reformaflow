@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "subjectBaseSha": "eba6b6845869466f397c340d2f851a859389b792",
+  "subjectBaseTree": "26be40730c1fc949a12bd57fbcfadcf176dafec4",
+  "policy": {
+    "path": "apps/api/src/imports/ocr-synth-v1/quality-closure-policy.json",
+    "sha256": "ac936f5dcba70b78069602ae6932db095bd9f1d3983dc12de1ad6e0244393ae0",
+    "version": "ocr-quality-closure-v2",
+    "validThroughUtc": "2026-10-21T23:59:59.000Z"
+  },
+  "corpus": {
+    "path": "apps/api/src/imports/ocr-synth-v1/ground-truth.json",
+    "sha256": "c8d411bde29c7f54455f3782dcc75aaa256f4f9e6dbc8856a17587fd56c7ba8e",
+    "datasetVersion": "ocr-synth-v1-direct-pdf-vertex-v3"
+  },
+  "pricing": {
+    "source": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+    "observedOn": "2026-10-14T00:00:00.000Z",
+    "recheckThroughUtc": "2026-10-21T23:59:59.000Z",
+    "currency": "USD",
+    "inputMicrosPerMillionTokens": 300000,
+    "outputMicrosPerMillionTokens": 2500000,
+    "maxTotalCostMicros": 502000
+  },
+  "provider": {
+    "provider": "GOOGLE_VERTEX_AI",
+    "requestedModelAlias": "gemini-2.5-flash",
+    "region": "southamerica-east1",
+    "endpoint": "https://southamerica-east1-aiplatform.googleapis.com",
+    "promptSha256": "4a34d237b69fc103a171c4f3e0cef8bd90b9ce3980c0b44feae637e93c5fe2d7"
+  },
+  "qualificationLifetimeSeconds": 86400,
+  "qualification": {
+    "baselineCaseCount": 18,
+    "candidateCaseCount": 18,
+    "routeObservationCount": 10,
+    "probeObservationCount": 35
+  }
+}

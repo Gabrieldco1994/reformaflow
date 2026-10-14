@@ -18,7 +18,68 @@ const dbGuard =
   require("../../../../../scripts/test-db-env.cjs") as TestDbGuard;
 const REPO_ROOT = path.resolve(__dirname, "../../../../../");
 const MIGRATIONS_DIR = path.join(REPO_ROOT, "prisma", "migrations");
+const CANONICAL_RETENTION_MIGRATION =
+  "20261009193000_canonical_import_linkage_retention";
 const RETIREMENT_MIGRATION = "20261010100000_retire_unlinked_import_artifacts";
+
+async function insertHistoricalDraftSession(
+  client: PrismaClient,
+  input: {
+    tenantId: string;
+    ownerUserId: string;
+    ownerProjectId: string;
+    cardId: string;
+  },
+): Promise<{ id: string }> {
+  const id = randomUUID();
+  const now = new Date();
+  const kind = "CREATE_CARD_PURCHASES";
+  const state = "DRAFT";
+  const revision = 1;
+  const consentPolicyVersion = 1;
+  const createRequestId = randomUUID();
+  const createPayloadHash = "a".repeat(64);
+  const expiresAt = new Date(now.getTime() + 60_000);
+  const draftJson = JSON.stringify({
+    scope: { observationIds: [], pendingAttachmentIds: [] },
+    lines: [],
+  });
+  await client.$executeRaw`
+    INSERT INTO import_sessions (
+      id, tenant_id, owner_user_id, owner_project_id, card_id, kind, state,
+      revision, create_request_id, create_payload_hash,
+      consent_policy_version, consented_at, updated_at, last_user_edit_at,
+      expires_at, draft_json
+    ) VALUES (
+      ${id}, ${input.tenantId}, ${input.ownerUserId}, ${input.ownerProjectId},
+      ${input.cardId}, ${kind}, ${state}, ${revision}, ${createRequestId},
+      ${createPayloadHash}, ${consentPolicyVersion}, ${now}, ${now}, ${now},
+      ${expiresAt}, ${draftJson}
+    )`;
+  return { id };
+}
+
+async function readHistoricalSession(
+  client: PrismaClient,
+  id: string,
+): Promise<Record<string, unknown>> {
+  const rows = await client.$queryRaw<Record<string, unknown>[]>`
+    SELECT
+      id, tenant_id, owner_user_id, owner_project_id, card_id,
+      protocol_version, kind, state, revision, create_request_id,
+      create_payload_hash, consent_policy_version, consented_at, created_at,
+      updated_at, last_user_edit_at, expires_at, draft_json, search_json,
+      proposal_json, proposal_hash, preflight_hash, challenge_json,
+      prepare_generation, prepare_lease_json, financial_request_id,
+      confirmed_revision, confirmed_session_version, confirmed_at,
+      receipt_json, closed_at
+    FROM import_sessions
+    WHERE id = ${id}`;
+  if (rows.length !== 1) {
+    throw new Error(`historical import session ${id} was not found`);
+  }
+  return rows[0];
+}
 
 describe("unlinked import artifact migration repair", () => {
   let workDir: string | null = null;
@@ -65,11 +126,11 @@ describe("unlinked import artifact migration repair", () => {
       )
       .sort();
     const retirementIndex = allMigrations.indexOf(RETIREMENT_MIGRATION);
-    const installedMigrations =
-      retirementIndex < 0
-        ? allMigrations
-        : allMigrations.slice(0, retirementIndex);
-    expect(installedMigrations.length).toBeGreaterThan(0);
+    expect(retirementIndex).toBe(71);
+    expect(allMigrations[retirementIndex - 1]).toBe(
+      CANONICAL_RETENTION_MIGRATION,
+    );
+    const installedMigrations = allMigrations.slice(0, retirementIndex);
 
     workDir = fs.mkdtempSync(
       path.join(REPO_ROOT, "prisma", ".tmp-canonical-orphan-upgrade-"),
@@ -127,31 +188,13 @@ describe("unlinked import artifact migration repair", () => {
       },
     });
 
-    const createSession = async () => {
-      const now = new Date();
-      return client!.importSession.create({
-        data: {
-          tenantId: tenant.id,
-          ownerUserId: user.id,
-          ownerProjectId: project.id,
-          cardId: card.id,
-          kind: "CREATE_CARD_PURCHASES",
-          state: "DRAFT",
-          revision: 1,
-          createRequestId: randomUUID(),
-          createPayloadHash: "a".repeat(64),
-          consentPolicyVersion: 1,
-          consentedAt: now,
-          updatedAt: now,
-          lastUserEditAt: now,
-          expiresAt: new Date(now.getTime() + 60_000),
-          draftJson: JSON.stringify({
-            scope: { observationIds: [], pendingAttachmentIds: [] },
-            lines: [],
-          }),
-        },
+    const createSession = async () =>
+      insertHistoricalDraftSession(client!, {
+        tenantId: tenant.id,
+        ownerUserId: user.id,
+        ownerProjectId: project.id,
+        cardId: card.id,
       });
-    };
     const createArtifact = async (
       hashSeed: string,
       storageKey: string | null,
@@ -307,22 +350,26 @@ describe("unlinked import artifact migration repair", () => {
       },
     });
     const applied = await createSession();
-    await client.importSession.update({
-      where: { id: applied.id },
-      data: {
-        state: "APPLIED",
-        financialRequestId: randomUUID(),
-        confirmedRevision: 1,
-        confirmedSessionVersion: 0,
-        confirmedAt: new Date(),
-        proposalHash: "b".repeat(64),
-        closedAt: new Date(),
-        receiptJson: '{"receipt":"durable"}',
-      },
-    });
-    const appliedBefore = await client.importSession.findUniqueOrThrow({
-      where: { id: applied.id },
-    });
+    const appliedState = "APPLIED";
+    const financialRequestId = randomUUID();
+    const confirmedRevision = 1;
+    const confirmedSessionVersion = 0;
+    const confirmedAt = new Date();
+    const proposalHash = "b".repeat(64);
+    const closedAt = new Date();
+    const receiptJson = '{"receipt":"durable"}';
+    await client.$executeRaw`
+      UPDATE import_sessions
+      SET state = ${appliedState},
+          financial_request_id = ${financialRequestId},
+          confirmed_revision = ${confirmedRevision},
+          confirmed_session_version = ${confirmedSessionVersion},
+          confirmed_at = ${confirmedAt},
+          proposal_hash = ${proposalHash},
+          closed_at = ${closedAt},
+          receipt_json = ${receiptJson}
+      WHERE id = ${applied.id}`;
+    const appliedBefore = await readHistoricalSession(client, applied.id);
     await client.importArtifact.update({
       where: { id: claimedPurging.id },
       data: { state: "PURGING" },
@@ -345,18 +392,23 @@ describe("unlinked import artifact migration repair", () => {
     const expectedDeadExpense = await client.expense.findUniqueOrThrow({
       where: { id: deadExpense.id },
     });
+    const appliedMigrationsBefore = await client.$queryRaw<
+      Array<{ migration_name: string }>
+    >`SELECT migration_name FROM _prisma_migrations
+      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+      ORDER BY migration_name`;
+    expect(
+      appliedMigrationsBefore.map(({ migration_name }) => migration_name),
+    ).toEqual(installedMigrations);
     await client.$disconnect();
     client = null;
 
-    if (retirementIndex >= 0) {
-      fs.cpSync(
-        path.join(MIGRATIONS_DIR, RETIREMENT_MIGRATION),
-        path.join(migrationsRoot, RETIREMENT_MIGRATION),
-        { recursive: true },
-      );
-      deploy(url, schema);
-    }
-
+    fs.cpSync(
+      path.join(MIGRATIONS_DIR, RETIREMENT_MIGRATION),
+      path.join(migrationsRoot, RETIREMENT_MIGRATION),
+      { recursive: true },
+    );
+    deploy(url, schema);
     client = new PrismaClient({ datasources: { db: { url } } });
     await client.$connect();
     const actual = {
@@ -484,11 +536,9 @@ describe("unlinked import artifact migration repair", () => {
         where: { id: liveObservation.id },
       }),
     ).toEqual(liveObservation);
-    expect(
-      await client.importSession.findUniqueOrThrow({
-        where: { id: applied.id },
-      }),
-    ).toEqual(appliedBefore);
+    expect(await readHistoricalSession(client, applied.id)).toEqual(
+      appliedBefore,
+    );
     expect(
       await client.importArtifact.findUniqueOrThrow({
         where: { id: unclaimedPurging.id },
@@ -509,6 +559,15 @@ describe("unlinked import artifact migration repair", () => {
       { foreign_keys: 1n },
     ]);
     expect(await client.$queryRaw`PRAGMA foreign_key_check`).toEqual([]);
+    const appliedMigrationsAfter = await client.$queryRaw<
+      Array<{ migration_name: string }>
+    >`SELECT migration_name FROM _prisma_migrations
+      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+      ORDER BY migration_name`;
+    expect(
+      appliedMigrationsAfter.map(({ migration_name }) => migration_name),
+    ).toEqual([...installedMigrations, RETIREMENT_MIGRATION]);
+    expect(appliedMigrationsAfter).toHaveLength(72);
     repairCompleted = true;
   }, 120_000);
 

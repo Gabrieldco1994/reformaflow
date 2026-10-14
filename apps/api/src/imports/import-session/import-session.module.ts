@@ -46,6 +46,11 @@ import { ImportContentService } from "./vault/import-content.service";
 import { VaultReaper } from "./vault/vault-reaper";
 import { VaultRetentionScheduler } from "./vault/vault-retention.scheduler";
 import { ImportSessionEntryService } from "./import-session-entry.service";
+import {
+  PDF_OCR_PROVIDER,
+  type FixedPdfOcrProviderPort,
+} from "./ocr/pdf-ocr.ports";
+import { createConfiguredVertexPdfOcrProvider } from "./ocr/vertex-provider.factory";
 
 /**
  * Only deterministic pre-session availability leaves this module.
@@ -66,6 +71,11 @@ import { ImportSessionEntryService } from "./import-session-entry.service";
     ImportUiGrantIssuer,
     ImportUiGuard,
     ImportAuthGuard,
+    {
+      provide: PDF_OCR_PROVIDER,
+      useFactory: async (): Promise<FixedPdfOcrProviderPort> =>
+        createConfiguredVertexPdfOcrProvider(process.env),
+    },
     { provide: IMPORT_SESSION_CLOCK, useClass: SystemImportSessionClock },
     {
       provide: IMPORT_SESSION_CAPABILITY,

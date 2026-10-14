@@ -49,9 +49,11 @@ describe("ImportResumeUpload", () => {
       screen.getByText(/parsers determinísticos locais e do servidor/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/nenhum documento é enviado a LLM ou OCR/i),
+      screen.getByText(/CSV e PDF textual permanecem nesse fluxo local/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/OCR não está disponível/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/não permite processamento externo/i),
+    ).toBeInTheDocument();
   });
 
   it.each([

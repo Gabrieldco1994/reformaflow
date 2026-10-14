@@ -3,7 +3,10 @@ import {
   releaseCompletedSessionAttachments,
   purgeCompletedSessionObservationEvidence,
 } from "./vault/completed-retention";
-import { EMPTY_DRAFT_JSON } from "./import-session.projection";
+import {
+  EMPTY_DRAFT_JSON,
+  type ProjectionOptions,
+} from "./import-session.projection";
 import { cardImportConfiguration } from "@reformaflow/domain";
 import {
   createHash,
@@ -22,6 +25,13 @@ import {
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PRIMITIVES as PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
+  PDF_OCR_CONSENT_POLICY_VERSION,
+  PDF_OCR_CONSENT_PURPOSE,
+  PDF_OCR_MODEL_ID,
+  PDF_OCR_PROVIDER_ID,
+  PDF_OCR_REGION,
+  PDF_OCR_RETENTION_DAYS,
+  PDF_OCR_VERSION,
   ImportSessionArtifactState,
   ImportSessionAttachmentState,
   ImportSessionErrorCode as Code,
@@ -35,6 +45,8 @@ import {
   type ImportSessionConfirmResponseV1,
   type ImportSessionEditRequestV1,
   type ImportSessionDocumentaryAnswerRequestV1,
+  type ImportSessionFactDocumentaryAnswerRequestV1,
+  type ImportSessionOcrConsentAnswerRequestV1,
   type ImportSessionFocusedDraftAnswerRequestV1,
   type ImportSessionExecuteRequestV1,
   type ImportSessionProposalV1,
@@ -77,6 +89,7 @@ import {
 } from "./import-session.errors";
 import {
   EMPTY_IMPORT_OBSERVATION_CLAIM as EMPTY_CLAIM,
+  parseStoredImportObservationEvidence,
   projectImportObservation,
 } from "./import-session.observation";
 import {
@@ -97,6 +110,17 @@ import {
   renderImportSession,
 } from "./import-session.service";
 import { validateStoredDraft } from "./import-session.validation";
+import {
+  isPdfOcrEnabled,
+  isPdfOcrProjectConfigured,
+} from "./ocr/pdf-ocr-capability";
+import {
+  PDF_OCR_CONSENT_DECISION,
+  pdfOcrConsentQuestionId,
+  pdfOcrRequestPayloadHash,
+  parseStoredPdfOcrState,
+  serializePdfOcrState,
+} from "./ocr/pdf-ocr-state";
 import { runImportSessionWrite } from "./import-session.writer";
 import type { ImportVaultGate } from "./vault/vault-state";
 import {
@@ -105,6 +129,7 @@ import {
 } from "./import-session.raw-executions";
 import {
   recordNativeImportDeclaration,
+  assertSelectedOcrAttestationsCurrent,
   reconcileImportDeclarationDraft,
   resolveImportDeclarations,
 } from "./import-session.declarations";
@@ -129,6 +154,19 @@ const INSTANT = new RegExp(PRIMITIVES.instantPattern);
 const READ_CHUNK = 300;
 const AUDIT_ACTION = "importSessions.execute";
 const CONTINUATION_PAYLOAD_KIND = "CONTINUATION_V1";
+const OCR_EDITABLE_DRAFT_FIELDS: ReadonlySet<string> = new Set([
+  "titulo",
+  "fornecedor",
+  "tipoDespesa",
+  "categoriaMaoDeObra",
+  "amountMeaning",
+  "amountCents",
+  "installmentCount",
+  "dataCompra",
+  "firstDueDate",
+  "targets",
+  "decision",
+]);
 const editableStates: ReadonlySet<string> = new Set([
   State.DRAFT,
   State.ANALYZING,
@@ -229,7 +267,7 @@ function editRequest(body: unknown): ImportSessionEditRequestV1 {
   if (
     value.questionId !== null ||
     !Array.isArray(value.replaceLines) ||
-    value.replaceLines.length !== 0 ||
+    value.replaceLines.length > LIMITS.editableLines ||
     !Array.isArray(value.selectedLineIds) ||
     !value.selectedLineIds.every(id) ||
     value.selectedLineIds.length > LIMITS.selectedLines ||
@@ -239,7 +277,9 @@ function editRequest(body: unknown): ImportSessionEditRequestV1 {
   return {
     ...parseRevisionRequest({ expectedRevision: value.expectedRevision }),
     questionId: null,
-    replaceLines: [],
+    replaceLines: structuredClone(
+      value.replaceLines,
+    ) as ImportSessionEditRequestV1["replaceLines"],
     selectedLineIds: [...value.selectedLineIds],
   };
 }
@@ -314,7 +354,147 @@ export class ImportSessionWorkflowService {
       documentaryAnswerScope(sessionId, request),
       this.clock.now(),
     );
-    return this.editCore(auth, sessionId, null, request);
+    if (request.answer.field === "externalOcrConsent")
+      return this.recordPdfOcrConsent(
+        auth,
+        sessionId,
+        request as ImportSessionOcrConsentAnswerRequestV1,
+      );
+    return this.editCore(
+      auth,
+      sessionId,
+      null,
+      request as ImportSessionFactDocumentaryAnswerRequestV1,
+    );
+  }
+
+  private async recordPdfOcrConsent(
+    auth: AuthenticatedImportContext,
+    sessionId: string,
+    request: ImportSessionOcrConsentAnswerRequestV1,
+  ): Promise<ImportSessionViewV1> {
+    return runImportSessionWrite(
+      this.prisma,
+      this.clock,
+      auth,
+      async (tx, now) => {
+        const { actor, row } = await this.context(tx, auth, sessionId, now);
+        this.editable(row, now, request.expectedRevision);
+        if (
+          !isPdfOcrEnabled(process.env, {
+            providerReady: isPdfOcrProjectConfigured(process.env),
+            consentV2Ready: true,
+            vaultReady:
+              !this.gate.boot.stopped.aborted &&
+              this.gate.boot.runtime() !== null,
+          })
+        )
+          throw problem(Code.OCR_UNAVAILABLE, row);
+        const draft = parseStoredDraft(row.draftJson);
+        if (
+          !draft.scope.pendingAttachmentIds.includes(
+            request.answer.attachmentId,
+          )
+        )
+          throw problem(Code.STALE_PREVIEW, row);
+        const ref = await tx.importSessionArtifact.findFirst({
+          where: {
+            id: request.answer.attachmentId,
+            sessionId: row.id,
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+            state: ImportSessionAttachmentState.ATTACHED,
+            artifact: {
+              detectedFormat: "PDF",
+              documentSha256: { not: null },
+            },
+          },
+          include: { artifact: true },
+        });
+        if (!ref?.artifact?.documentSha256)
+          throw problem(Code.STALE_PREVIEW, row);
+        if (
+          request.questionId !==
+          pdfOcrConsentQuestionId({
+            tenantId: row.tenantId,
+            sessionId: row.id,
+            revision: row.revision,
+            attachmentId: ref.id,
+            artifactSha256: ref.artifact.documentSha256,
+          })
+        )
+          throw problem(Code.STALE_PREVIEW, row);
+        const expectedRevision = nextRevision(row);
+        const analyzeRequest = {
+          version: PDF_OCR_VERSION,
+          expectedRevision,
+          requestId: request.answer.requestId,
+          consentExternalProcessing: true as const,
+        };
+        const state = parseStoredPdfOcrState(row.ocrJson);
+        const previous = state.consents.find(
+          (consent) => consent.attachmentId === ref.id,
+        );
+        if (previous?.usageId !== null && previous !== undefined)
+          throw problem(Code.OCR_ATTEMPT_UNKNOWN, row);
+        const consent = {
+          attachmentId: ref.id,
+          artifactSha256: ref.artifact.documentSha256,
+          requestId: analyzeRequest.requestId,
+          requestPayloadHash: pdfOcrRequestPayloadHash(analyzeRequest),
+          expectedRevision,
+          actorId: actor.userId,
+          consentPolicyVersion: PDF_OCR_CONSENT_POLICY_VERSION,
+          consentDecision: PDF_OCR_CONSENT_DECISION,
+          consentedAt: now.toISOString(),
+          provider: PDF_OCR_PROVIDER_ID,
+          model: PDF_OCR_MODEL_ID,
+          purpose: PDF_OCR_CONSENT_PURPOSE,
+          region: PDF_OCR_REGION,
+          retentionDays: PDF_OCR_RETENTION_DAYS,
+          sendsFullOriginal: true as const,
+          includesMetadataAndEmbeddedContent: true as const,
+          includesPotentiallyNonVisibleContent: true as const,
+          usageId: null,
+        };
+        await this.update(tx, row, {
+          revision: expectedRevision,
+          ocrJson: serializePdfOcrState({
+            version: PDF_OCR_VERSION,
+            consents: [
+              ...state.consents.filter((item) => item.attachmentId !== ref.id),
+              consent,
+            ],
+          }),
+          lastUserEditAt: now,
+          expiresAt: new Date(
+            now.getTime() + LIMITS.draftRetentionSeconds * 1000,
+          ),
+        });
+        return (
+          await renderImportSession(
+            tx,
+            await loadOwnedImportSession(tx, actor, row.id, now),
+            now,
+            {
+              includeReceipt: false,
+              qualifiedAnalysisFormats: this.capability.newImportFormats(),
+              analysisEnabled: this.analysisEnabled(),
+              ...this.ocrProjectionOptions(),
+              workflow: {
+                writesEnabled: await importSessionWritesEnabled(
+                  tx,
+                  row,
+                  this.capability,
+                ),
+                canMutate: true,
+                presentedSessionVersion: auth.presentedSessionVersion,
+              },
+            },
+          )
+        ).view;
+      },
+    );
   }
 
   async focusedDraftAnswer(
@@ -342,7 +522,7 @@ export class ImportSessionWorkflowService {
     auth: AuthenticatedImportContext,
     sessionId: string,
     httpRequest: ImportSessionEditRequestV1 | null,
-    nativeRequest?: ImportSessionDocumentaryAnswerRequestV1,
+    nativeRequest?: ImportSessionFactDocumentaryAnswerRequestV1,
     focusedRequest?: ImportSessionFocusedDraftAnswerRequestV1,
   ): Promise<ImportSessionViewV1> {
     return runImportSessionWrite(
@@ -574,9 +754,36 @@ export class ImportSessionWorkflowService {
           const replacement = new Map(
             request.replaceLines.map((line) => [line.id, line]),
           );
+          const replacementMaterial =
+            request.questionId !== null || request.replaceLines.length === 0
+              ? null
+              : await this.material(tx, row, draft, true);
+          const replacementResolution =
+            replacementMaterial === null
+              ? null
+              : resolveImportDeclarations(row, draft, replacementMaterial);
+          const ocrObservationIds = new Set(
+            replacementMaterial?.observations.flatMap((observation) =>
+              parseStoredImportObservationEvidence(observation.evidenceJson).ocr
+                ? [observation.id]
+                : [],
+            ) ?? [],
+          );
           for (const line of request.replaceLines) {
             const original = existing.get(line.id);
-            if (original && !same(line.observationIds, original.observationIds))
+            if (
+              !original ||
+              (request.questionId === null &&
+                (!original.observationIds.every((id) =>
+                  ocrObservationIds.has(id),
+                ) ||
+                  !same(line.observationIds, original.observationIds) ||
+                  Object.keys(original).some(
+                    (key) =>
+                      !OCR_EDITABLE_DRAFT_FIELDS.has(key) &&
+                      !same(Reflect.get(line, key), Reflect.get(original, key)),
+                  )))
+            )
               throw invalid();
             if (
               question &&
@@ -602,6 +809,32 @@ export class ImportSessionWorkflowService {
                 ),
               ],
               selectedLineIds: request.selectedLineIds,
+              ...(draft.declarations
+                ? {
+                    declarations: {
+                      ...draft.declarations,
+                      items: draft.declarations.items.filter((item) => {
+                        if (request.questionId !== null) return true;
+                        const changed = replacement.get(item.lineId);
+                        const original = existing.get(item.lineId);
+                        if (!changed || !original || same(changed, original))
+                          return true;
+                        const facts = replacementResolution?.byLine
+                          .get(item.lineId)
+                          ?.get(item.observationId)?.effective;
+                        return (
+                          facts !== undefined &&
+                          changed.titulo === facts.merchant &&
+                          changed.fornecedor === facts.merchant &&
+                          changed.dataCompra === facts.dataCompra &&
+                          changed.amountMeaning === facts.amountMeaning &&
+                          changed.installmentCount === facts.installmentCount &&
+                          changed.amountCents === facts.amountCents
+                        );
+                      }),
+                    },
+                  }
+                : {}),
               questions: question
                 ? draft.questions.flatMap((item) => {
                     if (item.id !== question.id) return [item];
@@ -655,12 +888,13 @@ export class ImportSessionWorkflowService {
         const rendered = (
           await renderImportSession(
             tx,
-            await loadOwnedImportSession(tx, actor, row.id),
+            await loadOwnedImportSession(tx, actor, row.id, now),
             now,
             {
               includeReceipt: false,
               qualifiedAnalysisFormats: this.capability.newImportFormats(),
               analysisEnabled: this.analysisEnabled(),
+              ...this.ocrProjectionOptions(),
               workflow: {
                 writesEnabled: await importSessionWritesEnabled(
                   tx,
@@ -708,9 +942,11 @@ export class ImportSessionWorkflowService {
         const material = await this.material(tx, row, draft);
         await this.configuredCard(tx, row);
         this.noInFlight(row, material);
+        const resolution = resolveImportDeclarations(row, draft, material);
+        assertSelectedOcrAttestationsCurrent(draft, resolution, material);
         const documentaryDraft = reconcileImportDeclarationDraft(
           draft,
-          resolveImportDeclarations(row, draft, material),
+          resolution,
         );
         const locked = mintLockedImportSession(tx, auth, row, documentaryDraft);
         let rendered: ImportSessionViewV1;
@@ -760,12 +996,13 @@ export class ImportSessionWorkflowService {
           rendered = (
             await renderImportSession(
               tx,
-              await loadOwnedImportSession(tx, actor, row.id),
+              await loadOwnedImportSession(tx, actor, row.id, now),
               now,
               {
                 includeReceipt: false,
                 qualifiedAnalysisFormats: this.capability.newImportFormats(),
                 analysisEnabled: this.analysisEnabled(),
+                ...this.ocrProjectionOptions(),
                 workflow: {
                   writesEnabled: await importSessionWritesEnabled(
                     tx,
@@ -1254,6 +1491,18 @@ export class ImportSessionWorkflowService {
       this.gate.boot.runtime() !== null
     );
   }
+  private ocrProjectionOptions(): Pick<
+    ProjectionOptions,
+    "ocrReleaseEnabled" | "ocrPrerequisitesReady"
+  > {
+    return {
+      ocrReleaseEnabled: process.env.IMPORT_OCR_ENABLED === "true",
+      ocrPrerequisitesReady:
+        isPdfOcrProjectConfigured(process.env) &&
+        !this.gate.boot.stopped.aborted &&
+        this.gate.boot.runtime() !== null,
+    };
+  }
   private async context(
     tx: Tx,
     auth: AuthenticatedImportContext,
@@ -1261,13 +1510,14 @@ export class ImportSessionWorkflowService {
     now: Date,
   ) {
     const actor = await reauthorize(tx, auth, now);
-    const row = await loadOwnedImportSession(tx, actor, sessionId);
+    const row = await loadOwnedImportSession(tx, actor, sessionId, now);
     await assertImportSessionAccess(tx, actor, row, now);
     await assertReceiptParticipantAccess(tx, actor, [row.ownerProjectId]);
     const { view } = await renderImportSession(tx, row, now, {
       includeReceipt: true,
       qualifiedAnalysisFormats: this.capability.newImportFormats(),
       analysisEnabled: this.analysisEnabled(),
+      ...this.ocrProjectionOptions(),
       workflow: {
         writesEnabled: await importSessionWritesEnabled(
           tx,
@@ -1686,6 +1936,19 @@ export class ImportSessionWorkflowService {
           draftJson: canonical(plan.continuationDraft),
         },
       });
+      const transferredOcrUsages =
+        plan.transferRefIds.length === 0
+          ? []
+          : await tx.importOcrUsage.findMany({
+              where: {
+                tenantId: row.tenantId,
+                ownerProjectId: row.ownerProjectId,
+                sessionId: row.id,
+                attachmentId: { in: [...plan.transferRefIds] },
+              },
+            });
+      if (transferredOcrUsages.length > 0)
+        await tx.$executeRaw`PRAGMA defer_foreign_keys = ON`;
       for (const refId of plan.transferRefIds) {
         const expected = material.references.find(
           (item) => item.ref.id === refId,
@@ -1715,6 +1978,23 @@ export class ImportSessionWorkflowService {
           },
         });
         if (result.count !== 1) throw problem(Code.REVISION_CONFLICT, row);
+        const usages = transferredOcrUsages.filter(
+          (usage) => usage.attachmentId === refId,
+        );
+        if (usages.length > 0) {
+          const moved = await tx.importOcrUsage.updateMany({
+            where: {
+              id: { in: usages.map(({ id }) => id) },
+              tenantId: row.tenantId,
+              ownerProjectId: row.ownerProjectId,
+              sessionId: row.id,
+              attachmentId: refId,
+            },
+            data: { sessionId: continuationId },
+          });
+          if (moved.count !== usages.length)
+            throw problem(Code.REVISION_CONFLICT, row);
+        }
       }
     }
     const invalidatedClaims: ImportRawClaim[] = [];

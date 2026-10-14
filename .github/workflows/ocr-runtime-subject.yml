@@ -1,0 +1,80 @@
+name: OCR runtime subject producer
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+concurrency:
+  group: ocr-runtime-subject
+  cancel-in-progress: false
+
+jobs:
+  build-observe-seal:
+    runs-on: ubuntu-latest
+    environment: ocr-runtime-subject
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Derive trusted immutable source identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" && "$GITHUB_SHA" == "$GITHUB_WORKFLOW_SHA" ]]
+          current_main="$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")"
+          [[ "$GITHUB_SHA" == "$current_main" && "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          tree="$(git rev-parse HEAD^{tree})"
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
+          printf "tree=%s\n" "$tree" >> "$GITHUB_OUTPUT"
+      - name: Build once and push to existing Fly registry
+        id: build
+        shell: bash
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          SUBJECT_TREE: ${{ steps.identity.outputs.tree }}
+        run: |
+          set -euo pipefail
+          tag="registry.fly.io/reformaflow-api:ocr-runtime-subject-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          flyctl auth docker
+          docker buildx build --provenance=false --platform linux/amd64 --file apps/api/Dockerfile --label "GH_SHA=$GITHUB_SHA" --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "com.reformaflow.git.tree=$SUBJECT_TREE" --tag "$tag" --metadata-file "$RUNNER_TEMP/build-metadata.json" --push .
+          digest="$(jq -er .containerimage.digest "$RUNNER_TEMP/build-metadata.json")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf "image=%s@%s\n" "${tag%%:*}" "$digest" >> "$GITHUB_OUTPUT"
+      - name: Pull exact digest and derive executable bytes
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.build.outputs.image }}
+          SUBJECT_TREE: ${{ steps.identity.outputs.tree }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_REFERENCE" =~ ^registry\.fly\.io/reformaflow-api@sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$IMAGE_REFERENCE"
+          docker image inspect "$IMAGE_REFERENCE" > "$RUNNER_TEMP/image-inspect.json"
+          entrypoint="$(node scripts/ci/ocr-runtime-subject.mjs resolve-path "$RUNNER_TEMP/image-inspect.json")"
+          container_id="$(docker create "$IMAGE_REFERENCE")"
+          cleanup() { docker rm -f "$container_id" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker cp -L "$container_id:$entrypoint" "$RUNNER_TEMP/application-entrypoint"
+          test -s "$RUNNER_TEMP/application-entrypoint"
+          jq -nc --arg repository "$GITHUB_REPOSITORY" --arg repositoryId "$GITHUB_REPOSITORY_ID" --arg ownerId "$GITHUB_REPOSITORY_OWNER_ID" --arg sha "$GITHUB_SHA" --arg tree "$SUBJECT_TREE" --arg workflowSha "$GITHUB_WORKFLOW_SHA" --arg runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg image "$IMAGE_REFERENCE" --arg observedAt "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" repository: > "$RUNNER_TEMP/runtime-context.json"
+          node scripts/ci/ocr-runtime-subject.mjs create "$RUNNER_TEMP/image-inspect.json" "$RUNNER_TEMP/application-entrypoint" "$RUNNER_TEMP/runtime-context.json" > "$RUNNER_TEMP/runtime-subject.json"
+          node scripts/ci/ocr-runtime-subject.mjs verify "$RUNNER_TEMP/runtime-subject.json" "$RUNNER_TEMP/image-inspect.json" "$RUNNER_TEMP/application-entrypoint" "$RUNNER_TEMP/runtime-context.json"
+      - name: Reject stale main after image observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" == "$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")" ]]
+      - id: subject
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: ocr-runtime-subject-v1
+          path: ${{ runner.temp }}/runtime-subject.json
+          if-no-files-found: error
+          retention-days: 30

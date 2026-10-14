@@ -64,7 +64,7 @@ const accepted = {
   input,
   answer,
 };
-const base: ImportSessionViewV1 = {
+const base = {
   version: 1,
   id: "session-1",
   ownerProjectId: "project-1",
@@ -78,12 +78,25 @@ const base: ImportSessionViewV1 = {
   questions: [question],
   declaredFacts: [],
   reviewBlockers: [],
+  ocrCapability: {
+    status: "DISABLED",
+    consentPolicyVersion: 1,
+    provider: "GOOGLE_VERTEX_AI",
+    purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+    region: "southamerica-east1",
+    retentionDays: 7,
+    sendsFullOriginal: true,
+    includesMetadataAndEmbeddedContent: true,
+    includesPotentiallyNonVisibleContent: true,
+    attachments: [],
+    terminalOutcomes: [],
+  },
   searchComplete: false,
   proposal: null,
   confirmation: null,
   receipt: null,
   actions: ["RESOLVE", "CANCEL"],
-};
+} as ImportSessionViewV1;
 const stored = (): ImportSessionViewV1 => ({
   ...base,
   revision: 5,

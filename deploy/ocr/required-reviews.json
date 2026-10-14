@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "reviews": [
+    {
+      "role": "DATA_OWNER_RISK_ACCEPTANCE",
+      "path": "deploy/ocr/reviews/data-owner-risk-acceptance.json"
+    },
+    { "role": "SECURITY", "path": "deploy/ocr/reviews/security.json" },
+    { "role": "PRIVACY", "path": "deploy/ocr/reviews/privacy.json" },
+    {
+      "role": "DATA_OWNER_FINAL",
+      "path": "deploy/ocr/reviews/data-owner-final.json"
+    }
+  ]
+}

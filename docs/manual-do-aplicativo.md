@@ -368,11 +368,14 @@ mais antigo daquele tipo (`createdAt` crescente), com desempate pelo `id`
 crescente. Projetos excluídos ou fora do escopo de `recurringBills` não participam
 da escolha. O critério não depende da ordem de inserção nem do índice do banco.
 
-- **Importação guiada de fatura na Maria (#711/#718):** o comportamento descrito
-  foi integrado em `main`; `881e9b5c` foi apenas uma base histórica. Integração,
-  PR de verificador e CI não significam vault ON nem disponibilidade em produção.
-  A ativação exige primeiro um deploy corrigido do SHA exato de `main` inteiramente
-  verde e depois uma operação separada, autorizada e executada por `platform-sre`
+- **Importação guiada de fatura na Maria (#711/#718/#719):** o comportamento descrito está no
+  snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131`; `881e9b5c`
+  foi apenas uma base histórica. A verdade de release será o HEAD corrente da PR
+  `feat/719-final-ocr` quando ela for aberta. O snapshot contém CSV/PDF textual (#718) e a
+  implementação de OCR para PDF integralmente digitalizado (#719), mas isso não significa merge,
+  vault/OCR ON, deploy ou disponibilidade em produção. A ativação exige primeiro um deploy do SHA
+  aprovado inteiramente verde e depois uma operação separada, autorizada e executada por
+  `platform-sre`
   conforme o [runbook do vault](../deploy/vault-startup/README.md#separate-activation-sequence).
   Nenhum verificador pode ativá-lo. Este manual não declara ativação, jornada
   Linux de produção nem gate de release aprovado.
@@ -383,15 +386,79 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   Quando o vault privado está disponível, peça a importação e escolha explicitamente
   o cartão e o arquivo. O projeto proprietário vem do cartão; um eventual destino
   em outra reforma é escolhido depois, na revisão. Os formatos habilitados vêm do
-  servidor: CSV e PDF textual sem imagens no recorte qualificado. O envio exige
+  servidor: CSV e PDF textual no recorte qualificado. O envio exige
   seleção dos arquivos e consentimento. Nesse fluxo, parsers determinísticos locais
   e do servidor processam o documento; nenhum documento é enviado a LLM ou OCR.
   Se o vault estiver OFF ou falhar nas verificações privadas de inicialização, a
   entrada permanece indisponível; este fluxo não liga o vault nem altera sua política.
-  Um PDF escaneado, misto ou com qualquer imagem raster, inclusive um simples
-  logotipo, recebe `OCR_REQUIRED`: OCR ainda não está disponível nesta importação.
-  O suporte seguro a scans, fotos e PDFs com raster é trabalho futuro,
-  acompanhado separadamente pela #719; ela não amplia a entrega #718. PDFs
+  PNG/JPEG/WEBP, fotos e imagens avulsas não são formatos entregues pela #719; permanecem futuros.
+  Na primeira versão, somente um PDF que a inspeção validada confirme como
+  totalmente digitalizado, composto apenas por imagens e sem texto pesquisável,
+  pode receber `OCR_REQUIRED` e oferecer leitura externa. A capability
+  `AVAILABLE`, sozinha, não é apresentada como prova dessa inspeção. PDFs
+  textuais continuam locais; PDFs mistos ou pesquisáveis não são enviados. A
+  tela explica que o PDF original completo, incluindo metadados e conteúdo
+  potencialmente não visível ou incorporado, vai diretamente ao Google Cloud
+  Vertex AI, modelo Gemini 2.5 Flash, na região `southamerica-east1`,
+  exclusivamente para transcrever as linhas do documento para revisão humana,
+  não para classificação financeira, e pede autorização explícita válida
+  somente para aquele documento. A decisão do data owner aceita expressamente
+  o risco residual desse envio e não autoriza criar silenciosamente uma derivada
+  raster local. O conteúdo OCR derivado do PDF original completo, o resultado e
+  a evidência tornam-se ilegíveis no limite absoluto
+  `ImportOcrUsage.createdAt + 7 × 24 horas`. Toda leitura/escrita relevante
+  aplica a barreira antes de responder, mesmo se o cron atrasar; edição, consulta
+  e extensão da sessão não renovam o prazo. Separadamente, o PDF privado no
+  ReformaFlow segue a retenção local da sessão/vault e pode ser liberado antes
+  ao concluir/cancelar quando não houver outra referência autorizada. A retenção
+  local não reinicia nem estende o limite OCR. Sobrevive apenas
+  auditoria/proveniência não-conteúdo: consentimento, modelo configurado,
+  `modelVersion` do provedor, região, `authTrace`, correlação, contadores,
+  resultado e instante da limpeza. Não sobrevivem PDF/base64 legível,
+  texto/evidência extraído, corpo/erro bruto, token, secret, chave ou documento
+  de credencial. A tela só oferece consentimento
+  quando a capability explícita da sessão está `AVAILABLE` e lista aquele anexo
+  como elegível; estados `DISABLED`/`UNAVAILABLE` e anexos não inspecionados não
+  exibem a autorização. Ao
+  autorizar, ela primeiro persiste a declaração no endpoint documental já
+  existente e, somente após a resposta confirmar a revisão e o `requestId`,
+  chama uma única vez o mesmo endpoint de análise com o contrato v2 mínimo.
+  Esse segundo corpo não contém ator, tenant, projeto, hash, provedor, modelo,
+  região ou outros campos de autoridade. O resultado volta como o rascunho
+  normal: cada compra mostra `line.ocrEvidence.text`, a origem, o modelo
+  configurado, a versão informada pelo provedor, a região e o rastro de
+  autenticação fornecidos e validados pela própria visão da sessão, sem
+  sintetizar proveniência; evidência ausente ou malformada não recebe selo de
+  origem autoritativa. Isso permanece após recarregar. Cada compra começa fora da
+  seleção e com verificação pendente, e exige revisão humana nos controles já
+  existentes antes de preparar, confirmar e executar. Valores OCR brutos podem
+  ser negativos, zero ou desconhecidos; `LINE_AMOUNT` não classifica o valor
+  como compra e a visão de revisão não converte o sinal. Uma correção invalida a
+  atestação afetada. `OCR_UNAVAILABLE`, `OCR_SAFETY_BLOCKED`,
+  `OCR_MALFORMED_RESPONSE`, `OCR_BUDGET_EXHAUSTED`,
+  `OCR_ATTEMPT_UNKNOWN` e os bloqueios documentais têm mensagens distintas.
+  `OCR_UNAVAILABLE` informa que a falha ocorreu antes do envio do PDF. Resposta
+  ambígua ou timeout depois de o envio começar — ou quando ele pode ter ocorrido
+  — produz `OCR_ATTEMPT_UNKNOWN`, informa explicitamente que o PDF pode ter sido
+  enviado ao Google Cloud Vertex AI, que não é possível repetir e que nenhum
+  lançamento foi criado, e encerra a leitura externa daquele anexo sem botão
+  para repetir ou autorizar. Em todos os fallbacks, a tela oferece entrada
+  manual, substituição ou cancelamento e informa que houve zero escrita
+  financeira. Resultados terminais persistidos continuam visíveis após
+  recarregar ou navegar de volta à importação, inclusive com OCR desligado, sem
+  nova chamada automática. Cada arquivo afetado mostra seu nome e seu resultado.
+  Para `LIMIT_EXCEEDED`, a mensagem é: “A leitura excedeu um limite permitido e
+  não pode continuar para este documento. Nenhum lançamento foi criado; use
+  entrada manual, substitua o documento ou cancele a importação.” A autorização
+  já persistida, mas ainda não consumida, só retoma a chamada v2 após um novo
+  clique explícito e não registra o consentimento outra vez. Se
+  `IMPORT_OCR_ENABLED` estiver desligada, indisponível ou sem anexo elegível na
+  capability, não há falsa ativação; permanece o fallback para PDF textual/CSV
+  ou cancelamento. O OCR fica OFF até os gates de runtime e as revisões finais. A
+  qualificação exige 18/18 scans ao vivo, 10/10 casos
+  mistos/pesquisáveis sem chamada, 35/35 probes de serviço, o caso denso de 24 linhas,
+  `finishReason=STOP`, `maxOutputTokens=8192`, autenticação de produção e aprovações finais. Isso
+  não amplia retroativamente a entrega #718. PDFs
   protegidos por senha ou ilegíveis bloqueiam a análise, sem confirmação
   financeira.
   Nas compras, datas `D/M/AAAA` ou `AAAA-MM-DD` são aceitas; `D/M` sem ano exige
@@ -411,8 +478,11 @@ da escolha. O critério não depende da ordem de inserção nem do índice do ba
   categoria e decisão vêm de opções explícitas e autorizadas. A finalidade é
   **sem destino** ou um único projeto autorizado pelo valor integral da compra;
   não existe destino presumido, parcial ou múltiplo nesse caminho.
-  Marcar ou desmarcar compras usa o PATCH legado somente para a lista de seleção;
-  ele não substitui linhas nem funciona como resposta alternativa às perguntas.
+  Marcar ou desmarcar uma compra usa o PATCH autenticado. Documentos locais
+  continuam selection-only; somente candidatos OCR aceitam correções validadas
+  campo a campo, sem trocar a observação de origem. Uma correção OCR invalida
+  suas declarações anteriores. O PATCH não funciona como resposta alternativa
+  às perguntas documentais.
 - Na voz, a transcrição apenas preenche o controle e produz uma prévia
   determinística. A pessoa ainda confere e toca em **Guardar informação**; não há
   envio automático nem fallback para LLM quando a fala é inválida ou ambígua.

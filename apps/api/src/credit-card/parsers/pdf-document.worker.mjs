@@ -29,8 +29,8 @@ const raster = new Set([
   OPS.paintInlineImageXObjectGroup,
   OPS.paintSolidColorImageMask,
 ]);
-const fail = (code) => {
-  throw Object.assign(new Error(code), { code });
+const fail = (code, details = {}) => {
+  throw Object.assign(new Error(code), { code, ...details });
 };
 let task;
 let parser;
@@ -54,6 +54,8 @@ try {
   if (doc.isPureXfa) fail("OCR_REQUIRED");
   if (doc.numPages > workerData.maxPages) fail("LIMIT_EXCEEDED");
   coverage = true;
+  let rasterPages = 0;
+  let textPages = 0;
   for (let number = 1; number <= doc.numPages; number++) {
     const page = await doc.getPage(number);
     const operators = await page.getOperatorList({
@@ -62,12 +64,20 @@ try {
     });
     if (operators.fnArray.length > workerData.maxOperators)
       fail("LIMIT_EXCEEDED");
-    if (operators.fnArray.some((op) => raster.has(op))) fail("OCR_REQUIRED");
+    if (operators.fnArray.some((op) => raster.has(op))) rasterPages++;
     const content = await page.getTextContent();
-    if (!content.items.some((item) => "str" in item && item.str.trim()))
-      fail("OCR_REQUIRED");
+    if (content.items.some((item) => "str" in item && item.str.trim()))
+      textPages++;
     page.cleanup();
   }
+  if (textPages === 0 && rasterPages === doc.numPages)
+    fail("OCR_REQUIRED", {
+      pageCount: doc.numPages,
+      rasterObserved: true,
+    });
+  // Searchable/mixed ambiguity is never eligible for external OCR. A complete
+  // textual document continues locally; partial text fails closed.
+  if (textPages !== doc.numPages) fail("DOCUMENT_UNREADABLE");
   coverage = false;
   const { PDFParse } = await import("pdf-parse");
   parser = new PDFParse({
@@ -109,8 +119,13 @@ try {
         : error?.name === "PasswordException"
           ? "PDF_PASSWORD_REQUIRED"
           : coverage
-            ? "OCR_REQUIRED"
+            ? "DOCUMENT_UNREADABLE"
             : "DOCUMENT_UNREADABLE",
+    ...(error?.code === "OCR_REQUIRED" &&
+    error?.rasterObserved === true &&
+    Number.isSafeInteger(error?.pageCount)
+      ? { rasterObserved: true, pageCount: error.pageCount }
+      : {}),
   };
 } finally {
   try {

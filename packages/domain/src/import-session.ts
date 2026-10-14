@@ -162,6 +162,11 @@ export const ImportSessionErrorCode = {
   LIMIT_EXCEEDED: "LIMIT_EXCEEDED",
   UNSUPPORTED_DOCUMENT: "UNSUPPORTED_DOCUMENT",
   OCR_REQUIRED: "OCR_REQUIRED",
+  OCR_UNAVAILABLE: "OCR_UNAVAILABLE",
+  OCR_SAFETY_BLOCKED: "OCR_SAFETY_BLOCKED",
+  OCR_MALFORMED_RESPONSE: "OCR_MALFORMED_RESPONSE",
+  OCR_ATTEMPT_UNKNOWN: "OCR_ATTEMPT_UNKNOWN",
+  OCR_BUDGET_EXHAUSTED: "OCR_BUDGET_EXHAUSTED",
   DOCUMENT_UNREADABLE: "DOCUMENT_UNREADABLE",
   PDF_PASSWORD_REQUIRED: "PDF_PASSWORD_REQUIRED",
   LEASE_CONFLICT: "LEASE_CONFLICT",
@@ -172,6 +177,23 @@ export const ImportSessionErrorCode = {
 } as const;
 export type ImportSessionErrorCode =
   (typeof ImportSessionErrorCode)[keyof typeof ImportSessionErrorCode];
+export type ImportSessionOcrTerminalCodeV1 =
+  | typeof ImportSessionErrorCode.OCR_UNAVAILABLE
+  | typeof ImportSessionErrorCode.OCR_SAFETY_BLOCKED
+  | typeof ImportSessionErrorCode.OCR_MALFORMED_RESPONSE
+  | typeof ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN
+  | typeof ImportSessionErrorCode.LIMIT_EXCEEDED
+  | typeof ImportSessionErrorCode.DOCUMENT_UNREADABLE;
+export const IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION = 1 as const;
+export interface ImportSessionTerminalOutcomesV1 {
+  readonly version: typeof IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION;
+  readonly sessionId: ImportSessionId;
+  readonly revision: ImportSessionRevision;
+  readonly outcomes: Array<{
+    readonly attachmentId: ImportSessionId;
+    readonly code: ImportSessionOcrTerminalCodeV1;
+  }>;
+}
 
 /** Existing parent CUIDs remain valid. Only NEW server IDs and request IDs require UUIDv4. */
 export type ImportSessionId = string;
@@ -221,6 +243,22 @@ export interface ImportSessionDraftLineV1 {
   targets: ImportSessionTargetInputV1[] | null;
   decision: ImportSessionDecisionV1;
 }
+export interface ImportOcrReviewEvidenceV1 {
+  origin: "GOOGLE_VERTEX_AI";
+  model: "gemini-2.5-flash";
+  modelVersion: string;
+  region: "southamerica-east1";
+  authTrace: "LOCAL_ADC" | "SERVICE_ACCOUNT_FILE_ADC";
+  attachmentId: ImportSessionId;
+  artifactFingerprint: ImportSessionHash;
+  candidateFingerprint: ImportSessionHash;
+  pageNumber: number;
+  text: string;
+}
+export interface ImportSessionLineViewV1 extends ImportSessionDraftLineV1 {
+  /** Present only for active OCR review; never stored in draftJson. */
+  ocrEvidence?: ImportOcrReviewEvidenceV1;
+}
 export type ImportSessionDraftFieldV1 =
   | "amountMeaning"
   | "amountCents"
@@ -253,7 +291,7 @@ export type ImportHumanFactValuesV1 = {
 };
 export type ImportHumanFactFieldV1 = keyof ImportHumanFactValuesV1;
 /** Native guided controls attest documentary facts only, never draft/financial decisions. */
-export interface ImportSessionDocumentaryAnswerRequestV1 {
+export interface ImportSessionFactDocumentaryAnswerRequestV1 {
   version: 1;
   answerRequestId: ImportSessionRequestId;
   expectedRevision: ImportSessionRevision;
@@ -262,6 +300,32 @@ export interface ImportSessionDocumentaryAnswerRequestV1 {
   input: import("./import-declaration").ImportDeclarationUiInputV1;
   answer: ImportDeclarationAnswerV1;
 }
+
+export interface ImportSessionOcrConsentAnswerRequestV1 {
+  version: 1;
+  answerRequestId: ImportSessionRequestId;
+  expectedRevision: ImportSessionRevision;
+  questionId: ImportSessionId;
+  channel: "TEXT";
+  input: { kind: "VALUE"; text: "ALLOW_EXTERNAL_PROCESSING" };
+  answer: {
+    field: "externalOcrConsent";
+    value: "ALLOW_EXTERNAL_PROCESSING";
+    attachmentId: ImportSessionId;
+    requestId: ImportSessionRequestId;
+    consentPolicyVersion: 1;
+    provider: "GOOGLE_VERTEX_AI";
+    purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW";
+    region: "southamerica-east1";
+    retentionDays: 7;
+    sendsFullOriginal: true;
+    includesMetadataAndEmbeddedContent: true;
+    includesPotentiallyNonVisibleContent: true;
+  };
+}
+export type ImportSessionDocumentaryAnswerRequestV1 =
+  | ImportSessionFactDocumentaryAnswerRequestV1
+  | ImportSessionOcrConsentAnswerRequestV1;
 
 export type ImportDeclarationAnswerV1 = {
   [F in ImportHumanFactFieldV1]: {
@@ -497,8 +561,9 @@ export interface ImportSessionStoredDraftV1 extends ImportSessionDraftV1 {
 }
 export interface ImportSessionViewV1 extends Omit<
   ImportSessionDraftV1,
-  "questions"
+  "questions" | "lines"
 > {
+  lines: ImportSessionLineViewV1[];
   id: ImportSessionId;
   ownerProjectId: ImportSessionId;
   cardId: ImportSessionId;
@@ -510,6 +575,29 @@ export interface ImportSessionViewV1 extends Omit<
   questions: ImportSessionQuestionV1[];
   declaredFacts: ImportDeclaredFactViewV1[];
   reviewBlockers: ImportReviewBlockerV1[];
+  /** Server always projects this field; optional until older clients migrate their strict reader. */
+  ocrCapability?: {
+    status: "DISABLED" | "UNAVAILABLE" | "AVAILABLE";
+    consentPolicyVersion: 1;
+    provider: "GOOGLE_VERTEX_AI";
+    purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW";
+    region: "southamerica-east1";
+    retentionDays: 7;
+    sendsFullOriginal: true;
+    includesMetadataAndEmbeddedContent: true;
+    includesPotentiallyNonVisibleContent: true;
+    attachments: Array<{
+      attachmentId: ImportSessionId;
+      questionId: ImportSessionId;
+      consentedRequestId: ImportSessionRequestId | null;
+      consentedRevision: ImportSessionRevision | null;
+    }>;
+    /** Opt-in GET projection; absent from legacy and mutation response shapes. */
+    terminalOutcomes?: Array<{
+      attachmentId: ImportSessionId;
+      code: ImportSessionOcrTerminalCodeV1;
+    }>;
+  };
   searchComplete: boolean;
   /** Completed analysis produced no eligible purchase lines (e.g. only invoice payments). */
   analysisOutcome?: typeof IMPORT_NO_ELIGIBLE_PURCHASES | null;

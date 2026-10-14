@@ -56,6 +56,8 @@ export interface DocumentExtractionV1 {
   readonly parserVersion:
     | "card-local-text-v1"
     | "card-local-pdf-v1"
+    | typeof import("@reformaflow/domain").PDF_OCR_LEGACY_PARSER_VERSION
+    | typeof import("@reformaflow/domain").PDF_OCR_PARSER_VERSION
     | "card-local-xls-v1"
     | "card-local-xlsx-v1";
   readonly documentKind: "INVOICE" | "BANK_STATEMENT" | "RECEIPT" | "UNKNOWN";

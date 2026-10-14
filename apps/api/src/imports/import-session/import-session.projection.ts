@@ -4,6 +4,11 @@ import {
   IMPORT_SESSION_PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
   IMPORT_SESSION_AUDIT_OUTCOME,
+  PDF_OCR_CONSENT_POLICY_VERSION,
+  PDF_OCR_CONSENT_PURPOSE,
+  PDF_OCR_PROVIDER_ID,
+  PDF_OCR_REGION,
+  PDF_OCR_RETENTION_DAYS,
   CARD_IMPORT_IGNORED_REASON,
   ImportSessionAttachmentState,
   ImportSessionState,
@@ -545,7 +550,11 @@ export interface ProjectionResult {
 /** Whether the projection may emit the applied receipt (only after the participant ACL gate). */
 export interface ProjectionOptions {
   readonly includeReceipt: boolean;
+  readonly includeTerminalOutcomes?: boolean;
   readonly analysisEnabled?: boolean;
+  readonly ocrReleaseEnabled?: boolean;
+  readonly ocrPrerequisitesReady?: boolean;
+  readonly ocrCapability?: ImportSessionViewV1["ocrCapability"];
   /** Broad parser support is not CSV RAW qualification while global writes are OFF. */
   readonly csvOnlyAnalysis?: boolean;
   readonly qualifiedAnalysisFormats?: readonly string[];
@@ -555,6 +564,10 @@ export interface ProjectionOptions {
     readonly coalescedQuestions?: ImportSessionViewV1["questions"];
     readonly declaredFacts: ImportSessionViewV1["declaredFacts"];
     readonly reviewBlockers: ImportSessionViewV1["reviewBlockers"];
+    readonly ocrEvidenceByLine?: ReadonlyMap<
+      string,
+      NonNullable<ImportSessionViewV1["lines"][number]["ocrEvidence"]>
+    >;
     readonly executableAttachmentIds: readonly string[];
   };
   readonly workflow?: {
@@ -651,7 +664,10 @@ function projectSessionUnchecked(
     state,
     revision: row.revision,
     expiresAt: terminal ? null : row.expiresAt.toISOString(),
-    lines: draft.lines,
+    lines: draft.lines.map((line) => {
+      const ocrEvidence = options.documentary?.ocrEvidenceByLine?.get(line.id);
+      return ocrEvidence ? { ...line, ocrEvidence } : line;
+    }),
     selectedLineIds: draft.selectedLineIds,
     questions: terminal
       ? draft.questions
@@ -680,6 +696,24 @@ function projectSessionUnchecked(
               options.documentary!.executableAttachmentIds.includes(a.id),
           })),
     reviewBlockers: terminal ? [] : options.documentary!.reviewBlockers,
+    ocrCapability:
+      terminal || !options.ocrCapability
+        ? {
+            status: "DISABLED",
+            consentPolicyVersion: PDF_OCR_CONSENT_POLICY_VERSION,
+            provider: PDF_OCR_PROVIDER_ID,
+            purpose: PDF_OCR_CONSENT_PURPOSE,
+            region: PDF_OCR_REGION,
+            retentionDays: PDF_OCR_RETENTION_DAYS,
+            sendsFullOriginal: true,
+            includesMetadataAndEmbeddedContent: true,
+            includesPotentiallyNonVisibleContent: true,
+            attachments: [],
+            ...(options.includeTerminalOutcomes === true
+              ? { terminalOutcomes: [] }
+              : {}),
+          }
+        : options.ocrCapability,
     searchComplete,
     proposal,
     confirmation: confirmationOf(row),

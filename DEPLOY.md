@@ -63,6 +63,71 @@ curl -sI https://reformaflow-api.fly.dev/api/docs
 
 > Se mudar o nome do app no `fly.toml`, ajuste em todos os comandos acima.
 
+### Autenticação do Vertex PDF OCR
+
+O OCR nasce desabilitado (`IMPORT_OCR_ENABLED` diferente de `true`). Nesse estado o boot não valida
+auth do Vertex, não abre arquivo de credencial e não instancia `GoogleAuth`.
+
+Em desenvolvimento, habilitar exige exatamente `VERTEX_AUTH_MODE=local-adc` e
+`GOOGLE_CLOUD_PROJECT`. Não há ADC ambiente: o processo abre somente
+`~/.config/gcloud/application_default_credentials.json`, exige arquivo regular owner-only com o
+shape exato `authorized_user` criado pelo `gcloud auth application-default login`, e entrega esse
+objeto explicitamente ao `GoogleAuth` com apenas o scope `cloud-platform`. Em produção, habilitar
+exige exatamente `VERTEX_AUTH_MODE=service-account-file` e o projeto. Não há autodetecção,
+fallback, API key, `GOOGLE_APPLICATION_CREDENTIALS`, caminho configurável, metadata server ou WIF.
+Configuração inválida derruba o boot antes de abrir ingress. Readiness valida configuração e
+arquivo, mas não emite token.
+
+A credencial de produção é um JSON de service account dedicado, com acesso mínimo ao Vertex
+(atualmente `roles/aiplatform.user`). O principal aceito é exatamente
+`reformaflow-ocr@<GOOGLE_CLOUD_PROJECT>.iam.gserviceaccount.com`, e o único caminho aceito é
+`/secrets/vertex-sa.json`. O diretório não pode ser symlink nem gravável por grupo/outros; o arquivo
+deve ser regular, não symlink, `<=64 KiB` e owner-only. Projeto, e-mail canônico, chave RSA e token
+URI são conferidos antes do provider ficar pronto. Nunca copie o JSON para volume, imagem, log,
+issue ou PR.
+
+No snapshot de implementação `6867ba991f4c39deb19bb48ead0cda62a2a9a131`, o
+`apps/api/fly.toml` **intencionalmente não inclui** o file mount: a referência a um secret
+inexistente pode impedir o deploy mesmo com OCR desabilitado. Para release, confira o HEAD corrente
+da PR `feat/719-final-ocr`, não este snapshot histórico. Primeiro crie `VERTEX_SA_KEY` no app pelo
+canal privado do Fly (valor = conteúdo integral do JSON; não o imprima). Somente depois, em uma
+mudança operacional coordenada, adicione:
+
+```toml
+[[files]]
+  guest_path = "/secrets/vertex-sa.json"
+  secret_name = "VERTEX_SA_KEY"
+```
+
+e configure `IMPORT_OCR_ENABLED=true`, `VERTEX_AUTH_MODE=service-account-file` e
+`GOOGLE_CLOUD_PROJECT=<projeto-aprovado>`. Faça deploy canônico e confirme health/readiness antes de
+qualquer captura ou importação. A ausência ou invalidez do arquivo deve manter a API fora de
+serviço; não contorne com ADC ambiente.
+
+**Rotação/revogação, sem janela de credencial ambígua:**
+
+1. defina `PROJECT=<projeto-aprovado>` e
+   `SA=reformaflow-ocr@${PROJECT}.iam.gserviceaccount.com`; liste e registre em canal privado o
+   `OLD_KEY_ID` com
+   `gcloud iam service-accounts keys list --iam-account="$SA" --project="$PROJECT"`;
+2. crie uma única chave nova para esse mesmo principal em arquivo temporário owner-only fora do
+   repositório; valide localmente `project_id`, `client_email` e `private_key_id`, sem imprimir o
+   JSON;
+3. substitua o valor de `VERTEX_SA_KEY` no Fly pelo conteúdo integral da chave nova, faça o deploy
+   canônico e confirme startup/readiness, `SERVICE_ACCOUNT_FILE_ADC` e a qualificação sintética;
+4. somente depois dessas confirmações, revogue a chave anterior com
+   `gcloud iam service-accounts keys delete "$OLD_KEY_ID" --iam-account="$SA" --project="$PROJECT"`;
+   liste novamente as chaves e confirme que o ID antigo desapareceu;
+5. apague com o procedimento seguro da equipe toda cópia temporária local. Nunca apague a chave
+   nova usando um ID inferido do nome do secret.
+
+Em incidente, primeiro publique `IMPORT_OCR_ENABLED=false` e confirme OCR OFF; em seguida revogue
+imediatamente o `private_key_id` exposto pelo mesmo comando de delete, substitua/remova o secret e
+só reabilite após nova qualificação. Workload Identity Federation foi avaliado e adiado: o caminho
+STS suportado por `google-auth-library` não expõe o controle explícito de timeout/cancelamento e
+ausência de retry exigido para distinguir `NOT_DISPATCHED` de resultado desconhecido. Esta release
+rejeita `fly-wif` em vez de usar fallback.
+
 ### Migrations
 
 O `entrypoint.sh` normal roda `prisma migrate deploy` antes de iniciar o NestJS. Portanto, migration

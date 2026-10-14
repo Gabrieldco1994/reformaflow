@@ -16,6 +16,7 @@ import {
   type ImportPurchaseContextLine,
 } from "./ImportFocusedDraftQuestion";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
+import { OcrCandidateEvidence } from "./OcrCandidateEvidence";
 
 const FACT_LABEL: Record<ImportDeclaredFactViewV1["status"], string> = {
   CURRENT: "Informado por você",
@@ -130,6 +131,7 @@ export function ImportReviewBlockerNotice({
   const purchaseContext = formatImportPurchaseContext(line);
   const purchaseIdentity = formatImportPurchaseIdentity(line);
   const purchaseAmount = formatImportPurchaseAmountContext(line);
+  const externalProviderEvidence = line.ocrEvidence;
   return (
     <article
       aria-labelledby={`${id}-line`}
@@ -138,6 +140,9 @@ export function ImportReviewBlockerNotice({
       <h4 id={`${id}-line`} className="font-semibold">
         {purchaseContext}
       </h4>
+      {externalProviderEvidence && (
+        <OcrCandidateEvidence evidence={externalProviderEvidence} />
+      )}
       {visible && (
         <>
           <h5

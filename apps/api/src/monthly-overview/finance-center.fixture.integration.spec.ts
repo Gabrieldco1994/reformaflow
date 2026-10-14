@@ -719,7 +719,7 @@ describe("synthetic deterministic finance-center persisted contract", () => {
     }
   });
 
-  it("retains the 69 main migrations and appends exactly the three import migrations", async () => {
+  it("retains the 69 main migrations and appends exactly the seven import/OCR migrations", async () => {
     const migrations = await prisma.$queryRaw<
       Array<{
         migration_name: string;
@@ -730,7 +730,7 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       FROM _prisma_migrations
       ORDER BY migration_name ASC`;
 
-    expect(migrations).toHaveLength(72);
+    expect(migrations).toHaveLength(76);
     expect(migrations[68]?.migration_name).toBe(
       "20260923210000_documented_expense_schedule",
     );
@@ -740,6 +740,10 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       "20260929010000_import_session_bootstrap",
       "20261009193000_canonical_import_linkage_retention",
       "20261010100000_retire_unlinked_import_artifacts",
+      "20261013180000_import_pdf_ocr_runtime",
+      "20261013183000_import_ocr_usage_budget",
+      "20261013233000_import_ocr_usage_foreign_keys",
+      "20261014004500_import_ocr_usage_provenance",
     ]);
     expect(
       migrations.every(

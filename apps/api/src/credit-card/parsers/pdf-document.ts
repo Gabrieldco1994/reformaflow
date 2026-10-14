@@ -28,6 +28,16 @@ const ERROR_CODES: readonly Code[] = [
   Code.LIMIT_EXCEEDED,
 ];
 type Page = { num: number; text: string };
+type PdfWorkerResult =
+  | { pages: unknown[] }
+  | {
+      code: string;
+      rasterObserved?: boolean;
+      pageCount?: number;
+    };
+export type PdfDocumentInspection =
+  | { readonly kind: "LOCAL"; readonly document: DocumentExtractionV1 }
+  | { readonly kind: "OCR_ELIGIBLE"; readonly pageCount: number };
 function pages(value: unknown): Page[] {
   if (!value || typeof value !== "object")
     throw new ImportSessionError(Code.DOCUMENT_UNREADABLE);
@@ -58,17 +68,17 @@ function pages(value: unknown): Page[] {
 }
 
 /** Result is delivered only after worker exit; abort/deadline also await termination. */
-export async function extractPdfDocument(
+async function runPdfWorker(
   bytes: Buffer,
   signal?: AbortSignal,
   deadlineMs: number = DEADLINE_MS,
-): Promise<DocumentExtractionV1> {
+): Promise<PdfWorkerResult> {
   if (bytes.length > LIMITS.bytesPerFile)
     throw new ImportSessionError(Code.LIMIT_EXCEEDED);
   if (!bytes.subarray(0, 8).toString("ascii").startsWith("%PDF-"))
     throw new ImportSessionError(Code.DOCUMENT_UNREADABLE);
   if (signal?.aborted) throw new ImportSessionError(Code.LEASE_CONFLICT);
-  const result = await new Promise<unknown>((resolve, reject) => {
+  return new Promise<PdfWorkerResult>((resolve, reject) => {
     const worker = new Worker(join(__dirname, "pdf-document.worker.mjs"), {
       workerData: {
         bytes,
@@ -104,9 +114,26 @@ export async function extractPdfDocument(
       if (failure) reject(failure);
       else if (code !== 0 || output === undefined)
         reject(new ImportSessionError(Code.DOCUMENT_UNREADABLE));
-      else resolve(output);
+      else resolve(output as PdfWorkerResult);
     });
   });
+}
+
+/** Local inspection always runs first and positively identifies raster content. */
+export async function inspectPdfDocument(
+  bytes: Buffer,
+  signal?: AbortSignal,
+  deadlineMs: number = DEADLINE_MS,
+): Promise<PdfDocumentInspection> {
+  const result = await runPdfWorker(bytes, signal, deadlineMs);
+  if (
+    "code" in result &&
+    result.code === Code.OCR_REQUIRED &&
+    result.rasterObserved === true &&
+    Number.isSafeInteger(result.pageCount) &&
+    result.pageCount! >= 1
+  )
+    return { kind: "OCR_ELIGIBLE", pageCount: result.pageCount! };
   const extracted = pages(result);
   const captures: CardDocumentCapture[] = [];
   let invoice = false;
@@ -139,9 +166,23 @@ export async function extractPdfDocument(
     "PDF",
     invoice ? "INVOICE" : "UNKNOWN",
   );
-  return validateDocumentExtraction({
-    ...document,
-    parserVersion: "card-local-pdf-v1",
-    metrics: { ...document.metrics, pages: extracted.length },
-  });
+  return {
+    kind: "LOCAL",
+    document: validateDocumentExtraction({
+      ...document,
+      parserVersion: "card-local-pdf-v1",
+      metrics: { ...document.metrics, pages: extracted.length },
+    }),
+  };
+}
+
+export async function extractPdfDocument(
+  bytes: Buffer,
+  signal?: AbortSignal,
+  deadlineMs: number = DEADLINE_MS,
+): Promise<DocumentExtractionV1> {
+  const inspected = await inspectPdfDocument(bytes, signal, deadlineMs);
+  if (inspected.kind === "OCR_ELIGIBLE")
+    throw new ImportSessionError(Code.OCR_REQUIRED);
+  return inspected.document;
 }

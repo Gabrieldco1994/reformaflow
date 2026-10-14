@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { PDF_OCR_USAGE_OUTCOME } from "../ocr/pdf-ocr-budget";
 import { releaseCompletedSessionAttachments } from "./completed-retention";
 
 describe("completed document retention", () => {
@@ -12,6 +13,8 @@ describe("completed document retention", () => {
   it("releases only remaining refs of the completed session within its transaction", async () => {
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
     const tx = {
+      importSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      importOcrUsage: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       importSessionArtifact: { updateMany },
     } as unknown as Prisma.TransactionClient;
     await releaseCompletedSessionAttachments(tx, scope, now);
@@ -41,11 +44,37 @@ describe("completed document retention", () => {
     const failure = new Error("transaction failed");
     const updateMany = jest.fn().mockRejectedValue(failure);
     const tx = {
+      importSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      importOcrUsage: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       importSessionArtifact: { updateMany },
     } as unknown as Prisma.TransactionClient;
     await expect(
       releaseCompletedSessionAttachments(tx, scope, now),
     ).rejects.toBe(failure);
     expect(updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks only the canonical ledger content purged", async () => {
+    const updateUsage = jest.fn().mockResolvedValue({ count: 1 });
+    const tx = {
+      importSessionArtifact: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      importOcrUsage: { updateMany: updateUsage },
+    } as unknown as Prisma.TransactionClient;
+
+    await releaseCompletedSessionAttachments(tx, scope, now);
+
+    expect(updateUsage).toHaveBeenCalledWith({
+      where: {
+        ...scope,
+        outcome: PDF_OCR_USAGE_OUTCOME.SUCCEEDED,
+        contentPurgedAt: null,
+      },
+      data: {
+        contentPurgedAt: now,
+        updatedAt: now,
+      },
+    });
   });
 });

@@ -169,6 +169,12 @@ describe("private PDF import native pipeline", () => {
       verifier,
       gate,
     );
+    const ocrProvider = {
+      provider: "GOOGLE_VERTEX_AI" as const,
+      model: "gemini-2.5-flash" as const,
+      ready: () => true,
+      extractPdf: jest.fn(),
+    };
     const extraction = new ImportSessionExtractionService(
       prisma,
       clock,
@@ -176,6 +182,7 @@ describe("private PDF import native pipeline", () => {
       verifier,
       gate,
       raw,
+      ocrProvider,
     );
     const conciliacao = new ConciliacaoService(prisma);
     const workflow = new ImportSessionWorkflowService(
@@ -260,10 +267,16 @@ describe("private PDF import native pipeline", () => {
         auth,
         uploaded.id,
         attachmentId,
-        { expectedRevision: uploaded.revision },
+        {
+          version: 2,
+          expectedRevision: uploaded.revision,
+          requestId: randomUUID(),
+          consentExternalProcessing: true,
+        },
         {},
       );
       expect(analyzed.lines).toHaveLength(2);
+      expect(ocrProvider.extractPdf).not.toHaveBeenCalled();
       expect(await financialCounts()).toEqual([0, 0, 0, 0, 0, 0]);
       const privateState = await prisma.importSession.findUniqueOrThrow({
         where: { id: analyzed.id },
@@ -707,7 +720,7 @@ describe("private PDF import native pipeline", () => {
           { expectedRevision: failedUploaded.revision },
           {},
         ),
-      ).rejects.toMatchObject({ code: "OCR_REQUIRED" });
+      ).rejects.toMatchObject({ code: "DOCUMENT_UNREADABLE" });
       const failedRef = await prisma.importSessionArtifact.findUniqueOrThrow({
         where: { id: failedAttachment },
       });

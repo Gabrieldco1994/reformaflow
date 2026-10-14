@@ -10,6 +10,7 @@ import {
 } from "@reformaflow/domain";
 import {
   analyzeImportAttachment,
+  answerImportDocumentaryQuestion,
   createImportSession,
   getFullImportSession,
   reserveImportSessionAttachments,
@@ -21,11 +22,17 @@ import {
   describeImportFailure,
   importWorkflowFailure,
   isPdfDocumentErrorCode,
+  OCR_LIMIT_EXCEEDED_COPY,
   type ImportWireErrorCode,
 } from "../_lib/import-session-errors";
 import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-read";
 import { useImportUserId } from "./useImportSessions";
 import type { ImportEntryCard } from "../_lib/import-session-read";
+import type {
+  OcrCapabilityV1,
+  OcrTerminalUiState,
+  OcrUiPresentation,
+} from "../_types";
 import {
   isSupportedImportFormats,
   type SupportedImportFormat,
@@ -54,6 +61,9 @@ interface DocumentFailure {
   message: string;
   privateContextLost: boolean;
   code?: ImportWireErrorCode | null;
+  /** Local routing reference only; never rendered as document context. */
+  attachmentId?: string;
+  ocrKind: OcrTerminalUiState | "CONSENT_REQUIRED";
 }
 interface Generation {
   userId: string | null;
@@ -68,6 +78,9 @@ interface Generation {
   attempt: Attempt | null;
   adoption: { attempt: Attempt; id: string; key: string } | null;
   documentBlocker: DocumentFailure | null;
+  ocrConsentSubmissions: Set<string>;
+  externalProcessingAttempts: Set<string>;
+  ocrPresentation: OcrUiPresentation | null;
 }
 interface Feedback {
   pending: boolean;
@@ -92,7 +105,13 @@ const newGeneration = (
   attempt: null,
   adoption: null,
   documentBlocker: null,
+  ocrConsentSubmissions: new Set(),
+  externalProcessingAttempts: new Set(),
+  ocrPresentation: null,
 });
+
+const ocrCapabilityOf = (value: ImportSessionViewV1): OcrCapabilityV1 | null =>
+  value.ocrCapability ?? null;
 
 /** Documentary coordinator only; server actions still own analysis eligibility. */
 export function useImportDocumentFlow(
@@ -185,7 +204,11 @@ export function useImportDocumentFlow(
       if (!sessionId) throw new ImportWorkflowResponseError();
       const previousRevision =
         client.getQueryData<ImportSessionViewV1>(key)?.revision;
-      const fresh = await getFullImportSession(sessionId, signal);
+      const fresh = await getFullImportSession(
+        sessionId,
+        signal,
+        "WORKFLOW_VIEW",
+      );
       signal.throwIfAborted();
       if (
         fresh.id !== generation.sessionId ||
@@ -196,16 +219,48 @@ export function useImportDocumentFlow(
       return fresh;
     },
   });
+  const ocrFailureKind = (
+    failure: ReturnType<typeof classifyImportFailure>,
+    attempted: boolean,
+  ): DocumentFailure["ocrKind"] => {
+    if (failure.kind === "api") {
+      switch (failure.error.code) {
+        case "OCR_REQUIRED":
+          return attempted ? "OCR_ATTEMPT_UNKNOWN" : "CONSENT_REQUIRED";
+        case "OCR_UNAVAILABLE":
+        case "CAPABILITY_DISABLED":
+          return "OCR_UNAVAILABLE";
+        case "OCR_SAFETY_BLOCKED":
+          return "OCR_SAFETY_BLOCKED";
+        case "OCR_MALFORMED_RESPONSE":
+          return "OCR_MALFORMED_RESPONSE";
+        case "OCR_ATTEMPT_UNKNOWN":
+          return "OCR_ATTEMPT_UNKNOWN";
+        case "OCR_BUDGET_EXHAUSTED":
+          return "OCR_BUDGET_EXHAUSTED";
+        case "LIMIT_EXCEEDED":
+          return attempted ? "LIMIT_EXCEEDED" : "OCR_UNAVAILABLE";
+        case "DOCUMENT_UNREADABLE":
+          return "DOCUMENT_UNREADABLE";
+        case "PDF_PASSWORD_REQUIRED":
+          return "PDF_PASSWORD_REQUIRED";
+        case "UNSUPPORTED_DOCUMENT":
+          return "UNSUPPORTED_DOCUMENT";
+        default:
+          return attempted ? "OCR_ATTEMPT_UNKNOWN" : "OCR_UNAVAILABLE";
+      }
+    }
+    return attempted ? "OCR_ATTEMPT_UNKNOWN" : "OCR_UNAVAILABLE";
+  };
   const describe = (error: unknown): DocumentFailure => {
     const context = importWorkflowFailure(error);
-    const info = describeImportFailure(
-      classifyImportFailure(error),
-      "document",
-    );
+    const classified = classifyImportFailure(error);
+    const info = describeImportFailure(classified, "document");
     return {
       privateContextLost: context.privateContextLost,
       code: info.code,
       message: context.privateContextLost ? context.message : info.message,
+      ocrKind: ocrFailureKind(classified, false),
     };
   };
   const error =
@@ -218,11 +273,51 @@ export function useImportDocumentFlow(
   }
   const view =
     userId && sessionId && !generation.revoked ? (query.data ?? null) : null;
-  const fail = (error: unknown) => {
+  const fail = (error: unknown, attachmentId?: string) => {
     generation.mustRead = true;
-    const failure = describe(error);
-    if (isPdfDocumentErrorCode(failure.code))
-      generation.documentBlocker = failure;
+    const attempted = Boolean(
+      attachmentId && generation.externalProcessingAttempts.has(attachmentId),
+    );
+    const classified = classifyImportFailure(error);
+    const described = describe(error);
+    const cachedView = client.getQueryData<ImportSessionViewV1>(key);
+    const cachedCapability = cachedView ? ocrCapabilityOf(cachedView) : null;
+    const capabilityAttachment =
+      cachedCapability?.status === "AVAILABLE"
+        ? cachedCapability.attachments.find(
+            (candidate) => candidate.attachmentId === attachmentId,
+          )
+        : null;
+    const failure = {
+      ...described,
+      message:
+        described.code === "LIMIT_EXCEEDED" && attempted
+          ? OCR_LIMIT_EXCEEDED_COPY
+          : described.message,
+      attachmentId,
+      ocrKind:
+        described.code === "OCR_REQUIRED" && !capabilityAttachment
+          ? ("OCR_UNAVAILABLE" as const)
+          : ocrFailureKind(classified, attempted),
+    };
+    const terminalDocumentFailure =
+      isPdfDocumentErrorCode(failure.code) ||
+      (failure.code === "LIMIT_EXCEEDED" && attempted);
+    const terminalOcrPresentation = terminalDocumentFailure || attempted;
+    if (terminalDocumentFailure) generation.documentBlocker = failure;
+    const attachment = attachmentId
+      ? cachedView?.attachments.find(
+          (candidate) => candidate.id === attachmentId,
+        )
+      : null;
+    if (
+      terminalOcrPresentation &&
+      attachment?.fileName.toLocaleLowerCase("en-US").endsWith(".pdf")
+    )
+      generation.ocrPresentation = {
+        attachmentId: attachment.id,
+        kind: failure.ocrKind,
+      };
     generation.revoked = failure.privateContextLost;
     update({ pending: false, error: failure });
   };
@@ -250,7 +345,11 @@ export function useImportDocumentFlow(
     update({ pending: true });
     try {
       const fresh = sessionId
-        ? await getFullImportSession(sessionId, controller.signal)
+        ? await getFullImportSession(
+            sessionId,
+            controller.signal,
+            "WORKFLOW_VIEW",
+          )
         : await context?.recoverList();
       if (!active()) return;
       controller.signal.throwIfAborted();
@@ -292,6 +391,7 @@ export function useImportDocumentFlow(
     const controller = new AbortController();
     generation.controller = controller;
     update({ pending: true, error: null, notice: null });
+    let activeAttachmentId: string | undefined;
     try {
       let latest = generation.sessionId
         ? client.getQueryData<ImportSessionViewV1>(keyFor(generation.sessionId))
@@ -383,6 +483,7 @@ export function useImportDocumentFlow(
       }
       for (const { id } of attempt.files) {
         if (!active()) return;
+        activeAttachmentId = id;
         const attachment = latest.attachments.find((a) => a.id === id);
         if (
           !attachment?.canAnalyze ||
@@ -410,7 +511,7 @@ export function useImportDocumentFlow(
           : null,
       });
     } catch (error) {
-      if (active()) fail(error);
+      if (active()) fail(error, activeAttachmentId);
     } finally {
       generation.busy = false;
       if (generation.controller === controller) generation.controller = null;
@@ -582,9 +683,11 @@ export function useImportDocumentFlow(
     generation.controller = controller;
     update({ pending: true, error: null });
     let latest = view;
+    let activeAttachmentId: string | undefined;
     try {
       for (const reference of references) {
         if (!active()) return;
+        activeAttachmentId = reference.id;
         const attachment = latest.attachments.find(
           (a) => a.id === reference.id,
         );
@@ -609,12 +712,225 @@ export function useImportDocumentFlow(
       }
       update({ pending: false, error: null });
     } catch (error) {
-      if (active()) fail(error);
+      if (active()) fail(error, activeAttachmentId);
     } finally {
       generation.busy = false;
       if (generation.controller === controller) generation.controller = null;
     }
   }
+
+  async function consentExternalProcessing(
+    attachmentId: string,
+  ): Promise<void> {
+    if (
+      !active() ||
+      generation.busy ||
+      !userId ||
+      !sessionId ||
+      generation.ocrConsentSubmissions.has(attachmentId) ||
+      generation.externalProcessingAttempts.has(attachmentId)
+    )
+      return;
+    const latest = client.getQueryData<ImportSessionViewV1>(key);
+    const attachment = latest?.attachments.find(
+      (candidate) => candidate.id === attachmentId,
+    );
+    const capability = latest ? ocrCapabilityOf(latest) : null;
+    const capabilityAttachment =
+      capability?.status === "AVAILABLE"
+        ? capability.attachments.find(
+            (candidate) => candidate.attachmentId === attachmentId,
+          )
+        : null;
+    if (
+      !latest ||
+      terminal(latest) ||
+      !latest.actions.includes("ANALYZE") ||
+      !attachment?.canAnalyze ||
+      attachment.materializedInSession ||
+      !capabilityAttachment
+    )
+      return;
+
+    generation.ocrConsentSubmissions.add(attachmentId);
+    generation.busy = true;
+    const controller = new AbortController();
+    generation.controller = controller;
+    update({ pending: true, error: null });
+    try {
+      if (
+        capabilityAttachment.consentedRequestId !== null &&
+        capabilityAttachment.consentedRevision !== null
+      ) {
+        if (capabilityAttachment.consentedRevision !== latest.revision)
+          throw new ImportWorkflowResponseError();
+        generation.externalProcessingAttempts.add(attachmentId);
+        const fresh = await analyzeImportAttachment(
+          sessionId,
+          attachmentId,
+          {
+            version: 2,
+            expectedRevision: capabilityAttachment.consentedRevision,
+            requestId: capabilityAttachment.consentedRequestId,
+            consentExternalProcessing: true,
+          },
+          controller.signal,
+        );
+        if (!active()) return;
+        controller.signal.throwIfAborted();
+        publish(fresh, latest.revision);
+        generation.ocrPresentation = null;
+        generation.mustRead = false;
+        update({ pending: false, error: null });
+        return;
+      }
+      const requestId = crypto.randomUUID();
+      const answerRequestId = crypto.randomUUID();
+      const consented = await answerImportDocumentaryQuestion(
+        sessionId,
+        {
+          version: 1,
+          answerRequestId,
+          expectedRevision: latest.revision,
+          questionId: capabilityAttachment.questionId,
+          channel: "TEXT",
+          input: { kind: "VALUE", text: "ALLOW_EXTERNAL_PROCESSING" },
+          answer: {
+            field: "externalOcrConsent",
+            value: "ALLOW_EXTERNAL_PROCESSING",
+            attachmentId,
+            requestId,
+            consentPolicyVersion: 1,
+            provider: "GOOGLE_VERTEX_AI",
+            purpose: "DOCUMENT_LINE_TRANSCRIPTION_FOR_HUMAN_REVIEW",
+            region: "southamerica-east1",
+            retentionDays: 7,
+            sendsFullOriginal: true,
+            includesMetadataAndEmbeddedContent: true,
+            includesPotentiallyNonVisibleContent: true,
+          },
+        },
+        controller.signal,
+      );
+      if (!active()) return;
+      controller.signal.throwIfAborted();
+      const consentedCapability = ocrCapabilityOf(consented);
+      const persisted = consentedCapability?.attachments.find(
+        (candidate) => candidate.attachmentId === attachmentId,
+      );
+      if (
+        consentedCapability?.status !== "AVAILABLE" ||
+        persisted?.consentedRequestId !== requestId ||
+        persisted.consentedRevision !== consented.revision
+      )
+        throw new ImportWorkflowResponseError();
+      publish(consented, latest.revision);
+
+      // Only the provider call closes this one-shot lock. Persisting consent is
+      // a separate documentary write and is never treated as provider success.
+      generation.externalProcessingAttempts.add(attachmentId);
+      const fresh = await analyzeImportAttachment(
+        sessionId,
+        attachmentId,
+        {
+          version: 2,
+          expectedRevision: consented.revision,
+          requestId,
+          consentExternalProcessing: true,
+        },
+        controller.signal,
+      );
+      if (!active()) return;
+      controller.signal.throwIfAborted();
+      publish(fresh, consented.revision);
+      if (generation.documentBlocker?.attachmentId === attachmentId)
+        generation.documentBlocker = null;
+      generation.ocrPresentation = null;
+      generation.mustRead = false;
+      update({ pending: false, error: null });
+    } catch (error) {
+      if (active()) fail(error, attachmentId);
+    } finally {
+      generation.busy = false;
+      if (generation.controller === controller) generation.controller = null;
+    }
+  }
+
+  const projectedCapability = view ? ocrCapabilityOf(view) : null;
+  const projectedTerminalPresentations =
+    projectedCapability?.terminalOutcomes?.map(
+      (outcome): OcrUiPresentation => ({
+        attachmentId: outcome.attachmentId,
+        kind: outcome.code,
+      }),
+    ) ?? [];
+  const projectedTerminalIds = new Set(
+    projectedTerminalPresentations.map(
+      (presentation) => presentation.attachmentId,
+    ),
+  );
+  const listedCapability = view
+    ? projectedCapability?.attachments.find(
+        (candidate) =>
+          !projectedTerminalIds.has(candidate.attachmentId) &&
+          view.attachments.some(
+            (attachment) =>
+              attachment.id === candidate.attachmentId &&
+              attachment.canAnalyze &&
+              !attachment.materializedInSession,
+          ),
+      )
+    : null;
+  const localOcrPresentation =
+    generation.ocrPresentation &&
+    !projectedTerminalIds.has(generation.ocrPresentation.attachmentId)
+      ? generation.ocrPresentation
+      : null;
+  const baseOcrPresentation =
+    localOcrPresentation ??
+    (listedCapability && view
+      ? ({
+          attachmentId: listedCapability.attachmentId,
+          kind:
+            projectedCapability?.status === "AVAILABLE"
+              ? listedCapability.consentedRequestId === null
+                ? "CONSENT_REQUIRED"
+                : "CONSENTED_READY"
+              : "OCR_UNAVAILABLE",
+        } as const)
+      : null);
+  const actionableOcrPresentation = baseOcrPresentation
+    ? {
+        ...baseOcrPresentation,
+        kind:
+          feedback.pending &&
+          generation.ocrConsentSubmissions.has(baseOcrPresentation.attachmentId)
+            ? ("REQUESTING" as const)
+            : (baseOcrPresentation.kind === "CONSENT_REQUIRED" ||
+                  baseOcrPresentation.kind === "CONSENTED_READY") &&
+                (!view ||
+                  projectedCapability?.status !== "AVAILABLE" ||
+                  !projectedCapability.attachments.some(
+                    (candidate) =>
+                      candidate.attachmentId ===
+                        baseOcrPresentation.attachmentId &&
+                      (baseOcrPresentation.kind === "CONSENT_REQUIRED"
+                        ? candidate.consentedRequestId === null &&
+                          candidate.consentedRevision === null
+                        : candidate.consentedRequestId !== null &&
+                          candidate.consentedRevision !== null),
+                  ))
+              ? ("OCR_UNAVAILABLE" as const)
+              : baseOcrPresentation.kind,
+      }
+    : null;
+  const ocrUiStates = [
+    ...projectedTerminalPresentations,
+    ...(actionableOcrPresentation ? [actionableOcrPresentation] : []),
+  ];
+  const ocrUiState = ocrUiStates[0] ?? null;
+  const ocrRequiredAttachmentId =
+    ocrUiState?.kind === "CONSENT_REQUIRED" ? ocrUiState.attachmentId : null;
 
   return {
     sessionId,
@@ -631,6 +947,16 @@ export function useImportDocumentFlow(
     notice: feedback.notice,
     busy: feedback.pending || query.isFetching,
     analyze,
+    consentExternalProcessing,
+    ocrRequiredAttachmentId,
+    ocrUiState,
+    ocrUiStates,
+    ocrConsentAttempted: Boolean(
+      baseOcrPresentation &&
+      generation.externalProcessingAttempts.has(
+        baseOcrPresentation.attachmentId,
+      ),
+    ),
     recover,
     consent,
     canResume,
