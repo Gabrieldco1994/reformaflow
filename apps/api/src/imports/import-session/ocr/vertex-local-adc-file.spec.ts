@@ -120,6 +120,38 @@ describe("Vertex local ADC file admission", () => {
     },
   );
 
+  it("accepts the documented gcloud authorized_user envelope but passes only credentials", async () => {
+    const path =
+      "/Users/reformaflow/.config/gcloud/application_default_credentials.json";
+    const content = Buffer.from(
+      JSON.stringify({
+        ...document(),
+        quota_project_id: "reformaflow-local-719",
+        universe_domain: "googleapis.com",
+        account: "local-user-719@example.com",
+      }),
+    );
+    const fs = fileSystem(content);
+
+    const admitted = await admitVertexLocalAdcFile({
+      platform: "darwin",
+      homeDirectory: "/Users/reformaflow",
+      fileSystem: fs,
+    });
+
+    expect(admitted).toEqual({ credentials: document() });
+    expect(admitted.credentials).not.toHaveProperty("quota_project_id");
+    expect(admitted.credentials).not.toHaveProperty("universe_domain");
+    expect(admitted.credentials).not.toHaveProperty("account");
+    expect(admitted).not.toHaveProperty("keyFilename");
+    expect(admitted).not.toHaveProperty("path");
+    expect(fs.open).toHaveBeenCalledTimes(1);
+    expect(fs.open).toHaveBeenCalledWith(
+      path,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+    );
+  });
+
   it.each([
     ["symlink directory", { directory: { isSymbolicLink: () => true } }],
     ["writable directory", { directory: { mode: 0o40720 } }],
@@ -159,9 +191,12 @@ describe("Vertex local ADC file admission", () => {
     ["missing client id", { client_id: undefined }],
     ["missing client secret", { client_secret: undefined }],
     ["missing refresh token", { refresh_token: undefined }],
-    ["quota project", { quota_project_id: "quota-canary-719" }],
+    ["quota project with wrong type", { quota_project_id: 719 }],
     ["token URI override", { token_uri: "https://evil.example/token" }],
-    ["universe domain", { universe_domain: "evil.example" }],
+    ["non-google universe domain", { universe_domain: "evil.example" }],
+    ["universe domain with wrong type", { universe_domain: 719 }],
+    ["account with wrong type", { account: 719 }],
+    ["unknown metadata", { unknown_metadata: "unknown-canary-719" }],
     ["API key", { api_key: "api-key-canary-719" }],
   ])(
     "rejects %s without leaking credential values",
