@@ -96,6 +96,24 @@ const EXPECTED_TOPOLOGY = [
     sourcePath: SAFETY_SUITE,
   },
 ] as const;
+const RATE_THRESHOLD_NAMES = [
+  "scannedTaskSuccessRate",
+  "exactMoneyRate",
+  "exactSignRate",
+  "exactDateRate",
+  "exactDateExplicitnessRate",
+  "exactInstallmentRate",
+  "unknownPreservationRate",
+  "visibleEvidenceRate",
+  "schemaValidityRate",
+] as const;
+const DEFECT_THRESHOLD_NAMES = [
+  "inventedRows",
+  "omittedRows",
+  "tenantLeaks",
+  "falseAutomations",
+  "financialWrites",
+] as const;
 
 interface Policy {
   policyVersion: string;
@@ -277,6 +295,177 @@ function attestationExec(root: string): Exec {
       : git(file, args, options);
 }
 
+type RateThresholdName = (typeof RATE_THRESHOLD_NAMES)[number];
+type DefectThresholdName = (typeof DEFECT_THRESHOLD_NAMES)[number];
+type Thresholds = Record<RateThresholdName | DefectThresholdName, number>;
+
+interface EvalPrediction {
+  artifactSha256: string;
+  tenantId: string;
+  schemaValid: boolean;
+  financialWrites: number;
+  outcome:
+    | { kind: "ERROR" }
+    | {
+        kind: "SUCCESS";
+        regions: Array<{
+          rows: Array<Record<string, any>>;
+        }>;
+      };
+}
+
+interface ThresholdEvaluator {
+  buildOraclePredictions(liveFields?: boolean): Promise<EvalPrediction[]>;
+  buildOracleRoutingCases(): Promise<unknown[]>;
+  buildOracleSafetyProbes(): unknown[];
+  evaluateOcrSynth(input: unknown): Promise<{
+    functionalStatus: "PASS" | "FAIL";
+    thresholds: Thresholds;
+    metrics: Thresholds & Record<string, number | null>;
+  }>;
+}
+
+const offlineRun = {
+  mode: "OFFLINE_ORACLE",
+  candidateSha: null,
+  configurationSha256: null,
+  adapterSha256: null,
+  provider: null,
+  model: null,
+  modelVersion: null,
+  region: null,
+  endpoint: null,
+  promptSha256: null,
+  baseline: {
+    sha: "08d19d11638a55e14ce73a6bf472894174c66389",
+    behavior: "OCR_REQUIRED",
+    sampleCount: 18,
+  },
+  declaredLimits: {
+    maxP95LatencyMs: null,
+    maxTotalCostMicros: null,
+    maxRequestBodyBytes: null,
+    maxProviderDeadlineMs: null,
+  },
+  durableBudgets: null,
+  residualRiskAcceptance: null,
+  finalReviews: null,
+  pricing: null,
+} as const;
+const liveRun = {
+  ...offlineRun,
+  mode: "LIVE_CAPTURE",
+  candidateSha: "b".repeat(40),
+  configurationSha256: "c".repeat(64),
+  adapterSha256: "d".repeat(64),
+  provider: "GOOGLE_VERTEX_AI",
+  model: "gemini-2.5-flash",
+  modelVersion: "evaluator-fixture-version",
+  region: "southamerica-east1",
+  endpoint: "https://southamerica-east1-aiplatform.googleapis.com",
+  promptSha256: "a".repeat(64),
+  declaredLimits: {
+    maxP95LatencyMs: 100,
+    maxTotalCostMicros: 1_000,
+    maxRequestBodyBytes: 20_000_000,
+    maxProviderDeadlineMs: 30_000,
+  },
+  durableBudgets: {
+    policySha256: "e".repeat(64),
+    tenantLimitMicros: 10_000,
+    globalLimitMicros: 100_000,
+    storage: "DATABASE",
+  },
+  residualRiskAcceptance: {
+    decision: "OPTION_1_COMPLETE_ORIGINAL_PDF",
+    dataOwnerAcceptanceSha256: "f".repeat(64),
+    noLocalDerivative: true,
+  },
+  finalReviews: {
+    securityReviewSha256: "1".repeat(64),
+    privacyReviewSha256: "2".repeat(64),
+    dataOwnerReviewSha256: "3".repeat(64),
+  },
+  pricing: {
+    source: "evaluator-self-test-only",
+    effectiveDate: "2026-10-13",
+    inputMicrosPerMillionTokens: 1_000_000,
+    outputMicrosPerMillionTokens: 1_000_000,
+  },
+} as const;
+
+function thresholdSet(
+  rate: number,
+  defect: number,
+  override: Partial<Thresholds> = {},
+): Thresholds {
+  return {
+    scannedTaskSuccessRate: rate,
+    exactMoneyRate: rate,
+    exactSignRate: rate,
+    exactDateRate: rate,
+    exactDateExplicitnessRate: rate,
+    exactInstallmentRate: rate,
+    unknownPreservationRate: rate,
+    visibleEvidenceRate: rate,
+    schemaValidityRate: rate,
+    inventedRows: defect,
+    omittedRows: defect,
+    tenantLeaks: defect,
+    falseAutomations: defect,
+    financialWrites: defect,
+    ...override,
+  };
+}
+
+async function withThresholdEvaluator<T>(
+  thresholds: Thresholds,
+  action: (evaluator: ThresholdEvaluator) => Promise<T>,
+): Promise<T> {
+  jest.resetModules();
+  const policy = JSON.parse(
+    await readFile(resolve(ROOT, POLICY_PATH), "utf8"),
+  ) as Record<string, unknown>;
+  jest.doMock("./quality-closure-policy.json", () => ({
+    ...policy,
+    thresholds,
+  }));
+  let evaluator!: ThresholdEvaluator;
+  jest.isolateModules(() => {
+    evaluator = require("./evaluator") as ThresholdEvaluator;
+  });
+  try {
+    return await action(evaluator);
+  } finally {
+    jest.dontMock("./quality-closure-policy.json");
+    jest.resetModules();
+  }
+}
+
+async function evaluateThresholdMutation(
+  evaluator: ThresholdEvaluator,
+  mutate: (predictions: EvalPrediction[]) => void,
+  live = false,
+) {
+  const predictions = await evaluator.buildOraclePredictions(live);
+  mutate(predictions);
+  return evaluator.evaluateOcrSynth({
+    datasetVersion: "ocr-synth-v1-direct-pdf-vertex-v3",
+    run: live ? liveRun : offlineRun,
+    predictions,
+    routingCases: await evaluator.buildOracleRoutingCases(),
+    safetyProbes: evaluator.buildOracleSafetyProbes(),
+  });
+}
+
+function successfulRows(predictions: EvalPrediction[]) {
+  return predictions.flatMap((prediction) =>
+    prediction.outcome.kind === "SUCCESS"
+      ? prediction.outcome.regions.flatMap((region) => region.rows)
+      : [],
+  );
+}
+
 describe("canonical quality closure mechanical binding", () => {
   it("pins the exact 10 ROUTE + 35 PROBE topology independently of runtime arrays", async () => {
     expect(ROUTE_TITLES).toHaveLength(10);
@@ -318,28 +507,10 @@ describe("canonical quality closure mechanical binding", () => {
     );
   });
 
-  it("enforces all rate minima, defect maxima, and threshold domains", async () => {
+  it("pins the current approved policy to literal 1/0 thresholds and exact runtime limits", async () => {
     const baseline = JSON.parse(
       await readFile(resolve(ROOT, POLICY_PATH), "utf8"),
     ) as Policy;
-    const rateNames = [
-      "scannedTaskSuccessRate",
-      "exactMoneyRate",
-      "exactSignRate",
-      "exactDateRate",
-      "exactDateExplicitnessRate",
-      "exactInstallmentRate",
-      "unknownPreservationRate",
-      "visibleEvidenceRate",
-      "schemaValidityRate",
-    ] as const;
-    const defectNames = [
-      "inventedRows",
-      "omittedRows",
-      "tenantLeaks",
-      "falseAutomations",
-      "financialWrites",
-    ] as const;
     expect(baseline.thresholds).toEqual({
       scannedTaskSuccessRate: 1,
       exactMoneyRate: 1,
@@ -433,68 +604,73 @@ describe("canonical quality closure mechanical binding", () => {
       inputMicrosPerMillionTokens: 300_000,
       outputMicrosPerMillionTokens: 2_500_000,
     });
-    const mutations: Array<[string, (policy: Policy) => void]> = [
-      ...rateNames.map(
-        (name) =>
-          [
-            `${name}:below-minimum`,
-            (value: Policy) => {
-              value.thresholds[name] = 0;
-            },
-          ] as [string, (policy: Policy) => void],
-      ),
-      ...defectNames.map(
-        (name) =>
-          [
-            `${name}:above-maximum`,
-            (value: Policy) => {
-              value.thresholds[name] = 1;
-            },
-          ] as [string, (policy: Policy) => void],
-      ),
-      [
-        "rate:above-one",
-        (value) => {
-          value.thresholds.scannedTaskSuccessRate = 2;
-        },
-      ],
-      [
-        "rate:fractional",
-        (value) => {
-          value.thresholds.exactMoneyRate = 0.5;
-        },
-      ],
-      [
-        "rate:negative",
-        (value) => {
-          value.thresholds.exactSignRate = -1;
-        },
-      ],
-      [
-        "defect:fractional",
-        (value) => {
-          value.thresholds.inventedRows = 0.5;
-        },
-      ],
-      [
-        "defect:negative",
-        (value) => {
-          value.thresholds.omittedRows = -1;
-        },
-      ],
-    ];
-    const accepted: string[] = [];
-    for (const [label, mutate] of mutations) {
+  });
+
+  it("accepts the full threshold domain and rejects only out-of-domain values", async () => {
+    const baseline = JSON.parse(
+      await readFile(resolve(ROOT, POLICY_PATH), "utf8"),
+    ) as Policy;
+    const rejectedValid: string[] = [];
+    const acceptedInvalid: string[] = [];
+    const load = async (
+      label: string,
+      name: string,
+      value: number,
+      valid: boolean,
+    ) => {
       const root = await mkdtemp(join(tmpdir(), "ocr-policy-domain-"));
       const changed = structuredClone(baseline);
-      mutate(changed);
+      changed.thresholds[name] = value;
       await writePolicy(root, changed);
+      try {
+        const loaded = await api().loadQualityClosurePolicy({
+          root,
+          now: new Date("2026-10-21T23:59:59.999Z"),
+        });
+        if (valid) expect(loaded.thresholds[name]).toBe(value);
+        else acceptedInvalid.push(label);
+      } catch (error) {
+        if (valid) rejectedValid.push(label);
+        else
+          expect(error).toEqual(
+            expect.objectContaining({ message: "QUALITY_POLICY_INVALID" }),
+          );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    };
+
+    for (const name of RATE_THRESHOLD_NAMES) {
+      for (const value of [0, 0.5, 1])
+        await load(`${name}:${value}`, name, value, true);
+      for (const value of [-0.001, 1.001])
+        await load(`${name}:invalid:${value}`, name, value, false);
+    }
+    for (const name of DEFECT_THRESHOLD_NAMES) {
+      for (const value of [0, 1])
+        await load(`${name}:${value}`, name, value, true);
+      for (const value of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1])
+        await load(`${name}:invalid:${value}`, name, value, false);
+    }
+    for (const [label, token] of [
+      ["positive-infinity", "1e999"],
+      ["negative-infinity", "-1e999"],
+      ["NaN", "NaN"],
+    ]) {
+      const root = await mkdtemp(join(tmpdir(), "ocr-policy-nonfinite-"));
+      const path = resolve(root, POLICY_PATH);
+      await mkdir(dirname(path), { recursive: true });
+      const raw = JSON.stringify(baseline).replace(
+        '"scannedTaskSuccessRate":1',
+        `"scannedTaskSuccessRate":${token}`,
+      );
+      await writeFile(path, raw);
       try {
         await api().loadQualityClosurePolicy({
           root,
           now: new Date("2026-10-21T23:59:59.999Z"),
         });
-        accepted.push(label);
+        acceptedInvalid.push(`scannedTaskSuccessRate:${label}`);
       } catch (error) {
         expect(error).toEqual(
           expect.objectContaining({ message: "QUALITY_POLICY_INVALID" }),
@@ -503,7 +679,189 @@ describe("canonical quality closure mechanical binding", () => {
         await rm(root, { recursive: true, force: true });
       }
     }
-    expect(accepted).toEqual([]);
+
+    expect(acceptedInvalid).toEqual([]);
+    expect(rejectedValid).toEqual([]);
+  });
+
+  it.each([
+    [
+      "scannedTaskSuccessRate",
+      (predictions: EvalPrediction[]) => {
+        predictions[0]!.artifactSha256 = "f".repeat(64);
+      },
+    ],
+    [
+      "exactMoneyRate",
+      (predictions: EvalPrediction[]) => {
+        const row = successfulRows(predictions).find(
+          (item) => item.amountCents !== null,
+        );
+        if (!row) throw new Error("missing money fixture");
+        row.amountCents =
+          String(row.amountCents) === "999999" ? "888888" : "999999";
+      },
+    ],
+    [
+      "exactSignRate",
+      (predictions: EvalPrediction[]) => {
+        const row = successfulRows(predictions).find(
+          (item) => item.sign === "POSITIVE" || item.sign === "NEGATIVE",
+        );
+        if (!row) throw new Error("missing sign fixture");
+        row.sign = row.sign === "POSITIVE" ? "NEGATIVE" : "POSITIVE";
+      },
+    ],
+    [
+      "exactDateRate",
+      (predictions: EvalPrediction[]) => {
+        const row = successfulRows(predictions)[0];
+        if (!row) throw new Error("missing date fixture");
+        row.dateText = "31/12/2099";
+        row.normalizedDate = "2099-12-31";
+      },
+    ],
+    [
+      "exactDateExplicitnessRate",
+      (predictions: EvalPrediction[]) => {
+        const row = successfulRows(predictions)[0];
+        if (!row) throw new Error("missing date explicitness fixture");
+        row.dateExplicitness =
+          row.dateExplicitness === "EXPLICIT" ? "UNKNOWN" : "EXPLICIT";
+      },
+    ],
+    [
+      "exactInstallmentRate",
+      (predictions: EvalPrediction[]) => {
+        const row = successfulRows(predictions)[0];
+        if (!row) throw new Error("missing installment fixture");
+        row.installmentTotal =
+          typeof row.installmentTotal === "number"
+            ? row.installmentTotal + 1
+            : 2;
+      },
+    ],
+    [
+      "unknownPreservationRate",
+      (predictions: EvalPrediction[]) => {
+        const row = successfulRows(predictions).find(
+          (item) => item.amountMeaning === "UNKNOWN",
+        );
+        if (!row) throw new Error("missing unknown fixture");
+        row.amountMeaning = "PURCHASE";
+      },
+    ],
+    [
+      "visibleEvidenceRate",
+      (predictions: EvalPrediction[]) => {
+        const row = successfulRows(predictions)[0];
+        if (!row) throw new Error("missing visible evidence fixture");
+        row.evidenceText = `${String(row.evidenceText)} altered`;
+      },
+    ],
+    [
+      "schemaValidityRate",
+      (predictions: EvalPrediction[]) => {
+        predictions[0]!.schemaValid = false;
+      },
+    ],
+  ] as Array<[RateThresholdName, (predictions: EvalPrediction[]) => void]>)(
+    "honors a fractional configured minimum for %s",
+    async (name, mutate) => {
+      const thresholds = thresholdSet(0, 1, { [name]: 0.5 });
+      await withThresholdEvaluator(thresholds, async (evaluator) => {
+        const report = await evaluateThresholdMutation(evaluator, mutate);
+        expect(report.thresholds[name]).toBe(0.5);
+        expect(report.metrics[name]).toBeGreaterThanOrEqual(0.5);
+        expect(report.metrics[name]).toBeLessThan(1);
+        expect(report.functionalStatus).toBe("PASS");
+      });
+    },
+  );
+
+  it.each([
+    [
+      "inventedRows",
+      (predictions: EvalPrediction[], count: number) => {
+        const outcome = predictions.find(
+          (prediction) => prediction.outcome.kind === "SUCCESS",
+        )!.outcome;
+        if (outcome.kind !== "SUCCESS")
+          throw new Error("missing invented-row fixture");
+        const region = outcome.regions.find((item) => item.rows.length > 0);
+        if (!region) throw new Error("missing invented-row region");
+        for (let index = 0; index < count; index += 1)
+          region.rows.push({
+            ...structuredClone(region.rows[0]!),
+            rowId: `invented-${index + 1}`,
+          });
+      },
+    ],
+    [
+      "omittedRows",
+      (predictions: EvalPrediction[], count: number) => {
+        const regions = predictions.flatMap((prediction) =>
+          prediction.outcome.kind === "SUCCESS"
+            ? prediction.outcome.regions
+            : [],
+        );
+        let remaining = count;
+        for (const region of regions) {
+          while (remaining > 0 && region.rows.length > 0) {
+            region.rows.pop();
+            remaining -= 1;
+          }
+          if (remaining === 0) break;
+        }
+        if (remaining !== 0) throw new Error("missing omitted-row fixtures");
+      },
+    ],
+    [
+      "tenantLeaks",
+      (predictions: EvalPrediction[], count: number) => {
+        for (let index = 0; index < count; index += 1)
+          predictions[index]!.tenantId = `wrong-tenant-${index + 1}`;
+      },
+    ],
+    [
+      "falseAutomations",
+      (predictions: EvalPrediction[], count: number) => {
+        const rows = successfulRows(predictions);
+        for (let index = 0; index < count; index += 1)
+          rows[index]!.selected = true;
+      },
+    ],
+    [
+      "financialWrites",
+      (predictions: EvalPrediction[], count: number) => {
+        predictions[0]!.financialWrites = count;
+      },
+    ],
+  ] as Array<
+    [
+      DefectThresholdName,
+      (predictions: EvalPrediction[], count: number) => void,
+    ]
+  >)("honors configured maximum 1 for %s", async (name, mutate) => {
+    const thresholds = thresholdSet(0, 2, { [name]: 1 });
+    await withThresholdEvaluator(thresholds, async (evaluator) => {
+      const atMaximum = await evaluateThresholdMutation(
+        evaluator,
+        (predictions) => mutate(predictions, 1),
+        name === "financialWrites",
+      );
+      expect(atMaximum.thresholds[name]).toBe(1);
+      expect(atMaximum.metrics[name]).toBe(1);
+      expect(atMaximum.functionalStatus).toBe("PASS");
+
+      const aboveMaximum = await evaluateThresholdMutation(
+        evaluator,
+        (predictions) => mutate(predictions, 2),
+        name === "financialWrites",
+      );
+      expect(aboveMaximum.metrics[name]).toBe(2);
+      expect(aboveMaximum.functionalStatus).toBe("FAIL");
+    });
   });
 
   it("accepts only canonical machine-readable Jest evidence", async () => {
