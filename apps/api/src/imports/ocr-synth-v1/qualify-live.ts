@@ -7,6 +7,7 @@ import {
   assertQualityRepositorySnapshot,
   attestQualityClosure,
   issueVerifiedQualityClosureToken,
+  withQualityCaptureLock,
 } from "./quality-closure-attestation";
 
 const MAX_EVIDENCE_BYTES = 32 * 1024 * 1024;
@@ -37,19 +38,21 @@ async function main(): Promise<void> {
   if (arguments_.length !== 1 || !arguments_[0])
     throw new Error("LIVE_EVIDENCE_PATH_MISSING");
   const evidencePath = resolve(process.cwd(), arguments_[0]);
-  const input = parseLiveEvidenceJson(await readEvidenceOnce(evidencePath));
-  if (!input.qualityClosure) throw new Error("QUALITY_ATTESTATION_MISSING");
+  await withQualityCaptureLock(async () => {
+    const input = parseLiveEvidenceJson(await readEvidenceOnce(evidencePath));
+    if (!input.qualityClosure) throw new Error("QUALITY_ATTESTATION_MISSING");
 
-  const rerun = await attestQualityClosure();
-  const token = await issueVerifiedQualityClosureToken(
-    input,
-    rerun.closure,
-    rerun.policy,
-  );
-  const report = await evaluateOcrSynth(input, token);
-  assertReleaseQualified(report);
-  await assertQualityRepositorySnapshot(rerun.closure.snapshot, rerun.policy);
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    const rerun = await attestQualityClosure();
+    const token = await issueVerifiedQualityClosureToken(
+      input,
+      rerun.closure,
+      rerun.policy,
+    );
+    const report = await evaluateOcrSynth(input, token);
+    assertReleaseQualified(report);
+    await assertQualityRepositorySnapshot(rerun.closure.snapshot, rerun.policy);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  });
 }
 
 void main().catch((error: unknown) => {

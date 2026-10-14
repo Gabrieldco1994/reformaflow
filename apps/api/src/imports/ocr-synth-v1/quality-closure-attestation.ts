@@ -1,6 +1,15 @@
 import { execFile as nodeExecFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, mkdtemp, open, realpath, rm } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  open,
+  realpath,
+  rm,
+  unlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, relative, sep } from "node:path";
 import {
@@ -655,7 +664,14 @@ function parseJestEvidence(
   const seenSuites = new Set<string>();
   const assertions = new Map<
     string,
-    Array<{ status: unknown; sourcePath: string }>
+    Array<{
+      title: string;
+      fullName: string;
+      status: unknown;
+      sourcePath: string;
+      assertionRecordSha256: string;
+      suiteResultSha256: string;
+    }>
   >();
   for (const suite of suites) {
     if (
@@ -669,6 +685,21 @@ function parseJestEvidence(
     if (!expectedSuites.has(sourcePath) || seenSuites.has(sourcePath))
       throw new Error("QUALITY_SUITE_INVALID");
     seenSuites.add(sourcePath);
+    const suiteResultSha256 = createHash("sha256")
+      .update(
+        JSON.stringify({
+          sourcePath,
+          status: suite.status,
+          message: suite.message,
+          assertionResults: suite.assertionResults.map((assertion) => ({
+            title: assertion.title,
+            fullName: assertion.fullName,
+            status: assertion.status,
+            failureMessages: assertion.failureMessages,
+          })),
+        }),
+      )
+      .digest("hex");
     for (const assertion of suite.assertionResults as JestAssertion[]) {
       if (
         assertion.status !== "passed" ||
@@ -676,15 +707,29 @@ function parseJestEvidence(
         assertion.failureMessages.length !== 0
       )
         throw new Error("QUALITY_SUITE_FAILED");
-      const title = string(assertion.title)
-        ? assertion.title
-        : string(assertion.fullName)
-          ? assertion.fullName
-          : null;
-      if (!title) throw new Error("QUALITY_SUITE_INVALID");
+      if (!string(assertion.title) || !string(assertion.fullName))
+        throw new Error("QUALITY_SUITE_INVALID");
+      const title = assertion.title;
       if (!QUALIFICATION_NAME.test(title)) continue;
       const entries = assertions.get(title) ?? [];
-      entries.push({ status: assertion.status, sourcePath });
+      entries.push({
+        title,
+        fullName: assertion.fullName,
+        status: assertion.status,
+        sourcePath,
+        assertionRecordSha256: createHash("sha256")
+          .update(
+            JSON.stringify({
+              title,
+              fullName: assertion.fullName,
+              status: assertion.status,
+              failureMessages: assertion.failureMessages,
+              sourcePath,
+            }),
+          )
+          .digest("hex"),
+        suiteResultSha256,
+      });
       assertions.set(title, entries);
     }
   }
@@ -709,8 +754,12 @@ function parseJestEvidence(
       throw new Error("QUALITY_SUITE_ATTESTATION_FAILED");
     return {
       name: expected.name,
+      title: matches[0]!.title,
+      fullName: matches[0]!.fullName,
       status: "PASS",
       sourcePath: expected.sourcePath,
+      assertionRecordSha256: matches[0]!.assertionRecordSha256,
+      suiteResultSha256: matches[0]!.suiteResultSha256,
     };
   });
 }
@@ -969,6 +1018,51 @@ export async function qualityCaptureLockPath(
   const absolute = resolve(root, commonDirectory);
   const metadata = await realpath(absolute);
   return resolve(metadata, "reformaflow-ocr-quality-capture.lock");
+}
+
+/**
+ * Serializes capture and qualification on the Git common directory. The lock
+ * is reserved before any evidence read and retained through the final
+ * repository snapshot, so another worktree cannot race either operation.
+ */
+export async function withQualityCaptureLock<T>(
+  action: () => Promise<T>,
+  dependencies: QualityAttestationDependencies = {},
+): Promise<T> {
+  const path = await qualityCaptureLockPath(dependencies);
+  const mode = 0o600;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  let identity: Readonly<{ dev: number; ino: number }> | undefined;
+  try {
+    handle = await open(
+      path,
+      constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_WRONLY |
+        constants.O_NOFOLLOW,
+      mode,
+    );
+    const descriptor = await handle.stat();
+    const linked = await lstat(path);
+    identity = { dev: descriptor.dev, ino: descriptor.ino };
+    if (
+      !descriptor.isFile() ||
+      !linked.isFile() ||
+      descriptor.dev !== linked.dev ||
+      descriptor.ino !== linked.ino ||
+      (descriptor.mode & 0o777) !== mode ||
+      (linked.mode & 0o777) !== mode
+    )
+      throw new Error("QUALITY_CAPTURE_LOCK_INVALID");
+    return await action();
+  } finally {
+    await handle?.close().catch(() => undefined);
+    if (identity) {
+      const current = await lstat(path).catch(() => undefined);
+      if (current?.dev === identity.dev && current.ino === identity.ino)
+        await unlink(path).catch(() => undefined);
+    }
+  }
 }
 
 function isStructurallyValidQualityClosure(value: unknown): boolean {

@@ -42,6 +42,21 @@ export interface FixedPdfOcrProviderRequest {
     phase: "COUNT_TOKENS" | "GENERATE_CONTENT",
     bytes: Buffer,
   ) => void;
+  /**
+   * Qualification-only recorder. The provider owns event timing and payloads;
+   * callers may only append the immutable observations emitted at the actual
+   * network boundaries.
+   */
+  readonly qualificationEvidence?: {
+    readonly runId: string;
+    readonly attempt: 1;
+    readonly caseId: string;
+    readonly tenantId: string;
+    readonly repositoryTreeSha?: string;
+    readonly spentKnownBeforeMicros: number;
+    readonly hardLimitMicros: number;
+    readonly recordEvent: (event: Readonly<Record<string, unknown>>) => void;
+  };
 }
 
 const HASH = new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern);
@@ -74,6 +89,27 @@ export function isAdmittedPdfOcrRequest(
       value.qualificationCapture === true) &&
     (value.captureResponseBytes === undefined ||
       typeof value.captureResponseBytes === "function") &&
+    (value.qualificationEvidence === undefined ||
+      (value.qualificationEvidence !== null &&
+        typeof value.qualificationEvidence === "object" &&
+        typeof value.qualificationEvidence.runId === "string" &&
+        value.qualificationEvidence.runId.length > 0 &&
+        value.qualificationEvidence.attempt === 1 &&
+        typeof value.qualificationEvidence.caseId === "string" &&
+        value.qualificationEvidence.caseId.length > 0 &&
+        typeof value.qualificationEvidence.tenantId === "string" &&
+        value.qualificationEvidence.tenantId.length > 0 &&
+        (value.qualificationEvidence.repositoryTreeSha === undefined ||
+          /^[0-9a-f]{40}$/.test(
+            value.qualificationEvidence.repositoryTreeSha,
+          )) &&
+        Number.isSafeInteger(
+          value.qualificationEvidence.spentKnownBeforeMicros,
+        ) &&
+        value.qualificationEvidence.spentKnownBeforeMicros >= 0 &&
+        Number.isSafeInteger(value.qualificationEvidence.hardLimitMicros) &&
+        value.qualificationEvidence.hardLimitMicros > 0 &&
+        typeof value.qualificationEvidence.recordEvent === "function")) &&
     !value.signal.aborted
   );
 }

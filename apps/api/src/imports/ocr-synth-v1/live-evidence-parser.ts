@@ -2,6 +2,7 @@ import {
   IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_MODEL_VERSION_PATTERN,
 } from "@reformaflow/domain";
+import { createHash } from "node:crypto";
 import { parseStrictJson } from "../import-session/ocr/strict-json";
 import {
   OCR_SYNTH_DATASET,
@@ -20,6 +21,7 @@ const SAFE_CODE = /^[A-Z][A-Z0-9_]+$/;
 const QUALIFICATION_SOURCE_BY_NAME = new Map(
   policy.qualificationTests.map((item) => [item.name, item.sourcePath]),
 );
+const VERIFIED_LIVE_EVIDENCE = Symbol("verified-live-evidence");
 
 const fail = (): never => {
   throw new Error("LIVE_EVIDENCE_INVALID");
@@ -277,35 +279,42 @@ function validQualificationOutcome(caseId: unknown, value: unknown): boolean {
 }
 
 function validTrace(value: unknown): boolean {
+  const baseKeys = [
+    "seam",
+    "requestId",
+    "endpoint",
+    "region",
+    "model",
+    "authTrace",
+    "adcScopes",
+    "apiKeyUsed",
+    "globalEndpointFallbackUsed",
+    "inputMimeType",
+    "inputMode",
+    "originalBytesSha256",
+    "requestBodyBytes",
+    "deadlineMs",
+    "finishReason",
+    "maxOutputTokens",
+    "promptContract",
+    "toolsPresent",
+    "fileUri",
+    "cachedContent",
+    "providerCallCount",
+    "responseId",
+    "attempts",
+    "ambiguousTimeoutRetried",
+    "textualPdf",
+    "localFinancialRowsMerged",
+  ] as const;
   return (
-    exact(value, [
-      "seam",
-      "requestId",
-      "endpoint",
-      "region",
-      "model",
-      "authTrace",
-      "adcScopes",
-      "apiKeyUsed",
-      "globalEndpointFallbackUsed",
-      "inputMimeType",
-      "inputMode",
-      "originalBytesSha256",
-      "requestBodyBytes",
-      "deadlineMs",
-      "finishReason",
-      "maxOutputTokens",
-      "promptContract",
-      "toolsPresent",
-      "fileUri",
-      "cachedContent",
-      "providerCallCount",
-      "responseId",
-      "attempts",
-      "ambiguousTimeoutRetried",
-      "textualPdf",
-      "localFinancialRowsMerged",
-    ]) &&
+    (exact(value, baseKeys) ||
+      exact(value, [
+        ...baseKeys,
+        "requestPlanSha256",
+        "countRequestBodySha256",
+        "generationRequestBodySha256",
+      ])) &&
     string(value.seam) &&
     string(value.requestId) &&
     REQUEST_ID.test(value.requestId) &&
@@ -321,6 +330,13 @@ function validTrace(value: unknown): boolean {
     value.inputMode === "INLINE_ORIGINAL_BYTES" &&
     string(value.originalBytesSha256) &&
     HASH.test(value.originalBytesSha256) &&
+    (!("requestPlanSha256" in value) ||
+      (string(value.requestPlanSha256) &&
+        HASH.test(value.requestPlanSha256) &&
+        string(value.countRequestBodySha256) &&
+        HASH.test(value.countRequestBodySha256) &&
+        string(value.generationRequestBodySha256) &&
+        HASH.test(value.generationRequestBodySha256))) &&
     number(value.requestBodyBytes) &&
     number(value.deadlineMs) &&
     value.finishReason === "STOP" &&
@@ -587,7 +603,334 @@ function validQualityClosure(value: unknown, candidateSha: unknown): boolean {
   );
 }
 
+function validCapturedQualityClosure(
+  value: unknown,
+  candidateSha: unknown,
+): value is Record<string, unknown> {
+  if (!object(value) || !Array.isArray(value.observations)) return false;
+  const observations = value.observations;
+  const normalized = {
+    ...value,
+    tests: observations.map((item) =>
+      object(item)
+        ? {
+            name: item.name,
+            status: item.status,
+            sourcePath: item.sourcePath,
+          }
+        : item,
+    ),
+  };
+  delete (normalized as Record<string, unknown>).observations;
+  if (
+    !isStructurallyValidQualityClosureEnvelope(normalized) ||
+    !string(candidateSha) ||
+    normalized.snapshot.headSha !== candidateSha ||
+    observations.length !== policy.qualificationTests.length
+  )
+    return false;
+  return observations.every((item, index) => {
+    if (!object(item)) return false;
+    const expected = policy.qualificationTests[index];
+    const keys = Object.keys(item);
+    const oldShape =
+      keys.length === 3 &&
+      ["name", "status", "sourcePath"].every((key) => keys.includes(key));
+    const hashedShape =
+      keys.length === 7 &&
+      [
+        "name",
+        "title",
+        "fullName",
+        "status",
+        "sourcePath",
+        "assertionRecordSha256",
+        "suiteResultSha256",
+      ].every((key) => keys.includes(key));
+    return (
+      (oldShape ||
+        (hashedShape &&
+          item.title === expected?.name &&
+          string(item.fullName) &&
+          item.fullName.includes(expected?.name ?? "") &&
+          string(item.assertionRecordSha256) &&
+          HASH.test(item.assertionRecordSha256) &&
+          string(item.suiteResultSha256) &&
+          HASH.test(item.suiteResultSha256))) &&
+      item.name === expected?.name &&
+      item.status === "PASS" &&
+      item.sourcePath === expected?.sourcePath
+    );
+  });
+}
+
+const hashBytes = (bytes: Buffer): string =>
+  createHash("sha256").update(bytes).digest("hex");
+
+function responseBytes(event: Record<string, unknown>): Buffer {
+  if (
+    !string(event.responseBytesBase64) ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      event.responseBytesBase64,
+    )
+  )
+    fail();
+  const bytes = Buffer.from(event.responseBytesBase64 as string, "base64");
+  if (
+    !number(event.responseByteLength) ||
+    bytes.length !== event.responseByteLength ||
+    !string(event.responseSha256) ||
+    hashBytes(bytes) !== event.responseSha256
+  )
+    fail();
+  return bytes;
+}
+
+function parseWireBytes(bytes: Buffer): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = parseStrictJson(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
+  } catch {
+    fail();
+  }
+  if (!object(parsed)) fail();
+  return parsed as Record<string, unknown>;
+}
+
+function validCaptureLedger(value: Record<string, unknown>): boolean {
+  if (
+    !Array.isArray(value.attemptLedger) ||
+    value.attemptLedger.length !== OCR_SYNTH_SCANNED_RELEASE_CASES.length ||
+    !Array.isArray(value.predictions) ||
+    !object(value.run) ||
+    !object(value.qualityClosure) ||
+    !object(value.qualityClosure.snapshot)
+  )
+    return false;
+  let cumulativeMeasuredMicros = 0;
+  const run = value.run as Record<string, unknown>;
+  const closure = value.qualityClosure as Record<string, unknown>;
+  const snapshot = closure.snapshot as Record<string, unknown>;
+  const predictionById = new Map(
+    value.predictions
+      .filter(object)
+      .map((prediction) => [prediction.caseId, prediction]),
+  );
+  for (const [caseIndex, expectedCase] of
+    OCR_SYNTH_SCANNED_RELEASE_CASES.entries()) {
+    const group = value.attemptLedger[caseIndex];
+    if (
+      !object(group) ||
+      group.caseId !== expectedCase.id ||
+      !Array.isArray(group.events) ||
+      group.events.length !== 6
+    )
+      return false;
+    const events = group.events;
+    const kinds = [
+      "COUNT_TOKENS_REQUEST",
+      "COUNT_TOKENS_RESPONSE",
+      "ADMISSION_DECISION",
+      "GENERATION_REQUEST",
+      "GENERATION_RESPONSE",
+      "SPEND_RECONCILED",
+    ];
+    if (
+      events.some(
+        (event, index) =>
+          !object(event) ||
+          event.kind !== kinds[index] ||
+          event.sequence !== index + 1,
+      )
+    )
+      return false;
+    const first = events[0] as Record<string, unknown>;
+    const prediction = predictionById.get(expectedCase.id);
+    if (!prediction || !object(prediction.adapterTrace)) return false;
+    const adapterTrace = prediction.adapterTrace;
+    const usage = prediction.usage;
+    const cost = prediction.cost;
+    if (!object(usage) || !object(cost)) return false;
+    if (
+      events.some(
+        (event) =>
+          !object(event) ||
+          event.runId !== run.candidateSha ||
+          event.runAttempt !== 1 ||
+          event.caseId !== expectedCase.id ||
+          event.tenantId !== prediction.tenantId ||
+          event.artifactSha256 !== prediction.artifactSha256 ||
+          event.requestId !== adapterTrace.requestId ||
+          event.requestPlanSha256 !==
+            adapterTrace.requestPlanSha256 ||
+          event.repositoryTreeSha !== snapshot.treeSha,
+      ) ||
+      first.requestBodySha256 !==
+        adapterTrace.countRequestBodySha256 ||
+      (events[3] as Record<string, unknown>).requestBodySha256 !==
+        adapterTrace.generationRequestBodySha256
+    )
+      return false;
+    const count = events[1] as Record<string, unknown>;
+    const countWire = parseWireBytes(responseBytes(count));
+    if (
+      !number(countWire.totalTokens) ||
+      count.parsedInputTokens !== countWire.totalTokens
+    )
+      return false;
+    const admission = events[2] as Record<string, unknown>;
+    if (
+      admission.decision !== "ADMITTED" ||
+      admission.countTokensResponseSha256 !== count.responseSha256 ||
+      admission.countedInputTokens !== countWire.totalTokens ||
+      admission.spentKnownBeforeMicros !== cumulativeMeasuredMicros ||
+      !number(admission.worstCaseCurrentMicros) ||
+      !number(admission.cumulativeWorstCaseMicros) ||
+      admission.cumulativeWorstCaseMicros !==
+        cumulativeMeasuredMicros + admission.worstCaseCurrentMicros
+    )
+      return false;
+    const generation = events[4] as Record<string, unknown>;
+    const generationWire = parseWireBytes(responseBytes(generation));
+    if (
+      !string(generationWire.responseId) ||
+      !string(generationWire.modelVersion) ||
+      generation.responseId !== generationWire.responseId ||
+      generation.modelVersion !== generationWire.modelVersion ||
+      adapterTrace.responseId !== generationWire.responseId ||
+      prediction.modelVersion !== generationWire.modelVersion ||
+      run.modelVersion !== generationWire.modelVersion ||
+      !object(generationWire.usageMetadata) ||
+      usage.inputTokens !==
+        generationWire.usageMetadata.promptTokenCount ||
+      usage.outputTokens !==
+        generationWire.usageMetadata.candidatesTokenCount ||
+      usage.totalTokens !==
+        generationWire.usageMetadata.totalTokenCount
+    )
+      return false;
+    if (
+      object(prediction.outcome) &&
+      prediction.outcome.kind === "SUCCESS"
+    ) {
+      const candidates = generationWire.candidates;
+      if (
+        !Array.isArray(candidates) ||
+        !object(candidates[0]) ||
+        !object(candidates[0].content) ||
+        !Array.isArray(candidates[0].content.parts) ||
+        !object(candidates[0].content.parts[0]) ||
+        !string(candidates[0].content.parts[0].text)
+      )
+        return false;
+      let payload: unknown;
+      try {
+        payload = parseStrictJson(candidates[0].content.parts[0].text);
+      } catch {
+        return false;
+      }
+      if (
+        !object(payload) ||
+        !Array.isArray(payload.candidates)
+      )
+        return false;
+      const projectedCandidates = payload.candidates.map((candidate) => {
+        if (!object(candidate)) return candidate;
+        const amountCents = candidate.amountCents;
+        let sign = "UNKNOWN";
+        if (string(amountCents)) {
+          const cents = BigInt(amountCents);
+          sign = cents < 0n ? "NEGATIVE" : cents > 0n ? "POSITIVE" : "ZERO";
+        }
+        return {
+          pageNumber: candidate.pageNumber,
+          pageOccurrenceIndex: candidate.pageOccurrenceIndex,
+          description: candidate.description,
+          amountCents,
+          sign,
+          amountMeaning: candidate.amountMeaning,
+          dateText: candidate.dateText,
+          normalizedDate: candidate.normalizedDate,
+          dateExplicitness: candidate.dateExplicitness,
+          installment: candidate.installment,
+          evidenceText: candidate.evidenceText,
+          selected: false,
+          verificationStatus: "UNVERIFIED",
+          candidateDisposition: "RAW_UNCLASSIFIED",
+        };
+      });
+      if (
+        !sameJsonValue(projectedCandidates, prediction.outcome.candidates)
+      )
+        return false;
+    }
+    const reconciled = events[5] as Record<string, unknown>;
+    if (
+      !number(reconciled.measuredCurrentMicros) ||
+      reconciled.cumulativeMeasuredMicros !==
+        cumulativeMeasuredMicros + reconciled.measuredCurrentMicros ||
+      reconciled.cumulativeWorstCaseMicros !==
+        admission.cumulativeWorstCaseMicros ||
+      cost.amountMicros !== reconciled.measuredCurrentMicros
+    )
+      return false;
+    cumulativeMeasuredMicros = reconciled.cumulativeMeasuredMicros as number;
+  }
+  return true;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const key of Reflect.ownKeys(value as object))
+      deepFreeze((value as Record<PropertyKey, unknown>)[key]);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+export function isVerifiedLiveEvidence(value: unknown): boolean {
+  return (
+    object(value) &&
+    (value as Record<PropertyKey, unknown>)[VERIFIED_LIVE_EVIDENCE] === true
+  );
+}
+
 export function parseLiveEvidence(value: unknown): OcrEvalInput {
+  const canonicalCaptureKeys = [
+    "datasetVersion",
+    "run",
+    "predictions",
+    "attemptLedger",
+    "qualityClosure",
+  ] as const;
+  if (exact(value, canonicalCaptureKeys)) {
+    if (
+      value.datasetVersion !== OCR_SYNTH_DATASET.datasetVersion ||
+      !isValidLiveRun(value.run) ||
+      !Array.isArray(value.predictions) ||
+      !value.predictions.every((item) => validPrediction(item)) ||
+      !exactIdSet(
+        value.predictions.map((item) => item.caseId),
+        OCR_SYNTH_SCANNED_RELEASE_CASES.map((item) => item.id),
+      ) ||
+      !unique(value.predictions.map((item) => item.adapterTrace.requestId)) ||
+      !validCapturedQualityClosure(
+        value.qualityClosure,
+        object(value.run) ? value.run.candidateSha : undefined,
+      ) ||
+      !validCaptureLedger(value)
+    )
+      fail();
+    Object.defineProperty(value, VERIFIED_LIVE_EVIDENCE, {
+      value: true,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+    return deepFreeze(value) as unknown as OcrEvalInput;
+  }
   const baseKeys = [
     "datasetVersion",
     "run",

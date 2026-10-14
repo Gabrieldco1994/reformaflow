@@ -452,17 +452,15 @@ export async function captureLiveEvidence(
   let modelVersion: string | undefined;
   let promptSha256: string | undefined;
   let measuredSpendMicros = 0;
-  let worstCaseSpendMicros = 0;
-  const rawResponses: Array<Record<string, unknown>> = [];
-  const attemptEvents: Array<Record<string, any>> = [];
-  const requestPlanSha256ByCase: Record<string, string> = {};
+  const attemptLedger: Array<{
+    readonly caseId: string;
+    readonly events: ReadonlyArray<Record<string, unknown>>;
+  }> = [];
 
   for (const { testCase, bytes, hash } of artifacts) {
     const caseRequestId = requestId(manifest.candidateSha, testCase.id);
-    const rawByPhase: Partial<
-      Record<"COUNT_TOKENS" | "GENERATE_CONTENT", Buffer>
-    > = {};
-    const spentKnownBeforeMicros = worstCaseSpendMicros;
+    const causalEvents: Array<Record<string, unknown>> = [];
+    const spentKnownBeforeMicros = measuredSpendMicros;
     let document: Awaited<
       ReturnType<VertexPdfOcrProvider["extractPdf"]>
     > | null = null;
@@ -476,10 +474,19 @@ export async function captureLiveEvidence(
           pdfBytes: bytes,
           signal: new AbortController().signal,
           qualificationCapture: true,
-          captureResponseBytes: (phase, responseBytes) => {
-            if (rawByPhase[phase])
-              throw new Error("LIVE_CAPTURE_RAW_EVIDENCE_INVALID");
-            rawByPhase[phase] = Buffer.from(responseBytes);
+          qualificationEvidence: {
+            runId: manifest.candidateSha,
+            attempt: 1,
+            caseId: testCase.id,
+            tenantId: testCase.tenantId,
+            repositoryTreeSha:
+              options.mechanical?.qualityClosure.snapshot.treeSha ??
+              manifest.candidateSha,
+            spentKnownBeforeMicros,
+            hardLimitMicros: manifest.declaredLimits.maxTotalCostMicros!,
+            recordEvent: (event) => {
+              causalEvents.push(structuredClone(event));
+            },
           },
         },
         {
@@ -492,7 +499,7 @@ export async function captureLiveEvidence(
                 1_000_000,
             );
             if (
-              worstCaseSpendMicros + worstCaseMicros >
+              measuredSpendMicros + worstCaseMicros >
               manifest.declaredLimits.maxTotalCostMicros!
             )
               throw new Error("CAPTURE_SPEND_LIMIT");
@@ -529,64 +536,25 @@ export async function captureLiveEvidence(
       trace.finishReason !== "STOP"
     )
       throw new Error("LIVE_CAPTURE_PROVIDER_CONTRACT_FAILED");
-    const countBytes = rawByPhase.COUNT_TOKENS;
-    const generationBytes = rawByPhase.GENERATE_CONTENT;
     if (
-      !countBytes ||
-      !generationBytes ||
       !trace.requestPlanSha256 ||
       !trace.countRequestBodySha256 ||
       !trace.generationRequestBodySha256
     )
       throw new Error("LIVE_CAPTURE_RAW_EVIDENCE_INVALID");
-    const capturedAttempt = await executeCapturedAttempt({
-      runId: manifest.candidateSha,
-      runAttempt: 1,
+    if (
+      causalEvents.length !== 6 ||
+      causalEvents[0]?.kind !== "COUNT_TOKENS_REQUEST" ||
+      causalEvents[1]?.kind !== "COUNT_TOKENS_RESPONSE" ||
+      causalEvents[2]?.kind !== "ADMISSION_DECISION" ||
+      causalEvents[3]?.kind !== "GENERATION_REQUEST" ||
+      causalEvents[4]?.kind !== "GENERATION_RESPONSE" ||
+      causalEvents[5]?.kind !== "SPEND_RECONCILED"
+    )
+      throw new Error("LIVE_CAPTURE_CAUSAL_EVIDENCE_INVALID");
+    attemptLedger.push({
       caseId: testCase.id,
-      requestId: caseRequestId,
-      requestPlanSha256: trace.requestPlanSha256,
-      countTokensRequestSha256: trace.countRequestBodySha256,
-      spentKnownBeforeMicros,
-      reservedOutputTokens: 8192,
-      inputMicrosPerMillionTokens: manifest.pricing.inputMicrosPerMillionTokens,
-      outputMicrosPerMillionTokens:
-        manifest.pricing.outputMicrosPerMillionTokens,
-      hardLimitMicros: 500_000,
-      countTokens: async () => countBytes,
-      generation: async () => generationBytes,
-    });
-    if (capturedAttempt.decision !== "ADMITTED")
-      throw new Error("CAPTURE_SPEND_LIMIT");
-    requestPlanSha256ByCase[testCase.id] = trace.requestPlanSha256;
-    for (const event of capturedAttempt.ledger as Array<Record<string, any>>) {
-      const bound: Record<string, any> = {
-        ...event,
-        sequence: attemptEvents.length + 1,
-      };
-      if (bound.kind === "GENERATION_REQUEST")
-        bound.requestBodySha256 = trace.generationRequestBodySha256;
-      if (bound.kind === "SPEND_RECONCILED")
-        bound.cumulativeMeasuredMicros =
-          measuredSpendMicros + bound.measuredCurrentMicros;
-      attemptEvents.push(bound);
-    }
-    worstCaseSpendMicros = capturedAttempt.cumulativeWorstCaseMicros as number;
-    rawResponses.push({
-      caseId: testCase.id,
-      requestId: caseRequestId,
-      requestPlanSha256: trace.requestPlanSha256,
-      countTokens: {
-        responseBytesBase64: countBytes.toString("base64"),
-        responseByteLength: countBytes.length,
-        responseSha256: createHash("sha256").update(countBytes).digest("hex"),
-      },
-      generation: {
-        responseBytesBase64: generationBytes.toString("base64"),
-        responseByteLength: generationBytes.length,
-        responseSha256: createHash("sha256")
-          .update(generationBytes)
-          .digest("hex"),
-      },
+      events: causalEvents.map((event) => Object.freeze(event)),
     });
     if (
       requestIds.has(caseRequestId) ||
@@ -641,6 +609,9 @@ export async function captureLiveEvidence(
         inputMimeType: trace.inputMimeType,
         inputMode: trace.inputMode,
         originalBytesSha256: trace.originalBytesSha256,
+        requestPlanSha256: trace.requestPlanSha256,
+        countRequestBodySha256: trace.countRequestBodySha256,
+        generationRequestBodySha256: trace.generationRequestBodySha256,
         requestBodyBytes: trace.requestBodyBytes,
         deadlineMs: trace.deadlineMs,
         finishReason: trace.finishReason,
@@ -656,7 +627,10 @@ export async function captureLiveEvidence(
         toolsPresent: trace.toolsPresent,
         fileUri: trace.fileUri,
         cachedContent: trace.cachedContent,
-        providerCallCount: 1,
+        providerCallCount: causalEvents.filter(
+          ({ kind }) =>
+            kind === "COUNT_TOKENS_REQUEST" || kind === "GENERATION_REQUEST",
+        ).length,
         responseId: provenance.responseId,
         attempts: 1,
         ambiguousTimeoutRetried: false,
@@ -674,7 +648,7 @@ export async function captureLiveEvidence(
     throw new Error("LIVE_CAPTURE_INCOMPLETE");
   await options.mechanical?.verifySnapshot();
 
-  const evidence: OcrEvalInput = {
+  const evidence = {
     datasetVersion: OCR_SYNTH_DATASET.datasetVersion,
     run: {
       mode: "LIVE_CAPTURE",
@@ -699,19 +673,15 @@ export async function captureLiveEvidence(
       pricing: manifest.pricing,
     },
     predictions,
-    routingCases: manifest.routingCases,
-    safetyProbes: manifest.safetyProbes,
-    rawResponses,
-    attemptLedger: {
-      runId: manifest.candidateSha,
-      runAttempt: 1,
-      requestPlanSha256ByCase,
-      ledger: attemptEvents,
-    },
-    qualityClosure:
-      options.mechanical?.qualityClosure ??
-      structurallyBoundLegacyClosure(manifest),
-  };
+    attemptLedger,
+    qualityClosure: (() => {
+      const closure =
+        options.mechanical?.qualityClosure ??
+        structurallyBoundLegacyClosure(manifest);
+      const { tests, ...rest } = closure;
+      return { ...rest, observations: tests };
+    })(),
+  } as unknown as OcrEvalInput;
   return parseLiveEvidence(evidence);
 }
 

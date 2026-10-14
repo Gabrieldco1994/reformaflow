@@ -14,6 +14,9 @@ import type { OcrRepositorySnapshot } from "./types";
 const PROTECTED_DEPENDENCIES_MISSING =
   "LIVE_CAPTURE_PROTECTED_DEPENDENCIES_MISSING";
 const CREDENTIALS_MISSING = "LIVE_CAPTURE_CREDENTIALS_MISSING";
+const PROTECTED_CONTEXT_UNAVAILABLE =
+  "LIVE_CAPTURE_PROTECTED_CONTEXT_UNAVAILABLE";
+const PROTECTED_CONTEXT = Symbol("live-capture-protected-context");
 
 export interface ProtectedLiveCaptureDependencies {
   readonly outputPath: string;
@@ -21,6 +24,7 @@ export interface ProtectedLiveCaptureDependencies {
   readonly credentials: {
     readonly projectId: string;
     readonly serviceAccountPath: string;
+    readonly [PROTECTED_CONTEXT]?: true;
   };
   readonly captureEvidence: () => Promise<OcrEvalInput>;
   readonly verifyRepository: () => Promise<void>;
@@ -49,6 +53,8 @@ export async function runProtectedLiveCapture(input: unknown): Promise<void> {
   ) {
     return failClosed(CREDENTIALS_MISSING);
   }
+  if ((credentials as Record<PropertyKey, unknown>)[PROTECTED_CONTEXT] !== true)
+    return failClosed(PROTECTED_CONTEXT_UNAVAILABLE);
   if (
     typeof input.outputPath !== "string" ||
     input.outputPath.length === 0 ||

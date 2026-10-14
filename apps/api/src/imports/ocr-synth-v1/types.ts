@@ -134,6 +134,9 @@ export interface DirectPdfAdapterTrace {
   inputMimeType: string;
   inputMode: "INLINE_ORIGINAL_BYTES";
   originalBytesSha256: string;
+  requestPlanSha256?: string;
+  countRequestBodySha256?: string;
+  generationRequestBodySha256?: string;
   requestBodyBytes: number;
   deadlineMs: number;
   finishReason: string | null;
@@ -287,8 +290,12 @@ export interface OcrSafetyProbeEvidence {
 
 export interface OcrQualityClosureTestEvidence {
   readonly name: string;
+  readonly title?: string;
+  readonly fullName?: string;
   readonly status: "PASS";
   readonly sourcePath: string;
+  readonly assertionRecordSha256?: string;
+  readonly suiteResultSha256?: string;
 }
 
 export interface OcrRepositorySnapshot {
