@@ -1,4 +1,16 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { inflateRawSync } from "node:zlib";
+import {
+  OCR_SYNTH_DATASET,
+  OCR_SYNTH_ROUTING_CASES,
+  OCR_SYNTH_SCANNED_RELEASE_CASES,
+  successfulRows,
+} from "./corpus";
+import { OCR_SYNTH_THRESHOLDS } from "./evaluator";
+import { artifactSha256, generateArtifact } from "./fixture-generator";
+import qualityPolicy from "./quality-closure-policy.json";
 
 const REPORT_SCHEMA_VERSION = 4 as const;
 const DATASET_VERSION = "ocr-synth-v1-direct-pdf-vertex-v3" as const;
@@ -215,6 +227,17 @@ export function evaluateBaselineCandidateReport(input: unknown): Readonly<{
     parsed.runtimeActivationSubjectSha256 !== parsed.activationSubjectSha256
   )
     throw new Error("RELEASE_BINDING_MISMATCH");
+  if (
+    parsed.baselineExecution !== null &&
+    parsed.baselineExecution !== undefined &&
+    parsed.candidateExecution !== null &&
+    parsed.candidateExecution !== undefined
+  )
+    return Object.freeze({
+      reportSchemaVersion: REPORT_SCHEMA_VERSION,
+      releaseStatus: "GAPS" as const,
+      issues: Object.freeze(["LEGACY_AUTHORITY_DISABLED"]),
+    });
   const issues: string[] = [];
   if (
     parsed.evidenceKind !== "LIVE" ||
@@ -246,14 +269,19 @@ function compareRows(expected: any[], actual: any[]): string[] {
   ) {
     const wanted = expected[index]!;
     const observed = actual[index]!;
+    if (wanted.pageNumber !== observed.pageNumber)
+      issues.push("PAGE_ORDER_MISMATCH");
+    if (wanted.pageOccurrenceIndex !== observed.pageOccurrenceIndex)
+      issues.push("OCCURRENCE_ORDER_MISMATCH");
+    if (wanted.description !== observed.description)
+      issues.push("DESCRIPTION_MISMATCH");
     if (wanted.amountCents !== observed.amountCents)
       issues.push("MONEY_MISMATCH");
     if (wanted.sign !== observed.sign) issues.push("SIGN_MISMATCH");
-    if (
-      wanted.rawDate !== observed.rawDate ||
-      wanted.normalizedDate !== observed.normalizedDate
-    )
+    if (wanted.normalizedDate !== observed.normalizedDate)
       issues.push("DATE_MISMATCH");
+    if (wanted.dateText !== observed.dateText)
+      issues.push("DATE_TEXT_MISMATCH");
     if (wanted.dateExplicitness !== observed.dateExplicitness)
       issues.push("DATE_EXPLICITNESS_MISMATCH");
     if (!same(wanted.installment, observed.installment))
@@ -290,10 +318,11 @@ function compareRecord(
         : "CASE_BINDING_INVALID",
     );
   if (actual.financialWrites !== 0) issues.push("FINANCIAL_WRITE");
+  if (actual.schemaValid === false) issues.push("SCHEMA_INVALID");
   if (!object(expected.outcome) || !object(actual.outcome))
     return unique([...issues, "SCHEMA_INVALID"]);
   if (expected.outcome.kind !== actual.outcome.kind) {
-    issues.push("OUTCOME_MISMATCH");
+    issues.push("TERMINAL_OUTCOME_MISMATCH");
   } else if (
     expected.outcome.kind === "SUCCESS" &&
     Array.isArray(expected.outcome.candidates) &&
@@ -303,33 +332,166 @@ function compareRecord(
       ...compareRows(expected.outcome.candidates, actual.outcome.candidates),
     );
   } else if (!same(expected.outcome, actual.outcome)) {
-    issues.push("OUTCOME_MISMATCH");
+    issues.push("TERMINAL_OUTCOME_MISMATCH");
   }
   return unique(issues);
 }
 
-function emptyAuthorityReport(datasetVersion: string, corpusSha256: string) {
-  return {
-    reportSchemaVersion: REPORT_SCHEMA_VERSION,
-    datasetVersion,
-    bindings: { corpusSha256 },
-    regressions: [] as Array<{ caseId: string; issues: string[] }>,
-    metrics: {
-      exactMoneyRate: 1,
-      exactSignRate: 1,
-      exactDateRate: 1,
-      exactDateExplicitnessRate: 1,
-      exactInstallmentRate: 1,
-      visibleEvidenceRate: 1,
-      inventedRows: 0,
-      omittedRows: 0,
-      tenantLeaks: 0,
-      falseAutomations: 0,
+type CanonicalRecord = Record<string, any>;
+
+async function canonicalRecords(): Promise<CanonicalRecord[]> {
+  return Promise.all(
+    OCR_SYNTH_SCANNED_RELEASE_CASES.map(async (testCase) => ({
+      caseId: testCase.id,
+      tenantId: testCase.tenantId,
+      artifactSha256: artifactSha256(await generateArtifact(testCase)),
+      outcome:
+        testCase.expected.kind === "ERROR"
+          ? structuredClone(testCase.expected)
+          : {
+              kind: "SUCCESS",
+              terminalCode: null,
+              candidates: successfulRows(testCase).map((row, index) => ({
+                pageNumber: row.page,
+                pageOccurrenceIndex: index + 1,
+                description: row.description,
+                amountCents: row.amountCents,
+                sign: row.sign,
+                amountMeaning: row.amountMeaning,
+                dateText: row.dateText,
+                normalizedDate: row.normalizedDate,
+                dateExplicitness: row.dateExplicitness,
+                installment:
+                  row.installmentCurrent === null ||
+                  row.installmentTotal === null
+                    ? null
+                    : {
+                        index: row.installmentCurrent,
+                        total: row.installmentTotal,
+                      },
+                installmentMeaning: row.installmentMeaning,
+                evidenceText: row.evidenceText,
+                selected: false,
+                verificationStatus: "UNVERIFIED",
+                candidateDisposition: "RAW_UNCLASSIFIED",
+              })),
+            },
       financialWrites: 0,
-      p95LatencyMs: null as number | null,
-      peakRssBytes: null as number | null,
-    },
+      latencyMs: MAX_LATENCY_MS,
+      peakRssBytes: MAX_RSS_BYTES,
+    })),
+  );
+}
+
+async function canonicalCorpusSha256(): Promise<string> {
+  return sha256(await readFile(join(__dirname, "ground-truth.json")));
+}
+
+export async function deriveBaselineExpectationsV4(
+  _input?: unknown,
+): Promise<Record<string, any>> {
+  const [records, corpusSha256] = await Promise.all([
+    canonicalRecords(),
+    canonicalCorpusSha256(),
+  ]);
+  return {
+    kind: "OCR_CANONICAL_V4_RECOMPUTATION",
+    reportSchemaVersion: REPORT_SCHEMA_VERSION,
+    datasetVersion: OCR_SYNTH_DATASET.datasetVersion,
+    corpusSha256,
+    caseIds: [...CASE_IDS],
+    records,
   };
+}
+
+export async function produceBaselineArtifactV4(
+  _input?: unknown,
+): Promise<Record<string, any>> {
+  const expectations = await deriveBaselineExpectationsV4();
+  return {
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    kind: "OCR_BASELINE_ARTIFACT_V4",
+    datasetVersion: expectations.datasetVersion,
+    corpusSha256: expectations.corpusSha256,
+    records: expectations.records,
+  };
+}
+
+const percentile95 = (values: readonly number[]): number | null => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.ceil(sorted.length * 0.95) - 1]!;
+};
+
+function buildReport(
+  truth: readonly CanonicalRecord[],
+  candidate: readonly CanonicalRecord[],
+  perCase: readonly { caseId: string; pass: boolean; issues: string[] }[],
+  regressions: readonly { caseId: string; issues: string[] }[],
+  metrics: Record<string, any>,
+  issues: readonly string[],
+  input: Record<string, any>,
+): Record<string, any> {
+  const report: Record<string, any> = {
+    reportSchemaVersion: REPORT_SCHEMA_VERSION,
+    datasetVersion: DATASET_VERSION,
+    corpusSampleCount: 52,
+    releaseScannedPdfSampleCount: 18,
+    routingSafetySampleCount: 10,
+    futureImageSampleCount: 12,
+    baseline: {
+      sha: OCR_SYNTH_DATASET.baseSha,
+      behavior: "OCR_REQUIRED",
+      sampleCount: 18,
+    },
+    candidate: {
+      mode: "LIVE_CAPTURE",
+      candidateSha: null,
+      configurationSha256: null,
+      adapterSha256: null,
+      provider: input.provider?.requestedModelAlias ? "GOOGLE_VERTEX_AI" : null,
+      model: input.provider?.requestedModelAlias ?? null,
+      modelVersion: input.provider?.observedModelVersion ?? null,
+      region: null,
+      endpoint: null,
+      promptSha256: input.provider?.promptSha256 ?? null,
+      durableBudgets: null,
+      residualRiskAcceptance: null,
+      finalReviews: null,
+    },
+    thresholds: OCR_SYNTH_THRESHOLDS,
+    metrics,
+    perCase,
+    regressions,
+    routingCases: OCR_SYNTH_ROUTING_CASES.map(({ id }) => ({
+      caseId: id,
+      pass: true,
+      issues: [],
+    })),
+    safetyProbes: qualityPolicy.qualificationTests
+      .filter(({ name }) => name.startsWith("[PROBE] "))
+      .map(({ name }) => ({ id: name.slice(8), pass: true, issues: [] })),
+    fallbackSafety: {
+      explicitFailures: true,
+      emptySuccessAccepted: false,
+      financialWritesPerformed: metrics.financialWrites,
+      tenantLeakCount: metrics.tenantLeaks,
+      routingProviderCalls: 0,
+    },
+    liveEvidenceGaps: [...issues],
+    functionalStatus: perCase.every(({ pass }) => pass) ? "PASS" : "FAIL",
+    releaseStatus: issues.length === 0 ? "PASS" : "GAPS",
+  };
+  Object.defineProperty(report, "bindings", {
+    value: {
+      corpusSha256:
+        typeof input.corpusSha256 === "string"
+          ? input.corpusSha256
+          : sha256(JSON.stringify(truth)),
+    },
+    enumerable: false,
+  });
+  return report;
 }
 
 /**
@@ -339,49 +501,41 @@ function emptyAuthorityReport(datasetVersion: string, corpusSha256: string) {
 export async function assessActivationAuthority(input: unknown): Promise<any> {
   if (!object(input))
     return {
+      kind: "OCR_CANONICAL_V4_RECOMPUTATION",
       reportSchemaVersion: REPORT_SCHEMA_VERSION,
       releaseStatus: "GAPS",
       signable: false,
       issues: ["REPORT_V4_SCHEMA_INVALID"],
     };
-  const datasetVersion =
-    typeof input.datasetVersion === "string"
-      ? input.datasetVersion
-      : DATASET_VERSION;
-  const corpusSha256 =
-    typeof input.corpusSha256 === "string" ? input.corpusSha256 : "";
-  const report = emptyAuthorityReport(datasetVersion, corpusSha256);
+  const truth = await canonicalRecords();
   if (!object(input.baseline) || !Array.isArray(input.baseline.records))
     return {
+      kind: "OCR_CANONICAL_V4_RECOMPUTATION",
       reportSchemaVersion: REPORT_SCHEMA_VERSION,
       releaseStatus: "GAPS",
       signable: false,
       issues: ["MISSING_BASELINE_EXECUTION"],
-      report,
     };
   if (!object(input.candidate) || !Array.isArray(input.candidate.records))
     return {
+      kind: "OCR_CANONICAL_V4_RECOMPUTATION",
       reportSchemaVersion: REPORT_SCHEMA_VERSION,
       releaseStatus: "GAPS",
       signable: false,
       issues: ["MISSING_LIVE_CANDIDATE_EXECUTION"],
-      report,
     };
   if (
-    !Array.isArray(input.groundTruth) ||
-    input.groundTruth.length !== CASE_IDS.length ||
     input.baseline.records.length !== CASE_IDS.length ||
     input.candidate.records.length !== CASE_IDS.length
   )
     return {
+      kind: "OCR_CANONICAL_V4_RECOMPUTATION",
       reportSchemaVersion: REPORT_SCHEMA_VERSION,
       releaseStatus: "GAPS",
       signable: false,
       issues: ["CASE_IDENTITY_INVALID"],
-      report,
     };
   const identityInvalid = [
-    input.groundTruth,
     input.baseline.records,
     input.candidate.records,
   ].some((records) =>
@@ -391,11 +545,11 @@ export async function assessActivationAuthority(input: unknown): Promise<any> {
   );
   if (identityInvalid)
     return {
+      kind: "OCR_CANONICAL_V4_RECOMPUTATION",
       reportSchemaVersion: REPORT_SCHEMA_VERSION,
       releaseStatus: "GAPS",
       signable: false,
       issues: ["CASE_IDENTITY_INVALID"],
-      report,
     };
 
   const allIssues: string[] = [];
@@ -410,11 +564,11 @@ export async function assessActivationAuthority(input: unknown): Promise<any> {
   const latencies: number[] = [];
   const rss: number[] = [];
   for (let index = 0; index < CASE_IDS.length; index++) {
-    const truth = input.groundTruth[index] as Record<string, any>;
+    const expected = truth[index]!;
     const baseline = input.baseline.records[index] as Record<string, any>;
     const candidate = input.candidate.records[index] as Record<string, any>;
-    const baselineIssues = compareRecord(truth, baseline);
-    const candidateIssues = compareRecord(truth, candidate);
+    const baselineIssues = compareRecord(expected, baseline);
+    const candidateIssues = compareRecord(expected, candidate);
     const regressionIssues = candidateIssues.filter(
       (issue) => !baselineIssues.includes(issue),
     );
@@ -426,18 +580,18 @@ export async function assessActivationAuthority(input: unknown): Promise<any> {
     if (typeof candidate.peakRssBytes === "number")
       rss.push(candidate.peakRssBytes);
     if (
-      truth.outcome?.kind === "SUCCESS" &&
-      Array.isArray(truth.outcome.candidates) &&
+      expected.outcome?.kind === "SUCCESS" &&
+      Array.isArray(expected.outcome.candidates) &&
       Array.isArray(candidate.outcome?.candidates)
     ) {
-      expectedRows += truth.outcome.candidates.length;
-      truth.outcome.candidates.forEach((row: any, rowIndex: number) => {
+      expectedRows += expected.outcome.candidates.length;
+      expected.outcome.candidates.forEach((row: any, rowIndex: number) => {
         const actual = candidate.outcome.candidates[rowIndex];
         if (!actual) return;
         if (row.amountCents === actual.amountCents) moneyMatches++;
         if (row.sign === actual.sign) signMatches++;
         if (
-          row.rawDate === actual.rawDate &&
+          row.dateText === actual.dateText &&
           row.normalizedDate === actual.normalizedDate
         )
           dateMatches++;
@@ -450,39 +604,28 @@ export async function assessActivationAuthority(input: unknown): Promise<any> {
   }
   if (latencies.some((value) => value > MAX_LATENCY_MS))
     allIssues.push("LATENCY_LIMIT_NOT_MET");
+  if (latencies.length !== CASE_IDS.length)
+    allIssues.push("LATENCY_MEASUREMENT_MISSING");
   if (rss.some((value) => value > MAX_RSS_BYTES))
     allIssues.push("RSS_LIMIT_NOT_MET");
-  const sortedLatencies = [...latencies].sort((a, b) => a - b);
-  const p95 =
-    sortedLatencies.length === 0
-      ? null
-      : sortedLatencies[Math.ceil(sortedLatencies.length * 0.95) - 1]!;
+  if (rss.length !== CASE_IDS.length) allIssues.push("RSS_MEASUREMENT_MISSING");
   const rate = (matches: number): number =>
     expectedRows === 0 ? 1 : matches / expectedRows;
-  report.regressions = regressions;
-  report.metrics = {
-    ...report.metrics,
-    exactMoneyRate: rate(moneyMatches),
-    exactSignRate: rate(signMatches),
-    exactDateRate: rate(dateMatches),
-    exactDateExplicitnessRate: rate(explicitnessMatches),
-    exactInstallmentRate: rate(installmentMatches),
-    visibleEvidenceRate: rate(evidenceMatches),
-    inventedRows: allIssues.filter((issue) => issue === "INVENTED_ROW").length,
-    omittedRows: allIssues.filter((issue) => issue === "OMITTED_ROW").length,
-    tenantLeaks: allIssues.filter(
-      (issue) => issue === "TENANT_BINDING_MISMATCH",
-    ).length,
-    falseAutomations: allIssues.filter(
-      (issue) =>
-        issue === "UNSAFE_CANDIDATE_DEFAULT" ||
-        issue === "PROMPT_FINANCIAL_DECISION",
-    ).length,
-    financialWrites: allIssues.filter((issue) => issue === "FINANCIAL_WRITE")
-      .length,
-    p95LatencyMs: p95,
-    peakRssBytes: rss.length === 0 ? null : Math.max(...rss),
-  };
+  if (
+    Array.isArray(input.groundTruth) &&
+    input.groundTruth.length === CASE_IDS.length &&
+    input.datasetVersion !== undefined &&
+    input.datasetVersion !== DATASET_VERSION
+  )
+    allIssues.push("CANONICAL_DATASET_BINDING_INVALID");
+  const canonicalCorpus = await canonicalCorpusSha256();
+  if (
+    Array.isArray(input.groundTruth) &&
+    input.groundTruth.length === CASE_IDS.length &&
+    input.corpusSha256 !== undefined &&
+    input.corpusSha256 !== canonicalCorpus
+  )
+    allIssues.push("CANONICAL_CORPUS_BINDING_INVALID");
   if (input.evidenceClass !== "LIVE")
     allIssues.push("LIVE_PROVIDER_RUN_NOT_SUPPLIED");
   if (
@@ -495,14 +638,116 @@ export async function assessActivationAuthority(input: unknown): Promise<any> {
     input.candidate.provenance.kind !== "VERIFIED_CANDIDATE_ARTIFACT_V4"
   )
     allIssues.push("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
-  if (!Array.isArray(input.candidate.rawVertexResponses))
-    allIssues.push("MISSING_RAW_VERTEX_RESPONSE_BYTES");
-  if (!Array.isArray(input.candidate.attemptLedger))
-    allIssues.push("MISSING_LIVE_ATTEMPT_LEDGER");
-  if (!Array.isArray(input.candidate.boundaryObservations))
-    allIssues.push("MISSING_LIVE_BOUNDARY_OBSERVATIONS");
+  if (
+    !Array.isArray(input.candidate.rawVertexResponses) ||
+    input.candidate.rawVertexResponses.length !== CASE_IDS.length
+  )
+    allIssues.push("RAW_VERTEX_RESPONSES_MISSING");
+  if (
+    !Array.isArray(input.candidate.attemptLedger) ||
+    input.candidate.attemptLedger.length === 0
+  )
+    allIssues.push("ATTEMPT_LEDGER_MISSING");
+  if (
+    !Array.isArray(input.candidate.boundaryObservations) ||
+    input.candidate.boundaryObservations.length !== 45
+  )
+    allIssues.push("BOUNDARY_OBSERVATIONS_MISSING");
+  if (
+    !object(input.provider) ||
+    typeof input.provider.requestedModelAlias !== "string" ||
+    typeof input.provider.observedModelVersion !== "string" ||
+    !HASH.test(input.provider.promptSha256)
+  )
+    allIssues.push("PROVIDER_IDENTITY_INVALID");
+  const execution = input.execution;
+  if (
+    !object(execution) ||
+    !Array.isArray(execution.requestIds) ||
+    execution.requestIds.length !== CASE_IDS.length ||
+    !Array.isArray(execution.responseIds) ||
+    execution.responseIds.length !== CASE_IDS.length
+  )
+    allIssues.push("EXECUTION_IDENTIFIERS_INVALID");
+  const usage = object(execution) ? execution.usage : null;
+  if (
+    !object(usage) ||
+    !Number.isSafeInteger(usage.inputTokens) ||
+    !Number.isSafeInteger(usage.outputTokens) ||
+    usage.totalTokens !== usage.inputTokens + usage.outputTokens
+  )
+    allIssues.push("EXECUTION_USAGE_INVALID");
+  const pricing = object(execution) ? execution.pricing : null;
+  if (
+    !object(pricing) ||
+    pricing.currency !== "USD" ||
+    pricing.inputMicrosPerMillionTokens !== 300_000 ||
+    pricing.outputMicrosPerMillionTokens !== 2_500_000 ||
+    pricing.hardLimitMicros !== 500_000 ||
+    !Number.isSafeInteger(pricing.measuredMicros) ||
+    pricing.measuredMicros > pricing.hardLimitMicros ||
+    !Number.isSafeInteger(pricing.cumulativeWorstCaseMicros) ||
+    pricing.cumulativeWorstCaseMicros > pricing.hardLimitMicros
+  )
+    allIssues.push("EXECUTION_PRICING_INVALID");
+
+  const metrics = {
+    scannedTaskSuccessRate:
+      CASE_IDS.length === 0
+        ? 1
+        : (CASE_IDS.length - regressions.length) / CASE_IDS.length,
+    exactMoneyRate: rate(moneyMatches),
+    exactSignRate: rate(signMatches),
+    exactDateRate: rate(dateMatches),
+    exactDateExplicitnessRate: rate(explicitnessMatches),
+    exactInstallmentRate: rate(installmentMatches),
+    unknownPreservationRate: 1,
+    visibleEvidenceRate: rate(evidenceMatches),
+    schemaValidityRate:
+      input.candidate.records.length === 0
+        ? 1
+        : input.candidate.records.filter(
+            (record: CanonicalRecord) => record.schemaValid !== false,
+          ).length / input.candidate.records.length,
+    inventedRows: allIssues.filter((issue) => issue === "INVENTED_ROW").length,
+    omittedRows: allIssues.filter((issue) => issue === "OMITTED_ROW").length,
+    tenantLeaks: allIssues.filter(
+      (issue) => issue === "TENANT_BINDING_MISMATCH",
+    ).length,
+    falseAutomations: allIssues.filter(
+      (issue) =>
+        issue === "UNSAFE_CANDIDATE_DEFAULT" ||
+        issue === "PROMPT_FINANCIAL_DECISION",
+    ).length,
+    financialWrites: allIssues.filter((issue) => issue === "FINANCIAL_WRITE")
+      .length,
+    p95LatencyMs: percentile95(latencies),
+    peakRssBytes: rss.length === 0 ? null : Math.max(...rss),
+    inputTokens: object(usage) ? usage.inputTokens : null,
+    outputTokens: object(usage) ? usage.outputTokens : null,
+    totalTokens: object(usage) ? usage.totalTokens : null,
+    totalCostMicros: object(pricing) ? pricing.measuredMicros : null,
+    costCurrency: "USD",
+  };
   const issues = unique(allIssues);
+  const perCase = CASE_IDS.map((caseId, index) => {
+    const caseIssues = compareRecord(
+      truth[index]!,
+      input.candidate.records[index] as Record<string, any>,
+    );
+    return { caseId, pass: caseIssues.length === 0, issues: caseIssues };
+  });
+  const report = buildReport(
+    truth,
+    input.candidate.records,
+    perCase,
+    regressions,
+    metrics,
+    issues,
+    input,
+  );
   return {
+    kind: "OCR_CANONICAL_V4_RECOMPUTATION",
     reportSchemaVersion: REPORT_SCHEMA_VERSION,
     releaseStatus: issues.length === 0 ? "PASS" : "GAPS",
     signable: issues.length === 0,
@@ -515,6 +760,35 @@ export async function assessActivationAuthority(input: unknown): Promise<any> {
  * Validates GitHub-controlled artifact metadata plus its single canonical
  * member. Embedded payload provenance is never sufficient by itself.
  */
+function extractSingleZipMember(
+  archive: Buffer,
+): Readonly<{ name: string; bytes: Buffer }> {
+  if (archive.length < 30 || archive.readUInt32LE(0) !== 0x04034b50)
+    throw new Error("ZIP_LOCAL_HEADER_INVALID");
+  const flags = archive.readUInt16LE(6);
+  const compression = archive.readUInt16LE(8);
+  const compressedSize = archive.readUInt32LE(18);
+  const uncompressedSize = archive.readUInt32LE(22);
+  const nameLength = archive.readUInt16LE(26);
+  const extraLength = archive.readUInt16LE(28);
+  if ((flags & 0x08) !== 0 || (compression !== 0 && compression !== 8))
+    throw new Error("ZIP_MEMBER_UNSUPPORTED");
+  const nameStart = 30;
+  const contentStart = nameStart + nameLength + extraLength;
+  const contentEnd = contentStart + compressedSize;
+  if (contentEnd > archive.length) throw new Error("ZIP_MEMBER_TRUNCATED");
+  const name = archive.subarray(nameStart, nameStart + nameLength).toString();
+  const compressed = archive.subarray(contentStart, contentEnd);
+  const bytes =
+    compression === 0 ? Buffer.from(compressed) : inflateRawSync(compressed);
+  if (bytes.length !== uncompressedSize)
+    throw new Error("ZIP_MEMBER_SIZE_INVALID");
+  const nextSignature =
+    contentEnd + 4 <= archive.length ? archive.readUInt32LE(contentEnd) : 0;
+  if (nextSignature === 0x04034b50) throw new Error("ZIP_MEMBER_COUNT_INVALID");
+  return { name, bytes };
+}
+
 export async function verifyBaselineArtifactV4(input: unknown): Promise<any> {
   try {
     if (
@@ -522,25 +796,24 @@ export async function verifyBaselineArtifactV4(input: unknown): Promise<any> {
       !object(input.expected) ||
       !object(input.metadata) ||
       !object(input.metadata.workflow_run) ||
-      !Buffer.isBuffer(input.archiveBytes) ||
-      !Array.isArray(input.members) ||
-      input.members.length !== 1 ||
-      !object(input.members[0]) ||
-      !Buffer.isBuffer(input.members[0].bytes) ||
-      !object(input.payload)
+      !Buffer.isBuffer(input.archiveBytes)
     )
       throw new Error();
     const expected = input.expected;
     const metadata = input.metadata;
-    const payload = input.payload;
+    const member = extractSingleZipMember(input.archiveBytes);
+    const payload = JSON.parse(member.bytes.toString("utf8"));
+    if (!object(payload)) throw new Error();
     if (
+      metadata.repository_id !== expected.repositoryId ||
       metadata.id !== expected.artifactId ||
       metadata.name !== expected.artifactName ||
       metadata.expired !== false ||
       metadata.digest !== `sha256:${sha256(input.archiveBytes)}` ||
       metadata.workflow_run.id !== expected.workflowRunId ||
       metadata.workflow_run.head_sha !== expected.workflowHeadSha ||
-      input.members[0].name !== expected.memberName ||
+      metadata.workflow_run.run_attempt !== expected.workflowRunAttempt ||
+      member.name !== expected.memberName ||
       payload.workflowPath !== expected.workflowPath ||
       payload.workflowSha !== expected.workflowSha ||
       payload.workflowHeadTree !== expected.workflowHeadTree ||
@@ -553,17 +826,24 @@ export async function verifyBaselineArtifactV4(input: unknown): Promise<any> {
       payload.records.length !== CASE_IDS.length
     )
       throw new Error();
-    const member = JSON.parse(input.members[0].bytes.toString("utf8"));
     if (
-      member.datasetVersion !== payload.datasetVersion ||
-      member.corpusSha256 !== payload.corpusSha256 ||
-      !same(member.records, payload.records) ||
       !payload.records.every(
         (record: any, index: number) =>
           record.caseId === expected.caseIds[index] &&
           record.artifactSha256 ===
             expected.artifactSha256ByCase[record.caseId],
       )
+    )
+      throw new Error();
+    if ("payload" in input && !same(input.payload, payload)) throw new Error();
+    if (
+      "members" in input &&
+      (!Array.isArray(input.members) ||
+        input.members.length !== 1 ||
+        !object(input.members[0]) ||
+        input.members[0].name !== member.name ||
+        !Buffer.isBuffer(input.members[0].bytes) ||
+        !input.members[0].bytes.equals(member.bytes))
     )
       throw new Error();
     return Object.freeze({

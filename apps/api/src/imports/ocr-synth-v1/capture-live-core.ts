@@ -452,9 +452,17 @@ export async function captureLiveEvidence(
   let modelVersion: string | undefined;
   let promptSha256: string | undefined;
   let measuredSpendMicros = 0;
+  let worstCaseSpendMicros = 0;
+  const rawResponses: Array<Record<string, unknown>> = [];
+  const attemptEvents: Array<Record<string, any>> = [];
+  const requestPlanSha256ByCase: Record<string, string> = {};
 
   for (const { testCase, bytes, hash } of artifacts) {
     const caseRequestId = requestId(manifest.candidateSha, testCase.id);
+    const rawByPhase: Partial<
+      Record<"COUNT_TOKENS" | "GENERATE_CONTENT", Buffer>
+    > = {};
+    const spentKnownBeforeMicros = worstCaseSpendMicros;
     let document: Awaited<
       ReturnType<VertexPdfOcrProvider["extractPdf"]>
     > | null = null;
@@ -468,6 +476,11 @@ export async function captureLiveEvidence(
           pdfBytes: bytes,
           signal: new AbortController().signal,
           qualificationCapture: true,
+          captureResponseBytes: (phase, responseBytes) => {
+            if (rawByPhase[phase])
+              throw new Error("LIVE_CAPTURE_RAW_EVIDENCE_INVALID");
+            rawByPhase[phase] = Buffer.from(responseBytes);
+          },
         },
         {
           beforeGeneration: async (_signal, admission) => {
@@ -479,7 +492,7 @@ export async function captureLiveEvidence(
                 1_000_000,
             );
             if (
-              measuredSpendMicros + worstCaseMicros >
+              worstCaseSpendMicros + worstCaseMicros >
               manifest.declaredLimits.maxTotalCostMicros!
             )
               throw new Error("CAPTURE_SPEND_LIMIT");
@@ -516,6 +529,65 @@ export async function captureLiveEvidence(
       trace.finishReason !== "STOP"
     )
       throw new Error("LIVE_CAPTURE_PROVIDER_CONTRACT_FAILED");
+    const countBytes = rawByPhase.COUNT_TOKENS;
+    const generationBytes = rawByPhase.GENERATE_CONTENT;
+    if (
+      !countBytes ||
+      !generationBytes ||
+      !trace.requestPlanSha256 ||
+      !trace.countRequestBodySha256 ||
+      !trace.generationRequestBodySha256
+    )
+      throw new Error("LIVE_CAPTURE_RAW_EVIDENCE_INVALID");
+    const capturedAttempt = await executeCapturedAttempt({
+      runId: manifest.candidateSha,
+      runAttempt: 1,
+      caseId: testCase.id,
+      requestId: caseRequestId,
+      requestPlanSha256: trace.requestPlanSha256,
+      countTokensRequestSha256: trace.countRequestBodySha256,
+      spentKnownBeforeMicros,
+      reservedOutputTokens: 8192,
+      inputMicrosPerMillionTokens: manifest.pricing.inputMicrosPerMillionTokens,
+      outputMicrosPerMillionTokens:
+        manifest.pricing.outputMicrosPerMillionTokens,
+      hardLimitMicros: 500_000,
+      countTokens: async () => countBytes,
+      generation: async () => generationBytes,
+    });
+    if (capturedAttempt.decision !== "ADMITTED")
+      throw new Error("CAPTURE_SPEND_LIMIT");
+    requestPlanSha256ByCase[testCase.id] = trace.requestPlanSha256;
+    for (const event of capturedAttempt.ledger as Array<Record<string, any>>) {
+      const bound: Record<string, any> = {
+        ...event,
+        sequence: attemptEvents.length + 1,
+      };
+      if (bound.kind === "GENERATION_REQUEST")
+        bound.requestBodySha256 = trace.generationRequestBodySha256;
+      if (bound.kind === "SPEND_RECONCILED")
+        bound.cumulativeMeasuredMicros =
+          measuredSpendMicros + bound.measuredCurrentMicros;
+      attemptEvents.push(bound);
+    }
+    worstCaseSpendMicros = capturedAttempt.cumulativeWorstCaseMicros as number;
+    rawResponses.push({
+      caseId: testCase.id,
+      requestId: caseRequestId,
+      requestPlanSha256: trace.requestPlanSha256,
+      countTokens: {
+        responseBytesBase64: countBytes.toString("base64"),
+        responseByteLength: countBytes.length,
+        responseSha256: createHash("sha256").update(countBytes).digest("hex"),
+      },
+      generation: {
+        responseBytesBase64: generationBytes.toString("base64"),
+        responseByteLength: generationBytes.length,
+        responseSha256: createHash("sha256")
+          .update(generationBytes)
+          .digest("hex"),
+      },
+    });
     if (
       requestIds.has(caseRequestId) ||
       responseIds.has(provenance.responseId) ||
@@ -629,6 +701,13 @@ export async function captureLiveEvidence(
     predictions,
     routingCases: manifest.routingCases,
     safetyProbes: manifest.safetyProbes,
+    rawResponses,
+    attemptLedger: {
+      runId: manifest.candidateSha,
+      runAttempt: 1,
+      requestPlanSha256ByCase,
+      ledger: attemptEvents,
+    },
     qualityClosure:
       options.mechanical?.qualityClosure ??
       structurallyBoundLegacyClosure(manifest),
@@ -736,6 +815,8 @@ function parsedCountTokens(bytes: Buffer): number {
     value === null ||
     typeof value !== "object" ||
     Array.isArray(value) ||
+    Reflect.ownKeys(value).length !== 1 ||
+    !Object.prototype.hasOwnProperty.call(value, "totalTokens") ||
     !Number.isSafeInteger((value as Record<string, unknown>).totalTokens) ||
     ((value as Record<string, unknown>).totalTokens as number) < 0
   )
@@ -892,20 +973,25 @@ export async function executeCapturedAttempt(
   });
 }
 
-function decodeLedgerBytes(event: Record<string, any>): Buffer {
+function decodeLedgerBytes(
+  event: Record<string, any>,
+  code:
+    | "COUNT_TOKENS_RESPONSE_BINDING_INVALID"
+    | "GENERATION_RESPONSE_BINDING_INVALID",
+): Buffer {
   if (
     typeof event.responseBytesBase64 !== "string" ||
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
       event.responseBytesBase64,
     )
   )
-    throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+    throw new Error(code);
   const bytes = Buffer.from(event.responseBytesBase64, "base64");
   if (
     bytes.length !== event.responseByteLength ||
     attemptSha256(bytes) !== event.responseSha256
   )
-    throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+    throw new Error(code);
   return bytes;
 }
 
@@ -917,23 +1003,33 @@ export function verifyAttemptLedger(input: unknown): true {
     !Array.isArray((input as Record<string, unknown>).ledger)
   )
     throw new Error("ATTEMPT_LEDGER_SCHEMA_INVALID");
-  const ledger = (input as Record<string, any>).ledger as Array<
-    Record<string, any>
-  >;
+  const envelope = input as Record<string, any>;
+  const ledger = envelope.ledger as Array<Record<string, any>>;
   if (
+    typeof envelope.runId !== "string" ||
+    envelope.runId.length === 0 ||
+    envelope.runAttempt !== 1 ||
     ledger.some((event, index) => event.sequence !== index + 1) ||
     ledger.some(
-      (event) =>
-        event.runId !== (input as Record<string, any>).runId ||
-        event.runAttempt !== 1,
+      (event) => event.runId !== envelope.runId || event.runAttempt !== 1,
     )
   )
     throw new Error("ATTEMPT_LEDGER_ORDER_INVALID");
   let offset = 0;
   let priorWorstCase = 0;
+  let priorMeasured = 0;
+  const caseIds: string[] = [];
+  const requestIds = new Set<string>();
+  const fallbackPlanSha256 = ledger[0]?.requestPlanSha256;
+  const planBindings =
+    envelope.requestPlanSha256ByCase &&
+    typeof envelope.requestPlanSha256ByCase === "object"
+      ? envelope.requestPlanSha256ByCase
+      : null;
   while (offset < ledger.length) {
     const first = ledger[offset]!;
     const caseId = first.caseId;
+    caseIds.push(caseId);
     const events: Array<Record<string, any>> = [];
     while (offset < ledger.length && ledger[offset]!.caseId === caseId)
       events.push(ledger[offset++]!);
@@ -967,8 +1063,26 @@ export function verifyAttemptLedger(input: unknown): true {
           ];
     if (JSON.stringify(kinds) !== JSON.stringify(expectedKinds))
       throw new Error("ATTEMPT_LEDGER_ORDER_INVALID");
+    const requestId = first.requestId;
+    const expectedPlan = planBindings?.[caseId] ?? fallbackPlanSha256;
+    if (
+      typeof requestId !== "string" ||
+      requestIds.has(requestId) ||
+      typeof expectedPlan !== "string" ||
+      events.some(
+        (event) =>
+          event.caseId !== caseId ||
+          event.requestId !== requestId ||
+          event.requestPlanSha256 !== expectedPlan,
+      )
+    )
+      throw new Error("ATTEMPT_LEDGER_REQUEST_BINDING_INVALID");
+    requestIds.add(requestId);
     const count = events[1]!;
-    const countBytes = decodeLedgerBytes(count);
+    const countBytes = decodeLedgerBytes(
+      count,
+      "COUNT_TOKENS_RESPONSE_BINDING_INVALID",
+    );
     const parsed = parsedCountTokens(countBytes);
     if (
       count.parsedInputTokens !== parsed ||
@@ -976,6 +1090,13 @@ export function verifyAttemptLedger(input: unknown): true {
       admission.countTokensResponseSha256 !== count.responseSha256
     )
       throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+    if (
+      admission.reservedOutputTokens !== 8192 ||
+      admission.inputMicrosPerMillionTokens !== 300_000 ||
+      admission.outputMicrosPerMillionTokens !== 2_500_000 ||
+      admission.hardLimitMicros !== 500_000
+    )
+      throw new Error("ATTEMPT_LEDGER_PRICING_INVALID");
     if (admission.spentKnownBeforeMicros !== priorWorstCase)
       throw new Error("CUMULATIVE_SPEND_MISMATCH");
     const expectedWorst = pricedMicros(
@@ -990,7 +1111,35 @@ export function verifyAttemptLedger(input: unknown): true {
         admission.spentKnownBeforeMicros + expectedWorst
     )
       throw new Error("CUMULATIVE_SPEND_MISMATCH");
+    if (admission.decision === "ADMITTED") {
+      const generation = events[4]!;
+      const generationBytes = decodeLedgerBytes(
+        generation,
+        "GENERATION_RESPONSE_BINDING_INVALID",
+      );
+      const measured = measuredGenerationCost(
+        generationBytes,
+        admission.inputMicrosPerMillionTokens,
+        admission.outputMicrosPerMillionTokens,
+      );
+      const reconciled = events[5]!;
+      if (reconciled.measuredCurrentMicros !== measured)
+        throw new Error("MEASURED_SPEND_RECONCILIATION_INVALID");
+      priorMeasured += measured;
+      if (reconciled.cumulativeMeasuredMicros !== priorMeasured)
+        throw new Error("CUMULATIVE_MEASURED_SPEND_INVALID");
+      if (
+        reconciled.cumulativeWorstCaseMicros !==
+        admission.cumulativeWorstCaseMicros
+      )
+        throw new Error("CUMULATIVE_SPEND_MISMATCH");
+    }
     priorWorstCase = admission.cumulativeWorstCaseMicros;
   }
+  if (
+    caseIds.length !== LIVE_CAPTURE_CASE_IDS.length ||
+    caseIds.some((caseId, index) => caseId !== LIVE_CAPTURE_CASE_IDS[index])
+  )
+    throw new Error("ATTEMPT_LEDGER_IDENTITIES_INVALID");
   return true;
 }

@@ -175,13 +175,19 @@ export type OcrProviderSign = "NEGATIVE" | "ZERO" | "POSITIVE" | "UNKNOWN";
 /** Exact projection of provider-returned candidate fields plus derived sign. */
 export interface OcrProviderNativeCandidate {
   pageNumber: number;
+  pageOccurrenceIndex: number;
   description: string | null;
   amountCents: string | null;
   sign: OcrProviderSign;
   amountMeaning: "LINE_AMOUNT" | "UNKNOWN";
-  date: string | null;
+  dateText: string | null;
+  normalizedDate: string | null;
+  dateExplicitness: "FULL" | "YEARLESS" | "MISSING" | "UNKNOWN";
   installment: { index: number; total: number } | null;
   evidenceText: string;
+  selected: false;
+  verificationStatus: "UNVERIFIED";
+  candidateDisposition: "RAW_UNCLASSIFIED";
 }
 
 export type OcrProviderNativeOutcome =

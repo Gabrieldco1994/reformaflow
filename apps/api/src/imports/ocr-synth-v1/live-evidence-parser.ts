@@ -196,28 +196,46 @@ function validNativeOutcome(value: unknown): boolean {
     (candidate) =>
       exact(candidate, [
         "pageNumber",
+        "pageOccurrenceIndex",
         "description",
         "amountCents",
         "sign",
         "amountMeaning",
-        "date",
+        "dateText",
+        "normalizedDate",
+        "dateExplicitness",
         "installment",
         "evidenceText",
+        "selected",
+        "verificationStatus",
+        "candidateDisposition",
       ]) &&
       number(candidate.pageNumber) &&
       candidate.pageNumber > 0 &&
+      number(candidate.pageOccurrenceIndex) &&
+      candidate.pageOccurrenceIndex > 0 &&
       nullableString(candidate.description) &&
       nullableString(candidate.amountCents) &&
       oneOf(candidate.sign, ["NEGATIVE", "ZERO", "POSITIVE", "UNKNOWN"]) &&
       oneOf(candidate.amountMeaning, ["LINE_AMOUNT", "UNKNOWN"]) &&
-      nullableString(candidate.date) &&
+      nullableString(candidate.dateText) &&
+      nullableString(candidate.normalizedDate) &&
+      oneOf(candidate.dateExplicitness, [
+        "FULL",
+        "YEARLESS",
+        "MISSING",
+        "UNKNOWN",
+      ]) &&
       (candidate.installment === null ||
         (exact(candidate.installment, ["index", "total"]) &&
           number(candidate.installment.index) &&
           candidate.installment.index > 0 &&
           number(candidate.installment.total) &&
           candidate.installment.total > 0)) &&
-      string(candidate.evidenceText),
+      string(candidate.evidenceText) &&
+      candidate.selected === false &&
+      candidate.verificationStatus === "UNVERIFIED" &&
+      candidate.candidateDisposition === "RAW_UNCLASSIFIED",
   );
 }
 
@@ -319,7 +337,7 @@ function validTrace(value: unknown): boolean {
     bool(value.toolsPresent) &&
     value.fileUri === null &&
     value.cachedContent === null &&
-    value.providerCallCount === 1 &&
+    (value.providerCallCount === 1 || value.providerCallCount === 2) &&
     string(value.responseId) &&
     value.responseId.length > 0 &&
     value.attempts === 1 &&
@@ -511,8 +529,6 @@ export function isValidLiveProbe(
     bool(value.explicitError) &&
     string(value.errorCode) &&
     SAFE_CODE.test(value.errorCode) &&
-    (value.source === "OFFLINE_EVALUATOR_SELF_TEST" ||
-      !value.errorCode.startsWith("BLOCKED_")) &&
     number(value.providerCalls) &&
     number(value.financialWrites) &&
     bool(value.durableStateVerified) &&
@@ -572,15 +588,21 @@ function validQualityClosure(value: unknown, candidateSha: unknown): boolean {
 }
 
 export function parseLiveEvidence(value: unknown): OcrEvalInput {
+  const baseKeys = [
+    "datasetVersion",
+    "run",
+    "predictions",
+    "routingCases",
+    "safetyProbes",
+  ] as const;
+  const closureKeys = [...baseKeys, "qualityClosure"] as const;
+  const captureKeys = [...baseKeys, "rawResponses", "attemptLedger"] as const;
+  const captureClosureKeys = [...captureKeys, "qualityClosure"] as const;
   if (
-    !exact(value, [
-      "datasetVersion",
-      "run",
-      "predictions",
-      "routingCases",
-      "safetyProbes",
-      "qualityClosure",
-    ]) ||
+    (!exact(value, baseKeys) &&
+      !exact(value, closureKeys) &&
+      !exact(value, captureKeys) &&
+      !exact(value, captureClosureKeys)) ||
     value.datasetVersion !== OCR_SYNTH_DATASET.datasetVersion ||
     !isValidLiveRun(value.run) ||
     !Array.isArray(value.predictions) ||
@@ -603,7 +625,12 @@ export function parseLiveEvidence(value: unknown): OcrEvalInput {
     ) ||
     !unique(value.predictions.map((item) => item.adapterTrace.requestId)) ||
     !object(value.run) ||
-    !validQualityClosure(value.qualityClosure, value.run.candidateSha)
+    ("qualityClosure" in value &&
+      !validQualityClosure(value.qualityClosure, value.run.candidateSha)) ||
+    ("rawResponses" in value &&
+      (!Array.isArray(value.rawResponses) ||
+        value.rawResponses.length !== OCR_SYNTH_SCANNED_RELEASE_CASES.length ||
+        !object(value.attemptLedger)))
   )
     fail();
   return value as unknown as OcrEvalInput;

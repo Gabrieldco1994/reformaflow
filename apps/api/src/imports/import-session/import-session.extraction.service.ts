@@ -264,8 +264,7 @@ function boundOcrAuthTrace(
     (value as number) >= 0 &&
     (value as number) <= P.maxRevision;
   if (
-    (document?.version !== PDF_OCR_VERSION &&
-      document?.version !== PDF_OCR_DOCUMENT_VERSION) ||
+    document?.version !== PDF_OCR_DOCUMENT_VERSION ||
     document.artifactSha256 !== expected.artifactSha256 ||
     document.pageCount !== expected.pageCount ||
     expected.provider !== PDF_OCR_PROVIDER_ID ||

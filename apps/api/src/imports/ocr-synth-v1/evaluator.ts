@@ -114,6 +114,8 @@ export interface OcrEvalInput {
   routingCases: OcrRoutingEvidence[];
   safetyProbes: OcrSafetyProbeEvidence[];
   qualityClosure?: unknown;
+  rawResponses?: readonly unknown[];
+  attemptLedger?: unknown;
 }
 
 interface Counters {
@@ -430,20 +432,22 @@ function compareOutcome(
     } else if (actual.amountMeaning !== expected.amountMeaning)
       issues.push("AMOUNT_MEANING_MISMATCH");
 
-    if (actual.date === expected.normalizedDate) counters.dateMatches++;
+    if (
+      actual.dateText === expected.dateText &&
+      actual.normalizedDate === expected.normalizedDate
+    )
+      counters.dateMatches++;
     else issues.push("DATE_MISMATCH");
-    const actualDateExplicitness =
-      actual.date === null
-        ? "MISSING"
-        : /^\d{4}-\d{2}-\d{2}$/.test(actual.date)
-          ? "FULL"
-          : "UNKNOWN";
-    if (actualDateExplicitness === expected.dateExplicitness)
+    if (actual.dateExplicitness === expected.dateExplicitness)
       counters.explicitnessMatches++;
     else issues.push("DATE_EXPLICITNESS_MISMATCH");
     if (expected.dateExplicitness === "UNKNOWN") {
       counters.expectedUnknownFields++;
-      if (actual.date === null) counters.preservedUnknownFields++;
+      if (
+        actual.normalizedDate === null &&
+        actual.dateExplicitness === "UNKNOWN"
+      )
+        counters.preservedUnknownFields++;
       else issues.push("UNKNOWN_DATE_INVENTED");
     }
 
@@ -467,9 +471,14 @@ function compareOutcome(
 
     if (
       actual.pageNumber !== expected.page ||
+      actual.pageOccurrenceIndex !== expected.order ||
       actual.description !== expected.description
     )
       issues.push("ROW_SCHEMA_OR_PROVENANCE_MISMATCH");
+    if (actual.selected !== false || actual.verificationStatus !== "UNVERIFIED")
+      issues.push("UNSAFE_CANDIDATE_DEFAULT");
+    if (actual.candidateDisposition !== "RAW_UNCLASSIFIED")
+      issues.push("PROMPT_FINANCIAL_DECISION");
   }
 
   function compareProviderNativeOutcome(

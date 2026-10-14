@@ -17,11 +17,14 @@ export function providerNativeOutcome(
     kind: "SUCCESS",
     candidates: document.candidates.map((candidate) => ({
       pageNumber: candidate.pageNumber,
+      pageOccurrenceIndex: candidate.pageOccurrenceIndex,
       description: candidate.description,
       amountCents: candidate.amountCents,
       sign: signFromCents(candidate.amountCents),
       amountMeaning: candidate.amountMeaning,
-      date: candidate.date,
+      dateText: candidate.dateText,
+      normalizedDate: candidate.normalizedDate,
+      dateExplicitness: candidate.dateExplicitness,
       installment: candidate.installment
         ? {
             index: candidate.installment.index,
@@ -29,6 +32,9 @@ export function providerNativeOutcome(
           }
         : null,
       evidenceText: candidate.evidence.text,
+      selected: false,
+      verificationStatus: "UNVERIFIED",
+      candidateDisposition: "RAW_UNCLASSIFIED",
     })),
   };
 }

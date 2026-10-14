@@ -19,11 +19,7 @@ import type {
   PdfOcrProviderHooks,
 } from "./pdf-ocr.ports";
 import { isAdmittedPdfOcrRequest } from "./pdf-ocr.ports";
-import {
-  PdfOcrFailureCode,
-  parsePdfOcrV2,
-  parsePdfOcrV3,
-} from "./pdf-ocr-parser";
+import { PdfOcrFailureCode, parsePdfOcrV3 } from "./pdf-ocr-parser";
 import { parseStrictJson } from "./strict-json";
 
 export const VERTEX_OCR_REGION = PDF_OCR_REGION;
@@ -538,113 +534,110 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         );
       let response: Awaited<ReturnType<Fetcher>>;
       const plan = this.createRequestPlan(request);
-      if (!request.qualificationCapture) {
-        let counted: Awaited<ReturnType<Fetcher>>;
-        try {
-          counted = await abortable(
-            this.fetcher(plan.countUrl, {
-              method: "POST",
-              headers: {
-                authorization: "Bearer " + token,
-                "content-type": JSON_MIME,
-                accept: JSON_MIME,
-              },
-              signal: controller.signal,
-              body: plan.countBody,
-            }),
-            controller.signal,
-            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
-          );
-        } catch (error) {
-          if (error instanceof PdfOcrProviderError) throw error;
-          throw new PdfOcrProviderError(
-            controller.signal.aborted ? "TIMEOUT" : "UPSTREAM",
-            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
-            undefined,
-            PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
-          );
-        }
-        const count = await this.parseCountTokensResponse(
-          counted,
+      let counted: Awaited<ReturnType<Fetcher>>;
+      try {
+        counted = await abortable(
+          this.fetcher(plan.countUrl, {
+            method: "POST",
+            headers: {
+              authorization: "Bearer " + token,
+              "content-type": JSON_MIME,
+              accept: JSON_MIME,
+            },
+            signal: controller.signal,
+            body: plan.countBody,
+          }),
           controller.signal,
-          request.captureResponseBytes,
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
         );
-        const maxSpendMicros =
-          this.admission.maxSpendMicros ??
-          DEFAULT_ADMISSION_POLICY.maxSpendMicros;
-        const inputRate =
-          this.admission.inputMicrosPerMillionTokens ??
-          DEFAULT_ADMISSION_POLICY.inputMicrosPerMillionTokens;
-        const maxInputTokens =
-          this.admission.maxInputTokens ??
-          DEFAULT_ADMISSION_POLICY.maxInputTokens;
-        const reservedOutputTokens =
-          this.admission.reservedOutputTokens ??
-          DEFAULT_ADMISSION_POLICY.reservedOutputTokens;
-        const configuredOutputRate =
-          this.admission.outputMicrosPerMillionTokens;
-        const reservedOutputMicros =
-          configuredOutputRate === undefined &&
-          this.admission.maxSpendMicros !== undefined &&
-          this.admission.inputMicrosPerMillionTokens !== undefined
-            ? Math.max(
-                0,
-                maxSpendMicros -
-                  Math.ceil((maxInputTokens * inputRate) / 1_000_000),
-              )
-            : Math.ceil(
-                (reservedOutputTokens *
-                  (configuredOutputRate ??
-                    DEFAULT_ADMISSION_POLICY.outputMicrosPerMillionTokens)) /
-                  1_000_000,
-              );
-        const estimatedCostMicros =
-          Math.ceil((count.totalTokens * inputRate) / 1_000_000) +
-          reservedOutputMicros;
-        if (estimatedCostMicros > maxSpendMicros)
+      } catch (error) {
+        if (error instanceof PdfOcrProviderError) throw error;
+        throw new PdfOcrProviderError(
+          controller.signal.aborted ? "TIMEOUT" : "UPSTREAM",
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+          undefined,
+          PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+        );
+      }
+      const count = await this.parseCountTokensResponse(
+        counted,
+        controller.signal,
+        request.captureResponseBytes,
+      );
+      const maxSpendMicros =
+        this.admission.maxSpendMicros ??
+        DEFAULT_ADMISSION_POLICY.maxSpendMicros;
+      const inputRate =
+        this.admission.inputMicrosPerMillionTokens ??
+        DEFAULT_ADMISSION_POLICY.inputMicrosPerMillionTokens;
+      const maxInputTokens =
+        this.admission.maxInputTokens ??
+        DEFAULT_ADMISSION_POLICY.maxInputTokens;
+      const reservedOutputTokens =
+        this.admission.reservedOutputTokens ??
+        DEFAULT_ADMISSION_POLICY.reservedOutputTokens;
+      const configuredOutputRate = this.admission.outputMicrosPerMillionTokens;
+      const reservedOutputMicros =
+        configuredOutputRate === undefined &&
+        this.admission.maxSpendMicros !== undefined &&
+        this.admission.inputMicrosPerMillionTokens !== undefined
+          ? Math.max(
+              0,
+              maxSpendMicros -
+                Math.ceil((maxInputTokens * inputRate) / 1_000_000),
+            )
+          : Math.ceil(
+              (reservedOutputTokens *
+                (configuredOutputRate ??
+                  DEFAULT_ADMISSION_POLICY.outputMicrosPerMillionTokens)) /
+                1_000_000,
+            );
+      const estimatedCostMicros =
+        Math.ceil((count.totalTokens * inputRate) / 1_000_000) +
+        reservedOutputMicros;
+      if (estimatedCostMicros > maxSpendMicros)
+        throw new PdfOcrProviderError(
+          "HARD_SPEND_EXCEEDED",
+          PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+          undefined,
+          PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+        );
+      if (count.totalTokens > maxInputTokens)
+        throw new PdfOcrProviderError(
+          "LIMIT_EXCEEDED",
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+          undefined,
+          PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+          {
+            inputTokens: count.totalTokens,
+            outputTokens: 0,
+            totalTokens: count.totalTokens,
+          },
+        );
+      if (
+        requestPlanBinding(plan) !== plan.planSha256 ||
+        digest(plan.countBody) !== plan.countBodySha256 ||
+        digest(plan.generationBody) !== plan.generationBodySha256 ||
+        digest(request.pdfBytes) !== plan.originalBytesSha256
+      )
+        throw new PdfOcrProviderError(
+          "OCR_REQUEST_PLAN_DRIFT",
+          PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+          undefined,
+          PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+        );
+      if (hooks) {
+        await hooks.beforeGeneration(controller.signal, {
+          inputTokens: count.totalTokens,
+          reservedOutputTokens,
+        });
+        if (controller.signal.aborted)
           throw new PdfOcrProviderError(
-            "HARD_SPEND_EXCEEDED",
+            "TIMEOUT",
             PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
             undefined,
             PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
           );
-        if (count.totalTokens > maxInputTokens)
-          throw new PdfOcrProviderError(
-            "LIMIT_EXCEEDED",
-            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
-            undefined,
-            PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
-            {
-              inputTokens: count.totalTokens,
-              outputTokens: 0,
-              totalTokens: count.totalTokens,
-            },
-          );
-        if (
-          requestPlanBinding(plan) !== plan.planSha256 ||
-          digest(plan.countBody) !== plan.countBodySha256 ||
-          digest(plan.generationBody) !== plan.generationBodySha256 ||
-          digest(request.pdfBytes) !== plan.originalBytesSha256
-        )
-          throw new PdfOcrProviderError(
-            "OCR_REQUEST_PLAN_DRIFT",
-            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
-            undefined,
-            PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
-          );
-        if (hooks) {
-          await hooks.beforeGeneration(controller.signal, {
-            inputTokens: count.totalTokens,
-            reservedOutputTokens,
-          });
-          if (controller.signal.aborted)
-            throw new PdfOcrProviderError(
-              "TIMEOUT",
-              PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
-              undefined,
-              PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
-            );
-        }
       }
       try {
         // From this point on, the provider may have accepted the request even
@@ -813,9 +806,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
     } catch {
       throw dispatchedFailure("MALFORMED_RESPONSE");
     }
-    const parse =
-      request.qualificationCapture === true ? parsePdfOcrV2 : parsePdfOcrV3;
-    const parsed = parse(payload, {
+    const parsed = parsePdfOcrV3(payload, {
       artifactSha256: request.artifactSha256,
       pageCount: request.pageCount,
       requestId: request.requestId,

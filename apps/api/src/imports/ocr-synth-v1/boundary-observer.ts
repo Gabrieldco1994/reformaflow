@@ -64,6 +64,29 @@ type FinancialSnapshot = Readonly<{
   Settlement: Readonly<{ count: number }>;
   InvoiceLiquidation: Readonly<{ count: number }>;
 }>;
+type SnapshotRow = Readonly<{ id: string; deletedAt: string | null }>;
+
+function withRows<T extends Record<string, number>>(
+  summary: T,
+  rows: readonly SnapshotRow[],
+  columns: readonly string[],
+): T {
+  Object.defineProperties(summary, {
+    rows: { value: Object.freeze([...rows]), enumerable: false },
+    columns: { value: Object.freeze([...columns]), enumerable: false },
+  });
+  return Object.freeze(summary);
+}
+
+const snapshotRows = (
+  rows: readonly { id: string; deletedAt?: Date | null }[],
+): readonly SnapshotRow[] =>
+  rows.map((row) =>
+    Object.freeze({
+      id: row.id,
+      deletedAt: row.deletedAt?.toISOString() ?? null,
+    }),
+  );
 
 export const CANONICAL_PROBE_CALL_EXPECTATIONS = Object.freeze(
   Object.fromEntries(
@@ -108,52 +131,117 @@ function scenarioHash(identity: string, boundary: string): string {
 async function readFinancialSnapshot(
   prisma: PrismaService,
 ): Promise<FinancialSnapshot> {
-  const [expenses, cashFlow, receipts, allocations, settlements, liquidations] =
-    await Promise.all([
-      prisma.expense.aggregate({
-        where: { tenantId: TENANT_ID },
-        _count: { _all: true },
-        _sum: { valorTotal: true },
-      }),
-      prisma.cashFlowEntry.aggregate({
-        where: { tenantId: TENANT_ID },
-        _count: { _all: true },
-        _sum: { valor: true },
-      }),
-      prisma.receipt.aggregate({
-        where: { tenantId: TENANT_ID },
-        _count: { _all: true },
-        _sum: { valor: true },
-      }),
-      prisma.rateioAllocation.aggregate({
-        where: { tenantId: TENANT_ID },
-        _count: { _all: true },
-        _sum: { allocation: true },
-      }),
-      prisma.crossProjectSettlement.count({ where: { tenantId: TENANT_ID } }),
-      prisma.importedInvoiceLiquidation.count({
-        where: { tenantId: TENANT_ID },
-      }),
-    ]);
+  const [
+    expenses,
+    cashFlow,
+    receipts,
+    allocations,
+    settlements,
+    liquidations,
+    expenseRows,
+    cashFlowRows,
+    receiptRows,
+    allocationRows,
+    settlementRows,
+    liquidationRows,
+  ] = await Promise.all([
+    prisma.expense.aggregate({
+      where: { tenantId: TENANT_ID },
+      _count: { _all: true },
+      _sum: { valorTotal: true },
+    }),
+    prisma.cashFlowEntry.aggregate({
+      where: { tenantId: TENANT_ID },
+      _count: { _all: true },
+      _sum: { valor: true },
+    }),
+    prisma.receipt.aggregate({
+      where: { tenantId: TENANT_ID },
+      _count: { _all: true },
+      _sum: { valor: true },
+    }),
+    prisma.rateioAllocation.aggregate({
+      where: { tenantId: TENANT_ID },
+      _count: { _all: true },
+      _sum: { allocation: true },
+    }),
+    prisma.crossProjectSettlement.count({ where: { tenantId: TENANT_ID } }),
+    prisma.importedInvoiceLiquidation.count({
+      where: { tenantId: TENANT_ID },
+    }),
+    prisma.expense.findMany({
+      where: { tenantId: TENANT_ID },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.cashFlowEntry.findMany({
+      where: { tenantId: TENANT_ID },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.receipt.findMany({
+      where: { tenantId: TENANT_ID },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.rateioAllocation.findMany({
+      where: { tenantId: TENANT_ID },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.crossProjectSettlement.findMany({
+      where: { tenantId: TENANT_ID },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.importedInvoiceLiquidation.findMany({
+      where: { tenantId: TENANT_ID },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    }),
+  ]);
   return Object.freeze({
-    Expense: Object.freeze({
-      count: expenses._count._all,
-      centValueSum: expenses._sum.valorTotal ?? 0,
-    }),
-    CashFlowEntry: Object.freeze({
-      count: cashFlow._count._all,
-      centValueSum: cashFlow._sum.valor ?? 0,
-    }),
-    Receipt: Object.freeze({
-      count: receipts._count._all,
-      centValueSum: receipts._sum.valor ?? 0,
-    }),
-    RateioAllocation: Object.freeze({
-      count: allocations._count._all,
-      centValueSum: allocations._sum.allocation ?? 0,
-    }),
-    Settlement: Object.freeze({ count: settlements }),
-    InvoiceLiquidation: Object.freeze({ count: liquidations }),
+    Expense: withRows(
+      {
+        count: expenses._count._all,
+        centValueSum: expenses._sum.valorTotal ?? 0,
+      },
+      snapshotRows(expenseRows),
+      ["id", "deletedAt", "valorTotal"],
+    ),
+    CashFlowEntry: withRows(
+      {
+        count: cashFlow._count._all,
+        centValueSum: cashFlow._sum.valor ?? 0,
+      },
+      snapshotRows(cashFlowRows),
+      ["id", "deletedAt", "valor"],
+    ),
+    Receipt: withRows(
+      {
+        count: receipts._count._all,
+        centValueSum: receipts._sum.valor ?? 0,
+      },
+      snapshotRows(receiptRows),
+      ["id", "deletedAt", "valor"],
+    ),
+    RateioAllocation: withRows(
+      {
+        count: allocations._count._all,
+        centValueSum: allocations._sum.allocation ?? 0,
+      },
+      snapshotRows(allocationRows),
+      ["id", "deletedAt", "allocation"],
+    ),
+    Settlement: withRows({ count: settlements }, snapshotRows(settlementRows), [
+      "id",
+      "deletedAt",
+    ]),
+    InvoiceLiquidation: withRows(
+      { count: liquidations },
+      snapshotRows(liquidationRows),
+      ["id", "deletedAt"],
+    ),
   });
 }
 
@@ -202,6 +290,22 @@ function observation(
   before: FinancialSnapshot,
   after: FinancialSnapshot,
 ) {
+  const financial = {
+    mutationCalls: Object.freeze({ count: 0, operations: Object.freeze([]) }),
+    before,
+    after,
+    deltas: financialDeltas(before, after),
+  };
+  Object.defineProperties(financial, {
+    prismaService: { value: "PrismaService", enumerable: false },
+    assertionPath: {
+      value: Object.freeze([
+        "PrismaService.findMany",
+        "assertOcrFinancialStateUnchanged",
+      ]),
+      enumerable: false,
+    },
+  });
   return Object.freeze({
     identity,
     boundary,
@@ -210,12 +314,7 @@ function observation(
     countTokensCalls: calls.countTokensCalls,
     generationCalls: calls.generationCalls,
     financialDeltas: flatZeroDeltas,
-    financial: Object.freeze({
-      mutationCalls: 0,
-      before,
-      after,
-      deltas: financialDeltas(before, after),
-    }),
+    financial: Object.freeze(financial),
   });
 }
 
@@ -351,7 +450,12 @@ export function evaluateBoundaryObservations(
         releaseStatus: "GAPS",
         issues: ["BOUNDARY_CALL_COUNT_MISMATCH"],
       };
-    if (value.financial.mutationCalls !== 0)
+    if (
+      !object(value.financial.mutationCalls) ||
+      value.financial.mutationCalls.count !== 0 ||
+      !Array.isArray(value.financial.mutationCalls.operations) ||
+      value.financial.mutationCalls.operations.length !== 0
+    )
       return {
         releaseStatus: "GAPS",
         issues: ["FINANCIAL_WRITE_OBSERVED"],
@@ -379,11 +483,33 @@ export function evaluateBoundaryObservations(
 export type OcrBoundaryExecution = Record<string, unknown>;
 export type OcrBoundaryObservation = Record<string, unknown>;
 export async function observeOcrBoundary(
-  _identity: string,
-  _boundary: string,
-  _scenarioSha256: string,
+  identity: string,
+  boundary: string,
+  scenarioSha256: string,
   execute: () => Promise<OcrBoundaryExecution>,
 ): Promise<OcrBoundaryObservation> {
-  return execute();
+  const measured = await execute();
+  return Object.freeze({
+    identity,
+    boundary,
+    scenarioSha256,
+    ...measured,
+  });
 }
-export function assertOcrFinancialStateUnchanged(_value: unknown): void {}
+export function assertOcrFinancialStateUnchanged(value: unknown): void {
+  if (!object(value)) throw new Error("FINANCIAL_EVIDENCE_INVALID");
+  const mutations = value.mutationCalls;
+  if (
+    !object(mutations) ||
+    mutations.count !== 0 ||
+    !Array.isArray(mutations.operations) ||
+    mutations.operations.length !== 0
+  )
+    throw new Error("FINANCIAL_WRITE_OBSERVED");
+  if (
+    !object(value.before) ||
+    !object(value.after) ||
+    JSON.stringify(value.before) !== JSON.stringify(value.after)
+  )
+    throw new Error("FINANCIAL_WRITE_OBSERVED");
+}
