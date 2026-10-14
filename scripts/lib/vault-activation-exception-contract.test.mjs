@@ -52,7 +52,7 @@ const BASELINE_HASHES = Object.freeze({
   schema: "c2b5d1a1da68703122d106ae2919ec2cae46384c8a9658e6975c132a447f7bf4",
   migrations:
     "195663b4b97762841e059b820350d50e0a79f682d276152e02a57b6cbaf212c3",
-  apiSource: "a630f4fdb9e95bc9feaf9541e5a39ae1a102034f7c3fba73eed4d60e2bd056a2",
+  apiSource: "b00f5a902f5265b513be8cc4257685a8b5ed0ee52c472dc493603b6b4de2e3b6",
   domain: "4a4f783d64211f98b562883aa4c4494d76dcde54c73c3a7515fdc552ee3c5db2",
   quiesce: "9b5d7783fe75cd285ce72cda2e000a36b9059967660fb5af35745e4d89595356",
   packageLock:

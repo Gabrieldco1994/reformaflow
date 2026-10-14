@@ -26,7 +26,7 @@ jest.spyOn(cp, "execFileSync").mockImplementation((command, args, options) => {
     !schema?.includes("test-main-import-legacy-orphans-") ||
     fs
       .readdirSync(path.join(path.dirname(schema), "migrations"))
-      .filter((n) => /^\d/.test(n)).length !== 72
+      .filter((n) => /^\d/.test(n)).length !== 76
   ) {
     return original(command, args, options);
   }
