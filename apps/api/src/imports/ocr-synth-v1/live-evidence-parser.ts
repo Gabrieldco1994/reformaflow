@@ -754,6 +754,7 @@ function validCaptureLedger(value: Record<string, unknown>): boolean {
     const cost = prediction.cost;
     if (!object(usage) || !object(cost)) return false;
     if (
+      prediction.tenantId !== expectedCase.tenantId ||
       events.some(
         (event) =>
           !object(event) ||

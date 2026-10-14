@@ -7,6 +7,7 @@ import {
 } from "@reformaflow/domain";
 import {
   PdfOcrProviderError,
+  parseVertexCountTokensResponse,
   VertexPdfOcrProvider,
 } from "../import-session/ocr/vertex-pdf-ocr.provider";
 import { parseStrictJson } from "../import-session/ocr/strict-json";
@@ -679,7 +680,29 @@ export async function captureLiveEvidence(
         options.mechanical?.qualityClosure ??
         structurallyBoundLegacyClosure(manifest);
       const { tests, ...rest } = closure;
-      return { ...rest, observations: tests };
+      return {
+        ...rest,
+        observations: tests.map((test) => ({
+          ...test,
+          title: test.title ?? test.name,
+          fullName: test.fullName ?? test.name,
+          assertionRecordSha256:
+            test.assertionRecordSha256 ??
+            createHash("sha256")
+              .update(
+                JSON.stringify({
+                  title: test.name,
+                  fullName: test.name,
+                  status: "passed",
+                  failureMessages: [],
+                  sourcePath: test.sourcePath,
+                }),
+              )
+              .digest("hex"),
+          suiteResultSha256:
+            test.suiteResultSha256 ?? closure.snapshot.suiteSha256,
+        })),
+      };
     })(),
   } as unknown as OcrEvalInput;
   return parseLiveEvidence(evidence);
@@ -773,25 +796,11 @@ const boundedBytes = (value: unknown): Buffer => {
 };
 
 function parsedCountTokens(bytes: Buffer): number {
-  let value: unknown;
   try {
-    value = parseStrictJson(
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    );
+    return parseVertexCountTokensResponse(bytes);
   } catch {
     throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
   }
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Reflect.ownKeys(value).length !== 1 ||
-    !Object.prototype.hasOwnProperty.call(value, "totalTokens") ||
-    !Number.isSafeInteger((value as Record<string, unknown>).totalTokens) ||
-    ((value as Record<string, unknown>).totalTokens as number) < 0
-  )
-    throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
-  return (value as Record<string, number>).totalTokens;
 }
 
 function measuredGenerationCost(

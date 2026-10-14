@@ -365,6 +365,37 @@ const counter = (value: unknown): number | undefined =>
   (value as number) <= IMPORT_SESSION_PRIMITIVES.maxRevision
     ? (value as number)
     : undefined;
+
+/**
+ * Single CountTokens wire authority used by runtime and qualification.
+ * Metadata is tolerated only inside the already bounded response body; only
+ * the exact non-negative integer totalTokens field influences admission.
+ */
+export function parseVertexCountTokensResponse(bytes: Buffer): number {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    bytes.length === 0 ||
+    bytes.length > PDF_OCR_LIMITS.providerResponseBytes
+  )
+    throw new Error("COUNT_TOKENS_RESPONSE_INVALID");
+  let value: unknown;
+  try {
+    value = parseStrictJson(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
+  } catch {
+    throw new Error("COUNT_TOKENS_RESPONSE_INVALID");
+  }
+  if (
+    !record(value) ||
+    !Object.prototype.hasOwnProperty.call(value, "totalTokens")
+  )
+    throw new Error("COUNT_TOKENS_RESPONSE_INVALID");
+  const totalTokens = counter(value.totalTokens);
+  if (totalTokens === undefined)
+    throw new Error("COUNT_TOKENS_RESPONSE_INVALID");
+  return totalTokens;
+}
 const allowedKeys = (
   value: Record<string, unknown>,
   keys: readonly string[],
@@ -975,28 +1006,17 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
     const contentType = response.headers.get("content-type");
     if (!contentType?.toLowerCase().startsWith(JSON_MIME))
       throw countFailure("MALFORMED_RESPONSE");
-    let value: unknown;
     let capturedBytes: Buffer;
     try {
       const bytes = await readResponseBytes(response.body, signal);
       capturedBytes = Buffer.from(bytes);
       capture?.("COUNT_TOKENS", capturedBytes);
-      value = parseStrictJson(
-        new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-      );
+      const totalTokens = parseVertexCountTokensResponse(capturedBytes);
+      return { totalTokens, bytes: capturedBytes };
     } catch (error) {
       if (error instanceof PdfOcrProviderError) throw error;
       throw countFailure("MALFORMED_RESPONSE");
     }
-    // Vertex may add bounded metadata. Only totalTokens has admission meaning.
-    if (
-      !record(value) ||
-      !Object.prototype.hasOwnProperty.call(value, "totalTokens")
-    )
-      throw countFailure("MALFORMED_RESPONSE");
-    const totalTokens = counter(value.totalTokens);
-    if (totalTokens === undefined) throw countFailure("MALFORMED_RESPONSE");
-    return { totalTokens, bytes: capturedBytes! };
   }
 
   private url(action: "countTokens" | "generateContent"): string {
