@@ -12,6 +12,20 @@ const AUTHORIZED_USER_KEYS = [
   "client_secret",
   "refresh_token",
 ] as const;
+const AUTHORIZED_USER_OPTIONAL_KEYS = [
+  "quota_project_id",
+  "universe_domain",
+  "account",
+] as const;
+const AUTHORIZED_USER_KEY_ALLOWLIST = new Set<string>([
+  ...AUTHORIZED_USER_KEYS,
+  ...AUTHORIZED_USER_OPTIONAL_KEYS,
+]);
+const GOOGLE_UNIVERSE_DOMAIN = "googleapis.com";
+const GOOGLE_PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
+const MAX_GOOGLE_PROJECT_ID_LENGTH = 30;
+const MAX_ACCOUNT_LENGTH = 320;
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
 
 type FileStats = Pick<Stats, "dev" | "ino" | "mode" | "size"> &
   Partial<Pick<Stats, "uid">> &
@@ -60,10 +74,20 @@ const normalized = (value: unknown): string => {
   if (
     result.length === 0 ||
     result.length > MAX_CREDENTIAL_FILE_BYTES ||
-    /[\u0000-\u001f\u007f-\u009f]/.test(result)
+    CONTROL_CHARACTERS.test(result)
   )
     return fail();
   return result;
+};
+const exactText = (value: unknown, maxLength: number): string => {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maxLength ||
+    CONTROL_CHARACTERS.test(value)
+  )
+    return fail();
+  return value;
 };
 const ownerOnly = (stats: FileStats): boolean => {
   const processUid =
@@ -131,7 +155,10 @@ export async function admitVertexLocalAdcFile(
     );
     if (
       !plainRecord(value) ||
-      Reflect.ownKeys(value).length !== AUTHORIZED_USER_KEYS.length ||
+      Reflect.ownKeys(value).some(
+        (key) =>
+          typeof key !== "string" || !AUTHORIZED_USER_KEY_ALLOWLIST.has(key),
+      ) ||
       AUTHORIZED_USER_KEYS.some(
         (key) => !Object.prototype.hasOwnProperty.call(value, key),
       ) ||
@@ -139,6 +166,20 @@ export async function admitVertexLocalAdcFile(
     )
       fail();
     const document = value as Record<string, unknown>;
+    if (
+      Object.prototype.hasOwnProperty.call(document, "universe_domain") &&
+      document.universe_domain !== GOOGLE_UNIVERSE_DOMAIN
+    )
+      fail();
+    if (Object.prototype.hasOwnProperty.call(document, "quota_project_id")) {
+      const quotaProjectId = exactText(
+        document.quota_project_id,
+        MAX_GOOGLE_PROJECT_ID_LENGTH,
+      );
+      if (!GOOGLE_PROJECT_ID.test(quotaProjectId)) fail();
+    }
+    if (Object.prototype.hasOwnProperty.call(document, "account"))
+      exactText(document.account, MAX_ACCOUNT_LENGTH);
     const admitted = Object.freeze({
       credentials: Object.freeze({
         type: "authorized_user" as const,
