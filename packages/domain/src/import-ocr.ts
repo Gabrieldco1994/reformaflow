@@ -35,10 +35,12 @@ export interface PdfOcrUsageV2 {
   readonly totalTokens: number;
 }
 
+export type VertexAuthTraceV2 = "LOCAL_ADC" | "SERVICE_ACCOUNT_FILE_ADC";
+
 export interface PdfOcrProviderRequestTraceV2 {
   readonly requestId: string;
   readonly endpoint: string;
-  readonly auth: "ADC_OAUTH";
+  readonly authTrace: VertexAuthTraceV2;
   readonly adcScopes: readonly string[];
   readonly inputMimeType: "application/pdf";
   readonly inputMode: "INLINE_ORIGINAL_BYTES";

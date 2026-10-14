@@ -24,6 +24,7 @@ import {
   buildOracleRoutingCases,
   buildOracleSafetyProbes,
   evaluateOcrSynth,
+  type OcrEvalInput,
 } from "./evaluator";
 import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
@@ -123,7 +124,10 @@ function provider(
     fetcher,
     value: new VertexPdfOcrProvider(
       "synthetic-eval-project",
-      { accessToken: async () => "test-only-adc-token" },
+      {
+        authTrace: "SERVICE_ACCOUNT_FILE_ADC",
+        accessToken: async () => "test-only-adc-token",
+      },
       fetcher,
     ),
   };
@@ -272,6 +276,32 @@ describe("audited synthetic Vertex capture", () => {
     expect(report.liveEvidenceGaps).not.toContain(
       "MISSING_REAL_SERVICE_CONSENT_EVIDENCE",
     );
+    expect(report.liveEvidenceGaps).not.toContain(
+      "PRODUCTION_SERVICE_ACCOUNT_AUTH_NOT_PROVED",
+    );
+  });
+
+  it("accepts local evidence structurally but never as production auth proof", async () => {
+    const local = JSON.parse(JSON.stringify(evidence)) as OcrEvalInput;
+    for (const prediction of local.predictions)
+      prediction.adapterTrace!.authTrace = "LOCAL_ADC";
+    expect(parseLiveEvidence(local)).toEqual(local);
+    const report = await evaluateOcrSynth(local);
+    expect(report.liveEvidenceGaps).toContain(
+      "PRODUCTION_SERVICE_ACCOUNT_AUTH_NOT_PROVED",
+    );
+  });
+
+  it("rejects the legacy undifferentiated ADC trace", () => {
+    const legacy = structuredClone(evidence) as unknown as {
+      predictions: Array<{
+        adapterTrace: Record<string, unknown>;
+      }>;
+    };
+    const trace = legacy.predictions[0]!.adapterTrace;
+    delete trace.authTrace;
+    trace.auth = "ADC_OAUTH";
+    expect(() => parseLiveEvidence(legacy)).toThrow("LIVE_EVIDENCE_INVALID");
   });
 
   it("fails preflight with zero calls on repository drift or cross-contract routing", async () => {

@@ -68,7 +68,7 @@ describe("direct Vertex PDF OCR", () => {
     const fetcher = jest.fn().mockResolvedValue(response(wire()));
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken: async () => "adc-token" },
+      { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
       fetcher,
     );
 
@@ -123,7 +123,10 @@ describe("direct Vertex PDF OCR", () => {
         modelVersion: "gemini-2.5-flash-001",
         region: "southamerica-east1",
         requestId: REQUEST_ID,
-        requestTrace: { requestId: REQUEST_ID },
+        requestTrace: {
+          requestId: REQUEST_ID,
+          authTrace: "LOCAL_ADC",
+        },
       },
     });
   });
@@ -131,7 +134,7 @@ describe("direct Vertex PDF OCR", () => {
   it("accepts known Vertex metadata and retains the opaque model version", async () => {
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken: async () => "adc-token" },
+      { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
       jest.fn().mockResolvedValue(
         response({
           ...wire(),
@@ -157,7 +160,7 @@ describe("direct Vertex PDF OCR", () => {
     async (_label, modelVersion) => {
       const provider = new VertexPdfOcrProvider(
         "approved-project",
-        { accessToken: async () => "adc-token" },
+        { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
         jest.fn().mockResolvedValue(response({ ...wire(), modelVersion })),
       );
 
@@ -173,7 +176,7 @@ describe("direct Vertex PDF OCR", () => {
     async (modelVersion) => {
       const provider = new VertexPdfOcrProvider(
         "approved-project",
-        { accessToken: async () => "adc-token" },
+        { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
         jest.fn().mockResolvedValue(response({ ...wire(), modelVersion })),
       );
       await expect(provider.extractPdf(request())).resolves.toMatchObject({
@@ -225,7 +228,7 @@ describe("direct Vertex PDF OCR", () => {
   ])("fails closed for %s", async (_case, value) => {
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken: async () => "adc-token" },
+      { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
       jest.fn().mockResolvedValue(response(value())),
     );
     await expect(provider.extractPdf(request())).rejects.toMatchObject({
@@ -264,7 +267,7 @@ describe("direct Vertex PDF OCR", () => {
   ])("classifies blocked prompt/candidate honestly", async (blocked) => {
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken: async () => "adc-token" },
+      { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
       jest.fn().mockResolvedValue(response(blocked)),
     );
     await expect(provider.extractPdf(request())).rejects.toMatchObject({
@@ -276,7 +279,7 @@ describe("direct Vertex PDF OCR", () => {
     const bodyRead = jest.fn();
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken: async () => "adc-token" },
+      { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
       jest.fn().mockResolvedValue({
         ...response(wire()),
         headers: {
@@ -299,7 +302,10 @@ describe("direct Vertex PDF OCR", () => {
     const fetcher = jest.fn();
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken: () => new Promise<string>(() => undefined) },
+      {
+        authTrace: "LOCAL_ADC",
+        accessToken: () => new Promise<string>(() => undefined),
+      },
       fetcher,
     );
     const pending = provider.extractPdf(request(controller.signal));
@@ -316,6 +322,7 @@ describe("direct Vertex PDF OCR", () => {
     const provider = new VertexPdfOcrProvider(
       "approved-project",
       {
+        authTrace: "LOCAL_ADC",
         accessToken: jest
           .fn()
           .mockRejectedValue(new Error("sensitive ADC diagnostic")),
@@ -336,7 +343,10 @@ describe("direct Vertex PDF OCR", () => {
     const secret = input.pdfBytes.toString("base64");
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken: async () => "sensitive-adc-token" },
+      {
+        authTrace: "LOCAL_ADC",
+        accessToken: async () => "sensitive-adc-token",
+      },
       jest.fn().mockRejectedValue(new Error(`upstream ${secret}`)),
     );
     let thrown: unknown;
@@ -368,7 +378,7 @@ describe("direct Vertex PDF OCR", () => {
       });
       const provider = new VertexPdfOcrProvider(
         "approved-project",
-        { accessToken: async () => "adc-token" },
+        { authTrace: "LOCAL_ADC", accessToken: async () => "adc-token" },
         fetcher,
       );
 
@@ -386,7 +396,7 @@ describe("direct Vertex PDF OCR", () => {
     const accessToken = jest.fn();
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken },
+      { authTrace: "LOCAL_ADC", accessToken },
       fetcher,
     );
     await expect(

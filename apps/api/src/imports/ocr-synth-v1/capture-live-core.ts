@@ -323,7 +323,7 @@ export async function captureLiveEvidence(
         endpoint: trace.endpoint,
         region: document.provenance.region,
         model: document.provenance.model,
-        auth: trace.auth,
+        authTrace: trace.authTrace,
         adcScopes: [...trace.adcScopes],
         apiKeyUsed: false,
         globalEndpointFallbackUsed: false,

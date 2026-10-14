@@ -524,7 +524,11 @@ function addTraceIssues(
     issues.push("WRONG_REGION");
   if (trace.model !== DIRECT_PDF_VERTEX_CONFIG.model)
     issues.push("WRONG_MODEL");
-  if (trace.auth !== "ADC_OAUTH" || trace.apiKeyUsed)
+  if (
+    (trace.authTrace !== "LOCAL_ADC" &&
+      trace.authTrace !== "SERVICE_ACCOUNT_FILE_ADC") ||
+    trace.apiKeyUsed
+  )
     issues.push("API_KEY_OR_AUTH_VIOLATION");
   if (
     JSON.stringify(trace.adcScopes) !==
@@ -727,7 +731,7 @@ export async function buildOraclePredictions(
             endpoint: DIRECT_PDF_VERTEX_CONFIG.endpoint,
             region: DIRECT_PDF_VERTEX_CONFIG.region,
             model: DIRECT_PDF_VERTEX_CONFIG.model,
-            auth: "ADC_OAUTH",
+            authTrace: "SERVICE_ACCOUNT_FILE_ADC",
             adcScopes: ["https://www.googleapis.com/auth/cloud-platform"],
             apiKeyUsed: false,
             globalEndpointFallbackUsed: false,
@@ -1220,6 +1224,13 @@ export async function evaluateOcrSynth(
       new Set(requestIds).size !== requestIds.length)
   )
     gaps.push("INVALID_OR_REUSED_REQUEST_ID");
+  if (
+    input.run.mode === "LIVE_CAPTURE" &&
+    input.predictions.some(
+      (item) => item.adapterTrace?.authTrace !== "SERVICE_ACCOUNT_FILE_ADC",
+    )
+  )
+    gaps.push("PRODUCTION_SERVICE_ACCOUNT_AUTH_NOT_PROVED");
   const metadataMismatch = input.predictions.some(
     (item) =>
       item.provider !== input.run.provider ||

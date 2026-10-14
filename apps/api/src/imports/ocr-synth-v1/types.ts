@@ -119,7 +119,7 @@ export interface DirectPdfAdapterTrace {
   endpoint: string;
   region: string;
   model: string;
-  auth: "ADC_OAUTH";
+  authTrace: "LOCAL_ADC" | "SERVICE_ACCOUNT_FILE_ADC";
   adcScopes: string[];
   apiKeyUsed: boolean;
   globalEndpointFallbackUsed: boolean;

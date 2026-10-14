@@ -7,10 +7,8 @@ import {
   parseCaptureLiveManifestJson,
 } from "./capture-live-core";
 import { writeLiveEvidenceExclusive } from "./capture-live-file";
-import {
-  GoogleAuthVertexAccessToken,
-  VertexPdfOcrProvider,
-} from "../import-session/ocr/vertex-pdf-ocr.provider";
+import { createConfiguredVertexPdfOcrProvider } from "../import-session/ocr/vertex-provider.factory";
+import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
 
 const execFileAsync = promisify(execFile);
 const gitHead = async (): Promise<string> => {
@@ -23,13 +21,7 @@ const gitHead = async (): Promise<string> => {
 
 async function main(): Promise<void> {
   const [outputArgument, manifestArgument] = process.argv.slice(2);
-  const projectId = process.env.GOOGLE_CLOUD_PROJECT;
-  if (
-    !outputArgument ||
-    !manifestArgument ||
-    !projectId ||
-    projectId.trim().length === 0
-  )
+  if (!outputArgument || !manifestArgument)
     throw new Error("LIVE_CAPTURE_CONFIG_MISSING");
   const outputPath = resolve(process.cwd(), outputArgument);
   const manifestPath = resolve(process.cwd(), manifestArgument);
@@ -43,10 +35,9 @@ async function main(): Promise<void> {
     outputPath,
     async () => {
       capturedHead = await gitHead();
-      const provider = new VertexPdfOcrProvider(
-        projectId,
-        new GoogleAuthVertexAccessToken(),
-      );
+      const provider = await createConfiguredVertexPdfOcrProvider(process.env);
+      if (!(provider instanceof VertexPdfOcrProvider) || !provider.ready())
+        throw new Error("LIVE_CAPTURE_CONFIG_MISSING");
       return await captureLiveEvidence({
         provider,
         manifest,

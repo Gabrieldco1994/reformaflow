@@ -63,6 +63,47 @@ curl -sI https://reformaflow-api.fly.dev/api/docs
 
 > Se mudar o nome do app no `fly.toml`, ajuste em todos os comandos acima.
 
+### Autenticação do Vertex PDF OCR
+
+O OCR nasce desabilitado (`IMPORT_OCR_ENABLED` diferente de `true`). Nesse estado o boot não valida
+auth do Vertex, não abre arquivo de credencial e não instancia `GoogleAuth`.
+
+Em desenvolvimento, habilitar exige exatamente `VERTEX_AUTH_MODE=local-adc` e
+`GOOGLE_CLOUD_PROJECT`; a biblioteca usa ADC ambiente com apenas o scope `cloud-platform`. Em
+produção, habilitar exige exatamente `VERTEX_AUTH_MODE=service-account-file` e o projeto. Não há
+autodetecção, fallback, API key, `GOOGLE_APPLICATION_CREDENTIALS`, caminho configurável ou WIF.
+Configuração inválida derruba o boot antes de abrir ingress. Readiness valida configuração e arquivo,
+mas não emite token.
+
+A credencial de produção é um JSON de service account dedicado, com acesso mínimo ao Vertex
+(atualmente `roles/aiplatform.user`), montado somente em `/secrets/vertex-sa.json`. O diretório não
+pode ser symlink nem gravável por grupo/outros; o arquivo deve ser regular, não symlink, `<=64 KiB`
+e não gravável por grupo/outros. Projeto, e-mail canônico, chave RSA e token URI são conferidos
+antes do provider ficar pronto. Nunca copie o JSON para volume, imagem, log, issue ou PR.
+
+O `apps/api/fly.toml` **não inclui ainda** o file mount: a referência a um secret inexistente pode
+impedir o deploy mesmo com OCR desabilitado. Primeiro crie `VERTEX_SA_KEY` no app pelo canal privado
+do Fly (valor = conteúdo integral do JSON; não o imprima). Somente depois, em uma mudança
+operacional coordenada, adicione:
+
+```toml
+[[files]]
+  guest_path = "/secrets/vertex-sa.json"
+  secret_name = "VERTEX_SA_KEY"
+```
+
+e configure `IMPORT_OCR_ENABLED=true`, `VERTEX_AUTH_MODE=service-account-file` e
+`GOOGLE_CLOUD_PROJECT=<projeto-aprovado>`. Faça deploy canônico e confirme health/readiness antes de
+qualquer captura ou importação. A ausência ou invalidez do arquivo deve manter a API fora de
+serviço; não contorne com ADC ambiente.
+
+Rotação: crie uma nova chave para a mesma service account, substitua `VERTEX_SA_KEY`, faça deploy,
+confirme startup/readiness e uma qualificação sintética, e só então revogue a chave anterior. Em
+incidente, primeiro desabilite OCR e publique essa configuração, depois revogue a chave exposta. A
+chave local temporária usada para cadastrar o secret deve ser apagada pelo procedimento seguro da
+equipe. Workload Identity Federation permanece bloqueado como follow-up separado; esta release não
+aceita `fly-wif`.
+
 ### Migrations
 
 O `entrypoint.sh` normal roda `prisma migrate deploy` antes de iniciar o NestJS. Portanto, migration

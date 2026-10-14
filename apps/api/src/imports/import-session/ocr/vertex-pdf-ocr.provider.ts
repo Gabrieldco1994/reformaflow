@@ -1,4 +1,3 @@
-import { GoogleAuth } from "google-auth-library";
 import { createHash } from "node:crypto";
 import {
   IMPORT_SESSION_PRIMITIVES,
@@ -7,6 +6,7 @@ import {
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
   type PdfOcrDocumentV2,
+  type VertexAuthTraceV2,
 } from "@reformaflow/domain";
 import type {
   FixedPdfOcrProviderPort,
@@ -19,7 +19,7 @@ export const VERTEX_OCR_REGION = PDF_OCR_REGION;
 export const VERTEX_OCR_ENDPOINT =
   "https://southamerica-east1-aiplatform.googleapis.com" as const;
 const VERTEX_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
-const VERTEX_ADC_SCOPES = Object.freeze([VERTEX_SCOPE]);
+export const VERTEX_ADC_SCOPES = Object.freeze([VERTEX_SCOPE]);
 const JSON_MIME = "application/json";
 const PDF_MIME = "application/pdf";
 const MAX_OUTPUT_TOKENS = 8192;
@@ -74,6 +74,7 @@ export class PdfOcrProviderError extends Error {
 }
 
 export interface VertexAccessTokenPort {
+  readonly authTrace: VertexAuthTraceV2;
   accessToken(signal: AbortSignal): Promise<string>;
 }
 
@@ -99,29 +100,6 @@ async function abortable<T>(
       signal.removeEventListener("abort", stop);
     });
   });
-}
-
-export class GoogleAuthVertexAccessToken implements VertexAccessTokenPort {
-  private readonly auth = new GoogleAuth({ scopes: [VERTEX_SCOPE] });
-
-  async accessToken(signal: AbortSignal): Promise<string> {
-    const client = await abortable(
-      this.auth.getClient(),
-      signal,
-      PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
-    );
-    const token = await abortable(
-      client.getAccessToken(),
-      signal,
-      PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
-    );
-    if (!token.token)
-      throw new PdfOcrProviderError(
-        "AUTH",
-        PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
-      );
-    return token.token;
-  }
 }
 
 interface ResponseHeaders {
@@ -519,7 +497,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       requestTrace: {
         requestId: request.requestId,
         endpoint: VERTEX_OCR_ENDPOINT,
-        auth: "ADC_OAUTH",
+        authTrace: this.tokens.authTrace,
         adcScopes: VERTEX_ADC_SCOPES,
         inputMimeType: PDF_MIME,
         inputMode: "INLINE_ORIGINAL_BYTES",

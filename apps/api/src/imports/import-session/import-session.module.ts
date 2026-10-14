@@ -50,10 +50,7 @@ import {
   PDF_OCR_PROVIDER,
   type FixedPdfOcrProviderPort,
 } from "./ocr/pdf-ocr.ports";
-import {
-  GoogleAuthVertexAccessToken,
-  VertexPdfOcrProvider,
-} from "./ocr/vertex-pdf-ocr.provider";
+import { createConfiguredVertexPdfOcrProvider } from "./ocr/vertex-provider.factory";
 
 /**
  * Only deterministic pre-session availability leaves this module.
@@ -76,11 +73,8 @@ import {
     ImportAuthGuard,
     {
       provide: PDF_OCR_PROVIDER,
-      useFactory: (): FixedPdfOcrProviderPort =>
-        new VertexPdfOcrProvider(
-          process.env.GOOGLE_CLOUD_PROJECT ?? "",
-          new GoogleAuthVertexAccessToken(),
-        ),
+      useFactory: async (): Promise<FixedPdfOcrProviderPort> =>
+        createConfiguredVertexPdfOcrProvider(process.env),
     },
     { provide: IMPORT_SESSION_CLOCK, useClass: SystemImportSessionClock },
     {

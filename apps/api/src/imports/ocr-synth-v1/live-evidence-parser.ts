@@ -205,7 +205,7 @@ function validTrace(value: unknown): boolean {
       "endpoint",
       "region",
       "model",
-      "auth",
+      "authTrace",
       "adcScopes",
       "apiKeyUsed",
       "globalEndpointFallbackUsed",
@@ -233,7 +233,8 @@ function validTrace(value: unknown): boolean {
     string(value.endpoint) &&
     string(value.region) &&
     string(value.model) &&
-    value.auth === "ADC_OAUTH" &&
+    (value.authTrace === "LOCAL_ADC" ||
+      value.authTrace === "SERVICE_ACCOUNT_FILE_ADC") &&
     strings(value.adcScopes) &&
     bool(value.apiKeyUsed) &&
     bool(value.globalEndpointFallbackUsed) &&

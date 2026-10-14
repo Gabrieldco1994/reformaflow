@@ -50,7 +50,7 @@ describe("final #719 provider dispatch fence", () => {
     const fetcher = jest.fn();
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken },
+      { authTrace: "LOCAL_ADC", accessToken },
       fetcher,
     );
     const service = extraction(prisma, owner, provider);
@@ -94,7 +94,7 @@ describe("final #719 provider dispatch fence", () => {
     });
     const provider = new VertexPdfOcrProvider(
       "approved-project",
-      { accessToken },
+      { authTrace: "LOCAL_ADC", accessToken },
       fetcher,
     );
     const service = extraction(prisma, owner, provider);

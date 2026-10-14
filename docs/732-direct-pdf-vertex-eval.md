@@ -8,7 +8,8 @@ financial data. Ordinary CI still makes no Vertex call.
 
 For an explicitly consented PDF that deterministic routing proves is fully scanned/image-only and
 has at most 10 pages, Maria may send the original `application/pdf` bytes once to the regional
-Vertex endpoint in `southamerica-east1`, using bounded ADC OAuth and exactly
+Vertex endpoint in `southamerica-east1`, using bounded OAuth from the single explicitly admitted
+ADC source and exactly
 `gemini-2.5-flash`. It returns source-grounded raw candidates that remain unselected and
 UNVERIFIED for human review. Exact readable cents and sign, visible evidence, explicit ambiguity
 and source provenance are preserved. No OCR result makes a purchase/payment/credit/fee decision or
@@ -171,14 +172,26 @@ the first provider request.
 Run capture from a clean checkout at the manifest's exact `candidateSha`. The first argument is the
 new evidence output; the second is the audited manifest. The only cloud configuration is ADC plus
 the project environment variable; endpoint, region and model are fixed in the production adapter.
+A production-qualifying run requires the fixed service-account file mounted at
+`/secrets/vertex-sa.json`; it records `SERVICE_ACCOUNT_FILE_ADC` on all 18 requests. The runtime
+parser accepts `LOCAL_ADC` for local diagnostics, but such a capture remains GAPS and cannot prove
+production authentication. Legacy undifferentiated `ADC_OAUTH` evidence is rejected.
 
 ```bash
 cd apps/api
+IMPORT_OCR_ENABLED=true \
+NODE_ENV=production \
+VERTEX_AUTH_MODE=service-account-file \
 GOOGLE_CLOUD_PROJECT='<approved-project>' \
   npx ts-node src/imports/ocr-synth-v1/capture-live.ts \
   /absolute/path/ocr-live-evidence.json \
   /absolute/path/ocr-live-manifest.json
 ```
+
+For non-qualifying local diagnostics only, use `NODE_ENV=development` and
+`VERTEX_AUTH_MODE=local-adc` with already-admitted ambient ADC. Do not set an API key or credential
+path. There is no auth fallback: missing/invalid config or service-account file stops before the
+first provider call, and a token failure remains `NOT_DISPATCHED`.
 
 The command generates only the in-repository synthetic `scan-001` through `scan-018` PDFs in
 memory, hashes and admits all of them before dispatch, then calls
