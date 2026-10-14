@@ -470,6 +470,27 @@ function spendBoundProvider(fetcher: jest.Mock, limitMicros = 500_000) {
   ]) as VertexPdfOcrProvider;
 }
 
+function inputBoundProvider(fetcher: jest.Mock) {
+  const tokens: VertexAccessTokenPort = {
+    authTrace: "LOCAL_ADC",
+    accessToken: async () => "fixture-token",
+  };
+  return Reflect.construct(VertexPdfOcrProvider, [
+    "corrected-red-project",
+    tokens,
+    fetcher,
+    { now: () => 1_000 },
+    {
+      maxInputTokens: 24_576,
+      maxOutputTokens: 8_192,
+      maxSpendMicros: Number.MAX_SAFE_INTEGER,
+      inputMicrosPerMillionTokens: 1,
+      outputMicrosPerMillionTokens: 1,
+      reservedOutputTokens: 8_192,
+    },
+  ]) as VertexPdfOcrProvider;
+}
+
 describe("pre-dispatch countTokens hard-spend binding", () => {
   it("positive control performs no token or generation call for a pre-aborted request", async () => {
     const fetcher = jest.fn();
@@ -531,6 +552,47 @@ describe("pre-dispatch countTokens hard-spend binding", () => {
   });
 });
 
+describe("pre-dispatch countTokens input admission", () => {
+  it("admits exactly 24576 input tokens before generation", async () => {
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce(
+        response({
+          totalTokens: 24_576,
+          estimatedCostMicros: 1,
+          requestBindingSha256: HASH(providerRequest().pdfBytes),
+        }),
+      )
+      .mockResolvedValueOnce(generationResponse);
+    const provider = inputBoundProvider(fetcher);
+
+    await expect(provider.extractPdf(providerRequest())).resolves.toBeDefined();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      expect.stringMatching(/:countTokens$/),
+      expect.stringMatching(/:generateContent$/),
+    ]);
+  });
+
+  it("rejects 24577 input tokens before generation", async () => {
+    const fetcher = jest.fn().mockResolvedValueOnce(
+      response({
+        totalTokens: 24_577,
+        estimatedCostMicros: 1,
+        requestBindingSha256: HASH(providerRequest().pdfBytes),
+      }),
+    );
+    const provider = inputBoundProvider(fetcher);
+
+    await expect(provider.extractPdf(providerRequest())).rejects.toMatchObject({
+      failure: "INPUT_TOKEN_LIMIT_EXCEEDED",
+      dispatchState: "NOT_DISPATCHED",
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]![0]).toMatch(/:countTokens$/);
+  });
+});
+
 function reservation(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
     id: "10000000-0000-4000-8000-000000000010",
@@ -576,13 +638,13 @@ function emptyBudgetTx() {
   };
 }
 
-describe("runtime 24576 liability and scope budgets", () => {
+describe("runtime 32768 reserved liability and scope budgets", () => {
   it.each([
-    [24_575, false],
-    [24_576, true],
-    [24_577, true],
+    [32_767, false],
+    [32_768, true],
+    [32_769, true],
   ] as const)(
-    "applies the 24576 reservation at limit %i",
+    "applies the 32768 reservation at cost-unit limit %i",
     async (limit, admitted) => {
       const tx = emptyBudgetTx();
       const operation = reservePdfOcrBudget(
@@ -598,7 +660,7 @@ describe("runtime 24576 liability and scope budgets", () => {
       expect(tx.importOcrUsage.create).toHaveBeenCalledTimes(admitted ? 1 : 0);
       if (admitted)
         expect(tx.importOcrUsage.create).toHaveBeenCalledWith({
-          data: expect.objectContaining({ reservedCostUnits: 24_576 }),
+          data: expect.objectContaining({ reservedCostUnits: 32_768 }),
         });
     },
   );
@@ -640,7 +702,7 @@ describe("runtime 24576 liability and scope budgets", () => {
       data: { reservedCostUnits: 120, totalTokens: 120 },
     });
     expect(updateMany.mock.calls[1]![0]).toMatchObject({
-      data: { reservedCostUnits: 24_576, totalTokens: null },
+      data: { reservedCostUnits: 32_768, totalTokens: null },
     });
   });
 
