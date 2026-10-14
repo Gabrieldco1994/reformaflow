@@ -477,7 +477,13 @@ describe("audited synthetic Vertex capture", () => {
   it("reserves mode 0600 before capture without following existing paths", async () => {
     const directory = await mkdtemp(join(tmpdir(), "ocr-live-"));
     const output = join(directory, "evidence.json");
-    const capture = jest.fn(async () => evidence);
+    const capture = jest.fn(async () => {
+      const reservation = await stat(output);
+      expect(reservation.isFile()).toBe(true);
+      expect(reservation.mode & 0o777).toBe(0o600);
+      expect(await readFile(output, "utf8")).toBe("");
+      return evidence;
+    });
     await writeLiveEvidenceExclusive(output, capture);
     expect(capture).toHaveBeenCalledTimes(1);
     expect((await stat(output)).mode & 0o777).toBe(0o600);
