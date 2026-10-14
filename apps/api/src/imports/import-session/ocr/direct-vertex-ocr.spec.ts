@@ -8,9 +8,15 @@ import { VertexPdfOcrProvider } from "./vertex-pdf-ocr.provider";
 const ARTIFACT_SHA = "a".repeat(64);
 const REQUEST_ID = "10000000-0000-4000-8000-000000000001";
 const payload = () => ({
+  completionStatus: "COMPLETE",
+  reportedPageCount: 1,
+  pageAccounting: [
+    { pageNumber: 1, status: "READABLE", visibleOccurrenceCount: 1 },
+  ],
   candidates: [
     {
       pageNumber: 1,
+      pageOccurrenceIndex: 1,
       description: "LOJA",
       amountCents: "-1001",
       amountMeaning: "LINE_AMOUNT",

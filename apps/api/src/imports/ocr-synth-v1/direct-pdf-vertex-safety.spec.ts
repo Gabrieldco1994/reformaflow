@@ -111,8 +111,8 @@ describe("scanned PDF Vertex adapter and service mutation gates", () => {
           "DUPLICATE_PAGE",
           "DECREASING_PAGE",
           "PAGE_COUNT_MISMATCH",
-          "CANDIDATE_INDEX_GAP",
-          "CANDIDATE_ORDER",
+          "PAGE_OCCURRENCE_INDEX_GAP",
+          "PAGE_OCCURRENCE_ORDER",
         ],
       },
     );

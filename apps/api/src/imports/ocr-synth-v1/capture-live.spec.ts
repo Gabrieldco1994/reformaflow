@@ -72,7 +72,9 @@ function response(value: unknown) {
 function provider(
   versions: readonly string[] = [VERSION],
   responseIds?: readonly string[],
-  terminalOutcomes: Readonly<Record<string, "INCOMPLETE" | "OVERFLOW">> = {},
+  terminalOutcomes: Readonly<
+    Record<string, "DOCUMENT_UNREADABLE" | "LIMIT_EXCEEDED">
+  > = {},
 ) {
   let index = 0;
   const fetcher = jest.fn(async () => {
@@ -80,33 +82,72 @@ function provider(
     const rows = successfulRows(testCase);
     const current = index++;
     const terminalOutcome = terminalOutcomes[testCase.id];
+    const pageOccurrenceCounts = new Map<number, number>();
+    const candidates = rows.map((row) => {
+      const pageOccurrenceIndex = (pageOccurrenceCounts.get(row.page) ?? 0) + 1;
+      pageOccurrenceCounts.set(row.page, pageOccurrenceIndex);
+      return {
+        pageNumber: row.page,
+        pageOccurrenceIndex,
+        description: row.description,
+        amountCents: row.amountCents,
+        amountMeaning: row.amountMeaning,
+        date:
+          row.normalizedDate && /^\d{4}-\d{2}-\d{2}$/.test(row.normalizedDate)
+            ? row.normalizedDate
+            : null,
+        installment:
+          row.installmentCurrent !== null && row.installmentTotal !== null
+            ? {
+                index: row.installmentCurrent,
+                total: row.installmentTotal,
+              }
+            : null,
+        evidenceText: row.evidenceText,
+      };
+    });
     const payload =
       terminalOutcome === undefined
         ? {
-            candidates: rows.map((row) => ({
-              pageNumber: row.page,
-              description: row.description,
-              amountCents: row.amountCents,
-              amountMeaning: row.amountMeaning,
-              date:
-                row.normalizedDate &&
-                /^\d{4}-\d{2}-\d{2}$/.test(row.normalizedDate)
-                  ? row.normalizedDate
-                  : null,
-              installment:
-                row.installmentCurrent !== null && row.installmentTotal !== null
-                  ? {
-                      index: row.installmentCurrent,
-                      total: row.installmentTotal,
-                    }
-                  : null,
-              evidenceText: row.evidenceText,
-            })),
+            completionStatus: "COMPLETE",
+            reportedPageCount: testCase.artifact.pageCount,
+            pageAccounting: Array.from(
+              { length: testCase.artifact.pageCount },
+              (_, pageIndex) => {
+                const visibleOccurrenceCount =
+                  pageOccurrenceCounts.get(pageIndex + 1) ?? 0;
+                return {
+                  pageNumber: pageIndex + 1,
+                  status: visibleOccurrenceCount === 0 ? "EMPTY" : "READABLE",
+                  visibleOccurrenceCount,
+                };
+              },
+            ),
+            candidates,
           }
         : {
-            outcome: terminalOutcome,
-            pageCount: testCase.artifact.pageCount,
-            pages: [],
+            completionStatus:
+              terminalOutcome === "DOCUMENT_UNREADABLE"
+                ? "INCOMPLETE"
+                : "OCCURRENCE_LIMIT_EXCEEDED",
+            reportedPageCount: testCase.artifact.pageCount,
+            pageAccounting: Array.from(
+              { length: testCase.artifact.pageCount },
+              (_, pageIndex) => ({
+                pageNumber: pageIndex + 1,
+                status:
+                  terminalOutcome === "DOCUMENT_UNREADABLE" && pageIndex === 1
+                    ? "UNREADABLE"
+                    : terminalOutcome === "LIMIT_EXCEEDED" && pageIndex === 0
+                      ? "READABLE"
+                      : "EMPTY",
+                visibleOccurrenceCount:
+                  terminalOutcome === "LIMIT_EXCEEDED" && pageIndex === 0
+                    ? 25
+                    : 0,
+              }),
+            ),
+            candidates: [],
           };
     return response({
       responseId: responseIds?.[current] ?? `response-${testCase.id}`,
@@ -233,8 +274,8 @@ describe("audited synthetic Vertex capture", () => {
 
   it("captures all 18 expected outcomes with one dispatch each and no terminal retry", async () => {
     const adapter = provider([VERSION], undefined, {
-      "scan-012": "INCOMPLETE",
-      "scan-018": "OVERFLOW",
+      "scan-012": "DOCUMENT_UNREADABLE",
+      "scan-018": "LIMIT_EXCEEDED",
     });
     const captured = await captureLiveEvidence({
       provider: adapter.value,
@@ -251,14 +292,14 @@ describe("audited synthetic Vertex capture", () => {
       captured.predictions.find((item) => item.caseId === "scan-012")!.outcome,
     ).toEqual({
       kind: "ERROR",
-      errorCode: "INCOMPLETE",
+      errorCode: "DOCUMENT_UNREADABLE",
       retryable: false,
     });
     expect(
       captured.predictions.find((item) => item.caseId === "scan-018")!.outcome,
     ).toEqual({
       kind: "ERROR",
-      errorCode: "OVERFLOW",
+      errorCode: "LIMIT_EXCEEDED",
       retryable: false,
     });
     expect(adapter.fetcher).toHaveBeenCalledTimes(18);

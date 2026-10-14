@@ -1497,12 +1497,50 @@ describe("POST attachment analyze v2 direct OCR", () => {
   );
 
   it.each([
-    ["INCOMPLETE", "OCR_INCOMPLETE"],
-    ["OVERFLOW", "OCR_OVERFLOW"],
+    ["DOCUMENT_UNREADABLE", "DOCUMENT_UNREADABLE"],
+    ["LIMIT_EXCEEDED", "LIMIT_EXCEEDED"],
+    ["MALFORMED_RESPONSE", "OCR_MALFORMED_RESPONSE"],
   ] as const)(
-    "persists and replays typed terminal %s with one dispatch and zero writes",
+    "persists and replays canonical terminal %s with one dispatch and zero writes",
     async (failure, code) => {
       const owner = await fixture(prisma, `quality-closure-${failure}`);
+      const request = await declareConsent(prisma, owner);
+      const provenance =
+        failure === "MALFORMED_RESPONSE"
+          ? undefined
+          : {
+              provider: PDF_OCR_PROVIDER_ID,
+              model: PDF_OCR_MODEL_ID,
+              modelVersion: "quality-closure-terminal-v1",
+              region: PDF_OCR_REGION,
+              requestId: request.requestId,
+              responseId: `quality-closure-${failure}`,
+              usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+              latencyMs: 25,
+              requestTrace: {
+                requestId: request.requestId,
+                endpoint:
+                  "https://southamerica-east1-aiplatform.googleapis.com",
+                authTrace: "LOCAL_ADC" as const,
+                adcScopes: ["https://www.googleapis.com/auth/cloud-platform"],
+                inputMimeType: "application/pdf" as const,
+                inputMode: "INLINE_ORIGINAL_BYTES" as const,
+                originalBytesSha256: owner.hash,
+                requestBodyBytes: owner.bytes.length,
+                deadlineMs: 60_000,
+                finishReason: "STOP" as const,
+                maxOutputTokens: 8192,
+                promptSha256: "a".repeat(64),
+                toolsPresent: false,
+                fileUri: null,
+                cachedContent: null,
+              },
+            };
+      const TerminalProviderError = PdfOcrProviderError as unknown as new (
+        failure: string,
+        dispatchState: string,
+        provenance?: unknown,
+      ) => PdfOcrProviderError;
       const provider = {
         provider: PDF_OCR_PROVIDER_ID,
         model: PDF_OCR_MODEL_ID,
@@ -1510,14 +1548,14 @@ describe("POST attachment analyze v2 direct OCR", () => {
         extractPdf: jest
           .fn()
           .mockRejectedValue(
-            new PdfOcrProviderError(
-              failure as never,
+            new TerminalProviderError(
+              failure,
               PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+              provenance,
             ),
           ),
       };
       const service = extraction(prisma, owner.bytes, provider, 1);
-      const request = await declareConsent(prisma, owner);
 
       for (let invocation = 0; invocation < 2; invocation += 1)
         await expect(
@@ -2003,6 +2041,46 @@ async function fixture(
   };
 }
 
+type AccountedCandidate = Readonly<{
+  pageNumber: number;
+  description: string | null;
+  amountCents: string | null;
+  amountMeaning: "LINE_AMOUNT" | "UNKNOWN";
+  date: string | null;
+  installment: { index: number; total: number } | null;
+  evidenceText: string;
+}>;
+
+function completePayload(
+  candidates: readonly AccountedCandidate[],
+  reportedPageCount = 1,
+) {
+  const pageOccurrenceCounts = new Map<number, number>();
+  const indexed = candidates.map((candidate) => {
+    const pageOccurrenceIndex =
+      (pageOccurrenceCounts.get(candidate.pageNumber) ?? 0) + 1;
+    pageOccurrenceCounts.set(candidate.pageNumber, pageOccurrenceIndex);
+    return { ...candidate, pageOccurrenceIndex };
+  });
+  return {
+    completionStatus: "COMPLETE",
+    reportedPageCount,
+    pageAccounting: Array.from(
+      { length: reportedPageCount },
+      (_, pageIndex) => {
+        const visibleOccurrenceCount =
+          pageOccurrenceCounts.get(pageIndex + 1) ?? 0;
+        return {
+          pageNumber: pageIndex + 1,
+          status: visibleOccurrenceCount === 0 ? "EMPTY" : "READABLE",
+          visibleOccurrenceCount,
+        };
+      },
+    ),
+    candidates: indexed,
+  };
+}
+
 function document(
   hash: string,
   suffix: string,
@@ -2010,19 +2088,17 @@ function document(
 ): PdfOcrDocumentV2 {
   const evidenceText = "13/10/2026 MERCADO 10,01";
   const parsed = parsePdfOcrV2(
-    {
-      candidates: [
-        {
-          pageNumber: 1,
-          description: "MERCADO",
-          amountCents: "1001",
-          amountMeaning: "LINE_AMOUNT",
-          date: "2026-10-13",
-          installment: null,
-          evidenceText,
-        },
-      ],
-    },
+    completePayload([
+      {
+        pageNumber: 1,
+        description: "MERCADO",
+        amountCents: "1001",
+        amountMeaning: "LINE_AMOUNT",
+        date: "2026-10-13",
+        installment: null,
+        evidenceText,
+      },
+    ]),
     {
       artifactSha256: hash,
       pageCount: 1,
@@ -2076,8 +2152,8 @@ function allLinesDocument(hash: string, requestId: string): PdfOcrDocumentV2 {
     ["EXACT DUPLICATE", "999", "13 EXACT DUPLICATE 9,99"],
   ] as const;
   const parsed = parsePdfOcrV2(
-    {
-      candidates: rows.map(([description, amountCents, evidenceText]) => ({
+    completePayload(
+      rows.map(([description, amountCents, evidenceText]) => ({
         pageNumber: 1,
         description,
         amountCents,
@@ -2086,7 +2162,7 @@ function allLinesDocument(hash: string, requestId: string): PdfOcrDocumentV2 {
         installment: null,
         evidenceText,
       })),
-    },
+    ),
     {
       artifactSha256: hash,
       pageCount: 1,
@@ -2143,36 +2219,33 @@ function provenanceDocument(
     },
   ],
 ): PdfOcrDocumentV2 {
-  const parsed = parsePdfOcrV2(
-    { candidates },
-    {
-      artifactSha256: hash,
-      pageCount: 1,
+  const parsed = parsePdfOcrV2(completePayload(candidates), {
+    artifactSha256: hash,
+    pageCount: 1,
+    requestId,
+    responseId: `vertex-provenance-${authTrace}`,
+    modelVersion: "gemini-2.5-flash-719-release",
+    usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+    latencyMs: 25,
+    requestTrace: {
       requestId,
-      responseId: `vertex-provenance-${authTrace}`,
-      modelVersion: "gemini-2.5-flash-719-release",
-      usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
-      latencyMs: 25,
-      requestTrace: {
-        requestId,
-        endpoint:
-          "https://southamerica-east1-aiplatform.googleapis.com/v1/projects/project-719/locations/southamerica-east1/publishers/google/models/gemini-2.5-flash:generateContent",
-        authTrace,
-        adcScopes: ["https://www.googleapis.com/auth/cloud-platform"],
-        inputMimeType: "application/pdf",
-        inputMode: "INLINE_ORIGINAL_BYTES",
-        originalBytesSha256: hash,
-        requestBodyBytes: 512,
-        deadlineMs: 30_000,
-        finishReason: "STOP",
-        maxOutputTokens: 8_192,
-        promptSha256: "d".repeat(64),
-        toolsPresent: false,
-        fileUri: null,
-        cachedContent: null,
-      },
+      endpoint:
+        "https://southamerica-east1-aiplatform.googleapis.com/v1/projects/project-719/locations/southamerica-east1/publishers/google/models/gemini-2.5-flash:generateContent",
+      authTrace,
+      adcScopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      inputMimeType: "application/pdf",
+      inputMode: "INLINE_ORIGINAL_BYTES",
+      originalBytesSha256: hash,
+      requestBodyBytes: 512,
+      deadlineMs: 30_000,
+      finishReason: "STOP",
+      maxOutputTokens: 8_192,
+      promptSha256: "d".repeat(64),
+      toolsPresent: false,
+      fileUri: null,
+      cachedContent: null,
     },
-  );
+  });
   if (!parsed.ok) throw new Error(parsed.error.code);
   return parsed.value;
 }

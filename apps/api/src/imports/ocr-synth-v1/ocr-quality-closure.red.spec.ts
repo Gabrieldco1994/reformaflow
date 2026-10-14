@@ -190,12 +190,12 @@ describe("quality-closure corpus terminal outcomes", () => {
     expect(successfulRows(getOcrSynthCase("scan-010"))).toHaveLength(24);
     expect(getOcrSynthCase("scan-012").expected).toEqual({
       kind: "ERROR",
-      errorCode: "INCOMPLETE",
+      errorCode: "DOCUMENT_UNREADABLE",
       retryable: false,
     });
     expect(getOcrSynthCase("scan-018").expected).toEqual({
       kind: "ERROR",
-      errorCode: "OVERFLOW",
+      errorCode: "LIMIT_EXCEEDED",
       retryable: false,
     });
     const rawCorpus = JSON.parse(
@@ -212,12 +212,12 @@ describe("quality-closure corpus terminal outcomes", () => {
     const predictions = await buildOraclePredictions(true);
     predictions.find((item) => item.caseId === "scan-012")!.outcome = {
       kind: "ERROR",
-      errorCode: "INCOMPLETE",
+      errorCode: "DOCUMENT_UNREADABLE",
       retryable: false,
     };
     predictions.find((item) => item.caseId === "scan-018")!.outcome = {
       kind: "ERROR",
-      errorCode: "OVERFLOW",
+      errorCode: "LIMIT_EXCEEDED",
       retryable: false,
     };
     const evidence = await liveEvidence();
