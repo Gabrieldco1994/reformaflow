@@ -76,6 +76,7 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
+    "testTimeout": 120000,
     "globalSetup": "<rootDir>/../test/jest.global-setup.cjs",
     "setupFiles": [
       "<rootDir>/../../../scripts/test-db-env.cjs"

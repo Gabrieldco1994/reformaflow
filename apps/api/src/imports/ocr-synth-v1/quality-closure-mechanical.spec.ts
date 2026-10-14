@@ -777,6 +777,17 @@ async function withThresholdEvaluator<T>(
     ...policy,
     thresholds,
   }));
+  jest.doMock("./fixture-generator", () => ({
+    artifactSha256: (bytes: Buffer) =>
+      createHash("sha256").update(bytes).digest("hex"),
+    generateArtifact: async (testCase: {
+      artifact: { artifactSeed: string; kind: string };
+    }) =>
+      Buffer.from(
+        `${testCase.artifact.kind}:${testCase.artifact.artifactSeed}`,
+        "utf8",
+      ),
+  }));
   let evaluator!: ThresholdEvaluator;
   jest.isolateModules(() => {
     evaluator = require("./evaluator") as ThresholdEvaluator;
@@ -785,6 +796,7 @@ async function withThresholdEvaluator<T>(
     return await action(evaluator);
   } finally {
     jest.dontMock("./quality-closure-policy.json");
+    jest.dontMock("./fixture-generator");
     jest.resetModules();
   }
 }
