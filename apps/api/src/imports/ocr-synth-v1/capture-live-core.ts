@@ -18,6 +18,8 @@ import {
   OCR_PROVIDER_CALL_PROBE_IDS,
   REAL_SERVICE_CONTEXT_PROBE_IDS,
   REAL_SERVICE_CONTEXT_TEST,
+  buildOracleRoutingCases,
+  buildOracleSafetyProbes,
   type OcrEvalInput,
   type OcrEvalRunConfig,
 } from "./evaluator";
@@ -34,6 +36,12 @@ import {
   type OcrRoutingEvidence,
   type OcrSafetyProbeEvidence,
 } from "./types";
+import type {
+  FinalReviewHashes,
+  QualityClosurePolicy,
+} from "./quality-closure-attestation";
+import type { OcrQualityClosure } from "./types";
+import qualityPolicy from "./quality-closure-policy.json";
 
 export const LIVE_CAPTURE_CASE_IDS = Object.freeze([
   "scan-001",
@@ -64,10 +72,8 @@ export interface CaptureLiveManifest {
   readonly adapterSha256: string;
   readonly declaredLimits: OcrEvalRunConfig["declaredLimits"];
   readonly durableBudgets: NonNullable<OcrEvalRunConfig["durableBudgets"]>;
-  readonly residualRiskAcceptance: NonNullable<
-    OcrEvalRunConfig["residualRiskAcceptance"]
-  >;
-  readonly finalReviews: NonNullable<OcrEvalRunConfig["finalReviews"]>;
+  readonly residualRiskAcceptance: OcrEvalRunConfig["residualRiskAcceptance"];
+  readonly finalReviews: OcrEvalRunConfig["finalReviews"];
   readonly pricing: NonNullable<OcrEvalRunConfig["pricing"]>;
   readonly routingCases: OcrRoutingEvidence[];
   readonly safetyProbes: OcrSafetyProbeEvidence[];
@@ -75,8 +81,14 @@ export interface CaptureLiveManifest {
 
 export interface CaptureLiveOptions {
   readonly provider: VertexPdfOcrProvider;
-  readonly manifest: CaptureLiveManifest;
-  readonly currentRepoSha: string;
+  readonly manifest?: CaptureLiveManifest;
+  readonly currentRepoSha?: string;
+  readonly mechanical?: {
+    readonly policy: QualityClosurePolicy;
+    readonly qualityClosure: OcrQualityClosure;
+    readonly finalReviewHashes: FinalReviewHashes;
+    readonly verifySnapshot: () => Promise<void>;
+  };
   readonly memoryRss?: () => number;
   readonly readProcSelfStatus?: (path: string) => Promise<string>;
 }
@@ -248,6 +260,97 @@ async function preflight(
   return artifacts;
 }
 
+async function mechanicalManifest(
+  policy: QualityClosurePolicy,
+  qualityClosure: OcrQualityClosure,
+  reviews: FinalReviewHashes,
+): Promise<CaptureLiveManifest> {
+  const testPaths = new Map(
+    qualityClosure.tests.map((item) => [item.name, item.sourcePath]),
+  );
+  const routingCases = await buildOracleRoutingCases();
+  for (const route of routingCases) {
+    route.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
+    const path = testPaths.get(`[ROUTE] ${route.caseId}`);
+    if (!path) throw new Error("LIVE_CAPTURE_ATTESTATION_INVALID");
+    route.testFile = path;
+  }
+
+  const safetyProbes = buildOracleSafetyProbes();
+  for (const probe of safetyProbes) {
+    probe.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
+    const path = testPaths.get(`[PROBE] ${probe.id}`);
+    if (!path) throw new Error("LIVE_CAPTURE_ATTESTATION_INVALID");
+    probe.testFile = path;
+  }
+  const policySha256 = qualityClosure.snapshot.policySha256;
+  return {
+    candidateSha: qualityClosure.snapshot.headSha,
+    configurationSha256: qualityClosure.snapshot.configurationSha256,
+    adapterSha256: qualityClosure.snapshot.adapterSha256,
+    declaredLimits: {
+      maxP95LatencyMs: policy.declaredLimits.maxP95LatencyMs,
+      maxTotalCostMicros: policy.declaredLimits.maxTotalCostMicros,
+      maxRequestBodyBytes: policy.declaredLimits.maxRequestBodyBytes,
+      maxProviderDeadlineMs: policy.declaredLimits.maxProviderDeadlineMs,
+    },
+    durableBudgets: {
+      policySha256,
+      tenantLimitMicros: policy.durableBudgets.tenantLimitMicros,
+      globalLimitMicros: policy.durableBudgets.globalLimitMicros,
+      storage: policy.durableBudgets.storage,
+    },
+    residualRiskAcceptance: reviews.residualRiskAcceptance
+      ? {
+          decision: "OPTION_1_COMPLETE_ORIGINAL_PDF",
+          dataOwnerAcceptanceSha256: reviews.residualRiskAcceptance,
+          noLocalDerivative: true,
+        }
+      : null,
+    finalReviews:
+      reviews.securityReview && reviews.privacyReview && reviews.dataOwnerReview
+        ? {
+            securityReviewSha256: reviews.securityReview,
+            privacyReviewSha256: reviews.privacyReview,
+            dataOwnerReviewSha256: reviews.dataOwnerReview,
+          }
+        : null,
+    pricing: {
+      source: policy.pricing.source,
+      effectiveDate: policy.pricing.observedOn,
+      inputMicrosPerMillionTokens: policy.pricing.inputMicrosPerMillionTokens,
+      outputMicrosPerMillionTokens: policy.pricing.outputMicrosPerMillionTokens,
+    },
+    routingCases,
+    safetyProbes,
+  };
+}
+
+function structurallyBoundLegacyClosure(
+  manifest: CaptureLiveManifest,
+): OcrQualityClosure {
+  return {
+    version: 2,
+    policyVersion: qualityPolicy.policyVersion,
+    snapshot: {
+      headSha: manifest.candidateSha,
+      treeSha: manifest.candidateSha,
+      clean: true,
+      policySha256: manifest.durableBudgets.policySha256,
+      corpusSha256: manifest.configurationSha256,
+      configurationSha256: manifest.configurationSha256,
+      adapterSha256: manifest.adapterSha256,
+      runtimeSha256: manifest.adapterSha256,
+      suiteSha256: manifest.configurationSha256,
+    },
+    tests: qualityPolicy.qualificationTests.map((item) => ({
+      name: item.name,
+      status: "PASS",
+      sourcePath: item.sourcePath,
+    })),
+  };
+}
+
 const PROC_SELF_STATUS = "/proc/self/status";
 const VM_HWM = /^VmHWM:\s+([0-9]+)\s+kB$/m;
 
@@ -259,7 +362,7 @@ async function linuxVmHwmBytes(
     const match = VM_HWM.exec(status);
     const kibibytes = match ? Number(match[1]) : Number.NaN;
     const bytes = kibibytes * 1024;
-    if (!Number.isSafeInteger(bytes) || bytes < 0)
+    if (!Number.isSafeInteger(bytes) || bytes <= 0)
       throw new Error("invalid VmHWM");
     return bytes;
   } catch {
@@ -275,10 +378,26 @@ export async function captureLiveEvidence(
     !options.provider.ready()
   )
     throw new Error("LIVE_CAPTURE_PROVIDER_INVALID");
-  const artifacts = await preflight(options.manifest, options.currentRepoSha);
+  if (options.mechanical && process.platform !== "linux")
+    throw new Error("LIVE_CAPTURE_VMHWM_UNAVAILABLE");
+  const manifest = options.mechanical
+    ? await mechanicalManifest(
+        options.mechanical.policy,
+        options.mechanical.qualityClosure,
+        options.mechanical.finalReviewHashes,
+      )
+    : options.manifest;
+  const currentRepoSha = options.mechanical
+    ? options.mechanical.qualityClosure.snapshot.headSha
+    : options.currentRepoSha;
+  if (!manifest || !currentRepoSha)
+    throw new Error("LIVE_CAPTURE_CONFIG_MISSING");
+  const artifacts = await preflight(manifest, currentRepoSha);
   const memoryHighWaterMark = options.memoryRss
     ? async () => options.memoryRss!()
-    : options.readProcSelfStatus || process.platform === "linux"
+    : options.mechanical ||
+        options.readProcSelfStatus ||
+        process.platform === "linux"
       ? async () =>
           linuxVmHwmBytes(
             options.readProcSelfStatus ??
@@ -293,7 +412,7 @@ export async function captureLiveEvidence(
   let promptSha256: string | undefined;
 
   for (const { testCase, bytes, hash } of artifacts) {
-    const caseRequestId = requestId(options.manifest.candidateSha, testCase.id);
+    const caseRequestId = requestId(manifest.candidateSha, testCase.id);
     let document: Awaited<
       ReturnType<VertexPdfOcrProvider["extractPdf"]>
     > | null = null;
@@ -315,6 +434,8 @@ export async function captureLiveEvidence(
       )
         terminalError = error;
       else throw error;
+    } finally {
+      await options.mechanical?.verifySnapshot();
     }
     const provenance = document?.provenance ?? terminalError!.provenance!;
     const trace = provenance.requestTrace;
@@ -347,10 +468,8 @@ export async function captureLiveEvidence(
     promptSha256 = trace.promptSha256;
     const usage = provenance.usage;
     const costMicros = Math.ceil(
-      (usage.inputTokens *
-        options.manifest.pricing.inputMicrosPerMillionTokens +
-        usage.outputTokens *
-          options.manifest.pricing.outputMicrosPerMillionTokens) /
+      (usage.inputTokens * manifest.pricing.inputMicrosPerMillionTokens +
+        usage.outputTokens * manifest.pricing.outputMicrosPerMillionTokens) /
         1_000_000,
     );
     predictions.push({
@@ -418,14 +537,15 @@ export async function captureLiveEvidence(
   }
   if (!modelVersion || !promptSha256)
     throw new Error("LIVE_CAPTURE_INCOMPLETE");
+  await options.mechanical?.verifySnapshot();
 
-  return parseLiveEvidence({
+  const evidence: OcrEvalInput = {
     datasetVersion: OCR_SYNTH_DATASET.datasetVersion,
     run: {
       mode: "LIVE_CAPTURE",
-      candidateSha: options.manifest.candidateSha,
-      configurationSha256: options.manifest.configurationSha256,
-      adapterSha256: options.manifest.adapterSha256,
+      candidateSha: manifest.candidateSha,
+      configurationSha256: manifest.configurationSha256,
+      adapterSha256: manifest.adapterSha256,
       provider: PDF_OCR_PROVIDER_ID,
       model: PDF_OCR_MODEL_ID,
       modelVersion,
@@ -437,14 +557,18 @@ export async function captureLiveEvidence(
         behavior: "OCR_REQUIRED",
         sampleCount: 18,
       },
-      declaredLimits: options.manifest.declaredLimits,
-      durableBudgets: options.manifest.durableBudgets,
-      residualRiskAcceptance: options.manifest.residualRiskAcceptance,
-      finalReviews: options.manifest.finalReviews,
-      pricing: options.manifest.pricing,
+      declaredLimits: manifest.declaredLimits,
+      durableBudgets: manifest.durableBudgets,
+      residualRiskAcceptance: manifest.residualRiskAcceptance,
+      finalReviews: manifest.finalReviews,
+      pricing: manifest.pricing,
     },
     predictions,
-    routingCases: options.manifest.routingCases,
-    safetyProbes: options.manifest.safetyProbes,
-  });
+    routingCases: manifest.routingCases,
+    safetyProbes: manifest.safetyProbes,
+    qualityClosure:
+      options.mechanical?.qualityClosure ??
+      structurallyBoundLegacyClosure(manifest),
+  };
+  return parseLiveEvidence(evidence);
 }

@@ -9,6 +9,9 @@ export const PDF_OCR_VERSION = 2 as const;
 export const PDF_OCR_PROVIDER_ID = "GOOGLE_VERTEX_AI" as const;
 export const PDF_OCR_MODEL_ID = "gemini-2.5-flash" as const;
 export const PDF_OCR_REGION = "southamerica-east1" as const;
+export const PDF_OCR_VERTEX_ENDPOINT =
+  "https://southamerica-east1-aiplatform.googleapis.com" as const;
+export const PDF_OCR_MAX_OUTPUT_TOKENS = 8192 as const;
 export const PDF_OCR_PARSER_VERSION = "card-vertex-ocr-v2" as const;
 export const PDF_OCR_CONSENT_POLICY_VERSION = 1 as const;
 export const PDF_OCR_CONSENT_PURPOSE =

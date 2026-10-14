@@ -8,9 +8,11 @@ import {
   PDF_OCR_CONSENT_POLICY_VERSION,
   PDF_OCR_CONSENT_PURPOSE,
   PDF_OCR_LIMITS,
+  PDF_OCR_MAX_OUTPUT_TOKENS,
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
+  PDF_OCR_VERTEX_ENDPOINT,
 } from "@reformaflow/domain";
 import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
@@ -24,19 +26,25 @@ import {
   type OcrRoutingEvidence,
   type OcrEvalRow,
   type OcrSafetyProbeEvidence,
+  type OcrQualityClosure,
 } from "./types";
+import policy from "./quality-closure-policy.json";
+import {
+  isVerifiedQualityClosureToken,
+  type VerifiedQualityClosureToken,
+} from "./quality-closure-attestation";
 
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
 
 export const DIRECT_PDF_VERTEX_CONFIG = Object.freeze({
-  provider: "GOOGLE_VERTEX_AI",
-  model: "gemini-2.5-flash",
-  region: "southamerica-east1",
-  endpoint: "https://southamerica-east1-aiplatform.googleapis.com",
+  provider: PDF_OCR_PROVIDER_ID,
+  model: PDF_OCR_MODEL_ID,
+  region: PDF_OCR_REGION,
+  endpoint: PDF_OCR_VERTEX_ENDPOINT,
   mimeType: "application/pdf",
   seam: "VertexPdfOcrProvider.extractPdf",
   maxPages: PDF_OCR_LIMITS.pagesPerFile,
-  maxOutputTokens: 8192,
+  maxOutputTokens: PDF_OCR_MAX_OUTPUT_TOKENS,
 });
 
 export const KNOWN_SAFETY_FINISH_REASONS = Object.freeze([
@@ -49,21 +57,8 @@ export const KNOWN_SAFETY_FINISH_REASONS = Object.freeze([
 ]);
 
 export const OCR_SYNTH_THRESHOLDS = Object.freeze({
-  scannedTaskSuccessRate: 1,
-  exactMoneyRate: 1,
-  exactSignRate: 1,
-  exactDateRate: 1,
-  exactDateExplicitnessRate: 1,
-  exactInstallmentRate: 1,
-  unknownPreservationRate: 1,
-  visibleEvidenceRate: 1,
-  schemaValidityRate: 1,
-  inventedRows: 0,
-  omittedRows: 0,
-  tenantLeaks: 0,
-  falseAutomations: 0,
-  financialWrites: 0,
-  maxPeakRssBytes: 512 * 1024 * 1024,
+  ...policy.thresholds,
+  maxPeakRssBytes: policy.declaredLimits.maxVmHwmBytes,
 });
 
 export interface OcrEvalRunConfig {
@@ -118,15 +113,7 @@ export interface OcrEvalInput {
   predictions: OcrEvalPrediction[];
   routingCases: OcrRoutingEvidence[];
   safetyProbes: OcrSafetyProbeEvidence[];
-  qualityClosure?: {
-    gitSha: string;
-    policySha256: string;
-    corpusSha256: string;
-    runtimeSha256: string;
-    initialCandidateSha: string;
-    rerunCandidateSha: string;
-    tests: Array<{ name: string; status: "PASS" }>;
-  };
+  qualityClosure?: OcrQualityClosure;
 }
 
 interface Counters {
@@ -830,6 +817,7 @@ export async function buildOraclePredictions(
 
 export async function evaluateOcrSynth(
   input: OcrEvalInput,
+  verifiedQualityClosure?: VerifiedQualityClosureToken,
 ): Promise<OcrEvalReport> {
   const counters: Counters = {
     expectedRows: 0,
@@ -1073,6 +1061,21 @@ export async function evaluateOcrSynth(
     metrics.financialWrites === 0;
 
   const gaps: string[] = [];
+  const closureVerified =
+    input.run.mode !== "LIVE_CAPTURE"
+      ? false
+      : await isVerifiedQualityClosureToken(verifiedQualityClosure, input);
+  if (input.run.mode === "LIVE_CAPTURE" && !closureVerified)
+    gaps.push("QUALITY_CLOSURE_NOT_VERIFIED");
+  if (
+    input.run.mode === "LIVE_CAPTURE" &&
+    input.qualityClosure &&
+    (input.run.candidateSha !== input.qualityClosure.snapshot.headSha ||
+      input.run.configurationSha256 !==
+        input.qualityClosure.snapshot.configurationSha256 ||
+      input.run.adapterSha256 !== input.qualityClosure.snapshot.adapterSha256)
+  )
+    gaps.push("QUALITY_CLOSURE_RUN_MISMATCH");
   if (input.datasetVersion !== OCR_SYNTH_DATASET.datasetVersion)
     gaps.push("DATASET_VERSION_MISMATCH");
   if (input.run.mode !== "LIVE_CAPTURE")
@@ -1164,6 +1167,29 @@ export async function evaluateOcrSynth(
     gaps.push("MISSING_DECLARED_BODY_LIMIT");
   if (!finiteNonNegative(input.run.declaredLimits.maxProviderDeadlineMs))
     gaps.push("MISSING_DECLARED_DEADLINE_LIMIT");
+  if (
+    input.run.mode === "LIVE_CAPTURE" &&
+    JSON.stringify(input.run.declaredLimits) !==
+      JSON.stringify({
+        maxP95LatencyMs: policy.declaredLimits.maxP95LatencyMs,
+        maxTotalCostMicros: policy.declaredLimits.maxTotalCostMicros,
+        maxRequestBodyBytes: policy.declaredLimits.maxRequestBodyBytes,
+        maxProviderDeadlineMs: policy.declaredLimits.maxProviderDeadlineMs,
+      })
+  )
+    gaps.push("DECLARED_LIMIT_POLICY_MISMATCH");
+  if (
+    input.run.mode === "LIVE_CAPTURE" &&
+    JSON.stringify(input.run.pricing) !==
+      JSON.stringify({
+        source: policy.pricing.source,
+        effectiveDate: policy.pricing.observedOn,
+        inputMicrosPerMillionTokens: policy.pricing.inputMicrosPerMillionTokens,
+        outputMicrosPerMillionTokens:
+          policy.pricing.outputMicrosPerMillionTokens,
+      })
+  )
+    gaps.push("PRICING_POLICY_MISMATCH");
   const residualRisk = input.run.residualRiskAcceptance;
   if (
     !residualRisk ||
@@ -1190,6 +1216,18 @@ export async function evaluateOcrSynth(
     budgets.storage !== "DATABASE"
   )
     gaps.push("MISSING_DURABLE_BUDGET_POLICY");
+  if (
+    input.run.mode === "LIVE_CAPTURE" &&
+    (!input.qualityClosure ||
+      JSON.stringify(input.run.durableBudgets) !==
+        JSON.stringify({
+          policySha256: input.qualityClosure.snapshot.policySha256,
+          tenantLimitMicros: policy.durableBudgets.tenantLimitMicros,
+          globalLimitMicros: policy.durableBudgets.globalLimitMicros,
+          storage: policy.durableBudgets.storage,
+        }))
+  )
+    gaps.push("DURABLE_BUDGET_POLICY_MISMATCH");
   if (
     peakRssBytes === null ||
     peakRssBytes > OCR_SYNTH_THRESHOLDS.maxPeakRssBytes

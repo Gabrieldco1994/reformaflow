@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import {
   IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_LIMITS,
+  PDF_OCR_MAX_OUTPUT_TOKENS,
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
+  PDF_OCR_VERTEX_ENDPOINT,
   type PdfOcrDocumentV2,
   type PdfOcrProviderProvenanceV2,
   type VertexAuthTraceV2,
@@ -18,13 +20,12 @@ import { PdfOcrFailureCode, parsePdfOcrV2 } from "./pdf-ocr-parser";
 import { parseStrictJson } from "./strict-json";
 
 export const VERTEX_OCR_REGION = PDF_OCR_REGION;
-export const VERTEX_OCR_ENDPOINT =
-  "https://southamerica-east1-aiplatform.googleapis.com" as const;
+export const VERTEX_OCR_ENDPOINT = PDF_OCR_VERTEX_ENDPOINT;
 const VERTEX_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 export const VERTEX_ADC_SCOPES = Object.freeze([VERTEX_SCOPE]);
 const JSON_MIME = "application/json";
 const PDF_MIME = "application/pdf";
-const MAX_OUTPUT_TOKENS = 8192;
+export const VERTEX_OCR_MAX_OUTPUT_TOKENS = PDF_OCR_MAX_OUTPUT_TOKENS;
 const SAFETY_FINISH_REASONS = new Set([
   "SAFETY",
   "RECITATION",
@@ -398,7 +399,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
           temperature: 0,
           responseMimeType: JSON_MIME,
           responseSchema,
-          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          maxOutputTokens: VERTEX_OCR_MAX_OUTPUT_TOKENS,
         },
       });
       try {
@@ -565,7 +566,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         requestBodyBytes,
         deadlineMs: PDF_OCR_LIMITS.providerLatencyMs,
         finishReason: "STOP",
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
+        maxOutputTokens: VERTEX_OCR_MAX_OUTPUT_TOKENS,
         promptSha256: PROMPT_SHA256,
         toolsPresent: false,
         fileUri: null,

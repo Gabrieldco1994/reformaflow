@@ -1,59 +1,63 @@
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import {
-  captureLiveEvidence,
-  parseCaptureLiveManifestJson,
-} from "./capture-live-core";
-import { writeLiveEvidenceExclusive } from "./capture-live-file";
+import { captureLiveEvidence } from "./capture-live-core";
+import { writeQualifiedLiveEvidenceExclusive } from "./capture-live-file";
 import { createConfiguredVertexPdfOcrProvider } from "../import-session/ocr/vertex-provider.factory";
 import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
-
-const execFileAsync = promisify(execFile);
-const gitHead = async (): Promise<string> => {
-  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-  });
-  return stdout.trim();
-};
+import {
+  assertOutputOutsideRepository,
+  assertQualityRepositorySnapshot,
+  attestQualityClosure,
+  qualityCaptureLockPath,
+  readFinalReviewHashes,
+  type QualityClosurePolicy,
+} from "./quality-closure-attestation";
+import type { OcrRepositorySnapshot } from "./types";
 
 async function main(): Promise<void> {
-  const [outputArgument, manifestArgument] = process.argv.slice(2);
-  if (!outputArgument || !manifestArgument)
-    throw new Error("LIVE_CAPTURE_CONFIG_MISSING");
-  const outputPath = resolve(process.cwd(), outputArgument);
-  const manifestPath = resolve(process.cwd(), manifestArgument);
-  if (outputPath === manifestPath)
-    throw new Error("LIVE_CAPTURE_CONFIG_INVALID");
-  const manifest = parseCaptureLiveManifestJson(
-    await readFile(manifestPath, "utf8"),
-  );
-  let capturedHead: string | undefined;
-  await writeLiveEvidenceExclusive(
+  const arguments_ = process.argv.slice(2);
+  if (arguments_.length !== 1 || !arguments_[0])
+    throw new Error("LIVE_CAPTURE_OUTPUT_MISSING");
+  const outputPath = resolve(process.cwd(), arguments_[0]);
+  await assertOutputOutsideRepository(outputPath);
+  const lockPath = await qualityCaptureLockPath();
+  let policy: QualityClosurePolicy | undefined;
+  let snapshot: OcrRepositorySnapshot | undefined;
+  const verifyRepository = async (): Promise<void> => {
+    if (!policy || !snapshot)
+      throw new Error("LIVE_CAPTURE_ATTESTATION_MISSING");
+    await assertQualityRepositorySnapshot(snapshot, policy);
+  };
+
+  await writeQualifiedLiveEvidenceExclusive(
     outputPath,
+    lockPath,
     async () => {
-      capturedHead = await gitHead();
+      const attestation = await attestQualityClosure();
+      policy = attestation.policy;
+      snapshot = attestation.closure.snapshot;
+      const finalReviewHashes = await readFinalReviewHashes(policy);
+      await verifyRepository();
       const provider = await createConfiguredVertexPdfOcrProvider(process.env);
       if (!(provider instanceof VertexPdfOcrProvider) || !provider.ready())
         throw new Error("LIVE_CAPTURE_CONFIG_MISSING");
       return await captureLiveEvidence({
         provider,
-        manifest,
-        currentRepoSha: capturedHead,
+        mechanical: {
+          policy,
+          qualityClosure: attestation.closure,
+          finalReviewHashes,
+          verifySnapshot: verifyRepository,
+        },
       });
     },
-    async () => {
-      if (!capturedHead || (await gitHead()) !== capturedHead)
-        throw new Error("LIVE_CAPTURE_REPOSITORY_DRIFT");
-    },
+    verifyRepository,
   );
 }
 
 void main().catch((error: unknown) => {
   const code =
-    error instanceof Error && /^LIVE_CAPTURE_[A-Z_]+$/.test(error.message)
+    error instanceof Error &&
+    /^(?:LIVE_CAPTURE|QUALITY)_[A-Z_]+$/.test(error.message)
       ? error.message
       : "LIVE_CAPTURE_FAILED";
   process.stderr.write(`${code}\n`);

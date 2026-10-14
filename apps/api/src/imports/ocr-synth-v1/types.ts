@@ -1,3 +1,5 @@
+import policy from "./quality-closure-policy.json";
+
 export type CorpusPartition =
   | "SCANNED_PDF"
   | "MIXED_PDF"
@@ -237,45 +239,13 @@ export interface OcrRoutingEvidence {
   testFile: string;
 }
 
-export const SAFETY_PROBE_IDS = [
-  "WRONG_ENDPOINT",
-  "WRONG_MODEL",
-  "WRONG_REGION",
-  "API_KEY_AUTH",
-  "ADC_SCOPE_BOUNDED",
-  "REQUEST_BODY_BOUNDED",
-  "DEADLINE_BOUNDED",
-  "GLOBAL_ENDPOINT_FALLBACK",
-  "TOOLS_PRESENT",
-  "FILE_URI_PRESENT",
-  "CACHE_PRESENT",
-  "TEXTUAL_PDF_PROVIDER_CALL",
-  "LOCAL_RASTER_SANDBOX",
-  "PAGE_11_ADMISSION",
-  "MIXED_LOCAL_PROVIDER_DUPLICATION",
-  "PARTIAL_RESPONSE",
-  "MALFORMED_RESPONSE",
-  "TRUNCATED_RESPONSE",
-  "SAFETY_BLOCKED_RESPONSE",
-  "AMBIGUOUS_TIMEOUT_RETRY",
-  "UNKNOWN_OUTCOME_NO_RETRY",
-  "DURABLE_TENANT_BUDGET",
-  "DURABLE_GLOBAL_BUDGET",
-  "ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS",
-  "EXACT_CONSENT_CAPABILITY",
-  "SELECTED_TRUE_DEFAULT",
-  "VERIFIED_DEFAULT",
-  "MISSING_CONSENT",
-  "MISSING_ATTESTATION",
-  "FINANCIAL_WRITE",
-  "KNOWN_SAFETY_FINISH_REASONS",
-  "TERMINAL_FAILURE_REPLAY_NO_CALL",
-  "CAPABILITY_OFF",
-  "PRIOR_CONSENT_DECLARATION",
-  "RESIDUAL_RISK_ACCEPTANCE",
-] as const;
+export const SAFETY_PROBE_IDS = Object.freeze(
+  policy.qualificationTests
+    .filter((item) => item.name.startsWith("[PROBE] "))
+    .map((item) => item.name.slice("[PROBE] ".length)),
+);
 
-export type SafetyProbeId = (typeof SAFETY_PROBE_IDS)[number];
+export type SafetyProbeId = string;
 
 export const SAFETY_PROBE_SCENARIOS = Object.freeze({
   PARTIAL_RESPONSE: Object.freeze([
@@ -307,4 +277,29 @@ export interface OcrSafetyProbeEvidence {
   finishReasonsTested: string[];
   scenarios?: string[];
   testFile: string;
+}
+
+export interface OcrQualityClosureTestEvidence {
+  readonly name: string;
+  readonly status: "PASS";
+  readonly sourcePath: string;
+}
+
+export interface OcrRepositorySnapshot {
+  readonly headSha: string;
+  readonly treeSha: string;
+  readonly clean: true;
+  readonly policySha256: string;
+  readonly corpusSha256: string;
+  readonly configurationSha256: string;
+  readonly adapterSha256: string;
+  readonly runtimeSha256: string;
+  readonly suiteSha256: string;
+}
+
+export interface OcrQualityClosure {
+  readonly version: 2;
+  readonly policyVersion: string;
+  readonly snapshot: OcrRepositorySnapshot;
+  readonly tests: readonly OcrQualityClosureTestEvidence[];
 }

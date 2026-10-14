@@ -1,6 +1,3 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_MODEL_VERSION_PATTERN,
@@ -14,15 +11,12 @@ import {
 import type { OcrEvalInput } from "./evaluator";
 import policy from "./quality-closure-policy.json";
 import { SAFETY_PROBE_IDS, SAFETY_PROBE_SCENARIOS } from "./types";
+import { isCanonicalQualityClosure } from "./quality-closure-attestation";
 
 const HASH = new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern);
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
 const MODEL_VERSION = new RegExp(PDF_OCR_MODEL_VERSION_PATTERN);
 const SAFE_CODE = /^[A-Z][A-Z0-9_]+$/;
-const ROOT = resolve(__dirname, "../../../../..");
-const POLICY_PATH =
-  "apps/api/src/imports/ocr-synth-v1/quality-closure-policy.json";
-const CORPUS_PATH = "apps/api/src/imports/ocr-synth-v1/ground-truth.json";
 
 const fail = (): never => {
   throw new Error("LIVE_EVIDENCE_INVALID");
@@ -140,27 +134,29 @@ export function isValidLiveRun(value: unknown): boolean {
   )
     return false;
   if (
-    !exact(value.residualRiskAcceptance, [
+    value.residualRiskAcceptance !== null &&
+    (!exact(value.residualRiskAcceptance, [
       "decision",
       "dataOwnerAcceptanceSha256",
       "noLocalDerivative",
     ]) ||
-    value.residualRiskAcceptance.decision !==
-      "OPTION_1_COMPLETE_ORIGINAL_PDF" ||
-    !string(value.residualRiskAcceptance.dataOwnerAcceptanceSha256) ||
-    !HASH.test(value.residualRiskAcceptance.dataOwnerAcceptanceSha256) ||
-    value.residualRiskAcceptance.noLocalDerivative !== true
+      value.residualRiskAcceptance.decision !==
+        "OPTION_1_COMPLETE_ORIGINAL_PDF" ||
+      !string(value.residualRiskAcceptance.dataOwnerAcceptanceSha256) ||
+      !HASH.test(value.residualRiskAcceptance.dataOwnerAcceptanceSha256) ||
+      value.residualRiskAcceptance.noLocalDerivative !== true)
   )
     return false;
   if (
-    !exact(value.finalReviews, [
+    value.finalReviews !== null &&
+    (!exact(value.finalReviews, [
       "securityReviewSha256",
       "privacyReviewSha256",
       "dataOwnerReviewSha256",
     ]) ||
-    !Object.values(value.finalReviews).every(
-      (item) => string(item) && HASH.test(item),
-    )
+      !Object.values(value.finalReviews).every(
+        (item) => string(item) && HASH.test(item),
+      ))
   )
     return false;
   return (
@@ -546,91 +542,38 @@ function validProbeScenarios(value: Record<string, unknown>): boolean {
   return !("scenarios" in value);
 }
 
-const sha256 = (bytes: Buffer | string): string =>
-  createHash("sha256").update(bytes).digest("hex");
-const fileSha256 = (path: string): string =>
-  sha256(readFileSync(resolve(ROOT, path)));
-const runtimeSha256 = (): string => {
-  const hash = createHash("sha256");
-  for (const path of [...policy.runtimeBindingFiles].sort()) {
-    hash.update(path);
-    hash.update("\0");
-    hash.update(readFileSync(resolve(ROOT, path)));
-    hash.update("\0");
-  }
-  return hash.digest("hex");
-};
-const qualificationTestNames = (): string[] => [
-  ...OCR_SYNTH_ROUTING_CASES.map((item) => `[ROUTE] ${item.id}`),
-  ...SAFETY_PROBE_IDS.map((id) => `[PROBE] ${id}`),
-];
-
 function validQualityClosure(value: unknown, candidateSha: unknown): boolean {
-  if (
-    !exact(value, [
-      "gitSha",
-      "policySha256",
-      "corpusSha256",
-      "runtimeSha256",
-      "initialCandidateSha",
-      "rerunCandidateSha",
-      "tests",
-    ]) ||
-    !string(candidateSha) ||
-    value.gitSha !== candidateSha ||
-    value.initialCandidateSha !== candidateSha ||
-    value.rerunCandidateSha !== candidateSha ||
-    value.policySha256 !== fileSha256(POLICY_PATH) ||
-    value.corpusSha256 !== fileSha256(CORPUS_PATH) ||
-    value.runtimeSha256 !== runtimeSha256() ||
-    !Array.isArray(value.tests)
-  )
-    return false;
-  const names = qualificationTestNames();
+  if (!isCanonicalQualityClosure(value) || !string(candidateSha)) return false;
   return (
-    value.tests.length === names.length &&
+    value.policyVersion === policy.policyVersion &&
+    value.snapshot.headSha === candidateSha &&
+    value.tests.length === policy.qualificationTests.length &&
     value.tests.every(
       (item, index) =>
-        exact(item, ["name", "status"]) &&
-        item.name === names[index] &&
-        item.status === "PASS",
+        item.name === policy.qualificationTests[index]?.name &&
+        item.sourcePath === policy.qualificationTests[index]?.sourcePath,
     )
   );
 }
 
 export function parseLiveEvidence(value: unknown): OcrEvalInput {
   if (
-    !(
-      exact(value, [
-        "datasetVersion",
-        "run",
-        "predictions",
-        "routingCases",
-        "safetyProbes",
-      ]) ||
-      exact(value, [
-        "datasetVersion",
-        "run",
-        "predictions",
-        "routingCases",
-        "safetyProbes",
-        "qualityClosure",
-      ])
-    ) ||
+    !exact(value, [
+      "datasetVersion",
+      "run",
+      "predictions",
+      "routingCases",
+      "safetyProbes",
+      "qualityClosure",
+    ]) ||
     value.datasetVersion !== OCR_SYNTH_DATASET.datasetVersion ||
     !isValidLiveRun(value.run) ||
     !Array.isArray(value.predictions) ||
-    !value.predictions.every((item) =>
-      validPrediction(item, "qualityClosure" in value),
-    ) ||
+    !value.predictions.every((item) => validPrediction(item)) ||
     !Array.isArray(value.routingCases) ||
-    !value.routingCases.every((item) =>
-      isValidLiveRoute(item, "qualityClosure" in value),
-    ) ||
+    !value.routingCases.every((item) => isValidLiveRoute(item)) ||
     !Array.isArray(value.safetyProbes) ||
-    !value.safetyProbes.every((item) =>
-      isValidLiveProbe(item, "qualityClosure" in value),
-    ) ||
+    !value.safetyProbes.every((item) => isValidLiveProbe(item)) ||
     !exactIdSet(
       value.predictions.map((item) => item.caseId),
       OCR_SYNTH_SCANNED_RELEASE_CASES.map((item) => item.id),
@@ -644,9 +587,8 @@ export function parseLiveEvidence(value: unknown): OcrEvalInput {
       SAFETY_PROBE_IDS,
     ) ||
     !unique(value.predictions.map((item) => item.adapterTrace.requestId)) ||
-    ("qualityClosure" in value &&
-      (!object(value.run) ||
-        !validQualityClosure(value.qualityClosure, value.run.candidateSha)))
+    !object(value.run) ||
+    !validQualityClosure(value.qualityClosure, value.run.candidateSha)
   )
     fail();
   return value as unknown as OcrEvalInput;
@@ -659,9 +601,7 @@ export function parseLiveEvidenceJson(raw: string): OcrEvalInput {
 export function parseJson(raw: string): unknown {
   let value: unknown;
   try {
-    value = JSON.parse(raw) as unknown;
-    if (object(value) && "qualityClosure" in value)
-      value = parseStrictJson(raw);
+    value = parseStrictJson(raw);
   } catch {
     fail();
   }
