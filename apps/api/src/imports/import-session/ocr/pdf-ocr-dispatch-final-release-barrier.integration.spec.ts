@@ -74,7 +74,7 @@ describe("final #719 provider dispatch fence", () => {
         where: { sessionId: owner.sessionId },
       }),
     ).toMatchObject({
-      outcome: "AUTH",
+      outcome: "NOT_DISPATCHED",
       inputTokens: null,
       outputTokens: null,
       totalTokens: null,
