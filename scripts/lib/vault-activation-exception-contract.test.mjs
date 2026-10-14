@@ -22,6 +22,7 @@ const PACKAGE = join(ROOT, "package.json");
 const AGENTS = join(ROOT, "AGENTS.md");
 const DB_CHECK = join(ROOT, "scripts", "db-check.mjs");
 const WORKFLOW = join(ROOT, ".github", "workflows", "ci.yml");
+const MACHINE_WAITER = join(ROOT, "scripts", "ci", "wait-for-fly-machine.sh");
 const DISABLED = join(
   ROOT,
   "apps",
@@ -47,7 +48,6 @@ const REPAIR_TEST = join(
 
 const BASELINE_HASHES = Object.freeze({
   dbCheck: "9c1269036c0e07b5f9e1552c42daf1e9bacf2c328b2218c35b601a2016e52e03",
-  workflow: "fcb8ab9589bc68818136983ab0d6b8c361e721a75429f75702ecfcaae071d7cd",
   disabled: "9b623545824d76db802fb3f919c97046f305657ddba55d7795db1f7c6a59eac3",
   schema: "a5f0b8d064d897b0faa8dabc7d9df5a93ad006d82900cb5c69e4500146294e7c",
   migrations:
@@ -89,7 +89,6 @@ function directoryDigest(directory) {
 
 const BYTE_PINNED_SCOPES = Object.freeze([
   DB_CHECK,
-  WORKFLOW,
   DISABLED,
   SCHEMA,
   MIGRATIONS,
@@ -113,6 +112,123 @@ function assertPathIsNotBytePinned(candidate) {
     [],
     `${candidate} is byte-pinned`,
   );
+}
+
+function deployJob(workflow) {
+  const marker = "  deploy-api:";
+  const start = workflow.indexOf(`\n${marker}`);
+  assert.notEqual(start, -1, "deploy-api job is missing");
+
+  const jobStart = start + 1;
+  const afterMarker = jobStart + marker.length;
+  const nextJob = workflow
+    .slice(afterMarker)
+    .search(/\n  [A-Za-z0-9_-]+:\s*(?:\n|$)/);
+  const end = nextJob === -1 ? workflow.length : afterMarker + nextJob;
+  return workflow.slice(jobStart, end);
+}
+
+const WORKFLOW_DEPLOY_GUARANTEES = Object.freeze([
+  ["push-only trigger", /github\.event_name\s*==\s*'push'\s*&&/],
+  ["main-only trigger", /&&\s*github\.ref\s*==\s*'refs\/heads\/main'/],
+  ["deploy concurrency group", /^\s+group:\s*deploy-api\s*$/m],
+  ["in-flight deploy retention", /^\s+cancel-in-progress:\s*false\s*$/m],
+  [
+    "current main lookup",
+    /current_main="\$\(git ls-remote --exit-code origin refs\/heads\/main \| awk '\{print \$1\}'\)"/,
+  ],
+  ["predeploy full SHA", /!\s*"\$GITHUB_SHA"\s*=~\s*\^\[0-9a-f\]\{40\}\$/],
+  [
+    "predeploy current-main equality",
+    /\[\[\s*"\$GITHUB_SHA"\s*!=\s*"\$current_main"\s*\]\]/,
+  ],
+  ["Fly config", /-c apps\/api\/fly\.toml(?:\s|$)/],
+  ["API Dockerfile", /--dockerfile apps\/api\/Dockerfile(?:\s|$)/],
+  ["remote builder", /--remote-only(?:\s|$)/],
+  [
+    "machine convergence guard",
+    /FLY_APP="\$app" EXPECTED_GH_SHA="\$GITHUB_SHA" \\\s*\n\s+timeout --signal=TERM --kill-after=15s 330s scripts\/ci\/wait-for-fly-machine\.sh/,
+  ],
+  [
+    "exactly one passing check",
+    /has\(\$id\) and \(\.\[\$id\] \| length == 1\) and \(\.\[\$id\]\[0\]\.status == "passing"\)/,
+  ],
+  ["complete release", /\[\[\s*"\$release_status"\s*==\s*"complete"\s*\]\]/],
+  [
+    "machine image normalization",
+    /machine_image_without_digest="\$\{machine_image%%@\*\}"/,
+  ],
+  [
+    "release-machine image equality",
+    /\[\[\s*"\$release_image"\s*==\s*"\$machine_image_without_digest"\s*\]\]/,
+  ],
+  ["docs probe", /https:\/\/reformaflow-api\.fly\.dev\/api\/docs-json/],
+  ["docs 200", /\[\[\s*"\$docs_status"\s*==\s*"200"\s*\]\]/],
+  ["auth probe", /https:\/\/reformaflow-api\.fly\.dev\/auth\/me/],
+  ["auth 401", /\[\[\s*"\$auth_status"\s*==\s*"401"\s*\]\]/],
+  [
+    "postdeploy main lookup",
+    /postdeploy_main="\$\(git ls-remote --exit-code origin refs\/heads\/main \| awk '\{print \$1\}'\)"/,
+  ],
+  [
+    "postdeploy current-main equality",
+    /\[\[\s*"\$GITHUB_SHA"\s*!=\s*"\$postdeploy_main"\s*\]\]/,
+  ],
+]);
+
+const MACHINE_WAITER_GUARANTEES = Object.freeze([
+  ["exactly one machine", /\[\[\s*"\$count"\s*==\s*"1"\s*\]\]/],
+  ["started machine", /"\$machine_state"\s*==\s*"started"/],
+  ["deployed full SHA", /"\$deployed_sha"\s*==\s*"\$EXPECTED_GH_SHA"/],
+]);
+
+function assertDeployGuarantees(workflow, machineWaiter) {
+  const job = deployJob(workflow);
+  for (const [name, pattern] of WORKFLOW_DEPLOY_GUARANTEES)
+    assert.match(job, pattern, name);
+  for (const [name, pattern] of MACHINE_WAITER_GUARANTEES)
+    assert.match(machineWaiter, pattern, name);
+
+  const condition = job.slice(
+    job.indexOf("\n    if:"),
+    job.indexOf("\n    concurrency:"),
+  );
+  assert.doesNotMatch(
+    condition,
+    /\|\|\s*github\.(?:event_name|ref)|pull_request|refs\/heads\/develop/,
+    "deploy must not broaden beyond pushes to main",
+  );
+  assert.equal(
+    job.match(/^\s*run: flyctl deploy\b/gm)?.length,
+    1,
+    "expected one Fly deploy command",
+  );
+  const ordered = [
+    "current_main=",
+    "run: flyctl deploy",
+    "scripts/ci/wait-for-fly-machine.sh",
+    "flyctl checks list",
+    "flyctl releases",
+    "docs_status=",
+    "auth_status=",
+    "postdeploy_main=",
+  ].map((fragment) => job.indexOf(fragment));
+  assert.ok(
+    ordered.every(
+      (position, index) =>
+        position >= 0 && (index === 0 || position > ordered[index - 1]),
+    ),
+    "deploy gates, checks, smokes, and final stale gate must remain ordered",
+  );
+}
+
+function replaceExactlyOnce(source, expected, replacement) {
+  assert.equal(
+    source.split(expected).length - 1,
+    1,
+    `mutation fixture must occur once: ${expected}`,
+  );
+  return source.replace(expected, replacement);
 }
 
 test("production launcher is a narrow fixed-path capture/compare checksum gate", () => {
@@ -314,6 +430,9 @@ test("byte-pin scope permits frontend changes but retains vault controls", () =>
       "apps/web/src/app/projects/project/maria/ImportConversationBody.tsx",
     ),
   );
+  assert.doesNotThrow(() =>
+    assertPathIsNotBytePinned(".github/workflows/ci.yml"),
+  );
   assert.deepEqual(
     matchingBytePinnedScopes(
       "apps/api/src/imports/import-session/vault/vault-storage.ts",
@@ -329,9 +448,69 @@ test("byte-pin scope permits frontend changes but retains vault controls", () =>
   );
 });
 
+test("CI deploy keeps every release and stale-main guarantee without a whole-file pin", () => {
+  assertDeployGuarantees(
+    readFileSync(WORKFLOW, "utf8"),
+    readFileSync(MACHINE_WAITER, "utf8"),
+  );
+});
+
+test("an unrelated path-aware detection job can evolve without changing deploy guarantees", () => {
+  const workflow = readFileSync(WORKFLOW, "utf8");
+  const detector = `
+  detect-path-scope:
+    name: Detect Path Scope
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/ci/api-deploy-required.sh
+`;
+  const evolved = replaceExactlyOnce(
+    workflow,
+    "\n  deploy-api:",
+    `${detector}\n  deploy-api:`,
+  );
+
+  assert.notEqual(sha256(evolved), sha256(workflow));
+  assertDeployGuarantees(evolved, readFileSync(MACHINE_WAITER, "utf8"));
+});
+
+test("every critical deploy guarantee rejects a weakening mutation", () => {
+  const workflow = readFileSync(WORKFLOW, "utf8");
+  const machineWaiter = readFileSync(MACHINE_WAITER, "utf8");
+
+  for (const [target, source, guarantees] of [
+    ["workflow", workflow, WORKFLOW_DEPLOY_GUARANTEES],
+    ["machine waiter", machineWaiter, MACHINE_WAITER_GUARANTEES],
+  ]) {
+    for (const [name, pattern] of guarantees) {
+      const match = source.match(pattern);
+      assert.ok(match, `${target} mutation fixture is missing: ${name}`);
+      const weakened = source.replace(match[0], "");
+      const mutatedWorkflow = target === "workflow" ? weakened : workflow;
+      const mutatedWaiter =
+        target === "machine waiter" ? weakened : machineWaiter;
+      assert.throws(
+        () => assertDeployGuarantees(mutatedWorkflow, mutatedWaiter),
+        `${name} removal unexpectedly passed`,
+      );
+    }
+  }
+
+  const mainTrigger = workflow.match(/github\.ref\s*==\s*'refs\/heads\/main'/);
+  assert.ok(mainTrigger, "main trigger mutation fixture is missing");
+  const broadenedTrigger = workflow.replace(
+    mainTrigger[0],
+    `${mainTrigger[0]} || github.event_name == 'pull_request'`,
+  );
+  assert.throws(
+    () => assertDeployGuarantees(broadenedTrigger, machineWaiter),
+    "pull-request deploy trigger unexpectedly passed",
+  );
+});
+
 test("security-relevant application, data, recovery, and global checks are byte-unchanged", () => {
   assert.equal(sha256(readFileSync(DB_CHECK)), BASELINE_HASHES.dbCheck);
-  assert.equal(sha256(readFileSync(WORKFLOW)), BASELINE_HASHES.workflow);
   assert.equal(sha256(readFileSync(DISABLED)), BASELINE_HASHES.disabled);
   assert.equal(sha256(readFileSync(SCHEMA)), BASELINE_HASHES.schema);
   assert.equal(directoryDigest(MIGRATIONS), BASELINE_HASHES.migrations);
