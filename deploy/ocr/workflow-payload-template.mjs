@@ -50,14 +50,26 @@ try {
   const recovery = parseStrictJson(
     await readFile(resolve(recoveryEvidencePath), "utf8"),
   );
+  const candidateRecords = Array.isArray(report.candidate?.records)
+    ? report.candidate.records
+    : [];
+  const observedModelVersion =
+    typeof report.provider?.observedModelVersion === "string" &&
+    /^[!-~]{1,192}$/.test(report.provider.observedModelVersion)
+      ? report.provider.observedModelVersion
+      : "UNAVAILABLE";
   if (
+    report.reportSchemaVersion !== 4 ||
+    Object.hasOwn(report, "schemaVersion") ||
     report.provider?.provider !== infra.provider?.provider ||
-    report.provider?.model !== infra.provider?.model ||
-    report.provider?.modelVersion !== infra.provider?.modelVersion ||
+    report.provider?.requestedModelAlias !==
+      infra.provider?.requestedModelAlias ||
     report.provider?.region !== infra.provider?.region ||
     report.provider?.endpoint !== infra.provider?.endpoint ||
-    typeof report.provider?.promptSha256 !== "string" ||
-    !/^[0-9a-f]{64}$/.test(report.provider.promptSha256)
+    report.provider?.promptSha256 !== infra.provider?.promptSha256 ||
+    (report.evidenceClass !== "TEST_ONLY" &&
+      candidateRecords.length > 0 &&
+      observedModelVersion === "UNAVAILABLE")
   )
     fail();
   const issuedAt = new Date().toISOString();
@@ -116,7 +128,14 @@ try {
     corpus: infra.corpus,
     pricing: infra.pricing,
     reviews,
-    provider: report.provider,
+    provider: {
+      provider: infra.provider.provider,
+      model: infra.provider.requestedModelAlias,
+      modelVersion: observedModelVersion,
+      region: infra.provider.region,
+      endpoint: infra.provider.endpoint,
+      promptSha256: infra.provider.promptSha256,
+    },
     evidence: {
       raw: {
         sha256: sha256(raw.value),
@@ -128,8 +147,8 @@ try {
         size: reportBytes.size,
         artifactId: env("OCR_REPORT_ARTIFACT_ID", /^[1-9][0-9]*$/),
       },
-      requestIds: report.requestIds,
-      responseIds: report.responseIds,
+      requestIds: candidateRecords.map((item) => item.requestId),
+      responseIds: candidateRecords.map((item) => item.responseId),
     },
     spend: {
       currency: "USD",

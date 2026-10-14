@@ -21,7 +21,11 @@ import {
   verifyReleaseCrossBinding,
   verifyRuntimeReleaseEnvelope,
 } from "../../../scripts/ci/ocr-attestation.mjs";
-import { buildUnsignedPayloadFromBytes } from "../build-unsigned-attestation.mjs";
+import {
+  admitCumulativeSpend,
+  assessReportV4,
+  buildUnsignedPayloadFromBytes,
+} from "../build-unsigned-attestation.mjs";
 
 function fixture(publicKeySha256) {
   const sha = "a".repeat(40);
@@ -336,6 +340,7 @@ test("hard spend reservation is exclusive and detects path replacement", async (
     executableDigest: `sha256:${"1".repeat(64)}`,
     workflowSha: "a".repeat(40),
     policySha256: "d".repeat(64),
+    corpusSha256: "2".repeat(64),
     reviewSetSha256: "e".repeat(64),
     runId: "1001",
     runAttempt: 1,
@@ -343,10 +348,13 @@ test("hard spend reservation is exclusive and detects path replacement", async (
     hardLimitMicros: 500000,
     reservedMicros: 500000,
     provider: "GOOGLE_VERTEX_AI",
-    model: "gemini-2.5-flash",
-    modelVersion: "gemini-2.5-flash-20261014",
+    requestedModelAlias: "gemini-2.5-flash",
     region: "southamerica-east1",
     endpoint: "https://southamerica-east1-aiplatform.googleapis.com",
+    promptSha256: "5".repeat(64),
+    inputMicrosPerMillionTokens: 300000,
+    outputMicrosPerMillionTokens: 2500000,
+    expectedCaseCount: 18,
     admittedAt: "2026-10-14T05:10:00.000Z",
   };
   const reservation = await reserveSpend(request, path);
@@ -398,64 +406,268 @@ test("activation comparison rejects mutated signed recovery evidence", async () 
   );
 });
 
-function liveReport(payload) {
-  const baselineCases = payload.evidence.requestIds.map((_, index) => ({
-    caseId: `case-${String(index + 1).padStart(2, "0")}`,
-    artifactSha256: String((index % 6) + 1).repeat(64),
-    outcome: "OCR_REQUIRED",
-    providerGenerationCalls: 0,
-  }));
-  const candidateCases = baselineCases.map((baseline, index) => ({
-    caseId: baseline.caseId,
-    artifactSha256: baseline.artifactSha256,
-    outcome: "OCR_COMPLETED",
-    requestId: payload.evidence.requestIds[index],
-    responseId: payload.evidence.responseIds[index],
-    usage: {
-      inputTokens: 100 + index,
-      outputTokens: 20,
-      totalTokens: 120 + index,
-    },
-    parsedCandidateFacts: { rows: 1 },
-  }));
+const probeIds = [
+  "WRONG_ENDPOINT",
+  "WRONG_MODEL",
+  "WRONG_REGION",
+  "API_KEY_AUTH",
+  "ADC_SCOPE_BOUNDED",
+  "REQUEST_BODY_BOUNDED",
+  "DEADLINE_BOUNDED",
+  "GLOBAL_ENDPOINT_FALLBACK",
+  "TOOLS_PRESENT",
+  "FILE_URI_PRESENT",
+  "CACHE_PRESENT",
+  "TEXTUAL_PDF_PROVIDER_CALL",
+  "LOCAL_RASTER_SANDBOX",
+  "PAGE_11_ADMISSION",
+  "MIXED_LOCAL_PROVIDER_DUPLICATION",
+  "PARTIAL_RESPONSE",
+  "MALFORMED_RESPONSE",
+  "TRUNCATED_RESPONSE",
+  "SAFETY_BLOCKED_RESPONSE",
+  "AMBIGUOUS_TIMEOUT_RETRY",
+  "UNKNOWN_OUTCOME_NO_RETRY",
+  "DURABLE_TENANT_BUDGET",
+  "DURABLE_GLOBAL_BUDGET",
+  "ACTIVE_SESSION_CONTENT_PURGE_AFTER_7_DAYS",
+  "EXACT_CONSENT_CAPABILITY",
+  "SELECTED_TRUE_DEFAULT",
+  "VERIFIED_DEFAULT",
+  "MISSING_CONSENT",
+  "MISSING_ATTESTATION",
+  "FINANCIAL_WRITE",
+  "KNOWN_SAFETY_FINISH_REASONS",
+  "TERMINAL_FAILURE_REPLAY_NO_CALL",
+  "CAPABILITY_OFF",
+  "PRIOR_CONSENT_DECLARATION",
+  "RESIDUAL_RISK_ACCEPTANCE",
+];
+const zeroDeltas = {
+  Expense: 0,
+  CashFlowEntry: 0,
+  Receipt: 0,
+  RateioAllocation: 0,
+  Settlement: 0,
+  InvoiceLiquidation: 0,
+};
+function execution(payload, records, candidate) {
+  const binding = {
+    repository: "Gabrieldco1994/reformaflow",
+    workflowSha: candidate ? payload.workflow.sha : "f".repeat(40),
+    runId: candidate ? payload.workflow.runId : "9001",
+    runAttempt: candidate ? payload.workflow.runAttempt : 1,
+    subjectSha: candidate ? payload.subject.git.sha : "d".repeat(40),
+    subjectTree: candidate ? payload.subject.git.tree : "e".repeat(40),
+    corpusSha256: payload.corpus.sha256,
+  };
+  const artifactId = candidate ? "7002" : "7001";
+  const bytes = Buffer.from(
+    canonicalize({
+      ...binding,
+      recordsSha256: sha256(canonicalize(records)),
+    }),
+  );
   return {
-    schemaVersion: 1,
-    releaseStatus: "PASS",
-    evidenceClass: "LIVE",
-    rawEvidenceSha256: payload.evidence.raw.sha256,
-    provider: payload.provider,
-    requestIds: payload.evidence.requestIds,
-    responseIds: payload.evidence.responseIds,
-    spend: {
-      measuredMicros: payload.spend.measuredMicros,
-      admissionSha256: payload.spend.admissionSha256,
-      admittedAt: payload.spend.admittedAt,
+    provenance: {
+      evidenceClass: "LIVE",
+      executionKind: "PERSISTED_WORKFLOW_ARTIFACT",
+      repository: binding.repository,
+      workflowPath: ".github/workflows/ocr-qualification.yml",
+      workflowSha: binding.workflowSha,
+      runId: binding.runId,
+      runAttempt: binding.runAttempt,
+      subjectSha: binding.subjectSha,
+      subjectTree: binding.subjectTree,
+      corpusSha256: binding.corpusSha256,
+      artifactId,
+      artifactSha256: sha256(bytes),
     },
-    baseline: {
-      gitSha: "f".repeat(40),
-      treeSha: "e".repeat(40),
-      executionKind: "HISTORICAL_REAL",
-      cases: baselineCases,
-    },
-    candidate: {
-      gitSha: payload.subject.git.sha,
-      treeSha: payload.subject.git.tree,
-      executionKind: "VERTEX_LIVE",
-      cases: candidateCases,
-    },
-    comparison: {
-      cases: baselineCases.map((value) => ({
-        caseId: value.caseId,
-        pass: true,
-        issues: [],
-      })),
+    rawArtifact: { artifactId, bytesBase64: bytes.toString("base64") },
+  };
+}
+function strictV4Report(payload) {
+  const baselineRecords = Array.from({ length: 18 }, (_, index) => ({
+    caseId: "case-" + String(index + 1).padStart(2, "0"),
+    artifactSha256: sha256("artifact-" + index),
+    outcome: "SUCCESS",
+  }));
+  let cumulative = 0;
+  const rawResponses = [];
+  const candidateRecords = baselineRecords.map((baseline, index) => {
+    const inputTokens = 100 + index;
+    const outputTokens = 20;
+    const responseId = "response-" + String(index + 1).padStart(2, "0");
+    const wire = Buffer.from(
+      canonicalize({
+        responseId,
+        modelVersion: "gemini-2.5-flash-001",
+        usageMetadata: {
+          promptTokenCount: inputTokens,
+          candidatesTokenCount: outputTokens,
+          totalTokenCount: inputTokens + outputTokens,
+        },
+        result: { providerOutcome: "SUCCEEDED" },
+      }),
+    );
+    rawResponses.push({
+      caseId: baseline.caseId,
+      responseId,
+      bytesBase64: wire.toString("base64"),
+    });
+    const spentBeforeMicros = cumulative;
+    const worstCaseCurrentMicros = Math.ceil(
+      (inputTokens * payload.pricing.inputMicrosPerMillionTokens +
+        8192 * payload.pricing.outputMicrosPerMillionTokens) /
+        1000000,
+    );
+    cumulative += worstCaseCurrentMicros;
+    return {
+      caseId: baseline.caseId,
+      artifactSha256: baseline.artifactSha256,
+      providerOutcome: "SUCCEEDED",
+      outcome: "SUCCESS",
+      requestedModelAlias: payload.provider.model,
+      modelVersion: "gemini-2.5-flash-001",
+      promptSha256: payload.provider.promptSha256,
+      latencyMs: 100 + index,
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+      },
+      cost: {
+        currency: "USD",
+        amountMicros: Math.ceil(
+          (inputTokens * payload.pricing.inputMicrosPerMillionTokens +
+            outputTokens * payload.pricing.outputMicrosPerMillionTokens) /
+            1000000,
+        ),
+      },
+      requestId:
+        "10000000-0000-4000-8000-" + String(index + 1).padStart(12, "0"),
+      responseId,
+      rawResponseSha256: sha256(wire),
+      admission: {
+        attemptId: payload.workflow.runId + ":" + payload.workflow.runAttempt,
+        sequence: index + 1,
+        spentBeforeMicros,
+        countedInputTokens: inputTokens,
+        reservedOutputTokens: 8192,
+        worstCaseCurrentMicros,
+        hardLimitMicros: 500000,
+        status: "ADMITTED",
+      },
+    };
+  });
+  const baselineExecution = execution(payload, baselineRecords, false);
+  const candidateExecution = execution(payload, candidateRecords, true);
+  const raw = Buffer.from(
+    canonicalize({
+      schemaVersion: 4,
+      evidenceClass: "LIVE",
+      executionArtifacts: {
+        baseline: baselineExecution.rawArtifact,
+        candidate: candidateExecution.rawArtifact,
+      },
+      responses: rawResponses,
+    }),
+  );
+  const comparisonCases = baselineRecords.map((item) => ({
+    caseId: item.caseId,
+    pass: true,
+    issues: [],
+  }));
+  const inputTokens = candidateRecords.reduce(
+    (sum, item) => sum + item.usage.inputTokens,
+    0,
+  );
+  const outputTokens = candidateRecords.reduce(
+    (sum, item) => sum + item.usage.outputTokens,
+    0,
+  );
+  const measuredMicros = candidateRecords.reduce(
+    (sum, item) => sum + item.cost.amountMicros,
+    0,
+  );
+  const boundaryObservations = [
+    ...Array.from({ length: 10 }, (_, index) => ({
+      identity: "[ROUTE] mixed-" + String(index + 1).padStart(3, "0"),
+      boundary: "ImportSessionExtractionService.analyzeAttached",
+      scenarioSha256: sha256("route-" + index),
+      outcome: "ROUTED_LOCALLY",
+      countTokensCalls: 0,
+      generationCalls: 0,
+      financialDeltas: { ...zeroDeltas },
+    })),
+    ...probeIds.map((id, index) => ({
+      identity: "[PROBE] " + id,
+      boundary: "QualificationBoundary.probe",
+      scenarioSha256: sha256("probe-" + index),
+      outcome: "GUARDED",
+      countTokensCalls: 0,
+      generationCalls: 0,
+      financialDeltas: { ...zeroDeltas },
+    })),
+  ];
+  return {
+    raw,
+    report: {
+      reportSchemaVersion: 4,
+      evidenceClass: "LIVE",
+      rawEvidenceSha256: sha256(raw),
+      provider: {
+        provider: payload.provider.provider,
+        requestedModelAlias: payload.provider.model,
+        observedModelVersion: "gemini-2.5-flash-001",
+        region: payload.provider.region,
+        endpoint: payload.provider.endpoint,
+        promptSha256: payload.provider.promptSha256,
+      },
+      pricing: {
+        currency: payload.pricing.currency,
+        inputMicrosPerMillionTokens:
+          payload.pricing.inputMicrosPerMillionTokens,
+        outputMicrosPerMillionTokens:
+          payload.pricing.outputMicrosPerMillionTokens,
+        hardLimitMicros: payload.pricing.maxTotalCostMicros,
+      },
+      baseline: {
+        provenance: baselineExecution.provenance,
+        records: baselineRecords,
+      },
+      candidate: {
+        provenance: candidateExecution.provenance,
+        records: candidateRecords,
+      },
+      boundaryObservations,
+      comparison: { cases: comparisonCases },
+      regressions: [],
+      metrics: {
+        caseCount: 18,
+        passCount: 18,
+        regressionCount: 0,
+        p95LatencyMs: 117,
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        totalCostMicros: measuredMicros,
+        costCurrency: "USD",
+      },
+      spend: {
+        hardLimitMicros: 500000,
+        cumulativeWorstCaseMicros: cumulative,
+        measuredMicros,
+        admissionSha256: payload.spend.admissionSha256,
+        admittedAt: payload.spend.admittedAt,
+      },
+      issues: [],
+      releaseStatus: "PASS",
     },
   };
 }
-
 function unsignedInputs() {
   const payload = fixture("f".repeat(64));
-  const raw = Buffer.from("raw-provider-evidence");
   const spendRequest = {
     schemaVersion: 1,
     subjectSha: payload.subject.git.sha,
@@ -465,6 +677,7 @@ function unsignedInputs() {
     executableDigest: payload.subject.qualificationImage.executableDigest,
     workflowSha: payload.workflow.sha,
     policySha256: payload.policy.sha256,
+    corpusSha256: payload.corpus.sha256,
     reviewSetSha256: sha256(canonicalize(payload.reviews)),
     runId: payload.workflow.runId,
     runAttempt: payload.workflow.runAttempt,
@@ -472,25 +685,60 @@ function unsignedInputs() {
     hardLimitMicros: payload.spend.hardLimitMicros,
     reservedMicros: payload.spend.reservedMicros,
     provider: payload.provider.provider,
-    model: payload.provider.model,
-    modelVersion: payload.provider.modelVersion,
+    requestedModelAlias: payload.provider.model,
     region: payload.provider.region,
     endpoint: payload.provider.endpoint,
+    promptSha256: payload.provider.promptSha256,
+    inputMicrosPerMillionTokens: payload.pricing.inputMicrosPerMillionTokens,
+    outputMicrosPerMillionTokens: payload.pricing.outputMicrosPerMillionTokens,
+    expectedCaseCount: 18,
     admittedAt: payload.spend.admittedAt,
   };
   const spendBytes = Buffer.from(canonicalize(spendRequest));
   payload.spend.admissionSha256 = sha256(spendBytes);
-  payload.evidence.raw.sha256 = sha256(raw);
-  payload.evidence.raw.size = raw.length;
-  const report = liveReport(payload);
-  const reportBytes = Buffer.from(canonicalize(report));
+  const value = strictV4Report(payload);
+  const reportBytes = Buffer.from(canonicalize(value.report));
+  payload.spend.measuredMicros = value.report.spend.measuredMicros;
+  payload.evidence.raw.sha256 = sha256(value.raw);
+  payload.evidence.raw.size = value.raw.length;
   payload.evidence.report.sha256 = sha256(reportBytes);
   payload.evidence.report.size = reportBytes.length;
-  return { payload, raw, spendBytes, report, reportBytes };
+  return {
+    payload,
+    raw: value.raw,
+    spendBytes,
+    report: value.report,
+    reportBytes,
+  };
+}
+function evaluateMutation(input, report, raw = input.raw) {
+  const reportBytes = Buffer.from(canonicalize(report));
+  const payload = structuredClone(input.payload);
+  payload.evidence.raw.sha256 = sha256(raw);
+  payload.evidence.raw.size = raw.length;
+  payload.evidence.report.sha256 = sha256(reportBytes);
+  payload.evidence.report.size = reportBytes.length;
+  return buildUnsignedPayloadFromBytes(
+    payload,
+    raw,
+    reportBytes,
+    input.spendBytes,
+    { assessmentOnly: true },
+  );
 }
 
 test("unsigned producer requires live baseline candidate PASS and prompt binding", () => {
   const input = unsignedInputs();
+  const assessed = buildUnsignedPayloadFromBytes(
+    input.payload,
+    input.raw,
+    input.reportBytes,
+    input.spendBytes,
+    { assessmentOnly: true },
+  );
+  assert.deepEqual(assessed.issues, []);
+  assert.equal(assessed.releaseStatus, "PASS");
+  assert.equal(assessed.signable, true);
   const built = buildUnsignedPayloadFromBytes(
     input.payload,
     input.raw,
@@ -502,51 +750,181 @@ test("unsigned producer requires live baseline candidate PASS and prompt binding
       Buffer.from(built.runtimePayloadBase64, "base64").toString("utf8"),
     ),
   );
+  assert.equal(runtime.provider.model, "gemini-2.5-flash");
+  assert.equal(runtime.provider.modelVersion, "gemini-2.5-flash-001");
   assert.equal(
     runtime.provider.promptSha256,
     input.payload.provider.promptSha256,
   );
-  assert.equal(runtime.closure.reviews.length, 4);
-  assert.deepEqual(Object.keys(runtime.closure.reviews[0]).sort(), [
-    "descriptorSha256",
-    "role",
-  ]);
-  for (const mutation of [
-    { releaseStatus: "GAPS" },
-    { evidenceClass: "TEST_ONLY" },
+});
+
+test("V1 and hybrid reports are structured GAPS and never signable", () => {
+  const input = unsignedInputs();
+  for (const report of [
+    { schemaVersion: 1, releaseStatus: "PASS", spend: input.report.spend },
+    { ...input.report, schemaVersion: 1 },
   ]) {
-    const report = { ...input.report, ...mutation };
-    const bytes = Buffer.from(canonicalize(report));
-    const payload = structuredClone(input.payload);
-    payload.evidence.report.sha256 = sha256(bytes);
-    payload.evidence.report.size = bytes.length;
-    assert.throws(
-      () =>
-        buildUnsignedPayloadFromBytes(
-          payload,
-          input.raw,
-          bytes,
-          input.spendBytes,
-        ),
-      /REPORT_NOT_SIGNABLE/,
-    );
+    const result = evaluateMutation(input, report);
+    assert.equal(result.releaseStatus, "GAPS");
+    assert.equal(result.signable, false);
+    assert.deepEqual(result.issues, ["REPORT_V4_REQUIRED"]);
   }
-  const missing = structuredClone(input.report);
-  missing.baseline.cases.pop();
-  const missingBytes = Buffer.from(canonicalize(missing));
-  const missingPayload = structuredClone(input.payload);
-  missingPayload.evidence.report.sha256 = sha256(missingBytes);
-  missingPayload.evidence.report.size = missingBytes.length;
-  assert.throws(
-    () =>
-      buildUnsignedPayloadFromBytes(
-        missingPayload,
-        input.raw,
-        missingBytes,
-        input.spendBytes,
-      ),
-    /REPORT_AUTHORITY_INVALID/,
+});
+
+test("TEST_ONLY and absent executions retain deterministic missing codes", () => {
+  const input = unsignedInputs();
+  const testOnly = evaluateMutation(input, {
+    ...input.report,
+    evidenceClass: "TEST_ONLY",
+  });
+  assert.deepEqual(testOnly.issues, [
+    "MISSING_BASELINE_EXECUTION",
+    "MISSING_LIVE_CANDIDATE_EXECUTION",
+  ]);
+  for (const [side, code] of [
+    ["baseline", "MISSING_BASELINE_EXECUTION"],
+    ["candidate", "MISSING_LIVE_CANDIDATE_EXECUTION"],
+  ]) {
+    const report = structuredClone(input.report);
+    report[side] = null;
+    assert.deepEqual(evaluateMutation(input, report).issues, [code]);
+  }
+});
+
+test("execution provenance, identities, and raw response bytes are authority", () => {
+  const input = unsignedInputs();
+  const metadata = structuredClone(input.report);
+  metadata.baseline.provenance.executionKind = "IN_MEMORY_TEST_FIXTURE";
+  assert.deepEqual(evaluateMutation(input, metadata).issues, [
+    "EXECUTION_PROVENANCE_INVALID",
+  ]);
+  const artifactValue = parseStrictJson(input.raw.toString("utf8"));
+  artifactValue.executionArtifacts.baseline.bytesBase64 =
+    Buffer.from("metadata-only").toString("base64");
+  const artifactRaw = Buffer.from(canonicalize(artifactValue));
+  const artifactReport = structuredClone(input.report);
+  artifactReport.rawEvidenceSha256 = sha256(artifactRaw);
+  assert.deepEqual(
+    evaluateMutation(input, artifactReport, artifactRaw).issues,
+    ["EXECUTION_ARTIFACT_INVALID"],
   );
+  const duplicate = structuredClone(input.report);
+  duplicate.candidate.records[1].requestId =
+    duplicate.candidate.records[0].requestId;
+  assert.deepEqual(evaluateMutation(input, duplicate).issues, [
+    "CASE_IDENTITY_INVALID",
+  ]);
+  const rawValue = parseStrictJson(input.raw.toString("utf8"));
+  rawValue.responses[0].bytesBase64 = Buffer.from("mutated").toString("base64");
+  const raw = Buffer.from(canonicalize(rawValue));
+  const rawMismatch = structuredClone(input.report);
+  rawMismatch.rawEvidenceSha256 = sha256(raw);
+  assert.deepEqual(evaluateMutation(input, rawMismatch, raw).issues, [
+    "RAW_RESPONSE_BINDING_INVALID",
+  ]);
+});
+
+test("prompt alias opaque model and outcome mapping are independently bound", () => {
+  const input = unsignedInputs();
+  const prompt = structuredClone(input.report);
+  prompt.candidate.records[0].promptSha256 = "0".repeat(64);
+  assert.deepEqual(evaluateMutation(input, prompt).issues, [
+    "PROMPT_OR_MODEL_BINDING_INVALID",
+  ]);
+  const unknown = structuredClone(input.report);
+  unknown.candidate.records[0].providerOutcome = "SOMETHING_NONEMPTY";
+  assert.deepEqual(evaluateMutation(input, unknown).issues, [
+    "OUTCOME_MAPPING_INVALID",
+  ]);
+  const limit = structuredClone(input.report);
+  limit.baseline.records[0].outcome = "LIMIT_EXCEEDED";
+  limit.candidate.records[0].providerOutcome = "LIMIT_EXCEEDED";
+  limit.candidate.records[0].outcome = "OCR_UNAVAILABLE";
+  assert.deepEqual(evaluateMutation(input, limit).issues, [
+    "OUTCOME_MAPPING_INVALID",
+  ]);
+});
+
+test("caller comparison metrics cost and status claims cannot create PASS", () => {
+  const input = unsignedInputs();
+  const claimed = structuredClone(input.report);
+  claimed.comparison.cases[0].pass = false;
+  assert.deepEqual(evaluateMutation(input, claimed).issues, [
+    "PRODUCER_DERIVATION_MISMATCH",
+  ]);
+  const cost = structuredClone(input.report);
+  cost.candidate.records[0].cost.amountMicros += 1;
+  assert.deepEqual(evaluateMutation(input, cost).issues, [
+    "MEASURED_SPEND_MISMATCH",
+  ]);
+  const status = structuredClone(input.report);
+  status.releaseStatus = "GAPS";
+  status.issues = ["CALLER_CLAIM"];
+  assert.deepEqual(evaluateMutation(input, status).issues, [
+    "PRODUCER_STATUS_MISMATCH",
+  ]);
+  const request = parseStrictJson(input.spendBytes.toString("utf8"));
+  request.requestedModelAlias = "caller-controlled-alias";
+  const spendBytes = Buffer.from(canonicalize(request));
+  const report = structuredClone(input.report);
+  report.spend.admissionSha256 = sha256(spendBytes);
+  const reportBytes = Buffer.from(canonicalize(report));
+  const payload = structuredClone(input.payload);
+  payload.spend.admissionSha256 = sha256(spendBytes);
+  payload.evidence.report.sha256 = sha256(reportBytes);
+  payload.evidence.report.size = reportBytes.length;
+  assert.deepEqual(
+    buildUnsignedPayloadFromBytes(payload, input.raw, reportBytes, spendBytes, {
+      assessmentOnly: true,
+    }).issues,
+    ["SPEND_BINDING_INVALID"],
+  );
+});
+
+test("attempt spend admits 500000 and blocks 500001 before generation", () => {
+  assert.deepEqual(admitCumulativeSpend(499999, 1), {
+    status: "ADMITTED",
+    cumulativeWorstCaseMicros: 500000,
+  });
+  assert.deepEqual(admitCumulativeSpend(499999, 2), {
+    status: "CAPTURE_SPEND_LIMIT",
+    cumulativeWorstCaseMicros: 500001,
+  });
+  const input = unsignedInputs();
+  const restarted = structuredClone(input.report);
+  restarted.candidate.records[1].admission.spentBeforeMicros = 0;
+  assert.deepEqual(evaluateMutation(input, restarted).issues, [
+    "SPEND_ATTEMPT_STATE_INVALID",
+  ]);
+  const understated = structuredClone(input.report);
+  understated.candidate.records[0].admission.worstCaseCurrentMicros = 1;
+  assert.deepEqual(evaluateMutation(input, understated).issues, [
+    "SPEND_ATTEMPT_STATE_INVALID",
+  ]);
+});
+
+test("exact 10 ROUTE and 35 PROBE observations reject claims mutation and writes", () => {
+  const input = unsignedInputs();
+  const missing = structuredClone(input.report);
+  missing.boundaryObservations.pop();
+  assert.deepEqual(evaluateMutation(input, missing).issues, [
+    "BOUNDARY_EVIDENCE_INCOMPLETE",
+  ]);
+  const claimed = structuredClone(input.report);
+  claimed.boundaryObservations[0].pass = true;
+  assert.deepEqual(evaluateMutation(input, claimed).issues, [
+    "REPORT_V4_SCHEMA_INVALID",
+  ]);
+  const written = structuredClone(input.report);
+  written.boundaryObservations[0].financialDeltas.Expense = 1;
+  assert.deepEqual(evaluateMutation(input, written).issues, [
+    "FINANCIAL_DELTA_NONZERO",
+  ]);
+  const mutated = structuredClone(input.report);
+  mutated.boundaryObservations[10].outcome = "CALLER_ASSERTED_PASS";
+  assert.deepEqual(evaluateMutation(input, mutated).issues, [
+    "BOUNDARY_EVIDENCE_MUTATED",
+  ]);
 });
 
 test("runtime envelope verifies exact payload bytes and rejects extra fields raw signatures and whitespace", async () => {

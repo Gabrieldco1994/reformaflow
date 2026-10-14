@@ -21,6 +21,14 @@ const recovery = await readFile(
   resolve(root, ".github/workflows/ocr-recovery-evidence.yml"),
   "utf8",
 );
+const captureAdapter = await readFile(
+  resolve(root, "deploy/ocr/wif-adapter.mjs"),
+  "utf8",
+);
+const offlineAdapter = await readFile(
+  resolve(root, "deploy/ocr/offline-report-adapter.mjs"),
+  "utf8",
+);
 function section(source, name, next) {
   const start = source.indexOf(`\n  ${name}:`);
   const end = next ? source.indexOf(`\n  ${next}:`, start + 1) : source.length;
@@ -59,9 +67,33 @@ test("qualification has no caller subject assertions and all gates precede provi
   assert.ok(
     q.indexOf("protected-reviews:") < q.indexOf("google-github-actions/auth"),
   );
-  assert.match(q, /MODEL_VERSION.*vars\.OCR_PROVIDER_MODEL_VERSION/);
-  assert.match(q, /MODEL_VERSION.*provider\.modelVersion/s);
+  assert.match(q, /requestedModelAlias/);
+  assert.match(q, /promptSha256/);
+  assert.match(q, /OCR_REQUESTED_MODEL_ALIAS/);
+  assert.doesNotMatch(q, /OCR_PROVIDER_MODEL_VERSION/);
   assert.doesNotMatch(q, /run:[\s\S]{0,300}\$\{\{ inputs\./);
+});
+
+test("V4 GAPS assessment is persisted and gates unsigned bytes and KMS", () => {
+  const assess = q.indexOf("assess-report -");
+  const artifact = q.indexOf("ocr-report-assessment-");
+  const gate = q.indexOf(
+    "Block signing unless independently recomputed V4 assessment passes",
+  );
+  const build = q.indexOf("build-unsigned -", assess);
+  const signing = q.indexOf("sign-kms:");
+  assert.ok(assess > 0 && artifact > assess && gate > artifact);
+  assert.ok(build > gate && signing > build);
+  assert.match(q, /reportSchemaVersion == 4/);
+  assert.match(q, /releaseStatus == .*PASS/);
+  assert.match(q, /signable == true/);
+});
+
+test("capture and report adapters remain fail closed without product executables", () => {
+  assert.match(captureAdapter, /OCR_CAPTURE_WIF_EXECUTABLE_NOT_AVAILABLE/);
+  assert.match(offlineAdapter, /OCR_OFFLINE_REPORT_EXECUTABLE_NOT_AVAILABLE/);
+  assert.doesNotMatch(captureAdapter, /releaseStatus:\s*"PASS"/);
+  assert.doesNotMatch(offlineAdapter, /releaseStatus:\s*"PASS"/);
 });
 
 test("unsigned transfer and two exact EC signatures are explicit", () => {

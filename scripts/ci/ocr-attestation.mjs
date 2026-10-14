@@ -1406,6 +1406,7 @@ export async function reserveSpend(request, path) {
       "executableDigest",
       "workflowSha",
       "policySha256",
+      "corpusSha256",
       "reviewSetSha256",
       "runId",
       "runAttempt",
@@ -1413,10 +1414,13 @@ export async function reserveSpend(request, path) {
       "hardLimitMicros",
       "reservedMicros",
       "provider",
-      "model",
-      "modelVersion",
+      "requestedModelAlias",
       "region",
       "endpoint",
+      "promptSha256",
+      "inputMicrosPerMillionTokens",
+      "outputMicrosPerMillionTokens",
+      "expectedCaseCount",
       "admittedAt",
     ],
     "SPEND_GUARD_INVALID",
@@ -1425,7 +1429,7 @@ export async function reserveSpend(request, path) {
     request.schemaVersion !== 1 ||
     request.currency !== "USD" ||
     request.provider !== PROVIDER ||
-    request.model !== MODEL ||
+    request.requestedModelAlias !== MODEL ||
     request.region !== REGION ||
     request.endpoint !== ENDPOINT
   )
@@ -1436,14 +1440,22 @@ export async function reserveSpend(request, path) {
   match(request.qualificationImageDigest, DIGEST, "SPEND_GUARD_INVALID");
   match(request.executableDigest, DIGEST, "SPEND_GUARD_INVALID");
   match(request.workflowSha, COMMIT, "SPEND_GUARD_INVALID");
-  if (!/^[!-~]{1,192}$/.test(request.modelVersion)) fail("SPEND_GUARD_INVALID");
   match(request.policySha256, HASH, "SPEND_GUARD_INVALID");
+  match(request.corpusSha256, HASH, "SPEND_GUARD_INVALID");
+  match(request.promptSha256, HASH, "SPEND_GUARD_INVALID");
   match(request.reviewSetSha256, HASH, "SPEND_GUARD_INVALID");
   match(request.runId, DECIMAL_ID, "SPEND_GUARD_INVALID");
   integer(request.runAttempt, 1, "SPEND_GUARD_INVALID");
   integer(request.hardLimitMicros, 1, "SPEND_GUARD_INVALID");
   integer(request.reservedMicros, 1, "SPEND_GUARD_INVALID");
-  if (request.reservedMicros > request.hardLimitMicros)
+  integer(request.inputMicrosPerMillionTokens, 1, "SPEND_GUARD_INVALID");
+  integer(request.outputMicrosPerMillionTokens, 1, "SPEND_GUARD_INVALID");
+  integer(request.expectedCaseCount, 1, "SPEND_GUARD_INVALID");
+  if (
+    request.hardLimitMicros !== 500000 ||
+    request.reservedMicros !== request.hardLimitMicros ||
+    request.expectedCaseCount !== 18
+  )
     fail("SPEND_GUARD_INVALID");
   utc(request.admittedAt, "SPEND_GUARD_INVALID");
   const canonical = canonicalize(request);

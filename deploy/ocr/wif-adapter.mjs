@@ -68,7 +68,14 @@ async function main() {
       process.env.OCR_QUALIFICATION_IMAGE_DIGEST ||
     request.executableDigest !== process.env.OCR_EXECUTABLE_DIGEST ||
     request.workflowSha !== process.env.OCR_WORKFLOW_SHA ||
-    request.modelVersion !== process.env.OCR_PROVIDER_MODEL_VERSION
+    request.corpusSha256 !== process.env.OCR_CORPUS_SHA256 ||
+    request.requestedModelAlias !== process.env.OCR_REQUESTED_MODEL_ALIAS ||
+    request.promptSha256 !== process.env.OCR_PROMPT_SHA256 ||
+    request.inputMicrosPerMillionTokens !==
+      Number(process.env.OCR_INPUT_MICROS_PER_MILLION_TOKENS) ||
+    request.outputMicrosPerMillionTokens !==
+      Number(process.env.OCR_OUTPUT_MICROS_PER_MILLION_TOKENS) ||
+    request.expectedCaseCount !== Number(process.env.OCR_EXPECTED_CASE_COUNT)
   )
     fail("CAPTURE_BINDING_INVALID");
   const reservation = await reserveSpend(request, RESERVATION);

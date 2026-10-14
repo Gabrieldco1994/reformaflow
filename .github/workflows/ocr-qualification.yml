@@ -212,14 +212,11 @@ jobs:
           SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
           QUALIFICATION_IMAGE_DIGEST: ${{ needs.offline-materialize.outputs.image_digest }}
           EXECUTABLE_DIGEST: ${{ needs.offline-materialize.outputs.executable_digest }}
-          MODEL_VERSION: ${{ vars.OCR_PROVIDER_MODEL_VERSION }}
         run: |
           set -euo pipefail
-          [[ "$MODEL_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$ ]]
-          [[ "$MODEL_VERSION" == "$(jq -er .provider.modelVersion deploy/ocr/infra-policy.json)" ]]
           PRODUCTION_IMAGE="$(jq -er .receipt.image.reference "$RUNNER_TEMP/transfer/runtime-subject-binding.json")"
           [[ "$PRODUCTION_IMAGE" =~ ^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$ ]]
-          jq -nc --arg sha "$SUBJECT_SHA" --arg tree "$SUBJECT_TREE" --arg production "$PRODUCTION_IMAGE" --arg image "$QUALIFICATION_IMAGE_DIGEST" --arg executable "$EXECUTABLE_DIGEST" --arg workflow "$GITHUB_WORKFLOW_SHA" --arg policy "$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" --arg reviews "$(sha256sum "$RUNNER_TEMP/reviews.json" | awk "{print \$1}")" --arg run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" --arg modelVersion "$MODEL_VERSION" --arg admittedAt "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" --argjson limit "$(jq -r .pricing.maxTotalCostMicros deploy/ocr/infra-policy.json)" "{schemaVersion:1,subjectSha:\$sha,subjectTree:\$tree,productionImage:\$production,qualificationImageDigest:\$image,executableDigest:\$executable,workflowSha:\$workflow,policySha256:\$policy,reviewSetSha256:\$reviews,runId:\$run,runAttempt:\$attempt,currency:\"USD\",hardLimitMicros:\$limit,reservedMicros:\$limit,provider:\"GOOGLE_VERTEX_AI\",model:\"gemini-2.5-flash\",modelVersion:\$modelVersion,region:\"southamerica-east1\",endpoint:\"https://southamerica-east1-aiplatform.googleapis.com\",admittedAt:\$admittedAt}" > "$RUNNER_TEMP/spend-request.json"
+          jq -nc --arg sha "$SUBJECT_SHA" --arg tree "$SUBJECT_TREE" --arg production "$PRODUCTION_IMAGE" --arg image "$QUALIFICATION_IMAGE_DIGEST" --arg executable "$EXECUTABLE_DIGEST" --arg workflow "$GITHUB_WORKFLOW_SHA" --arg policy "$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" --arg corpus "$(jq -r .corpus.sha256 deploy/ocr/infra-policy.json)" --arg reviews "$(sha256sum "$RUNNER_TEMP/reviews.json" | awk "{print \$1}")" --arg run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" --arg alias "$(jq -r .provider.requestedModelAlias deploy/ocr/infra-policy.json)" --arg prompt "$(jq -r .provider.promptSha256 deploy/ocr/infra-policy.json)" --arg admittedAt "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" --argjson limit "$(jq -r .pricing.maxTotalCostMicros deploy/ocr/infra-policy.json)" --argjson inputRate "$(jq -r .pricing.inputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --argjson outputRate "$(jq -r .pricing.outputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --argjson cases "$(jq -r .qualification.candidateCaseCount deploy/ocr/infra-policy.json)" "{schemaVersion:1,subjectSha:\$sha,subjectTree:\$tree,productionImage:\$production,qualificationImageDigest:\$image,executableDigest:\$executable,workflowSha:\$workflow,policySha256:\$policy,corpusSha256:\$corpus,reviewSetSha256:\$reviews,runId:\$run,runAttempt:\$attempt,currency:\"USD\",hardLimitMicros:\$limit,reservedMicros:\$limit,provider:\"GOOGLE_VERTEX_AI\",requestedModelAlias:\$alias,region:\"southamerica-east1\",endpoint:\"https://southamerica-east1-aiplatform.googleapis.com\",promptSha256:\$prompt,inputMicrosPerMillionTokens:\$inputRate,outputMicrosPerMillionTokens:\$outputRate,expectedCaseCount:\$cases,admittedAt:\$admittedAt}" > "$RUNNER_TEMP/spend-request.json"
       - id: auth
         uses: google-github-actions/auth@ba79af03959ebeac9769e648f473a284504d9193
         with:
@@ -236,12 +233,10 @@ jobs:
           SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
           QUALIFICATION_IMAGE_DIGEST: ${{ needs.offline-materialize.outputs.image_digest }}
           EXECUTABLE_DIGEST: ${{ needs.offline-materialize.outputs.executable_digest }}
-          MODEL_VERSION: ${{ vars.OCR_PROVIDER_MODEL_VERSION }}
         run: |
           set -euo pipefail
-          [[ "$MODEL_VERSION" == "$(jq -er .provider.modelVersion deploy/ocr/infra-policy.json)" ]]
           PRODUCTION_IMAGE="$(jq -er .receipt.image.reference "$RUNNER_TEMP/transfer/runtime-subject-binding.json")"
-          printf "%s" "$ACCESS_TOKEN" | docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m --env OCR_CAPTURE_AUTH_MODE=GITHUB_OIDC_WIF --env OCR_SUBJECT_SHA="$SUBJECT_SHA" --env OCR_SUBJECT_TREE="$SUBJECT_TREE" --env OCR_PRODUCTION_IMAGE="$PRODUCTION_IMAGE" --env OCR_QUALIFICATION_IMAGE_DIGEST="$QUALIFICATION_IMAGE_DIGEST" --env OCR_EXECUTABLE_DIGEST="$EXECUTABLE_DIGEST" --env OCR_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" --env OCR_WORKFLOW_RUN_ID="$GITHUB_RUN_ID" --env OCR_WORKFLOW_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" --env OCR_POLICY_SHA256="$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" --env OCR_PROVIDER_MODEL_VERSION="$MODEL_VERSION" --env OCR_REVIEW_SET_B64="$(base64 -w0 "$RUNNER_TEMP/reviews.json")" --env OCR_SPEND_REQUEST_B64="$(base64 -w0 "$RUNNER_TEMP/spend-request.json")" "$QUALIFICATION_TAG" capture > "$RUNNER_TEMP/raw-evidence.json"
+          printf "%s" "$ACCESS_TOKEN" | docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m --env OCR_CAPTURE_AUTH_MODE=GITHUB_OIDC_WIF --env OCR_SUBJECT_SHA="$SUBJECT_SHA" --env OCR_SUBJECT_TREE="$SUBJECT_TREE" --env OCR_PRODUCTION_IMAGE="$PRODUCTION_IMAGE" --env OCR_QUALIFICATION_IMAGE_DIGEST="$QUALIFICATION_IMAGE_DIGEST" --env OCR_EXECUTABLE_DIGEST="$EXECUTABLE_DIGEST" --env OCR_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" --env OCR_WORKFLOW_RUN_ID="$GITHUB_RUN_ID" --env OCR_WORKFLOW_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" --env OCR_POLICY_SHA256="$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" --env OCR_CORPUS_SHA256="$(jq -r .corpus.sha256 deploy/ocr/infra-policy.json)" --env OCR_REQUESTED_MODEL_ALIAS="$(jq -r .provider.requestedModelAlias deploy/ocr/infra-policy.json)" --env OCR_PROMPT_SHA256="$(jq -r .provider.promptSha256 deploy/ocr/infra-policy.json)" --env OCR_INPUT_MICROS_PER_MILLION_TOKENS="$(jq -r .pricing.inputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --env OCR_OUTPUT_MICROS_PER_MILLION_TOKENS="$(jq -r .pricing.outputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --env OCR_EXPECTED_CASE_COUNT="$(jq -r .qualification.candidateCaseCount deploy/ocr/infra-policy.json)" --env OCR_REVIEW_SET_B64="$(base64 -w0 "$RUNNER_TEMP/reviews.json")" --env OCR_SPEND_REQUEST_B64="$(base64 -w0 "$RUNNER_TEMP/spend-request.json")" "$QUALIFICATION_TAG" capture > "$RUNNER_TEMP/raw-evidence.json"
           mkdir "$RUNNER_TEMP/raw" && cp "$RUNNER_TEMP/raw-evidence.json" "$RUNNER_TEMP/reviews.json" "$RUNNER_TEMP/spend-request.json" "$RUNNER_TEMP/raw/"
       - id: raw
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
@@ -294,6 +289,19 @@ jobs:
           node deploy/ocr/workflow-payload-template.mjs "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/reviews.json" deploy/ocr/infra-policy.json "$RUNNER_TEMP/verify/runtime-subject-binding.json" "$RUNNER_TEMP/verify/recovery-evidence-binding.json" > "$RUNNER_TEMP/template.json"
           node deploy/ocr/evidence-bundle.mjs "$RUNNER_TEMP/template.json" "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/spend-request.json" > "$RUNNER_TEMP/bundle.json"
           mkdir "$RUNNER_TEMP/unsigned"
+          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" assess-report - < "$RUNNER_TEMP/bundle.json" > "$RUNNER_TEMP/report-assessment.json"
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          {
+            name: "ocr-report-assessment-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: "${{ runner.temp }}/report-assessment.json",
+            if-no-files-found: error,
+            retention-days: 7,
+          }
+      - name: Block signing unless independently recomputed V4 assessment passes
+        run: |
+          set -euo pipefail
+          jq -e ".reportSchemaVersion == 4 and .releaseStatus == \"PASS\" and .signable == true and (.issues | length) == 0" "$RUNNER_TEMP/report-assessment.json"
           docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" build-unsigned - < "$RUNNER_TEMP/bundle.json" > "$RUNNER_TEMP/unsigned/unsigned-package.json"
           node scripts/ci/ocr-attestation.mjs extract-activation-draft "$RUNNER_TEMP/unsigned/unsigned-package.json" > "$RUNNER_TEMP/unsigned/activation-payload-draft.json"
           node scripts/ci/ocr-attestation.mjs extract-runtime-payload "$RUNNER_TEMP/unsigned/unsigned-package.json" > "$RUNNER_TEMP/unsigned/runtime-payload.json"

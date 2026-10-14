@@ -24,10 +24,16 @@
   },
   "provider": {
     "provider": "GOOGLE_VERTEX_AI",
-    "model": "gemini-2.5-flash",
+    "requestedModelAlias": "gemini-2.5-flash",
     "region": "southamerica-east1",
     "endpoint": "https://southamerica-east1-aiplatform.googleapis.com",
-    "modelVersion": "gemini-2.5-flash"
+    "promptSha256": "4a34d237b69fc103a171c4f3e0cef8bd90b9ce3980c0b44feae637e93c5fe2d7"
   },
-  "qualificationLifetimeSeconds": 86400
+  "qualificationLifetimeSeconds": 86400,
+  "qualification": {
+    "baselineCaseCount": 18,
+    "candidateCaseCount": 18,
+    "routeObservationCount": 10,
+    "probeObservationCount": 35
+  }
 }

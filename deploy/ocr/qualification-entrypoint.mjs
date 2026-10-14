@@ -26,6 +26,8 @@ function run(file, args) {
 
 const [command, ...args] = process.argv.slice(2);
 if (command === "capture") run(CAPTURE, args);
+else if (command === "assess-report")
+  run(BUILD_UNSIGNED, [args[0] ?? "-", "--assessment"]);
 else if (command === "build-unsigned") run(BUILD_UNSIGNED, args);
 else if (command === "offline-report") run(OFFLINE_REPORT, args);
 else if (
