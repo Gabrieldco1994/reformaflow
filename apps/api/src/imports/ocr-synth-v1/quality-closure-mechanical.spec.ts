@@ -1699,37 +1699,29 @@ describe("canonical capture and qualification orchestration", () => {
     }
   });
 
-  it("[B3] capture CLI remains unavailable without an internally admitted credential context", async () => {
+  it("[B3] one-argument local capture CLI fails at the protected entrypoint before any dependency", async () => {
     jest.resetModules();
-    const events: string[] = [];
-    const closure = { version: 2, marker: "attested", snapshot: {} };
     let complete!: () => void;
     const completed = new Promise<void>((resolveCompleted) => {
       complete = resolveCompleted;
     });
-    const attest = jest.fn(async () => {
-      events.push("jest");
-      return { policy: { marker: "policy" }, closure };
-    });
+    const outputPolicy = jest.fn(async () => undefined);
+    const globalLock = jest.fn(async () => "/tmp/ocr-quality-global.lock");
+    const attest = jest.fn(async () => ({
+      policy: { marker: "policy" },
+      closure: { version: 2, marker: "attested", snapshot: {} },
+    }));
+    const reviewReads = jest.fn(async () => ({}));
+    const snapshotVerification = jest.fn(async () => undefined);
     const capture = jest.fn();
     const outputWriter = jest.fn();
     const providerFactory = jest.fn();
     jest.doMock("./quality-closure-attestation", () => ({
-      assertOutputOutsideRepository: jest.fn(async () => {
-        events.push("output-policy");
-      }),
-      qualityCaptureLockPath: jest.fn(async () => {
-        events.push("global-lock");
-        return "/tmp/ocr-quality-global.lock";
-      }),
+      assertOutputOutsideRepository: outputPolicy,
+      qualityCaptureLockPath: globalLock,
       attestQualityClosure: attest,
-      readFinalReviewHashes: jest.fn(async () => {
-        events.push("reviews");
-        return {};
-      }),
-      assertQualityRepositorySnapshot: jest.fn(async () => {
-        events.push("snapshot");
-      }),
+      readFinalReviewHashes: reviewReads,
+      assertQualityRepositorySnapshot: snapshotVerification,
     }));
     jest.doMock("./capture-live-file", () => ({
       writeQualifiedLiveEvidenceExclusive: outputWriter,
@@ -1757,19 +1749,17 @@ describe("canonical capture and qualification orchestration", () => {
     try {
       jest.isolateModules(() => require("./capture-live"));
       await completed;
-      expect(cliError).toBe("LIVE_CAPTURE_CREDENTIALS_MISSING\n");
+      expect(cliError).toBe("LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE\n");
       expect(stderr).toHaveBeenCalledTimes(1);
-      expect(attest).toHaveBeenCalledTimes(1);
+      expect(process.exitCode).toBe(1);
+      expect(outputPolicy).not.toHaveBeenCalled();
+      expect(globalLock).not.toHaveBeenCalled();
+      expect(attest).not.toHaveBeenCalled();
+      expect(reviewReads).not.toHaveBeenCalled();
+      expect(snapshotVerification).not.toHaveBeenCalled();
       expect(capture).not.toHaveBeenCalled();
       expect(providerFactory).not.toHaveBeenCalled();
       expect(outputWriter).not.toHaveBeenCalled();
-      expect(events).toEqual([
-        "output-policy",
-        "global-lock",
-        "jest",
-        "reviews",
-        "snapshot",
-      ]);
     } finally {
       process.argv = previousArguments;
       if (previousResults === undefined)
@@ -1781,15 +1771,34 @@ describe("canonical capture and qualification orchestration", () => {
     }
   });
 
-  it("rejects a second capture CLI argument before reservation or provider creation", async () => {
+  it("two-argument local capture CLI fails at the protected entrypoint before any dependency", async () => {
     jest.resetModules();
-    const writer = jest.fn();
+    const outputPolicy = jest.fn(async () => undefined);
+    const globalLock = jest.fn(async () => "/tmp/ocr-quality-global.lock");
+    const attest = jest.fn(async () => ({
+      policy: { marker: "policy" },
+      closure: { version: 2, marker: "attested", snapshot: {} },
+    }));
+    const reviewReads = jest.fn(async () => ({}));
+    const snapshotVerification = jest.fn(async () => undefined);
+    const capture = jest.fn();
+    const outputWriter = jest.fn();
     const providerFactory = jest.fn();
+    jest.doMock("./quality-closure-attestation", () => ({
+      assertOutputOutsideRepository: outputPolicy,
+      qualityCaptureLockPath: globalLock,
+      attestQualityClosure: attest,
+      readFinalReviewHashes: reviewReads,
+      assertQualityRepositorySnapshot: snapshotVerification,
+    }));
     jest.doMock("./capture-live-file", () => ({
-      writeQualifiedLiveEvidenceExclusive: writer,
+      writeQualifiedLiveEvidenceExclusive: outputWriter,
     }));
     jest.doMock("../import-session/ocr/vertex-provider.factory", () => ({
       createConfiguredVertexPdfOcrProvider: providerFactory,
+    }));
+    jest.doMock("./capture-live-core", () => ({
+      captureLiveEvidence: capture,
     }));
     const previousArguments = process.argv;
     process.argv = [
@@ -1808,9 +1817,17 @@ describe("canonical capture and qualification orchestration", () => {
     });
     try {
       jest.isolateModules(() => require("./capture-live"));
-      await expect(rejected).resolves.toBe("LIVE_CAPTURE_OUTPUT_MISSING\n");
-      expect(writer).not.toHaveBeenCalled();
+      await expect(rejected).resolves.toBe(
+        "LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE\n",
+      );
+      expect(outputPolicy).not.toHaveBeenCalled();
+      expect(globalLock).not.toHaveBeenCalled();
+      expect(attest).not.toHaveBeenCalled();
+      expect(reviewReads).not.toHaveBeenCalled();
+      expect(snapshotVerification).not.toHaveBeenCalled();
+      expect(capture).not.toHaveBeenCalled();
       expect(providerFactory).not.toHaveBeenCalled();
+      expect(outputWriter).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(1);
     } finally {
       process.argv = previousArguments;
