@@ -184,6 +184,16 @@ export type ImportSessionOcrTerminalCodeV1 =
   | typeof ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN
   | typeof ImportSessionErrorCode.LIMIT_EXCEEDED
   | typeof ImportSessionErrorCode.DOCUMENT_UNREADABLE;
+export const IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION = 1 as const;
+export interface ImportSessionTerminalOutcomesV1 {
+  readonly version: typeof IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION;
+  readonly sessionId: ImportSessionId;
+  readonly revision: ImportSessionRevision;
+  readonly outcomes: Array<{
+    readonly attachmentId: ImportSessionId;
+    readonly code: ImportSessionOcrTerminalCodeV1;
+  }>;
+}
 
 /** Existing parent CUIDs remain valid. Only NEW server IDs and request IDs require UUIDv4. */
 export type ImportSessionId = string;

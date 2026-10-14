@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import {
   IMPORT_SESSION_LIMITS,
   IMPORT_SESSION_PRIMITIVES,
+  PDF_OCR_LEGACY_PARSER_VERSION,
   PDF_OCR_PARSER_VERSION,
   ImportSessionState,
   ImportSessionAttachmentState,
@@ -181,7 +182,9 @@ export class VaultReaper {
               where: {
                 id: { in: due.map((item) => item.artifactId) },
                 ...scope,
-                parserVersion: PDF_OCR_PARSER_VERSION,
+                parserVersion: {
+                  in: [PDF_OCR_LEGACY_PARSER_VERSION, PDF_OCR_PARSER_VERSION],
+                },
               },
               data: {
                 state: ImportSessionArtifactState.RAW_READY,
@@ -317,7 +320,9 @@ export class VaultReaper {
               id: { in: due.map((attempt) => attempt.artifactId) },
               tenantId: row.tenantId,
               ownerProjectId: row.ownerProjectId,
-              parserVersion: PDF_OCR_PARSER_VERSION,
+              parserVersion: {
+                in: [PDF_OCR_LEGACY_PARSER_VERSION, PDF_OCR_PARSER_VERSION],
+              },
             },
             data: {
               state: ImportSessionArtifactState.RAW_READY,

@@ -12,6 +12,7 @@ import {
   IMPORT_SESSION_LIMITS,
   IMPORT_SESSION_PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
+  IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION,
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
   PDF_OCR_REGION,
@@ -31,6 +32,7 @@ import {
   type ImportSessionListV1,
   type ImportSessionPageV1,
   type ImportSessionResultV1,
+  type ImportSessionTerminalOutcomesV1,
   type ImportSessionRevisionRequestV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
@@ -532,6 +534,38 @@ export class ImportSessionService {
   ): Promise<ImportSessionViewV1> {
     const projection = parseSessionProjectionQuery(query);
     return (await this.read(auth, id, projection.includeTerminalOutcomes)).view;
+  }
+
+  async getTerminalOutcomesV1(
+    auth: AuthenticatedImportContext,
+    id: string,
+  ): Promise<ImportSessionTerminalOutcomesV1> {
+    assertMintedImportContext(auth);
+    assertSessionId(id);
+    return this.readTransaction(async (tx, now) => {
+      const actor = await reauthorize(tx, auth, now);
+      // This canonical endpoint is a strict snapshot read. In particular it
+      // must not enter the retention path used by the full session view.
+      const row = await tx.importSession.findFirst({
+        where: { id, tenantId: actor.tenantId, ownerUserId: actor.userId },
+      });
+      if (!row) throw notFound();
+      await assertImportSessionAccess(tx, actor, row, now);
+      const attachments = await tx.importSessionArtifact.findMany({
+        where: {
+          sessionId: row.id,
+          tenantId: row.tenantId,
+          ownerProjectId: row.ownerProjectId,
+        },
+        select: { id: true, artifactId: true, position: true },
+      });
+      return {
+        version: IMPORT_SESSION_TERMINAL_OUTCOMES_PROJECTION_VERSION,
+        sessionId: row.id,
+        revision: row.revision,
+        outcomes: await projectPdfOcrTerminalOutcomes(tx, row, attachments),
+      };
+    });
   }
 
   async getResult(
@@ -1434,6 +1468,91 @@ export async function canMutateImportSession(
   return scope === null || scope.includes(ownerProjectId);
 }
 
+type TerminalOutcomeAttachment = Pick<
+  ImportSessionArtifact,
+  "id" | "artifactId" | "position"
+>;
+
+async function projectPdfOcrTerminalOutcomes(
+  db: Db,
+  row: ImportSession,
+  attachments: readonly TerminalOutcomeAttachment[],
+): Promise<ImportSessionTerminalOutcomesV1["outcomes"]> {
+  const ocrState = parseStoredPdfOcrState(row.ocrJson);
+  const usageIds = ocrState.consents.flatMap((consent) =>
+    consent.usageId === null ? [] : [consent.usageId],
+  );
+  const usages =
+    usageIds.length === 0
+      ? []
+      : await db.importOcrUsage.findMany({
+          where: {
+            id: { in: usageIds },
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+            sessionId: row.id,
+          },
+        });
+  const spentAttachmentIds = new Set(
+    ocrState.consents.flatMap((consent) =>
+      consent.usageId === null ? [] : [consent.attachmentId],
+    ),
+  );
+  const artifactIds = attachments.flatMap((attachment) =>
+    spentAttachmentIds.has(attachment.id) && attachment.artifactId !== null
+      ? [attachment.artifactId]
+      : [],
+  );
+  const artifacts =
+    artifactIds.length === 0
+      ? []
+      : await db.importArtifact.findMany({
+          where: {
+            id: { in: artifactIds },
+            tenantId: row.tenantId,
+            ownerProjectId: row.ownerProjectId,
+          },
+          select: { id: true, documentSha256: true },
+        });
+
+  return [...attachments]
+    .sort((left, right) => left.position - right.position)
+    .flatMap((attachment) => {
+      const consent = ocrState.consents.find(
+        (item) => item.attachmentId === attachment.id && item.usageId !== null,
+      );
+      if (!consent) return [];
+      const usage = usages.find((item) => item.id === consent.usageId);
+      const artifact = artifacts.find(
+        (item) => item.id === attachment.artifactId,
+      );
+      const correctlyBound =
+        usage !== undefined &&
+        artifact !== undefined &&
+        artifact.documentSha256 !== null &&
+        consent.actorId === row.ownerUserId &&
+        consent.artifactSha256 === artifact.documentSha256 &&
+        consent.requestPayloadHash ===
+          pdfOcrRequestPayloadHash({
+            version: PDF_OCR_VERSION,
+            expectedRevision: consent.expectedRevision,
+            requestId: consent.requestId,
+            consentExternalProcessing: true,
+          }) &&
+        usage.actorId === consent.actorId &&
+        usage.attachmentId === consent.attachmentId &&
+        usage.artifactId === artifact.id &&
+        usage.artifactSha256 === consent.artifactSha256 &&
+        usage.requestId === consent.requestId &&
+        usage.provider === consent.provider &&
+        usage.model === consent.model;
+      const code = correctlyBound
+        ? pdfOcrTerminalCodeForLedgerOutcome(usage.outcome)
+        : ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN;
+      return code === null ? [] : [{ attachmentId: attachment.id, code }];
+    });
+}
+
 export async function renderImportSession(
   db: Db,
   row: ImportSession,
@@ -1708,79 +1827,8 @@ async function renderImportSessionUnchecked(
     ),
   );
   const includeTerminalOutcomes = options.includeTerminalOutcomes === true;
-  const terminalUsageIds = includeTerminalOutcomes
-    ? ocrState.consents.flatMap((consent) =>
-        consent.usageId === null ? [] : [consent.usageId],
-      )
-    : [];
-  const terminalOcrUsages =
-    terminalUsageIds.length === 0
-      ? []
-      : await db.importOcrUsage.findMany({
-          where: {
-            id: { in: terminalUsageIds },
-            tenantId: row.tenantId,
-            ownerProjectId: row.ownerProjectId,
-            sessionId: row.id,
-          },
-        });
-  const boundArtifactIds = includeTerminalOutcomes
-    ? attachments.flatMap((ref) =>
-        spentOcrAttachmentIds.has(ref.id) && ref.artifactId !== null
-          ? [ref.artifactId]
-          : [],
-      )
-    : [];
-  const boundArtifacts =
-    boundArtifactIds.length === 0
-      ? []
-      : await db.importArtifact.findMany({
-          where: {
-            id: { in: boundArtifactIds },
-            tenantId: row.tenantId,
-            ownerProjectId: row.ownerProjectId,
-          },
-          select: { id: true, documentSha256: true },
-        });
   const terminalOutcomes = includeTerminalOutcomes
-    ? [...attachments]
-        .sort((left, right) => left.position - right.position)
-        .flatMap((ref) => {
-          const consent = ocrState.consents.find(
-            (item) => item.attachmentId === ref.id && item.usageId !== null,
-          );
-          if (!consent) return [];
-          const usage = terminalOcrUsages.find(
-            (item) => item.id === consent.usageId,
-          );
-          const artifact = boundArtifacts.find(
-            (item) => item.id === ref.artifactId,
-          );
-          const correctlyBound =
-            usage !== undefined &&
-            artifact !== undefined &&
-            artifact.documentSha256 !== null &&
-            consent.actorId === row.ownerUserId &&
-            consent.artifactSha256 === artifact.documentSha256 &&
-            consent.requestPayloadHash ===
-              pdfOcrRequestPayloadHash({
-                version: PDF_OCR_VERSION,
-                expectedRevision: consent.expectedRevision,
-                requestId: consent.requestId,
-                consentExternalProcessing: true,
-              }) &&
-            usage.actorId === consent.actorId &&
-            usage.attachmentId === consent.attachmentId &&
-            usage.artifactId === artifact.id &&
-            usage.artifactSha256 === consent.artifactSha256 &&
-            usage.requestId === consent.requestId &&
-            usage.provider === consent.provider &&
-            usage.model === consent.model;
-          const code = correctlyBound
-            ? pdfOcrTerminalCodeForLedgerOutcome(usage.outcome)
-            : ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN;
-          return code === null ? [] : [{ attachmentId: ref.id, code }];
-        })
+    ? await projectPdfOcrTerminalOutcomes(db, row, attachments)
     : [];
   const ocrStatus =
     options.ocrReleaseEnabled !== true

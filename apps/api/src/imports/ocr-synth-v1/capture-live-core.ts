@@ -9,6 +9,7 @@ import {
   PdfOcrProviderError,
   VertexPdfOcrProvider,
 } from "../import-session/ocr/vertex-pdf-ocr.provider";
+import { parseStrictJson } from "../import-session/ocr/strict-json";
 import { OCR_SYNTH_DATASET, OCR_SYNTH_ROUTING_CASES } from "./corpus";
 import { artifactSha256, generateArtifact } from "./fixture-generator";
 import {
@@ -18,8 +19,6 @@ import {
   OCR_PROVIDER_CALL_PROBE_IDS,
   REAL_SERVICE_CONTEXT_PROBE_IDS,
   REAL_SERVICE_CONTEXT_TEST,
-  buildOracleRoutingCases,
-  buildOracleSafetyProbes,
   type OcrEvalInput,
   type OcrEvalRunConfig,
 } from "./evaluator";
@@ -33,6 +32,7 @@ import {
 import { providerNativeOutcome } from "./provider-native-outcome";
 import {
   SAFETY_PROBE_IDS,
+  SAFETY_PROBE_SCENARIOS,
   type OcrRoutingEvidence,
   type OcrSafetyProbeEvidence,
 } from "./types";
@@ -163,6 +163,13 @@ const exactIds = (actual: readonly string[], expected: readonly string[]) =>
   actual.length === expected.length &&
   new Set(actual).size === actual.length &&
   actual.every((id, index) => id === expected[index]);
+const qualificationSource = (name: string): string => {
+  const entry = qualityPolicy.qualificationTests.find(
+    (candidate) => candidate.name === name,
+  );
+  if (!entry) throw new Error("LIVE_CAPTURE_RAW_EVIDENCE_INVALID");
+  return entry.sourcePath;
+};
 
 async function preflight(
   manifest: CaptureLiveManifest,
@@ -265,24 +272,58 @@ async function mechanicalManifest(
   qualityClosure: OcrQualityClosure,
   reviews: FinalReviewHashes,
 ): Promise<CaptureLiveManifest> {
-  const testPaths = new Map(
-    qualityClosure.tests.map((item) => [item.name, item.sourcePath]),
-  );
-  const routingCases = await buildOracleRoutingCases();
-  for (const route of routingCases) {
-    route.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
-    const path = testPaths.get(`[ROUTE] ${route.caseId}`);
-    if (!path) throw new Error("LIVE_CAPTURE_ATTESTATION_INVALID");
-    route.testFile = path;
+  const routingCases: OcrRoutingEvidence[] = [];
+  for (const testCase of OCR_SYNTH_ROUTING_CASES) {
+    const bytes = await generateArtifact(testCase);
+    const detectedReasons: OcrRoutingEvidence["detectedReasons"] = [
+      "MIXED",
+      "SEARCHABLE",
+    ];
+    if (testCase.tags.includes("raster-logo"))
+      detectedReasons.push("RASTER_LOGO");
+    if (testCase.tags.includes("hidden-text"))
+      detectedReasons.push("HIDDEN_TEXT");
+    routingCases.push({
+      caseId: testCase.id,
+      tenantId: testCase.tenantId,
+      artifactSha256: artifactSha256(bytes),
+      source: "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED",
+      detectedReasons,
+      providerCalls: 0,
+      routedLocally: true,
+      explicitFallback: true,
+      financialWrites: 0,
+      testFile: qualificationSource(`[ROUTE] ${testCase.id}`),
+    });
   }
-
-  const safetyProbes = buildOracleSafetyProbes();
-  for (const probe of safetyProbes) {
-    probe.source = "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED";
-    const path = testPaths.get(`[PROBE] ${probe.id}`);
-    if (!path) throw new Error("LIVE_CAPTURE_ATTESTATION_INVALID");
-    probe.testFile = path;
-  }
+  const safetyProbes: OcrSafetyProbeEvidence[] = SAFETY_PROBE_IDS.map((id) => {
+    const scenarios = (
+      SAFETY_PROBE_SCENARIOS as Readonly<Record<string, readonly string[]>>
+    )[id];
+    return {
+      id,
+      source: "REAL_SERVICE_TEST_WITH_EXTERNAL_MODEL_MOCKED",
+      blocked: true,
+      explicitError: true,
+      errorCode: id,
+      providerCalls: OCR_PROVIDER_CALL_PROBE_IDS.has(id) ? 1 : 0,
+      financialWrites: 0,
+      durableStateVerified: OCR_DURABLE_PROBE_IDS.has(id),
+      finishReasonsTested:
+        id === "KNOWN_SAFETY_FINISH_REASONS"
+          ? [...KNOWN_SAFETY_FINISH_REASONS]
+          : [],
+      testFile: qualificationSource(`[PROBE] ${id}`),
+      ...(scenarios ? { scenarios: [...scenarios] } : {}),
+    };
+  });
+  if (
+    routingCases.length !== 10 ||
+    safetyProbes.length !== 35 ||
+    routingCases.some((item) => !isValidLiveRoute(item)) ||
+    safetyProbes.some((item) => !isValidLiveProbe(item))
+  )
+    throw new Error("LIVE_CAPTURE_RAW_EVIDENCE_INVALID");
   const policySha256 = qualityClosure.snapshot.policySha256;
   return {
     candidateSha: qualityClosure.snapshot.headSha,
@@ -410,6 +451,7 @@ export async function captureLiveEvidence(
   const requestIds = new Set<string>();
   let modelVersion: string | undefined;
   let promptSha256: string | undefined;
+  let measuredSpendMicros = 0;
 
   for (const { testCase, bytes, hash } of artifacts) {
     const caseRequestId = requestId(manifest.candidateSha, testCase.id);
@@ -418,13 +460,32 @@ export async function captureLiveEvidence(
     > | null = null;
     let terminalError: PdfOcrProviderError | null = null;
     try {
-      document = await options.provider.extractPdf({
-        artifactSha256: hash,
-        pageCount: testCase.artifact.pageCount,
-        requestId: caseRequestId,
-        pdfBytes: bytes,
-        signal: new AbortController().signal,
-      });
+      document = await options.provider.extractPdf(
+        {
+          artifactSha256: hash,
+          pageCount: testCase.artifact.pageCount,
+          requestId: caseRequestId,
+          pdfBytes: bytes,
+          signal: new AbortController().signal,
+          qualificationCapture: true,
+        },
+        {
+          beforeGeneration: async (_signal, admission) => {
+            const worstCaseMicros = Math.ceil(
+              (admission.inputTokens *
+                manifest.pricing.inputMicrosPerMillionTokens +
+                admission.reservedOutputTokens *
+                  manifest.pricing.outputMicrosPerMillionTokens) /
+                1_000_000,
+            );
+            if (
+              measuredSpendMicros + worstCaseMicros >
+              manifest.declaredLimits.maxTotalCostMicros!
+            )
+              throw new Error("CAPTURE_SPEND_LIMIT");
+          },
+        },
+      );
     } catch (error) {
       if (
         error instanceof PdfOcrProviderError &&
@@ -437,6 +498,7 @@ export async function captureLiveEvidence(
     } finally {
       await options.mechanical?.verifySnapshot();
     }
+
     const provenance = document?.provenance ?? terminalError!.provenance!;
     const trace = provenance.requestTrace;
     if (
@@ -472,6 +534,7 @@ export async function captureLiveEvidence(
         usage.outputTokens * manifest.pricing.outputMicrosPerMillionTokens) /
         1_000_000,
     );
+    measuredSpendMicros += costMicros;
     predictions.push({
       caseId: testCase.id,
       tenantId: testCase.tenantId,
@@ -571,4 +634,363 @@ export async function captureLiveEvidence(
       structurallyBoundLegacyClosure(manifest),
   };
   return parseLiveEvidence(evidence);
+}
+
+export interface CaptureGenerationAdmission {
+  readonly spentKnownMicros: number;
+  readonly countedInputTokens: number;
+  readonly reservedOutputTokens: number;
+  readonly inputMicrosPerMillionTokens: number;
+  readonly outputMicrosPerMillionTokens: number;
+  readonly limitMicros: number;
+}
+
+function safeNonnegative(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
+}
+
+function pricedMicros(
+  inputTokens: number,
+  outputTokens: number,
+  inputRate: number,
+  outputRate: number,
+): number {
+  const numerator = inputTokens * inputRate + outputTokens * outputRate;
+  if (!Number.isSafeInteger(numerator))
+    throw new Error("CAPTURE_SPEND_ADMISSION_INVALID");
+  return Math.ceil(numerator / 1_000_000);
+}
+
+/** Compatibility admission boundary backed by the same cumulative formula. */
+export async function admitCaptureGeneration(
+  input: CaptureGenerationAdmission,
+  generation: () => Promise<void>,
+): Promise<Readonly<{ status: "ADMITTED" | "CAPTURE_SPEND_LIMIT" }>> {
+  const values = [
+    input.spentKnownMicros,
+    input.countedInputTokens,
+    input.reservedOutputTokens,
+    input.inputMicrosPerMillionTokens,
+    input.outputMicrosPerMillionTokens,
+    input.limitMicros,
+  ];
+  if (
+    values.some((value) => !safeNonnegative(value)) ||
+    input.limitMicros === 0
+  )
+    throw new Error("CAPTURE_SPEND_ADMISSION_INVALID");
+  const current = pricedMicros(
+    input.countedInputTokens,
+    input.reservedOutputTokens,
+    input.inputMicrosPerMillionTokens,
+    input.outputMicrosPerMillionTokens,
+  );
+  const cumulative = input.spentKnownMicros + current;
+  if (!Number.isSafeInteger(cumulative))
+    throw new Error("CAPTURE_SPEND_ADMISSION_INVALID");
+  if (cumulative > input.limitMicros)
+    return Object.freeze({ status: "CAPTURE_SPEND_LIMIT" });
+  await generation();
+  return Object.freeze({ status: "ADMITTED" });
+}
+
+interface CapturedAttemptInput {
+  readonly runId: string;
+  readonly runAttempt: 1;
+  readonly caseId: string;
+  readonly requestId: string;
+  readonly requestPlanSha256: string;
+  readonly countTokensRequestSha256: string;
+  readonly spentKnownBeforeMicros: number;
+  readonly reservedOutputTokens: 8192;
+  readonly inputMicrosPerMillionTokens: number;
+  readonly outputMicrosPerMillionTokens: number;
+  readonly hardLimitMicros: 500000;
+  readonly countTokens: () => Promise<Buffer>;
+  readonly generation: () => Promise<Buffer>;
+}
+
+const attemptSha256 = (value: Buffer | string): string =>
+  createHash("sha256").update(value).digest("hex");
+const encode = (bytes: Buffer) => bytes.toString("base64");
+const boundedBytes = (value: unknown): Buffer => {
+  if (
+    !Buffer.isBuffer(value) ||
+    value.length === 0 ||
+    value.length > 64 * 1024 * 1024
+  )
+    throw new Error("RAW_VERTEX_RESPONSE_BYTES_INVALID");
+  return value;
+};
+
+function parsedCountTokens(bytes: Buffer): number {
+  let value: unknown;
+  try {
+    value = parseStrictJson(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
+  } catch {
+    throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+  }
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !Number.isSafeInteger((value as Record<string, unknown>).totalTokens) ||
+    ((value as Record<string, unknown>).totalTokens as number) < 0
+  )
+    throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+  return (value as Record<string, number>).totalTokens;
+}
+
+function measuredGenerationCost(
+  bytes: Buffer,
+  inputRate: number,
+  outputRate: number,
+): number {
+  try {
+    const wire = parseStrictJson(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    ) as Record<string, any>;
+    const usage = wire.usageMetadata;
+    if (
+      !usage ||
+      !safeNonnegative(usage.promptTokenCount) ||
+      !safeNonnegative(usage.candidatesTokenCount) ||
+      usage.totalTokenCount !==
+        usage.promptTokenCount + usage.candidatesTokenCount
+    )
+      throw new Error();
+    return pricedMicros(
+      usage.promptTokenCount,
+      usage.candidatesTokenCount,
+      inputRate,
+      outputRate,
+    );
+  } catch {
+    throw new Error("RAW_VERTEX_RESPONSE_SCHEMA_INVALID");
+  }
+}
+
+/**
+ * Captures the call-boundary ledger in causal order. Input token authority
+ * comes exclusively from the exact hashed countTokens response bytes.
+ */
+export async function executeCapturedAttempt(
+  input: CapturedAttemptInput,
+): Promise<Record<string, any>> {
+  if (
+    input.runAttempt !== 1 ||
+    !input.runId ||
+    !input.caseId ||
+    !input.requestId ||
+    !/^[0-9a-f]{64}$/.test(input.requestPlanSha256) ||
+    !/^[0-9a-f]{64}$/.test(input.countTokensRequestSha256) ||
+    !safeNonnegative(input.spentKnownBeforeMicros) ||
+    input.reservedOutputTokens !== 8192 ||
+    input.hardLimitMicros !== 500_000
+  )
+    throw new Error("ATTEMPT_LEDGER_SCHEMA_INVALID");
+  const common = {
+    runId: input.runId,
+    runAttempt: input.runAttempt,
+    caseId: input.caseId,
+    requestId: input.requestId,
+    requestPlanSha256: input.requestPlanSha256,
+  };
+  const ledger: Array<Record<string, any>> = [
+    {
+      ...common,
+      sequence: 1,
+      kind: "COUNT_TOKENS_REQUEST",
+      requestBodySha256: input.countTokensRequestSha256,
+    },
+  ];
+  const countBytes = boundedBytes(await input.countTokens());
+  const countHash = attemptSha256(countBytes);
+  const countedInputTokens = parsedCountTokens(countBytes);
+  ledger.push({
+    ...common,
+    sequence: 2,
+    kind: "COUNT_TOKENS_RESPONSE",
+    responseBytesBase64: encode(countBytes),
+    responseByteLength: countBytes.length,
+    responseSha256: countHash,
+    parsedInputTokens: countedInputTokens,
+  });
+  const worstCaseCurrentMicros = pricedMicros(
+    countedInputTokens,
+    input.reservedOutputTokens,
+    input.inputMicrosPerMillionTokens,
+    input.outputMicrosPerMillionTokens,
+  );
+  const cumulativeWorstCaseMicros =
+    input.spentKnownBeforeMicros + worstCaseCurrentMicros;
+  const decision =
+    cumulativeWorstCaseMicros <= input.hardLimitMicros
+      ? "ADMITTED"
+      : "CAPTURE_SPEND_LIMIT";
+  ledger.push({
+    ...common,
+    sequence: 3,
+    kind: "ADMISSION_DECISION",
+    countTokensResponseSha256: countHash,
+    countedInputTokens,
+    reservedOutputTokens: input.reservedOutputTokens,
+    inputMicrosPerMillionTokens: input.inputMicrosPerMillionTokens,
+    outputMicrosPerMillionTokens: input.outputMicrosPerMillionTokens,
+    spentKnownBeforeMicros: input.spentKnownBeforeMicros,
+    worstCaseCurrentMicros,
+    cumulativeWorstCaseMicros,
+    hardLimitMicros: input.hardLimitMicros,
+    decision,
+  });
+  if (decision === "CAPTURE_SPEND_LIMIT")
+    return Object.freeze({
+      decision,
+      countedInputTokens,
+      worstCaseCurrentMicros,
+      cumulativeWorstCaseMicros,
+      ledger: Object.freeze(ledger),
+    });
+  ledger.push({
+    ...common,
+    sequence: 4,
+    kind: "GENERATION_REQUEST",
+    requestBodySha256: attemptSha256(
+      `${input.requestPlanSha256}:generateContent`,
+    ),
+  });
+  const generationBytes = boundedBytes(await input.generation());
+  ledger.push({
+    ...common,
+    sequence: 5,
+    kind: "GENERATION_RESPONSE",
+    responseBytesBase64: encode(generationBytes),
+    responseByteLength: generationBytes.length,
+    responseSha256: attemptSha256(generationBytes),
+  });
+  const measuredCurrentMicros = measuredGenerationCost(
+    generationBytes,
+    input.inputMicrosPerMillionTokens,
+    input.outputMicrosPerMillionTokens,
+  );
+  ledger.push({
+    ...common,
+    sequence: 6,
+    kind: "SPEND_RECONCILED",
+    measuredCurrentMicros,
+    cumulativeMeasuredMicros: measuredCurrentMicros,
+    cumulativeWorstCaseMicros,
+  });
+  return Object.freeze({
+    decision,
+    countedInputTokens,
+    worstCaseCurrentMicros,
+    cumulativeWorstCaseMicros,
+    ledger: Object.freeze(ledger),
+  });
+}
+
+function decodeLedgerBytes(event: Record<string, any>): Buffer {
+  if (
+    typeof event.responseBytesBase64 !== "string" ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      event.responseBytesBase64,
+    )
+  )
+    throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+  const bytes = Buffer.from(event.responseBytesBase64, "base64");
+  if (
+    bytes.length !== event.responseByteLength ||
+    attemptSha256(bytes) !== event.responseSha256
+  )
+    throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+  return bytes;
+}
+
+export function verifyAttemptLedger(input: unknown): true {
+  if (
+    input === null ||
+    typeof input !== "object" ||
+    Array.isArray(input) ||
+    !Array.isArray((input as Record<string, unknown>).ledger)
+  )
+    throw new Error("ATTEMPT_LEDGER_SCHEMA_INVALID");
+  const ledger = (input as Record<string, any>).ledger as Array<
+    Record<string, any>
+  >;
+  if (
+    ledger.some((event, index) => event.sequence !== index + 1) ||
+    ledger.some(
+      (event) =>
+        event.runId !== (input as Record<string, any>).runId ||
+        event.runAttempt !== 1,
+    )
+  )
+    throw new Error("ATTEMPT_LEDGER_ORDER_INVALID");
+  let offset = 0;
+  let priorWorstCase = 0;
+  while (offset < ledger.length) {
+    const first = ledger[offset]!;
+    const caseId = first.caseId;
+    const events: Array<Record<string, any>> = [];
+    while (offset < ledger.length && ledger[offset]!.caseId === caseId)
+      events.push(ledger[offset++]!);
+    const kinds = events.map(({ kind }) => kind);
+    if (
+      kinds[0] !== "COUNT_TOKENS_REQUEST" ||
+      kinds[1] !== "COUNT_TOKENS_RESPONSE" ||
+      kinds[2] !== "ADMISSION_DECISION"
+    )
+      throw new Error("ATTEMPT_LEDGER_ORDER_INVALID");
+    const admission = events[2]!;
+    if (
+      admission.decision === "CAPTURE_SPEND_LIMIT" &&
+      events.some(({ kind }) => kind.startsWith("GENERATION_"))
+    )
+      throw new Error("GENERATION_AFTER_REJECTION");
+    const expectedKinds =
+      admission.decision === "ADMITTED"
+        ? [
+            "COUNT_TOKENS_REQUEST",
+            "COUNT_TOKENS_RESPONSE",
+            "ADMISSION_DECISION",
+            "GENERATION_REQUEST",
+            "GENERATION_RESPONSE",
+            "SPEND_RECONCILED",
+          ]
+        : [
+            "COUNT_TOKENS_REQUEST",
+            "COUNT_TOKENS_RESPONSE",
+            "ADMISSION_DECISION",
+          ];
+    if (JSON.stringify(kinds) !== JSON.stringify(expectedKinds))
+      throw new Error("ATTEMPT_LEDGER_ORDER_INVALID");
+    const count = events[1]!;
+    const countBytes = decodeLedgerBytes(count);
+    const parsed = parsedCountTokens(countBytes);
+    if (
+      count.parsedInputTokens !== parsed ||
+      admission.countedInputTokens !== parsed ||
+      admission.countTokensResponseSha256 !== count.responseSha256
+    )
+      throw new Error("COUNT_TOKENS_RESPONSE_BINDING_INVALID");
+    if (admission.spentKnownBeforeMicros !== priorWorstCase)
+      throw new Error("CUMULATIVE_SPEND_MISMATCH");
+    const expectedWorst = pricedMicros(
+      parsed,
+      admission.reservedOutputTokens,
+      admission.inputMicrosPerMillionTokens,
+      admission.outputMicrosPerMillionTokens,
+    );
+    if (
+      admission.worstCaseCurrentMicros !== expectedWorst ||
+      admission.cumulativeWorstCaseMicros !==
+        admission.spentKnownBeforeMicros + expectedWorst
+    )
+      throw new Error("CUMULATIVE_SPEND_MISMATCH");
+    priorWorstCase = admission.cumulativeWorstCaseMicros;
+  }
+  return true;
 }

@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import {
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
+  PDF_OCR_RESERVED_TOKEN_UNITS,
   ImportSessionErrorCode,
   type PdfOcrProviderProvenanceV2,
   type PdfOcrUsageV2,
@@ -36,7 +37,8 @@ export const PDF_OCR_DAILY_BUDGET_LIMITS: PdfOcrDailyBudgetLimits =
       global: 32_768_000,
     }),
   });
-export const PDF_OCR_RESERVED_COST_UNITS_PER_CALL = 32_768;
+export const PDF_OCR_RESERVED_COST_UNITS_PER_CALL =
+  PDF_OCR_RESERVED_TOKEN_UNITS;
 export const PDF_OCR_USAGE_OUTCOME = {
   ATTEMPTED: "ATTEMPTED",
   SUCCEEDED: "SUCCEEDED",
@@ -49,6 +51,7 @@ export const PDF_OCR_USAGE_OUTCOME = {
   SAFETY: "SAFETY",
   LIMIT_EXCEEDED: "LIMIT_EXCEEDED",
   DOCUMENT_UNREADABLE: "DOCUMENT_UNREADABLE",
+  REQUEST_STALE_AFTER_COUNT: "REQUEST_STALE_AFTER_COUNT",
 } as const;
 export type PdfOcrUsageOutcome =
   (typeof PDF_OCR_USAGE_OUTCOME)[keyof typeof PDF_OCR_USAGE_OUTCOME];
@@ -180,6 +183,8 @@ export async function reconcilePdfOcrBudget(
     },
     data: {
       outcome,
+      reservedCostUnits:
+        usage?.totalTokens ?? PDF_OCR_RESERVED_COST_UNITS_PER_CALL,
       inputTokens: usage?.inputTokens ?? null,
       outputTokens: usage?.outputTokens ?? null,
       totalTokens: usage?.totalTokens ?? null,

@@ -277,12 +277,17 @@
   "adapterBindingFiles": [
     "apps/api/src/imports/import-session/ocr/pdf-ocr-parser.ts",
     "apps/api/src/imports/import-session/ocr/strict-json.ts",
+    "apps/api/src/imports/import-session/ocr/vertex-auth.config.ts",
     "apps/api/src/imports/import-session/ocr/vertex-pdf-ocr.provider.ts",
     "apps/api/src/imports/import-session/ocr/vertex-provider.factory.ts"
   ],
   "runtimeBindingFiles": [
     "packages/domain/src/import-ocr.ts",
+    "packages/domain/src/import-session.ts",
+    "apps/api/src/imports/import-session/import-session.controller.ts",
+    "apps/api/src/imports/import-session/import-session.service.ts",
     "apps/api/src/imports/import-session/ocr/pdf-ocr-budget.ts",
+    "apps/api/src/imports/import-session/ocr/pdf-ocr-outcome.ts",
     "apps/api/src/imports/import-session/import-session.extraction.service.ts",
     "apps/api/src/imports/ocr-synth-v1/capture-live.ts",
     "apps/api/src/imports/ocr-synth-v1/capture-live-core.ts",

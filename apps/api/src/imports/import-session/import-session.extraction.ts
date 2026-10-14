@@ -6,6 +6,7 @@ import type {
   ImportSessionArtifact,
 } from "@prisma/client";
 import {
+  PDF_OCR_LEGACY_PARSER_VERSION,
   IMPORT_SESSION_LIMITS as LIMITS,
   IMPORT_SESSION_PRIMITIVES as P,
   PDF_OCR_PARSER_VERSION,
@@ -122,6 +123,7 @@ export function supportsImportExtraction(
     case "PDF":
       return (
         artifact.parserVersion === "card-local-pdf-v1" ||
+        artifact.parserVersion === PDF_OCR_LEGACY_PARSER_VERSION ||
         artifact.parserVersion === PDF_OCR_PARSER_VERSION
       );
     case "XLS":
@@ -301,6 +303,9 @@ export function buildImportMaterialization(
   )
     throw new ImportSessionError(Code.REVIEW_REQUIRED);
   const plan: ImportMaterializationPlan = { draft, observations: [] };
+  const isOcrExtraction =
+    extraction.parserVersion === PDF_OCR_LEGACY_PARSER_VERSION ||
+    extraction.parserVersion === PDF_OCR_PARSER_VERSION;
   for (const occurrence of extraction.occurrences) {
     const previous = existing.get(occurrence.reference);
     if (
@@ -311,16 +316,14 @@ export function buildImportMaterialization(
       continue;
     const ids = newIds.get(occurrence.reference);
     if (!ids) throw new ImportSessionCorruptStateError("extraction_ids");
-    const ocrCandidate =
-      extraction.parserVersion === PDF_OCR_PARSER_VERSION
-        ? input.ocr?.document.candidates[occurrence.sourceOrdinal]
-        : undefined;
-    const ocrPage =
-      extraction.parserVersion === PDF_OCR_PARSER_VERSION
-        ? /^ocr:page:(\d+):candidate:\d+$/.exec(occurrence.reference)
-        : null;
+    const ocrCandidate = isOcrExtraction
+      ? input.ocr?.document.candidates[occurrence.sourceOrdinal]
+      : undefined;
+    const ocrPage = isOcrExtraction
+      ? /^ocr:page:(\d+):candidate:\d+$/.exec(occurrence.reference)
+      : null;
     if (
-      extraction.parserVersion === PDF_OCR_PARSER_VERSION &&
+      isOcrExtraction &&
       (!input.ocr ||
         !ocrCandidate ||
         !ocrPage ||
@@ -328,26 +331,22 @@ export function buildImportMaterialization(
         Number(ocrPage[1]) !== ocrCandidate.pageNumber)
     )
       throw new ImportSessionCorruptStateError("ocr_reference");
-    if (
-      extraction.parserVersion !== PDF_OCR_PARSER_VERSION &&
-      input.ocr != null
-    )
+    if (!isOcrExtraction && input.ocr != null)
       throw new ImportSessionCorruptStateError("ocr_reference");
-    const text =
-      extraction.parserVersion === PDF_OCR_PARSER_VERSION
-        ? ocrCandidate!.evidence.text
-        : [
-            occurrence.dateOnly,
-            occurrence.merchant,
-            occurrence.amountCents === null
-              ? null
-              : `${occurrence.amountCents} centavos`,
-            occurrence.installmentIndex === null
-              ? null
-              : `${occurrence.installmentIndex}/${occurrence.installmentCount}`,
-          ]
-            .filter((part): part is string => part !== null)
-            .join(" · ");
+    const text = isOcrExtraction
+      ? ocrCandidate!.evidence.text
+      : [
+          occurrence.dateOnly,
+          occurrence.merchant,
+          occurrence.amountCents === null
+            ? null
+            : `${occurrence.amountCents} centavos`,
+          occurrence.installmentIndex === null
+            ? null
+            : `${occurrence.installmentIndex}/${occurrence.installmentCount}`,
+        ]
+          .filter((part): part is string => part !== null)
+          .join(" · ");
     const evidence: Evidence = {
       sourceDescription: occurrence.raw.description,
       version: 1,
@@ -365,7 +364,7 @@ export function buildImportMaterialization(
         fitId: occurrence.fitId,
         fileContentHash: importFileContentHash(artifact.documentSha256),
       },
-      ...(extraction.parserVersion === PDF_OCR_PARSER_VERSION
+      ...(isOcrExtraction
         ? {
             ocr: {
               provenanceVersion: PDF_OCR_VERSION,

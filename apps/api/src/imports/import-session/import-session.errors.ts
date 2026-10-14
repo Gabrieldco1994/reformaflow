@@ -52,12 +52,18 @@ export interface ImportSessionErrorContext {
   reason?: ImportSessionErrorV1["reason"];
 }
 
+export const INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT =
+  "OCR_REQUEST_STALE_AFTER_COUNT" as const;
+type ApiImportSessionErrorCode =
+  | ImportSessionErrorCode
+  | typeof INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT;
+
 /**
  * The only failure shape that crosses the intake boundary. The wire body is exactly
  * `ImportSessionErrorV1`: never a message, a stack, a column or a foreign id.
  */
-export class ImportSessionError extends Error implements ImportSessionErrorV1 {
-  readonly code: ImportSessionErrorCode;
+export class ImportSessionError extends Error {
+  readonly code: ApiImportSessionErrorCode;
   readonly status: number;
   readonly retryable: boolean;
   readonly sessionId: ImportSessionId | null;
@@ -65,14 +71,19 @@ export class ImportSessionError extends Error implements ImportSessionErrorV1 {
   readonly reason: ImportSessionErrorV1["reason"];
 
   constructor(
-    code: ImportSessionErrorCode,
+    code: ApiImportSessionErrorCode,
     context: ImportSessionErrorContext = {},
   ) {
     super(code);
     this.name = "ImportSessionError";
     this.code = code;
-    this.status = STATUS_BY_CODE[code];
-    this.retryable = RETRYABLE_CODES.has(code);
+    this.status =
+      code === INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT
+        ? HttpStatus.CONFLICT
+        : STATUS_BY_CODE[code];
+    this.retryable =
+      code !== INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT &&
+      RETRYABLE_CODES.has(code);
     this.sessionId = context.sessionId ?? null;
     this.currentRevision = context.currentRevision ?? null;
     this.reason = context.reason ?? null;
@@ -83,7 +94,10 @@ export function importSessionWire(
   error: ImportSessionError,
 ): ImportSessionErrorV1 {
   return {
-    code: error.code,
+    code:
+      error.code === INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT
+        ? ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN
+        : error.code,
     retryable: error.retryable,
     sessionId: error.sessionId,
     currentRevision: error.currentRevision,

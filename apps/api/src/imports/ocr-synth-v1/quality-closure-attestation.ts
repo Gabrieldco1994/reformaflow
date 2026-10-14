@@ -128,11 +128,17 @@ export interface QualityClosurePolicy {
 }
 
 export interface FinalReviewHashes {
-  readonly residualRiskAcceptance: string | null;
-  readonly securityReview: string | null;
-  readonly privacyReview: string | null;
-  readonly dataOwnerReview: string | null;
+  readonly residualRiskAcceptance: string;
+  readonly securityReview: string;
+  readonly privacyReview: string;
+  readonly dataOwnerReview: string;
 }
+const FINAL_REVIEW_KEYS = [
+  "residualRiskAcceptance",
+  "securityReview",
+  "privacyReview",
+  "dataOwnerReview",
+] as const satisfies readonly (keyof FinalReviewHashes)[];
 
 export interface QualityAttestationDependencies {
   readonly root?: string;
@@ -146,14 +152,26 @@ export interface QualityAttestationDependencies {
       timeout: number;
     }>,
   ) => Promise<ExecResult>;
+  readonly verifier?: QualityClosureVerifier;
 }
 
-const verifiedTokens = new WeakSet<object>();
-const locallyAttestedClosures = new WeakSet<object>();
+export interface QualityClosureVerifier {
+  verify(
+    input: Readonly<{
+      keyId: string;
+      candidateSha: string;
+      evidenceSha256: string;
+      signature: string;
+    }>,
+  ): boolean;
+}
+
 export interface VerifiedQualityClosureToken {
   readonly headSha: string;
   readonly closureSha256: string;
   readonly evidenceSha256: string;
+  readonly keyId: string;
+  readonly signature: string;
 }
 
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -771,7 +789,6 @@ export async function attestQualityClosure(
     snapshot: before,
     tests,
   };
-  locallyAttestedClosures.add(closure);
   return {
     policy,
     closure,
@@ -783,13 +800,8 @@ export async function readFinalReviewHashes(
   dependencies: QualityAttestationDependencies = {},
 ): Promise<FinalReviewHashes> {
   const root = dependencies.root ?? REPOSITORY_ROOT;
-  const result: Record<keyof FinalReviewHashes, string | null> = {
-    residualRiskAcceptance: null,
-    securityReview: null,
-    privacyReview: null,
-    dataOwnerReview: null,
-  };
-  for (const key of Object.keys(result) as Array<keyof FinalReviewHashes>) {
+  const result = {} as Record<keyof FinalReviewHashes, string>;
+  for (const key of FINAL_REVIEW_KEYS) {
     const path = policy.reviewArtifacts[key];
     const tracked = await execute(dependencies, "git", [
       "ls-files",
@@ -798,9 +810,46 @@ export async function readFinalReviewHashes(
     ]);
     if (tracked.error) throw new Error("QUALITY_REPOSITORY_INVALID");
     const trackedPath = tracked.stdout.trim();
-    if (trackedPath.length === 0) continue;
+    if (trackedPath.length === 0) throw new Error("QUALITY_REVIEW_MISSING");
     if (trackedPath !== path) throw new Error("QUALITY_REPOSITORY_INVALID");
-    result[key] = await sha256(await readBoundedFile(root, path));
+    let bytes: Buffer;
+    try {
+      bytes = await readBoundedFile(root, path);
+    } catch (error) {
+      throw new Error(
+        object(error) && error.code === "ENOENT"
+          ? "QUALITY_REVIEW_MISSING"
+          : "QUALITY_REVIEW_INVALID",
+      );
+    }
+    let review: unknown;
+    try {
+      review = parseStrictJson(
+        new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      );
+    } catch {
+      throw new Error("QUALITY_REVIEW_INVALID");
+    }
+    if (
+      !exact(review, ["version", "validThroughUtc", "decision", "authority"]) ||
+      review.version !== 1 ||
+      review.decision !== "APPROVED" ||
+      !string(review.validThroughUtc) ||
+      !exact(review.authority, ["keyId", "signature"]) ||
+      !string(review.authority.keyId) ||
+      !string(review.authority.signature)
+    )
+      throw new Error("QUALITY_REVIEW_INVALID");
+    const expiryText = review.validThroughUtc as string;
+    const expiry = /^\d{4}-\d{2}-\d{2}$/.test(expiryText)
+      ? new Date(`${expiryText}T23:59:59.999Z`)
+      : new Date(expiryText);
+    if (
+      !Number.isFinite(expiry.getTime()) ||
+      expiry.getTime() <= (dependencies.now ?? new Date()).getTime()
+    )
+      throw new Error("QUALITY_REVIEW_INVALID");
+    result[key] = await sha256(bytes);
   }
   return result;
 }
@@ -822,9 +871,13 @@ export async function issueVerifiedQualityClosureToken(
   policy: QualityClosurePolicy,
   dependencies: QualityAttestationDependencies = {},
 ): Promise<VerifiedQualityClosureToken> {
-  const closure = isCanonicalQualityClosure(evidence.qualityClosure)
+  const closure = isCanonicalQualityClosure(evidence.qualityClosure, {
+    verifier: dependencies.verifier,
+  })
     ? evidence.qualityClosure
     : undefined;
+  const unsignedClosure =
+    closure === undefined ? undefined : withoutQualityAuthority(closure);
   const reviews = await readFinalReviewHashes(policy, dependencies);
   const expectedResidualRisk = reviews.residualRiskAcceptance
     ? {
@@ -843,8 +896,8 @@ export async function issueVerifiedQualityClosureToken(
       : null;
   if (
     !closure ||
-    !locallyAttestedClosures.has(rerun) ||
-    canonicalJson(closure) !== canonicalJson(rerun) ||
+    !unsignedClosure ||
+    canonicalJson(unsignedClosure) !== canonicalJson(rerun) ||
     canonicalJson(evidence.run.residualRiskAcceptance) !==
       canonicalJson(expectedResidualRisk) ||
     canonicalJson(evidence.run.finalReviews) !==
@@ -855,23 +908,29 @@ export async function issueVerifiedQualityClosureToken(
     headSha: closure.snapshot.headSha,
     closureSha256: await sha256(canonicalJson(closure)),
     evidenceSha256: await sha256(canonicalJson(evidence)),
+    keyId: closure.authority!.keyId,
+    signature: closure.authority!.signature,
   });
-  verifiedTokens.add(token);
   return token;
 }
 
 export async function isVerifiedQualityClosureToken(
   token: VerifiedQualityClosureToken | undefined,
   evidence: OcrEvalInput,
+  dependencies: Pick<QualityAttestationDependencies, "verifier"> = {},
 ): Promise<boolean> {
-  const closure = isCanonicalQualityClosure(evidence.qualityClosure)
-    ? evidence.qualityClosure
+  const closure = isCanonicalQualityClosure(
+    evidence.qualityClosure,
+    dependencies,
+  )
+    ? (evidence.qualityClosure as unknown as OcrQualityClosure)
     : undefined;
   return (
     token !== undefined &&
     closure !== undefined &&
-    verifiedTokens.has(token) &&
     token.headSha === closure.snapshot.headSha &&
+    token.keyId === closure.authority?.keyId &&
+    token.signature === closure.authority?.signature &&
     token.closureSha256 === (await sha256(canonicalJson(closure))) &&
     token.evidenceSha256 === (await sha256(canonicalJson(evidence)))
   );
@@ -912,9 +971,7 @@ export async function qualityCaptureLockPath(
   return resolve(metadata, "reformaflow-ocr-quality-capture.lock");
 }
 
-export function isCanonicalQualityClosure(
-  value: unknown,
-): value is OcrQualityClosure {
+function isStructurallyValidQualityClosure(value: unknown): boolean {
   return (
     exact(value, ["version", "policyVersion", "snapshot", "tests"]) &&
     value.version === 2 &&
@@ -953,5 +1010,90 @@ export function isCanonicalQualityClosure(
         safeRelativePath(item.sourcePath),
     ) &&
     unique(value.tests.map((item) => item.name))
+  );
+}
+
+/** Parsing seam only; this never grants qualification authority. */
+export function isStructurallyValidQualityClosureEnvelope(
+  value: unknown,
+): value is OcrQualityClosure {
+  if (!object(value)) return false;
+  return isStructurallyValidQualityClosure(
+    Object.prototype.hasOwnProperty.call(value, "authority")
+      ? withoutQualityAuthority(value)
+      : value,
+  );
+}
+
+function withoutQualityAuthority(
+  value: Record<string, unknown> | OcrQualityClosure,
+): Record<string, unknown> {
+  const unsigned = { ...value } as Record<string, unknown>;
+  delete unsigned.authority;
+  return unsigned;
+}
+
+export function isCanonicalQualityClosure(
+  value: unknown,
+  dependencies: Readonly<{ verifier?: QualityClosureVerifier }> = {},
+): value is OcrQualityClosure {
+  if (!isStructurallySignedQualityClosure(value)) return false;
+  const unsigned = withoutQualityAuthority(value);
+  const authority = value.authority;
+  if (!dependencies.verifier || !object(authority)) return false;
+  const authorityCandidate = authority.candidateSha;
+  if (
+    authorityCandidate !== undefined &&
+    typeof authorityCandidate !== "string"
+  )
+    return false;
+  const candidateSha =
+    authorityCandidate ??
+    String((unsigned.snapshot as Record<string, unknown>).headSha);
+  if (
+    !SHA_PATTERN.test(candidateSha) ||
+    candidateSha !== (unsigned.snapshot as Record<string, unknown>).headSha
+  )
+    return false;
+  try {
+    return dependencies.verifier.verify({
+      keyId: authority.keyId,
+      candidateSha,
+      evidenceSha256: authority.evidenceSha256,
+      signature: authority.signature,
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function isStructurallySignedQualityClosure(
+  value: unknown,
+): value is OcrQualityClosure {
+  if (
+    !object(value) ||
+    !Object.prototype.hasOwnProperty.call(value, "authority")
+  )
+    return false;
+  const unsigned = withoutQualityAuthority(value);
+  const authority = value.authority;
+  return (
+    isStructurallyValidQualityClosure(unsigned) &&
+    object(authority) &&
+    (exact(authority, ["keyId", "evidenceSha256", "signature"]) ||
+      exact(authority, [
+        "keyId",
+        "candidateSha",
+        "evidenceSha256",
+        "signature",
+      ])) &&
+    string(authority.keyId) &&
+    string(authority.signature) &&
+    string(authority.evidenceSha256) &&
+    HASH_PATTERN.test(authority.evidenceSha256) &&
+    (authority.candidateSha === undefined ||
+      (string(authority.candidateSha) &&
+        authority.candidateSha ===
+          (unsigned.snapshot as Record<string, unknown>).headSha))
   );
 }

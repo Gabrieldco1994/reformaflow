@@ -302,4 +302,10 @@ export interface OcrQualityClosure {
   readonly policyVersion: string;
   readonly snapshot: OcrRepositorySnapshot;
   readonly tests: readonly OcrQualityClosureTestEvidence[];
+  readonly authority?: {
+    readonly keyId: string;
+    readonly candidateSha?: string;
+    readonly evidenceSha256: string;
+    readonly signature: string;
+  };
 }

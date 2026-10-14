@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://reformaflow.local/evals/ocr-synth-v1-direct-pdf-vertex-v3/report.schema.json",
-  "title": "ocr-synth-v1 raw scanned-PDF Vertex qualification report",
+  "title": "ReformaFlow application-owned OCR qualification report V4",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -25,29 +25,216 @@
     "releaseStatus"
   ],
   "properties": {
-    "reportSchemaVersion": {
-      "const": 4
+    "reportSchemaVersion": { "const": 4 },
+    "datasetVersion": { "const": "ocr-synth-v1-direct-pdf-vertex-v3" },
+    "corpusSampleCount": { "const": 52 },
+    "releaseScannedPdfSampleCount": { "const": 18 },
+    "routingSafetySampleCount": { "const": 10 },
+    "futureImageSampleCount": { "const": 12 },
+    "baseline": { "$ref": "#/$defs/baseline" },
+    "candidate": { "$ref": "#/$defs/candidate" },
+    "thresholds": { "$ref": "#/$defs/thresholds" },
+    "metrics": { "$ref": "#/$defs/metrics" },
+    "perCase": {
+      "type": "array",
+      "minItems": 18,
+      "maxItems": 18,
+      "items": { "$ref": "#/$defs/caseResult" }
     },
-    "datasetVersion": {
-      "const": "ocr-synth-v1-direct-pdf-vertex-v3"
+    "regressions": {
+      "type": "array",
+      "maxItems": 18,
+      "items": { "$ref": "#/$defs/regression" }
     },
-    "corpusSampleCount": {
-      "const": 52
+    "routingCases": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/caseResult" }
     },
-    "futureImageSampleCount": {
-      "const": 12
+    "safetyProbes": {
+      "type": "array",
+      "minItems": 35,
+      "maxItems": 35,
+      "items": { "$ref": "#/$defs/probe" }
+    },
+    "fallbackSafety": { "$ref": "#/$defs/fallbackSafety" },
+    "liveEvidenceGaps": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "functionalStatus": { "enum": ["PASS", "FAIL"] },
+    "releaseStatus": { "enum": ["PASS", "GAPS"] }
+  },
+  "$defs": {
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "nullableHash": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      ]
     },
     "baseline": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha", "behavior", "sampleCount"],
+      "properties": {
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "behavior": { "const": "OCR_REQUIRED" },
+        "sampleCount": { "const": 18 }
+      }
     },
     "candidate": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "candidateSha",
+        "configurationSha256",
+        "adapterSha256",
+        "provider",
+        "model",
+        "modelVersion",
+        "region",
+        "endpoint",
+        "promptSha256",
+        "durableBudgets",
+        "residualRiskAcceptance",
+        "finalReviews"
+      ],
+      "properties": {
+        "mode": { "enum": ["OFFLINE_ORACLE", "LIVE_CAPTURE"] },
+        "candidateSha": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+          ]
+        },
+        "configurationSha256": { "$ref": "#/$defs/nullableHash" },
+        "adapterSha256": { "$ref": "#/$defs/nullableHash" },
+        "provider": { "$ref": "#/$defs/nullableString" },
+        "model": { "$ref": "#/$defs/nullableString" },
+        "modelVersion": { "$ref": "#/$defs/nullableString" },
+        "region": { "$ref": "#/$defs/nullableString" },
+        "endpoint": { "$ref": "#/$defs/nullableString" },
+        "promptSha256": { "$ref": "#/$defs/nullableHash" },
+        "durableBudgets": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/durableBudgets" }]
+        },
+        "residualRiskAcceptance": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/residualRiskAcceptance" }
+          ]
+        },
+        "finalReviews": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/finalReviews" }]
+        }
+      }
+    },
+    "durableBudgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policySha256",
+        "tenantLimitMicros",
+        "globalLimitMicros",
+        "storage"
+      ],
+      "properties": {
+        "policySha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "tenantLimitMicros": { "type": "integer", "minimum": 0 },
+        "globalLimitMicros": { "type": "integer", "minimum": 0 },
+        "storage": { "const": "DATABASE" }
+      }
+    },
+    "residualRiskAcceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "dataOwnerAcceptanceSha256",
+        "noLocalDerivative"
+      ],
+      "properties": {
+        "decision": { "const": "OPTION_1_COMPLETE_ORIGINAL_PDF" },
+        "dataOwnerAcceptanceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "noLocalDerivative": { "const": true }
+      }
+    },
+    "finalReviews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "securityReviewSha256",
+        "privacyReviewSha256",
+        "dataOwnerReviewSha256"
+      ],
+      "properties": {
+        "securityReviewSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "privacyReviewSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "dataOwnerReviewSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
     },
     "thresholds": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scannedTaskSuccessRate",
+        "exactMoneyRate",
+        "exactSignRate",
+        "exactDateRate",
+        "exactDateExplicitnessRate",
+        "exactInstallmentRate",
+        "unknownPreservationRate",
+        "visibleEvidenceRate",
+        "schemaValidityRate",
+        "inventedRows",
+        "omittedRows",
+        "tenantLeaks",
+        "falseAutomations",
+        "financialWrites",
+        "maxPeakRssBytes"
+      ],
+      "properties": {
+        "scannedTaskSuccessRate": { "const": 1 },
+        "exactMoneyRate": { "const": 1 },
+        "exactSignRate": { "const": 1 },
+        "exactDateRate": { "const": 1 },
+        "exactDateExplicitnessRate": { "const": 1 },
+        "exactInstallmentRate": { "const": 1 },
+        "unknownPreservationRate": { "const": 1 },
+        "visibleEvidenceRate": { "const": 1 },
+        "schemaValidityRate": { "const": 1 },
+        "inventedRows": { "const": 0 },
+        "omittedRows": { "const": 0 },
+        "tenantLeaks": { "const": 0 },
+        "falseAutomations": { "const": 0 },
+        "financialWrites": { "const": 0 },
+        "maxPeakRssBytes": { "const": 536870912 }
+      }
     },
     "metrics": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "scannedTaskSuccessRate",
         "exactMoneyRate",
@@ -72,59 +259,27 @@
         "costCurrency"
       ],
       "properties": {
-        "exactMoneyRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "exactSignRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "exactDateRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "exactDateExplicitnessRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "exactInstallmentRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "schemaValidityRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "inventedRows": {
-          "const": 0
-        },
-        "omittedRows": {
-          "const": 0
-        },
-        "tenantLeaks": {
-          "const": 0
-        },
-        "falseAutomations": {
-          "const": 0
-        },
-        "financialWrites": {
-          "const": 0
-        },
+        "scannedTaskSuccessRate": { "$ref": "#/$defs/rate" },
+        "exactMoneyRate": { "$ref": "#/$defs/rate" },
+        "exactSignRate": { "$ref": "#/$defs/rate" },
+        "exactDateRate": { "$ref": "#/$defs/rate" },
+        "exactDateExplicitnessRate": { "$ref": "#/$defs/rate" },
+        "exactInstallmentRate": { "$ref": "#/$defs/rate" },
+        "unknownPreservationRate": { "$ref": "#/$defs/rate" },
+        "visibleEvidenceRate": { "$ref": "#/$defs/rate" },
+        "schemaValidityRate": { "$ref": "#/$defs/rate" },
+        "inventedRows": { "type": "integer", "minimum": 0 },
+        "omittedRows": { "type": "integer", "minimum": 0 },
+        "tenantLeaks": { "type": "integer", "minimum": 0 },
+        "falseAutomations": { "type": "integer", "minimum": 0 },
+        "financialWrites": { "type": "integer", "minimum": 0 },
         "p95LatencyMs": {
           "type": ["number", "null"],
           "minimum": 0
         },
         "peakRssBytes": {
-          "type": ["number", "null"],
-          "minimum": 0,
-          "maximum": 536870912
+          "type": ["integer", "null"],
+          "minimum": 0
         },
         "inputTokens": {
           "type": ["integer", "null"],
@@ -142,117 +297,73 @@
           "type": ["integer", "null"],
           "minimum": 0
         },
-        "costCurrency": {
-          "const": "USD"
-        },
-        "scannedTaskSuccessRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "unknownPreservationRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "visibleEvidenceRate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        }
-      },
-      "additionalProperties": false
-    },
-    "perCase": {
-      "type": "array",
-      "minItems": 18,
-      "maxItems": 18,
-      "items": {
-        "$ref": "#/$defs/result"
+        "costCurrency": { "const": "USD" }
       }
     },
-    "regressions": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/result"
-      }
+    "rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
     },
-    "safetyProbes": {
-      "type": "array",
-      "minItems": 35,
-      "maxItems": 35,
-      "items": {
-        "$ref": "#/$defs/probe"
-      }
-    },
-    "fallbackSafety": {
-      "type": "object"
-    },
-    "liveEvidenceGaps": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "functionalStatus": {
-      "enum": ["PASS", "FAIL"]
-    },
-    "releaseStatus": {
-      "enum": ["PASS", "GAPS"]
-    },
-    "releaseScannedPdfSampleCount": {
-      "const": 18
-    },
-    "routingSafetySampleCount": {
-      "const": 10
-    },
-    "routingCases": {
-      "type": "array",
-      "minItems": 10,
-      "maxItems": 10,
-      "items": {
-        "$ref": "#/$defs/result"
-      }
-    }
-  },
-  "$defs": {
-    "result": {
+    "caseResult": {
       "type": "object",
-      "required": ["caseId", "issues"],
+      "additionalProperties": false,
+      "required": ["caseId", "pass", "issues"],
       "properties": {
-        "caseId": {
-          "type": "string"
-        },
-        "pass": {
-          "type": "boolean"
-        },
+        "caseId": { "type": "string", "minLength": 1 },
+        "pass": { "type": "boolean" },
         "issues": {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
         }
-      },
-      "additionalProperties": false
+      }
+    },
+    "regression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "issues"],
+      "properties": {
+        "caseId": { "type": "string", "minLength": 1 },
+        "issues": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
     },
     "probe": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["id", "pass", "issues"],
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "pass": {
-          "type": "boolean"
-        },
+        "id": { "type": "string", "minLength": 1 },
+        "pass": { "type": "boolean" },
         "issues": {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
         }
-      },
-      "additionalProperties": false
+      }
+    },
+    "fallbackSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "explicitFailures",
+        "emptySuccessAccepted",
+        "financialWritesPerformed",
+        "tenantLeakCount",
+        "routingProviderCalls"
+      ],
+      "properties": {
+        "explicitFailures": { "type": "boolean" },
+        "emptySuccessAccepted": { "const": false },
+        "financialWritesPerformed": { "type": "integer", "minimum": 0 },
+        "tenantLeakCount": { "type": "integer", "minimum": 0 },
+        "routingProviderCalls": { "type": "integer", "minimum": 0 }
+      }
     }
   }
 }

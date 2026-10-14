@@ -579,7 +579,7 @@ function addTraceIssues(
   if (trace.toolsPresent) issues.push("TOOLS_PRESENT");
   if (trace.fileUri !== null) issues.push("FILE_URI_PRESENT");
   if (trace.cachedContent !== null) issues.push("CACHE_PRESENT");
-  if (trace.providerCallCount !== 1) issues.push("WRONG_PROVIDER_CALL_COUNT");
+  if (trace.providerCallCount !== 2) issues.push("WRONG_PROVIDER_CALL_COUNT");
   if (!trace.responseId) issues.push("MISSING_PROVIDER_RESPONSE_ID");
   if (trace.attempts !== 1 || trace.ambiguousTimeoutRetried)
     issues.push("AMBIGUOUS_RETRY");
@@ -770,7 +770,7 @@ export async function buildOraclePredictions(
             toolsPresent: false,
             fileUri: null,
             cachedContent: null,
-            providerCallCount: 1,
+            providerCallCount: 2,
             responseId: `evaluator-only-${testCase.id}`,
             attempts: 1,
             ambiguousTimeoutRetried: false,

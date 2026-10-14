@@ -23,6 +23,7 @@ import type {
   ImportSessionPageV1,
   ImportSessionReceiptV1,
   ImportSessionResultV1,
+  ImportSessionTerminalOutcomesV1,
   ImportSessionViewV1,
 } from "@reformaflow/domain";
 import { ImportSessionErrorCode } from "@reformaflow/domain";
@@ -115,6 +116,15 @@ export class ImportSessionController {
     @Query() query: unknown,
   ): Promise<ImportSessionListV1> {
     return this.service.list(auth, query);
+  }
+
+  @Get(":id/terminal-outcomes-v1")
+  @ServiceOwnedProjectAccess()
+  getTerminalOutcomesV1(
+    @ImportAuth() auth: AuthenticatedImportContext,
+    @Param("id") id: string,
+  ): Promise<ImportSessionTerminalOutcomesV1> {
+    return this.service.getTerminalOutcomesV1(auth, id);
   }
 
   @Get(":id")

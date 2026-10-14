@@ -2,6 +2,7 @@ import type { ImportOcrUsage, ImportSession, Prisma } from "@prisma/client";
 import {
   IMPORT_SESSION_LIMITS,
   IMPORT_SESSION_PRIMITIVES,
+  PDF_OCR_LEGACY_PARSER_VERSION,
   PDF_OCR_PARSER_VERSION,
   PDF_OCR_RETENTION_DAYS,
   ImportSessionAmountMeaning,
@@ -288,7 +289,9 @@ export async function enforcePdfOcrRetention(
         id: { in: [...new Set(due.map((usage) => usage.artifactId))] },
         tenantId: row.tenantId,
         ownerProjectId: row.ownerProjectId,
-        parserVersion: PDF_OCR_PARSER_VERSION,
+        parserVersion: {
+          in: [PDF_OCR_LEGACY_PARSER_VERSION, PDF_OCR_PARSER_VERSION],
+        },
       },
       data: {
         state: ImportSessionArtifactState.RAW_READY,

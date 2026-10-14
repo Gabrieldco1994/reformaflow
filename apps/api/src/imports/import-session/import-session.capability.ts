@@ -1,4 +1,5 @@
 import {
+  PDF_OCR_LEGACY_PARSER_VERSION,
   PDF_OCR_PARSER_VERSION,
   type ImportSessionEntryV1,
 } from "@reformaflow/domain";
@@ -117,7 +118,8 @@ export async function importSessionWritesEnabled(
             artifact.parserVersion === "card-local-pdf-v1") ||
           (ocrAttempt !== undefined &&
             ((artifact.state === "EXTRACTED" &&
-              artifact.parserVersion === PDF_OCR_PARSER_VERSION &&
+              (artifact.parserVersion === PDF_OCR_LEGACY_PARSER_VERSION ||
+                artifact.parserVersion === PDF_OCR_PARSER_VERSION) &&
               artifact.extractionJson !== null) ||
               (artifact.state === "RAW_READY" &&
                 artifact.parserVersion === null &&

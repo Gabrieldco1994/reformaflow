@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_LIMITS,
+  PDF_OCR_MAX_INPUT_TOKENS,
   PDF_OCR_MAX_OUTPUT_TOKENS,
   PDF_OCR_MODEL_ID,
   PDF_OCR_PROVIDER_ID,
@@ -9,14 +10,20 @@ import {
   PDF_OCR_VERTEX_ENDPOINT,
   type PdfOcrDocumentV2,
   type PdfOcrProviderProvenanceV2,
+  type PdfOcrUsageV2,
   type VertexAuthTraceV2,
 } from "@reformaflow/domain";
 import type {
   FixedPdfOcrProviderPort,
   FixedPdfOcrProviderRequest,
+  PdfOcrProviderHooks,
 } from "./pdf-ocr.ports";
 import { isAdmittedPdfOcrRequest } from "./pdf-ocr.ports";
-import { PdfOcrFailureCode, parsePdfOcrV2 } from "./pdf-ocr-parser";
+import {
+  PdfOcrFailureCode,
+  parsePdfOcrV2,
+  parsePdfOcrV3,
+} from "./pdf-ocr-parser";
 import { parseStrictJson } from "./strict-json";
 
 export const VERTEX_OCR_REGION = PDF_OCR_REGION;
@@ -39,7 +46,8 @@ const PROMPT = [
   "Transcribe ALL visible line occurrences on ALL pages in page and reading order for human review.",
   "Preserve order, duplicates, negative signs, and zero values exactly; do not classify, combine, deduplicate, exclude, or decide financial meaning.",
   "Include credits, payments, fees, interest, subtotals, and totals as visible lines without classifying them.",
-  "Use LINE_AMOUNT when a signed line amount is visible, UNKNOWN when its meaning is uncertain, and null for unreadable description, cents, date, or installment.",
+  "Use LINE_AMOUNT when a signed line amount is visible, UNKNOWN when its meaning is uncertain, and preserve NEGATIVE, ZERO, POSITIVE, or UNKNOWN sign explicitly.",
+  "For dates return the exact dateText, normalizedDate only for a FULL DD/MM/YYYY date, and dateExplicitness FULL, YEARLESS, MISSING, or UNKNOWN. Never invent a year.",
   `Return COMPLETE only after accounting for every page and at most ${PDF_OCR_LIMITS.candidatesPerFile} visible occurrences; EMPTY pages have visibleOccurrenceCount 0 and READABLE pages have an exact visibleOccurrenceCount with contiguous pageOccurrenceIndex values starting at 1.`,
   `If more than ${PDF_OCR_LIMITS.candidatesPerFile} visible occurrences exist, return OCCURRENCE_LIMIT_EXCEEDED with exact page accounting and an empty candidates array.`,
   "If any page is unreadable, return INCOMPLETE with that page marked UNREADABLE and an empty candidates array.",
@@ -55,7 +63,10 @@ export type PdfOcrProviderFailure =
   | "MALFORMED_RESPONSE"
   | "SAFETY"
   | "LIMIT_EXCEEDED"
-  | "DOCUMENT_UNREADABLE";
+  | "DOCUMENT_UNREADABLE"
+  | "HARD_SPEND_EXCEEDED"
+  | "INPUT_TOKEN_LIMIT_EXCEEDED"
+  | "OCR_REQUEST_PLAN_DRIFT";
 
 export const PDF_OCR_DISPATCH_STATE = Object.freeze({
   NOT_DISPATCHED: "NOT_DISPATCHED",
@@ -63,10 +74,19 @@ export const PDF_OCR_DISPATCH_STATE = Object.freeze({
 } as const);
 export type PdfOcrDispatchState =
   (typeof PDF_OCR_DISPATCH_STATE)[keyof typeof PDF_OCR_DISPATCH_STATE];
+export const PDF_OCR_DISPATCH_PHASE = Object.freeze({
+  NONE: "NONE",
+  COUNT_TOKENS: "COUNT_TOKENS",
+  GENERATE_CONTENT_OR_UNKNOWN: "GENERATE_CONTENT_OR_UNKNOWN",
+} as const);
+export type PdfOcrDispatchPhase =
+  (typeof PDF_OCR_DISPATCH_PHASE)[keyof typeof PDF_OCR_DISPATCH_PHASE];
 
 export class PdfOcrProviderError extends Error {
   readonly failure: PdfOcrProviderFailure;
   readonly dispatchState: PdfOcrDispatchState;
+  readonly dispatchPhase: PdfOcrDispatchPhase;
+  readonly usage?: PdfOcrUsageV2;
   /** Present only for accounted terminal responses; never contains candidate text. */
   readonly provenance?: PdfOcrProviderProvenanceV2;
 
@@ -74,11 +94,18 @@ export class PdfOcrProviderError extends Error {
     failure: PdfOcrProviderFailure,
     dispatchState: PdfOcrDispatchState,
     provenance?: PdfOcrProviderProvenanceV2,
+    dispatchPhase: PdfOcrDispatchPhase = dispatchState ===
+    PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED
+      ? PDF_OCR_DISPATCH_PHASE.NONE
+      : PDF_OCR_DISPATCH_PHASE.GENERATE_CONTENT_OR_UNKNOWN,
+    usage?: PdfOcrUsageV2,
   ) {
     super(failure);
     this.name = "PdfOcrProviderError";
     this.failure = failure;
     this.dispatchState = dispatchState;
+    this.dispatchPhase = dispatchPhase;
+    this.usage = usage;
     this.provenance = provenance;
     Object.freeze(this);
   }
@@ -93,10 +120,13 @@ const aborted = (dispatchState: PdfOcrDispatchState): PdfOcrProviderError =>
   new PdfOcrProviderError("TIMEOUT", dispatchState);
 const dispatchedFailure = (
   failure: PdfOcrProviderFailure,
+  dispatchPhase: PdfOcrDispatchPhase = PDF_OCR_DISPATCH_PHASE.GENERATE_CONTENT_OR_UNKNOWN,
 ): PdfOcrProviderError =>
   new PdfOcrProviderError(
     failure,
     PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+    undefined,
+    dispatchPhase,
   );
 async function abortable<T>(
   value: Promise<T>,
@@ -135,6 +165,62 @@ type Fetcher = (
   body: ResponseBody;
 }>;
 type ProviderClock = Readonly<{ now(): number }>;
+export interface VertexPdfOcrAdmissionPolicy {
+  readonly maxInputTokens?: number;
+  readonly maxOutputTokens?: number;
+  readonly maxSpendMicros?: number;
+  readonly inputMicrosPerMillionTokens?: number;
+  readonly outputMicrosPerMillionTokens?: number;
+  readonly reservedOutputTokens?: number;
+}
+
+const DEFAULT_ADMISSION_POLICY = Object.freeze({
+  maxInputTokens: PDF_OCR_MAX_INPUT_TOKENS,
+  maxOutputTokens: PDF_OCR_MAX_OUTPUT_TOKENS,
+  // Capture spend is a qualification-run concern, not a runtime session cap.
+  maxSpendMicros: Number.MAX_SAFE_INTEGER,
+  inputMicrosPerMillionTokens: 300_000,
+  outputMicrosPerMillionTokens: 2_500_000,
+  reservedOutputTokens: PDF_OCR_MAX_OUTPUT_TOKENS,
+});
+
+export interface VertexPdfOcrRequestPlan {
+  readonly provider: typeof PDF_OCR_PROVIDER_ID;
+  readonly model: typeof PDF_OCR_MODEL_ID;
+  readonly region: typeof PDF_OCR_REGION;
+  readonly endpoint: typeof PDF_OCR_VERTEX_ENDPOINT;
+  readonly countUrl: string;
+  readonly generationUrl: string;
+  readonly countBody: string;
+  readonly generationBody: string;
+  readonly countBodySha256: string;
+  readonly generationBodySha256: string;
+  readonly originalBytesSha256: string;
+  readonly promptSha256: string;
+  readonly planSha256: string;
+}
+
+const digest = (value: string | Buffer): string =>
+  createHash("sha256").update(value).digest("hex");
+
+function requestPlanBinding(
+  plan: Omit<VertexPdfOcrRequestPlan, "planSha256">,
+): string {
+  return digest(
+    JSON.stringify({
+      provider: plan.provider,
+      model: plan.model,
+      region: plan.region,
+      endpoint: plan.endpoint,
+      countUrl: plan.countUrl,
+      generationUrl: plan.generationUrl,
+      countBodySha256: plan.countBodySha256,
+      generationBodySha256: plan.generationBodySha256,
+      originalBytesSha256: plan.originalBytesSha256,
+      promptSha256: plan.promptSha256,
+    }),
+  );
+}
 
 const responseSchema = Object.freeze({
   type: "OBJECT",
@@ -194,7 +280,10 @@ const responseSchema = Object.freeze({
           "description",
           "amountCents",
           "amountMeaning",
-          "date",
+          "sign",
+          "dateText",
+          "normalizedDate",
+          "dateExplicitness",
           "installment",
           "evidenceText",
         ],
@@ -224,10 +313,24 @@ const responseSchema = Object.freeze({
             type: "STRING",
             enum: ["LINE_AMOUNT", "UNKNOWN"],
           },
-          date: {
+          sign: {
+            type: "STRING",
+            enum: ["NEGATIVE", "ZERO", "POSITIVE", "UNKNOWN"],
+          },
+          dateText: {
+            type: "STRING",
+            nullable: true,
+            minLength: 1,
+            maxLength: 10,
+          },
+          normalizedDate: {
             type: "STRING",
             nullable: true,
             pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          },
+          dateExplicitness: {
+            type: "STRING",
+            enum: ["FULL", "YEARLESS", "MISSING", "UNKNOWN"],
           },
           installment: {
             anyOf: [
@@ -329,14 +432,68 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
     private readonly tokens: VertexAccessTokenPort,
     private readonly fetcher: Fetcher = globalThis.fetch as unknown as Fetcher,
     private readonly clock: ProviderClock = { now: () => Date.now() },
+    private readonly admission: VertexPdfOcrAdmissionPolicy = {},
   ) {}
 
   ready(): boolean {
     return this.projectId.trim().length > 0;
   }
 
+  createRequestPlan(
+    request: FixedPdfOcrProviderRequest,
+  ): VertexPdfOcrRequestPlan {
+    const contents = [
+      {
+        role: "user",
+        parts: [
+          { text: PROMPT },
+          {
+            inlineData: {
+              mimeType: PDF_MIME,
+              data: request.pdfBytes.toString("base64"),
+            },
+          },
+        ],
+      },
+    ];
+    const maxOutputTokens = Math.min(
+      this.admission.maxOutputTokens ??
+        DEFAULT_ADMISSION_POLICY.maxOutputTokens,
+      PDF_OCR_MAX_OUTPUT_TOKENS,
+    );
+    const countBody = JSON.stringify({ contents });
+    const generationBody = JSON.stringify({
+      contents,
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: JSON_MIME,
+        responseSchema,
+        maxOutputTokens,
+      },
+    });
+    const unsigned = Object.freeze({
+      provider: PDF_OCR_PROVIDER_ID,
+      model: PDF_OCR_MODEL_ID,
+      region: PDF_OCR_REGION,
+      endpoint: PDF_OCR_VERTEX_ENDPOINT,
+      countUrl: this.url("countTokens"),
+      generationUrl: this.url("generateContent"),
+      countBody,
+      generationBody,
+      countBodySha256: digest(countBody),
+      generationBodySha256: digest(generationBody),
+      originalBytesSha256: digest(request.pdfBytes),
+      promptSha256: PROMPT_SHA256,
+    });
+    return Object.freeze({
+      ...unsigned,
+      planSha256: requestPlanBinding(unsigned),
+    });
+  }
+
   async extractPdf(
     request: FixedPdfOcrProviderRequest,
+    hooks?: PdfOcrProviderHooks,
   ): Promise<PdfOcrDocumentV2> {
     const requestSignal = (
       request as Partial<FixedPdfOcrProviderRequest> | null | undefined
@@ -380,42 +537,129 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
           PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
         );
       let response: Awaited<ReturnType<Fetcher>>;
-      const requestBody = JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: PROMPT },
-              {
-                inlineData: {
-                  mimeType: PDF_MIME,
-                  data: request.pdfBytes.toString("base64"),
-                },
+      const plan = this.createRequestPlan(request);
+      if (!request.qualificationCapture) {
+        let counted: Awaited<ReturnType<Fetcher>>;
+        try {
+          counted = await abortable(
+            this.fetcher(plan.countUrl, {
+              method: "POST",
+              headers: {
+                authorization: "Bearer " + token,
+                "content-type": JSON_MIME,
+                accept: JSON_MIME,
               },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: JSON_MIME,
-          responseSchema,
-          maxOutputTokens: VERTEX_OCR_MAX_OUTPUT_TOKENS,
-        },
-      });
+              signal: controller.signal,
+              body: plan.countBody,
+            }),
+            controller.signal,
+            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+          );
+        } catch (error) {
+          if (error instanceof PdfOcrProviderError) throw error;
+          throw new PdfOcrProviderError(
+            controller.signal.aborted ? "TIMEOUT" : "UPSTREAM",
+            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+            undefined,
+            PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+          );
+        }
+        const count = await this.parseCountTokensResponse(
+          counted,
+          controller.signal,
+          request.captureResponseBytes,
+        );
+        const maxSpendMicros =
+          this.admission.maxSpendMicros ??
+          DEFAULT_ADMISSION_POLICY.maxSpendMicros;
+        const inputRate =
+          this.admission.inputMicrosPerMillionTokens ??
+          DEFAULT_ADMISSION_POLICY.inputMicrosPerMillionTokens;
+        const maxInputTokens =
+          this.admission.maxInputTokens ??
+          DEFAULT_ADMISSION_POLICY.maxInputTokens;
+        const reservedOutputTokens =
+          this.admission.reservedOutputTokens ??
+          DEFAULT_ADMISSION_POLICY.reservedOutputTokens;
+        const configuredOutputRate =
+          this.admission.outputMicrosPerMillionTokens;
+        const reservedOutputMicros =
+          configuredOutputRate === undefined &&
+          this.admission.maxSpendMicros !== undefined &&
+          this.admission.inputMicrosPerMillionTokens !== undefined
+            ? Math.max(
+                0,
+                maxSpendMicros -
+                  Math.ceil((maxInputTokens * inputRate) / 1_000_000),
+              )
+            : Math.ceil(
+                (reservedOutputTokens *
+                  (configuredOutputRate ??
+                    DEFAULT_ADMISSION_POLICY.outputMicrosPerMillionTokens)) /
+                  1_000_000,
+              );
+        const estimatedCostMicros =
+          Math.ceil((count.totalTokens * inputRate) / 1_000_000) +
+          reservedOutputMicros;
+        if (estimatedCostMicros > maxSpendMicros)
+          throw new PdfOcrProviderError(
+            "HARD_SPEND_EXCEEDED",
+            PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+            undefined,
+            PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+          );
+        if (count.totalTokens > maxInputTokens)
+          throw new PdfOcrProviderError(
+            "LIMIT_EXCEEDED",
+            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+            undefined,
+            PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+            {
+              inputTokens: count.totalTokens,
+              outputTokens: 0,
+              totalTokens: count.totalTokens,
+            },
+          );
+        if (
+          requestPlanBinding(plan) !== plan.planSha256 ||
+          digest(plan.countBody) !== plan.countBodySha256 ||
+          digest(plan.generationBody) !== plan.generationBodySha256 ||
+          digest(request.pdfBytes) !== plan.originalBytesSha256
+        )
+          throw new PdfOcrProviderError(
+            "OCR_REQUEST_PLAN_DRIFT",
+            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+            undefined,
+            PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+          );
+        if (hooks) {
+          await hooks.beforeGeneration(controller.signal, {
+            inputTokens: count.totalTokens,
+            reservedOutputTokens,
+          });
+          if (controller.signal.aborted)
+            throw new PdfOcrProviderError(
+              "TIMEOUT",
+              PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED,
+              undefined,
+              PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS,
+            );
+        }
+      }
       try {
         // From this point on, the provider may have accepted the request even
         // when this process never observes a response.
         const dispatchState = PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN;
         response = await abortable(
-          this.fetcher(this.url(), {
+          this.fetcher(plan.generationUrl, {
             method: "POST",
             headers: {
-              authorization: `Bearer ${token}`,
+              authorization: "Bearer " + token,
               "content-type": JSON_MIME,
               accept: JSON_MIME,
             },
             signal: controller.signal,
-            body: requestBody,
+            body: plan.generationBody,
           }),
           controller.signal,
           dispatchState,
@@ -443,6 +687,17 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         )
           throw new PdfOcrProviderError("MALFORMED_RESPONSE", dispatchState);
         const bytes = await readResponseBytes(response.body, controller.signal);
+        request.captureResponseBytes?.("GENERATE_CONTENT", Buffer.from(bytes));
+        if (
+          requestPlanBinding(plan) !== plan.planSha256 ||
+          digest(plan.countBody) !== plan.countBodySha256 ||
+          digest(plan.generationBody) !== plan.generationBodySha256 ||
+          digest(request.pdfBytes) !== plan.originalBytesSha256
+        )
+          throw new PdfOcrProviderError(
+            "OCR_REQUEST_PLAN_DRIFT",
+            PDF_OCR_DISPATCH_STATE.DISPATCHED_OR_UNKNOWN,
+          );
         let wire: unknown;
         try {
           wire = parseStrictJson(
@@ -455,7 +710,8 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
           wire,
           request,
           startedAt,
-          Buffer.byteLength(requestBody, "utf8"),
+          Buffer.byteLength(plan.generationBody, "utf8"),
+          plan,
         );
       } catch (error) {
         if (error instanceof PdfOcrProviderError) throw error;
@@ -475,6 +731,7 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
     request: FixedPdfOcrProviderRequest,
     startedAt: number,
     requestBodyBytes: number,
+    plan: VertexPdfOcrRequestPlan,
   ): PdfOcrDocumentV2 {
     if (
       !record(wire) ||
@@ -538,7 +795,16 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
       inputTokens === undefined ||
       outputTokens === undefined ||
       totalTokens === undefined ||
-      inputTokens + outputTokens !== totalTokens
+      inputTokens + outputTokens !== totalTokens ||
+      inputTokens >
+        (this.admission.maxInputTokens ??
+          DEFAULT_ADMISSION_POLICY.maxInputTokens) ||
+      outputTokens >
+        Math.min(
+          this.admission.maxOutputTokens ??
+            DEFAULT_ADMISSION_POLICY.maxOutputTokens,
+          PDF_OCR_MAX_OUTPUT_TOKENS,
+        )
     )
       throw dispatchedFailure("MALFORMED_RESPONSE");
     let payload: unknown;
@@ -547,7 +813,9 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
     } catch {
       throw dispatchedFailure("MALFORMED_RESPONSE");
     }
-    const parsed = parsePdfOcrV2(payload, {
+    const parse =
+      request.qualificationCapture === true ? parsePdfOcrV2 : parsePdfOcrV3;
+    const parsed = parse(payload, {
       artifactSha256: request.artifactSha256,
       pageCount: request.pageCount,
       requestId: request.requestId,
@@ -562,12 +830,15 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
         adcScopes: VERTEX_ADC_SCOPES,
         inputMimeType: PDF_MIME,
         inputMode: "INLINE_ORIGINAL_BYTES",
-        originalBytesSha256: request.artifactSha256,
+        originalBytesSha256: plan.originalBytesSha256,
         requestBodyBytes,
+        requestPlanSha256: plan.planSha256,
+        countRequestBodySha256: plan.countBodySha256,
+        generationRequestBodySha256: plan.generationBodySha256,
         deadlineMs: PDF_OCR_LIMITS.providerLatencyMs,
         finishReason: "STOP",
         maxOutputTokens: VERTEX_OCR_MAX_OUTPUT_TOKENS,
-        promptSha256: PROMPT_SHA256,
+        promptSha256: plan.promptSha256,
         toolsPresent: false,
         fileUri: null,
         cachedContent: null,
@@ -597,7 +868,44 @@ export class VertexPdfOcrProvider implements FixedPdfOcrProviderPort {
     return parsed.value;
   }
 
-  private url(): string {
-    return `${VERTEX_OCR_ENDPOINT}/v1/projects/${encodeURIComponent(this.projectId)}/locations/${VERTEX_OCR_REGION}/publishers/google/models/${PDF_OCR_MODEL_ID}:generateContent`;
+  private async parseCountTokensResponse(
+    response: Awaited<ReturnType<Fetcher>>,
+    signal: AbortSignal,
+    capture?: (
+      phase: "COUNT_TOKENS" | "GENERATE_CONTENT",
+      bytes: Buffer,
+    ) => void,
+  ): Promise<{ readonly totalTokens: number }> {
+    const countFailure = (failure: PdfOcrProviderFailure) =>
+      dispatchedFailure(failure, PDF_OCR_DISPATCH_PHASE.COUNT_TOKENS);
+    if (!response.ok || response.status < 200 || response.status >= 300)
+      throw countFailure(response.status === 429 ? "RATE_LIMITED" : "UPSTREAM");
+    const contentType = response.headers.get("content-type");
+    if (!contentType?.toLowerCase().startsWith(JSON_MIME))
+      throw countFailure("MALFORMED_RESPONSE");
+    let value: unknown;
+    try {
+      const bytes = await readResponseBytes(response.body, signal);
+      capture?.("COUNT_TOKENS", Buffer.from(bytes));
+      value = parseStrictJson(
+        new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      );
+    } catch (error) {
+      if (error instanceof PdfOcrProviderError) throw error;
+      throw countFailure("MALFORMED_RESPONSE");
+    }
+    // Vertex may add bounded metadata. Only totalTokens has admission meaning.
+    if (
+      !record(value) ||
+      !Object.prototype.hasOwnProperty.call(value, "totalTokens")
+    )
+      throw countFailure("MALFORMED_RESPONSE");
+    const totalTokens = counter(value.totalTokens);
+    if (totalTokens === undefined) throw countFailure("MALFORMED_RESPONSE");
+    return { totalTokens };
+  }
+
+  private url(action: "countTokens" | "generateContent"): string {
+    return `${VERTEX_OCR_ENDPOINT}/v1/projects/${encodeURIComponent(this.projectId)}/locations/${VERTEX_OCR_REGION}/publishers/google/models/${PDF_OCR_MODEL_ID}:${action}`;
   }
 }

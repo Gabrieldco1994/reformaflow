@@ -1,8 +1,5 @@
 import { resolve } from "node:path";
-import { captureLiveEvidence } from "./capture-live-core";
 import { writeQualifiedLiveEvidenceExclusive } from "./capture-live-file";
-import { createConfiguredVertexPdfOcrProvider } from "../import-session/ocr/vertex-provider.factory";
-import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
 import {
   assertOutputOutsideRepository,
   assertQualityRepositorySnapshot,
@@ -35,20 +32,12 @@ async function main(): Promise<void> {
       const attestation = await attestQualityClosure();
       policy = attestation.policy;
       snapshot = attestation.closure.snapshot;
-      const finalReviewHashes = await readFinalReviewHashes(policy);
+      await readFinalReviewHashes(policy);
       await verifyRepository();
-      const provider = await createConfiguredVertexPdfOcrProvider(process.env);
-      if (!(provider instanceof VertexPdfOcrProvider) || !provider.ready())
-        throw new Error("LIVE_CAPTURE_CONFIG_MISSING");
-      return await captureLiveEvidence({
-        provider,
-        mechanical: {
-          policy,
-          qualityClosure: attestation.closure,
-          finalReviewHashes,
-          verifySnapshot: verifyRepository,
-        },
-      });
+      // The fixed in-process 45-scenario executor is intentionally required
+      // before any provider construction. Until QA supplies that executable
+      // harness, capture remains fail-closed instead of accepting claim JSON.
+      throw new Error("LIVE_CAPTURE_BOUNDARY_RUNNER_UNAVAILABLE");
     },
     verifyRepository,
   );

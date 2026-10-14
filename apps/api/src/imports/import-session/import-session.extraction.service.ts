@@ -8,6 +8,8 @@ import {
   IMPORT_SESSION_PRIMITIVES as P,
   PDF_OCR_LIMITS,
   PDF_OCR_CONSENT_POLICY_VERSION,
+  PDF_OCR_DOCUMENT_VERSION,
+  PDF_OCR_LEGACY_PARSER_VERSION,
   PDF_OCR_MODEL_ID,
   PDF_OCR_MODEL_VERSION_PATTERN,
   PDF_OCR_PARSER_VERSION,
@@ -17,6 +19,7 @@ import {
   ImportSessionErrorCode as Code,
   type PdfOcrDocumentV2,
   type PdfOcrProviderProvenanceV2,
+  type PdfOcrUsageV2,
   type VertexAuthTraceV2,
   type ImportSessionRevisionRequestV1,
   type ImportSessionViewV1,
@@ -40,6 +43,7 @@ import type {
 } from "./import-session.contract";
 import { assertImportSessionOperationAvailable } from "./import-session.disabled";
 import {
+  INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT,
   ImportSessionError,
   ImportSessionCorruptStateError,
 } from "./import-session.errors";
@@ -97,12 +101,17 @@ import { pdfOcrTerminalCodeForLedgerOutcome } from "./ocr/pdf-ocr-outcome";
 
 type Tx = Prisma.TransactionClient;
 type Runtime = NonNullable<ReturnType<ImportVaultGate["boot"]["runtime"]>>;
-const problem = (code: Code, row?: ImportSession) =>
+const problem = (
+  code: Code | typeof INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT,
+  row?: ImportSession,
+) =>
   new ImportSessionError(
     code,
     row ? { sessionId: row.id, currentRevision: row.revision } : {},
   );
 const ocrOutcomeProblem = (outcome: string, row: ImportSession) => {
+  if (outcome === PDF_OCR_USAGE_OUTCOME.REQUEST_STALE_AFTER_COUNT)
+    return problem(INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT, row);
   return problem(
     pdfOcrTerminalCodeForLedgerOutcome(outcome) ?? Code.OCR_ATTEMPT_UNKNOWN,
     row,
@@ -115,13 +124,16 @@ type TerminalPdfOcrUsageOutcome = Exclude<
 const providerFailureOutcome = (
   error: PdfOcrProviderError,
 ): TerminalPdfOcrUsageOutcome => {
+  if (
+    error.failure === "LIMIT_EXCEEDED" ||
+    error.failure === "INPUT_TOKEN_LIMIT_EXCEEDED"
+  )
+    return PDF_OCR_USAGE_OUTCOME.LIMIT_EXCEEDED;
   if (error.dispatchState === PDF_OCR_DISPATCH_STATE.NOT_DISPATCHED)
     return PDF_OCR_USAGE_OUTCOME.NOT_DISPATCHED;
   if (error.failure === "SAFETY") return PDF_OCR_USAGE_OUTCOME.SAFETY;
   if (error.failure === "MALFORMED_RESPONSE")
     return PDF_OCR_USAGE_OUTCOME.MALFORMED_RESPONSE;
-  if (error.failure === "LIMIT_EXCEEDED")
-    return PDF_OCR_USAGE_OUTCOME.LIMIT_EXCEEDED;
   if (error.failure === "DOCUMENT_UNREADABLE")
     return PDF_OCR_USAGE_OUTCOME.DOCUMENT_UNREADABLE;
   return PDF_OCR_USAGE_OUTCOME.UNKNOWN;
@@ -173,14 +185,14 @@ export function parseAnalyzeAttachmentRequest(
 function ocrExtraction(document: PdfOcrDocumentV2): DocumentExtractionV1 {
   const candidates = [...document.candidates];
   const ordinalInputs = candidates.flatMap((candidate, index) =>
-    candidate.date === null ||
+    candidate.dateOnly === null ||
     candidate.description === null ||
     candidate.amountCents === null
       ? []
       : [
           {
             index,
-            date: new Date(`${candidate.date}T00:00:00.000Z`),
+            date: new Date(`${candidate.dateOnly}T00:00:00.000Z`),
             merchant: candidate.description,
             amountCents: Number(candidate.amountCents),
           },
@@ -192,7 +204,10 @@ function ocrExtraction(document: PdfOcrDocumentV2): DocumentExtractionV1 {
   });
   return {
     version: 1,
-    parserVersion: PDF_OCR_PARSER_VERSION,
+    parserVersion:
+      document.version === PDF_OCR_VERSION
+        ? PDF_OCR_LEGACY_PARSER_VERSION
+        : PDF_OCR_PARSER_VERSION,
     documentKind: "INVOICE",
     invoiceDueMonth: null,
     metrics: {
@@ -208,7 +223,7 @@ function ocrExtraction(document: PdfOcrDocumentV2): DocumentExtractionV1 {
       sourceOrdinal,
       section: "UNKNOWN",
       raw: {
-        date: candidate.date,
+        date: candidate.dateText,
         description: candidate.description,
         amount: candidate.amountCents,
         installment:
@@ -217,7 +232,7 @@ function ocrExtraction(document: PdfOcrDocumentV2): DocumentExtractionV1 {
             : `${candidate.installment.index}/${candidate.installment.total}`,
       },
       cycle: null,
-      dateOnly: candidate.date,
+      dateOnly: candidate.dateOnly,
       merchant: candidate.description,
       amountCents:
         candidate.amountCents === null ? null : Number(candidate.amountCents),
@@ -249,7 +264,8 @@ function boundOcrAuthTrace(
     (value as number) >= 0 &&
     (value as number) <= P.maxRevision;
   if (
-    document?.version !== PDF_OCR_VERSION ||
+    (document?.version !== PDF_OCR_VERSION &&
+      document?.version !== PDF_OCR_DOCUMENT_VERSION) ||
     document.artifactSha256 !== expected.artifactSha256 ||
     document.pageCount !== expected.pageCount ||
     expected.provider !== PDF_OCR_PROVIDER_ID ||
@@ -701,6 +717,7 @@ export class ImportSessionExtractionService {
     let ocrBudgetReservationId: string | null = null;
     let ocrFailureOutcome: TerminalPdfOcrUsageOutcome | null = null;
     let ocrFailureProvenance: PdfOcrProviderProvenanceV2 | null = null;
+    let ocrFailureUsage: PdfOcrUsageV2 | null = null;
     let ocrDocument: PdfOcrDocumentV2 | null = null;
     let ocrAuthTrace: VertexAuthTraceV2 | null = null;
     const publicationLive = (): undefined => {
@@ -960,13 +977,71 @@ export class ImportSessionExtractionService {
           ocrBudgetReservationId = budgetReservationId;
           ocrAttempted = true;
           try {
-            const document = await this.ocrProvider.extractPdf({
+            const providerRequest = {
               artifactSha256: attempt.artifactSha256,
               pageCount: result.pageCount,
               requestId: attempt.requestId,
               pdfBytes: bytes,
               signal: rawSignal,
-            });
+            };
+            const providerHooks = {
+              beforeGeneration: async (providerSignal: AbortSignal) => {
+                try {
+                  if (providerSignal.aborted)
+                    throw problem(INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT);
+                  await write(async (tx, now) => {
+                    const row = await recheck(tx, now);
+                    const state = parseStoredPdfOcrState(row.ocrJson);
+                    const consent = state.consents.find(
+                      (item) => item.attachmentId === capture.ref.id,
+                    );
+                    if (
+                      !consent ||
+                      consent.usageId !== budgetReservationId ||
+                      consent.requestId !== attempt.requestId ||
+                      consent.actorId !== auth.userId ||
+                      consent.artifactSha256 !== attempt.artifactSha256
+                    )
+                      throw problem(
+                        INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT,
+                        row,
+                      );
+                    const usage = await tx.importOcrUsage.findUnique({
+                      where: { id: budgetReservationId },
+                    });
+                    if (
+                      !usage ||
+                      usage.tenantId !== row.tenantId ||
+                      usage.ownerProjectId !== row.ownerProjectId ||
+                      usage.actorId !== auth.userId ||
+                      usage.sessionId !== row.id ||
+                      usage.attachmentId !== capture.ref.id ||
+                      usage.artifactId !== capture.artifact.id ||
+                      usage.artifactSha256 !== attempt.artifactSha256 ||
+                      usage.requestId !== attempt.requestId ||
+                      usage.outcome !== PDF_OCR_USAGE_OUTCOME.ATTEMPTED ||
+                      !this.ocrProvider?.ready()
+                    )
+                      throw problem(
+                        INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT,
+                        row,
+                      );
+                  });
+                } catch {
+                  throw problem(
+                    INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT,
+                    capture.row,
+                  );
+                }
+              },
+            };
+            const document =
+              this.ocrProvider.extractPdf.length >= 2
+                ? await this.ocrProvider.extractPdf(
+                    providerRequest,
+                    providerHooks,
+                  )
+                : await this.ocrProvider.extractPdf(providerRequest);
             publicationLive();
             ocrAuthTrace = boundOcrAuthTrace(document, {
               artifactSha256: attempt.artifactSha256,
@@ -985,6 +1060,14 @@ export class ImportSessionExtractionService {
               );
             }
           } catch (error) {
+            if (
+              error instanceof ImportSessionError &&
+              error.code === INTERNAL_OCR_REQUEST_STALE_AFTER_COUNT
+            ) {
+              ocrFailureOutcome =
+                PDF_OCR_USAGE_OUTCOME.REQUEST_STALE_AFTER_COUNT;
+              throw error;
+            }
             ocrFailureOutcome =
               error instanceof PdfOcrProviderError
                 ? providerFailureOutcome(error)
@@ -992,6 +1075,10 @@ export class ImportSessionExtractionService {
             ocrFailureProvenance =
               error instanceof PdfOcrProviderError
                 ? (error.provenance ?? null)
+                : null;
+            ocrFailureUsage =
+              error instanceof PdfOcrProviderError
+                ? (error.usage ?? null)
                 : null;
             if (ocrAttempted)
               throw ocrOutcomeProblem(ocrFailureOutcome, capture.row);
@@ -1154,7 +1241,7 @@ export class ImportSessionExtractionService {
                 ocrBudgetReservationId,
                 ocrFailureOutcome ?? PDF_OCR_USAGE_OUTCOME.UNKNOWN,
                 now,
-                ocrFailureProvenance?.usage ?? null,
+                ocrFailureUsage ?? ocrFailureProvenance?.usage ?? null,
                 ocrFailureProvenance?.responseId ?? null,
                 ocrFailureProvenance,
               );

@@ -1,6 +1,7 @@
 import {
   IMPORT_SESSION_PRIMITIVES,
   PDF_OCR_LIMITS,
+  PDF_OCR_DOCUMENT_VERSION,
   PDF_OCR_MODEL_ID,
   PDF_OCR_MODEL_VERSION_PATTERN,
   PDF_OCR_PROVIDER_ID,
@@ -72,11 +73,26 @@ const CANDIDATE_KEYS = [
   "installment",
   "evidenceText",
 ] as const;
+const CANDIDATE_V3_KEYS = [
+  "pageNumber",
+  "pageOccurrenceIndex",
+  "description",
+  "amountCents",
+  "sign",
+  "amountMeaning",
+  "dateText",
+  "normalizedDate",
+  "dateExplicitness",
+  "installment",
+  "evidenceText",
+] as const;
 const INSTALLMENT_KEYS = ["index", "total"] as const;
 const HASH = new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern);
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
 const MODEL_VERSION = new RegExp(PDF_OCR_MODEL_VERSION_PATTERN);
 const CENTS = /^(?:0|-?[1-9][0-9]*)$/;
+const FULL_DATE_TEXT = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+const YEARLESS_DATE_TEXT = /^(\d{2})\/(\d{2})$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 const COMPLETION_STATUS = Object.freeze({
   COMPLETE: "COMPLETE",
@@ -158,10 +174,98 @@ function provenance(context: PdfOcrParseContext): PdfOcrProviderProvenanceV2 {
   };
 }
 
+type ParsedDate = Readonly<{
+  dateText: string | null;
+  normalizedDate: string | null;
+  dateExplicitness: "FULL" | "YEARLESS" | "MISSING" | "UNKNOWN";
+  dateOnly: string | null;
+}>;
+
+function calendarDate(year: number, month: number, day: number): boolean {
+  const value = new Date(Date.UTC(year, month - 1, day));
+  return (
+    value.getUTCFullYear() === year &&
+    value.getUTCMonth() === month - 1 &&
+    value.getUTCDate() === day
+  );
+}
+
+function parseCandidateDate(raw: Record<string, unknown>): ParsedDate | null {
+  const explicitness = raw.dateExplicitness;
+  if (
+    explicitness !== "FULL" &&
+    explicitness !== "YEARLESS" &&
+    explicitness !== "MISSING" &&
+    explicitness !== "UNKNOWN"
+  )
+    return null;
+  if (explicitness === "MISSING")
+    return raw.dateText === null && raw.normalizedDate === null
+      ? {
+          dateText: null,
+          normalizedDate: null,
+          dateExplicitness: "MISSING",
+          dateOnly: null,
+        }
+      : null;
+  if (explicitness === "UNKNOWN")
+    return raw.normalizedDate === null &&
+      (raw.dateText === null ||
+        cleanText(raw.dateText, PDF_OCR_LIMITS.evidenceLength))
+      ? {
+          dateText: raw.dateText as string | null,
+          normalizedDate: null,
+          dateExplicitness: "UNKNOWN",
+          dateOnly: null,
+        }
+      : null;
+  if (typeof raw.dateText !== "string") return null;
+  if (explicitness === "YEARLESS") {
+    const match = YEARLESS_DATE_TEXT.exec(raw.dateText);
+    if (
+      raw.normalizedDate !== null ||
+      !match ||
+      !calendarDate(2000, Number(match[2]), Number(match[1]))
+    )
+      return null;
+    return {
+      dateText: raw.dateText,
+      normalizedDate: null,
+      dateExplicitness: "YEARLESS",
+      dateOnly: null,
+    };
+  }
+  if (typeof raw.normalizedDate !== "string") return null;
+  const match = FULL_DATE_TEXT.exec(raw.dateText);
+  if (
+    !match ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(raw.normalizedDate) ||
+    !parseInstallmentDateOnlyUtc(raw.normalizedDate)
+  )
+    return null;
+  const expected = `${match[3]}-${match[2]}-${match[1]}`;
+  if (raw.normalizedDate !== expected) return null;
+  return {
+    dateText: raw.dateText,
+    normalizedDate: raw.normalizedDate,
+    dateExplicitness: "FULL",
+    dateOnly: raw.normalizedDate,
+  };
+}
+
+function signForCents(
+  value: string | null,
+): "NEGATIVE" | "ZERO" | "POSITIVE" | "UNKNOWN" {
+  if (value === null) return "UNKNOWN";
+  const cents = BigInt(value);
+  return cents < 0n ? "NEGATIVE" : cents > 0n ? "POSITIVE" : "ZERO";
+}
+
 /** Exact bounded provider-payload parser; document identity stays server-side. */
-export function parsePdfOcrV2(
+function parsePdfOcr(
   payload: unknown,
   context: PdfOcrParseContext,
+  strictV3: boolean,
 ): PdfOcrParseResultV2 {
   if (!validContext(context)) return failure(PdfOcrFailureCode.INVALID_PAYLOAD);
   let bytes: number;
@@ -243,27 +347,34 @@ export function parsePdfOcrV2(
     const count = page.visibleOccurrenceCount;
     for (let pageOccurrenceIndex = 1; pageOccurrenceIndex <= count; ) {
       const raw = payload.candidates[candidateOffset];
-      if (!exact(raw, CANDIDATE_KEYS))
+      if (strictV3) {
+        if (!exact(raw, CANDIDATE_V3_KEYS))
+          return failure(PdfOcrFailureCode.INVALID_PAYLOAD);
+      } else if (!exact(raw, CANDIDATE_KEYS)) {
         return failure(PdfOcrFailureCode.PAGE_ACCOUNTING_MISMATCH);
+      }
+      const candidate = raw as Record<string, unknown>;
       if (
-        raw.pageNumber !== page.pageNumber ||
-        raw.pageOccurrenceIndex !== pageOccurrenceIndex
+        candidate.pageNumber !== page.pageNumber ||
+        candidate.pageOccurrenceIndex !== pageOccurrenceIndex
       )
         return failure(PdfOcrFailureCode.CANDIDATE_ACCOUNTING_MISMATCH);
       pageOccurrenceIndex++;
       candidateOffset++;
       if (
-        !cleanText(raw.evidenceText, PDF_OCR_LIMITS.evidenceLength) ||
-        (raw.description !== null &&
-          !cleanText(raw.description, PDF_OCR_LIMITS.descriptionLength))
+        !cleanText(candidate.evidenceText, PDF_OCR_LIMITS.evidenceLength) ||
+        (candidate.description !== null &&
+          !cleanText(candidate.description, PDF_OCR_LIMITS.descriptionLength))
       )
         return failure(PdfOcrFailureCode.INVALID_EVIDENCE);
       if (
-        raw.amountCents !== null &&
-        (typeof raw.amountCents !== "string" || !CENTS.test(raw.amountCents))
+        candidate.amountCents !== null &&
+        (typeof candidate.amountCents !== "string" ||
+          !CENTS.test(candidate.amountCents))
       )
         return failure(PdfOcrFailureCode.INVALID_AMOUNT_CENTS);
-      const amount = raw.amountCents === null ? null : Number(raw.amountCents);
+      const amount =
+        candidate.amountCents === null ? null : Number(candidate.amountCents);
       if (
         amount !== null &&
         (!Number.isSafeInteger(amount) ||
@@ -272,43 +383,84 @@ export function parsePdfOcrV2(
       )
         return failure(PdfOcrFailureCode.INVALID_AMOUNT_CENTS);
       if (
-        raw.amountMeaning !== "LINE_AMOUNT" &&
-        raw.amountMeaning !== "UNKNOWN"
+        candidate.amountMeaning !== "LINE_AMOUNT" &&
+        candidate.amountMeaning !== "UNKNOWN"
       )
         return failure(PdfOcrFailureCode.INVALID_AMOUNT_CENTS);
       if (
-        raw.date !== null &&
-        (typeof raw.date !== "string" ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(raw.date) ||
-          !parseInstallmentDateOnlyUtc(raw.date))
+        strictV3 &&
+        candidate.amountCents === null &&
+        candidate.amountMeaning !== "UNKNOWN"
       )
-        return failure(PdfOcrFailureCode.INVALID_DATE);
-      if (raw.installment !== null) {
+        return failure(PdfOcrFailureCode.INVALID_AMOUNT_CENTS);
+      let parsedDate: ParsedDate;
+      let sign: "NEGATIVE" | "ZERO" | "POSITIVE" | "UNKNOWN";
+      if (strictV3) {
+        const strictDate = parseCandidateDate(candidate);
+        if (!strictDate) return failure(PdfOcrFailureCode.INVALID_DATE);
+        parsedDate = strictDate;
+        const suppliedSign = candidate.sign;
         if (
-          !exact(raw.installment, INSTALLMENT_KEYS) ||
-          !Number.isSafeInteger(raw.installment.index) ||
-          !Number.isSafeInteger(raw.installment.total) ||
-          (raw.installment.index as number) < 1 ||
-          (raw.installment.total as number) < 1 ||
-          (raw.installment.index as number) >
-            (raw.installment.total as number) ||
-          (raw.installment.total as number) >
+          (suppliedSign !== "NEGATIVE" &&
+            suppliedSign !== "ZERO" &&
+            suppliedSign !== "POSITIVE" &&
+            suppliedSign !== "UNKNOWN") ||
+          suppliedSign !== signForCents(candidate.amountCents as string | null)
+        )
+          return failure(PdfOcrFailureCode.INVALID_AMOUNT_CENTS);
+        sign = suppliedSign;
+      } else {
+        if (
+          candidate.date !== null &&
+          (typeof candidate.date !== "string" ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(candidate.date) ||
+            !parseInstallmentDateOnlyUtc(candidate.date))
+        )
+          return failure(PdfOcrFailureCode.INVALID_DATE);
+        const legacyDate = candidate.date as string | null;
+        parsedDate = {
+          dateText: legacyDate,
+          normalizedDate: legacyDate,
+          dateExplicitness: legacyDate === null ? "MISSING" : "FULL",
+          dateOnly: legacyDate,
+        };
+        sign = signForCents(candidate.amountCents as string | null);
+      }
+      if (candidate.installment !== null) {
+        if (
+          !exact(candidate.installment, INSTALLMENT_KEYS) ||
+          !Number.isSafeInteger(candidate.installment.index) ||
+          !Number.isSafeInteger(candidate.installment.total) ||
+          (candidate.installment.index as number) < 1 ||
+          (candidate.installment.total as number) < 1 ||
+          (candidate.installment.index as number) >
+            (candidate.installment.total as number) ||
+          (candidate.installment.total as number) >
             PDF_OCR_LIMITS.installmentsPerPurchase
         )
           return failure(PdfOcrFailureCode.INVALID_INSTALLMENT);
       }
-      const pageNumber = raw.pageNumber as number;
+      const pageNumber = candidate.pageNumber as number;
       parsed.push({
         pageNumber,
-        description: raw.description as string | null,
-        amountCents: raw.amountCents as string | null,
-        amountMeaning: raw.amountMeaning,
-        date: raw.date as string | null,
-        installment: raw.installment as {
+        pageOccurrenceIndex: candidate.pageOccurrenceIndex as number,
+        description: candidate.description as string | null,
+        amountCents: candidate.amountCents as string | null,
+        sign,
+        amountMeaning: candidate.amountMeaning as "LINE_AMOUNT" | "UNKNOWN",
+        dateText: parsedDate.dateText,
+        normalizedDate: parsedDate.normalizedDate,
+        dateExplicitness: parsedDate.dateExplicitness,
+        date: parsedDate.dateOnly,
+        dateOnly: parsedDate.dateOnly,
+        installment: candidate.installment as {
           index: number;
           total: number;
         } | null,
-        evidence: { pageNumber, text: raw.evidenceText as string },
+        evidenceText: candidate.evidenceText as string,
+        evidence: { pageNumber, text: candidate.evidenceText as string },
+        selected: false,
+        verificationStatus: "UNVERIFIED",
       });
     }
   }
@@ -317,11 +469,27 @@ export function parsePdfOcrV2(
   return {
     ok: true,
     value: {
-      version: PDF_OCR_VERSION,
+      version: strictV3 ? PDF_OCR_DOCUMENT_VERSION : PDF_OCR_VERSION,
       artifactSha256: context.artifactSha256,
       pageCount: context.pageCount,
       provenance: providerProvenance,
       candidates: parsed,
     },
   };
+}
+
+/** Compatibility parser for already-deployed V2 provider fixtures. */
+export function parsePdfOcrV2(
+  payload: unknown,
+  context: PdfOcrParseContext,
+): PdfOcrParseResultV2 {
+  return parsePdfOcr(payload, context, false);
+}
+
+/** Strict provider-response parser. V2 request/consent naming remains separate. */
+export function parsePdfOcrV3(
+  payload: unknown,
+  context: PdfOcrParseContext,
+): PdfOcrParseResultV2 {
+  return parsePdfOcr(payload, context, true);
 }

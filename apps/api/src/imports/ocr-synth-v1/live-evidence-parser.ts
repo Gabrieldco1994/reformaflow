@@ -11,12 +11,15 @@ import {
 import type { OcrEvalInput } from "./evaluator";
 import policy from "./quality-closure-policy.json";
 import { SAFETY_PROBE_IDS, SAFETY_PROBE_SCENARIOS } from "./types";
-import { isCanonicalQualityClosure } from "./quality-closure-attestation";
+import { isStructurallyValidQualityClosureEnvelope } from "./quality-closure-attestation";
 
 const HASH = new RegExp(IMPORT_SESSION_PRIMITIVES.hashPattern);
 const REQUEST_ID = new RegExp(IMPORT_SESSION_PRIMITIVES.requestIdPattern);
 const MODEL_VERSION = new RegExp(PDF_OCR_MODEL_VERSION_PATTERN);
 const SAFE_CODE = /^[A-Z][A-Z0-9_]+$/;
+const QUALIFICATION_SOURCE_BY_NAME = new Map(
+  policy.qualificationTests.map((item) => [item.name, item.sourcePath]),
+);
 
 const fail = (): never => {
   throw new Error("LIVE_EVIDENCE_INVALID");
@@ -475,7 +478,10 @@ export function isValidLiveRoute(
     bool(value.routedLocally) &&
     bool(value.explicitFallback) &&
     number(value.financialWrites) &&
-    string(value.testFile)
+    string(value.testFile) &&
+    (value.source === "OFFLINE_EVALUATOR_SELF_TEST" ||
+      value.testFile ===
+        QUALIFICATION_SOURCE_BY_NAME.get(`[ROUTE] ${value.caseId}`))
   );
 }
 
@@ -505,12 +511,17 @@ export function isValidLiveProbe(
     bool(value.explicitError) &&
     string(value.errorCode) &&
     SAFE_CODE.test(value.errorCode) &&
+    (value.source === "OFFLINE_EVALUATOR_SELF_TEST" ||
+      !value.errorCode.startsWith("BLOCKED_")) &&
     number(value.providerCalls) &&
     number(value.financialWrites) &&
     bool(value.durableStateVerified) &&
     strings(value.finishReasonsTested) &&
     validProbeScenarios(value) &&
-    string(value.testFile)
+    string(value.testFile) &&
+    (value.source === "OFFLINE_EVALUATOR_SELF_TEST" ||
+      value.testFile ===
+        QUALIFICATION_SOURCE_BY_NAME.get(`[PROBE] ${value.id}`))
   );
 }
 
@@ -543,7 +554,11 @@ function validProbeScenarios(value: Record<string, unknown>): boolean {
 }
 
 function validQualityClosure(value: unknown, candidateSha: unknown): boolean {
-  if (!isCanonicalQualityClosure(value) || !string(candidateSha)) return false;
+  if (
+    !isStructurallyValidQualityClosureEnvelope(value) ||
+    !string(candidateSha)
+  )
+    return false;
   return (
     value.policyVersion === policy.policyVersion &&
     value.snapshot.headSha === candidateSha &&

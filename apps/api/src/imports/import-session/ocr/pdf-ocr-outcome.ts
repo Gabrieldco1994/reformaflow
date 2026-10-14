@@ -13,6 +13,7 @@ export function pdfOcrTerminalCodeForLedgerOutcome(
 ): ImportSessionOcrTerminalCodeV1 | null {
   switch (outcome) {
     case PDF_OCR_USAGE_OUTCOME.SUCCEEDED:
+    case "CAPTURE_SPEND_LIMIT":
       return null;
     case PDF_OCR_USAGE_OUTCOME.SAFETY:
       return ImportSessionErrorCode.OCR_SAFETY_BLOCKED;
@@ -22,6 +23,8 @@ export function pdfOcrTerminalCodeForLedgerOutcome(
       return ImportSessionErrorCode.LIMIT_EXCEEDED;
     case PDF_OCR_USAGE_OUTCOME.DOCUMENT_UNREADABLE:
       return ImportSessionErrorCode.DOCUMENT_UNREADABLE;
+    case PDF_OCR_USAGE_OUTCOME.REQUEST_STALE_AFTER_COUNT:
+      return ImportSessionErrorCode.OCR_ATTEMPT_UNKNOWN;
     case PDF_OCR_USAGE_OUTCOME.AUTH:
     case PDF_OCR_USAGE_OUTCOME.NOT_DISPATCHED:
       return ImportSessionErrorCode.OCR_UNAVAILABLE;
