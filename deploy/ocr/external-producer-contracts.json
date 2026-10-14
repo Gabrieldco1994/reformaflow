@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "status": "READY",
+  "runtimeSubjectContract": {
+    "workflowPath": ".github/workflows/ocr-runtime-subject.yml",
+    "artifactName": "ocr-runtime-subject-v1",
+    "payloadPath": "runtime-subject.json",
+    "schemaVersion": 1
+  },
+  "recoveryEvidenceContract": {
+    "workflowPath": ".github/workflows/ocr-recovery-evidence.yml",
+    "artifactName": "ocr-recovery-evidence-v1",
+    "payloadPath": "recovery-evidence.json",
+    "schemaVersion": 1
+  }
+}

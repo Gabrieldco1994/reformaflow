@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "role": "DATA_OWNER_RISK_ACCEPTANCE",
+  "policySha256": "42526916c28e9293b58617ca2f26a5c9205ba7762940546e786af1e06835713e",
+  "scope": "OCR_QUALIFICATION_V1"
+}

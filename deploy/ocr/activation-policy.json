@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "enabled": false,
+  "requiredFlagsBeforeAuthorization": {
+    "IMPORT_OCR_ENABLED": "false",
+    "IMPORT_VAULT_ENABLED": "false"
+  },
+  "requiresOffVolumeBackup": true,
+  "requiresRestoreDrill": true,
+  "requiresLegacyUpgradeProof": true,
+  "requiresSingleFlyMachine": true,
+  "requiresExactAttestedImageDigest": true,
+  "requiresPoAuthorization": true
+}

@@ -1,0 +1,202 @@
+name: OCR protected activation
+
+on:
+  workflow_dispatch:
+    inputs:
+      attestation_run_id:
+        description: Qualification workflow run containing both signed artifacts
+        required: true
+        type: string
+      attestation_run_attempt:
+        description: Exact qualification run attempt; only attempt one is admissible
+        required: true
+        type: number
+
+permissions: {}
+concurrency:
+  group: ocr-production-activation
+  cancel-in-progress: false
+
+jobs:
+  validate-signed-subject:
+    runs-on: ubuntu-latest
+    environment: ocr-activation-verification
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      subject_sha: ${{ steps.binding.outputs.subject_sha }}
+      subject_tree: ${{ steps.binding.outputs.subject_tree }}
+      production_image: ${{ steps.binding.outputs.production_image }}
+      image_digest: ${{ steps.binding.outputs.image_digest }}
+      config_digest: ${{ steps.binding.outputs.config_digest }}
+      entrypoint_path: ${{ steps.binding.outputs.entrypoint_path }}
+      entrypoint_size: ${{ steps.binding.outputs.entrypoint_size }}
+      executable_sha256: ${{ steps.binding.outputs.executable_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: node deploy/ocr/external-producer-gate.mjs deploy/ocr/external-producer-contracts.json
+      - id: main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]
+          current_main="$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")"
+          [[ "$current_main" =~ ^[0-9a-f]{40}$ && "$(git rev-parse HEAD)" == "$current_main" ]]
+          printf "sha=%s\n" "$current_main" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: ocr-signed-attestation-${{ inputs.attestation_run_id }}-${{ inputs.attestation_run_attempt }}
+          path: ${{ runner.temp }}/attestation
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.attestation_run_id }}
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: ocr-runtime-release-${{ inputs.attestation_run_id }}-${{ inputs.attestation_run_attempt }}
+          path: ${{ runner.temp }}/runtime
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.attestation_run_id }}
+      - name: Verify signatures then independently verify pinned producer artifacts
+        id: binding
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          MAIN_SHA: ${{ steps.main.outputs.sha }}
+          EXPECTED_RUN: ${{ inputs.attestation_run_id }}
+          EXPECTED_ATTEMPT: ${{ inputs.attestation_run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_RUN" =~ ^[1-9][0-9]*$ && "$EXPECTED_ATTEMPT" == "1" ]]
+          jq -nc --arg now "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" --arg run "$EXPECTED_RUN" --argjson attempt "$EXPECTED_ATTEMPT" --arg main "$MAIN_SHA" --arg root "$GITHUB_WORKSPACE" "{now:\$now,runId:\$run,runAttempt:\$attempt,mainSha:\$main,repositoryRoot:\$root}" > "$RUNNER_TEMP/expected-bindings.json"
+          node scripts/ci/ocr-attestation.mjs verify "$RUNNER_TEMP/attestation/attestation-envelope.json" apps/api/src/imports/import-session/ocr/ocr-release-trust.json "$RUNNER_TEMP/expected-bindings.json" > "$RUNNER_TEMP/verified-payload.json"
+          node scripts/ci/ocr-attestation.mjs verify-runtime "$RUNNER_TEMP/runtime/runtime-release-envelope.json" apps/api/src/imports/import-session/ocr/ocr-release-trust.json > "$RUNNER_TEMP/verified-runtime.json"
+          node scripts/ci/ocr-attestation.mjs verify-cross-binding "$RUNNER_TEMP/verified-payload.json" "$RUNNER_TEMP/runtime/runtime-release-envelope.json"
+          fetch_artifact() {
+            artifact_id="$1"; expected_name="$2"; payload_name="$3"; directory="$4"
+            mkdir -p "$directory/unpacked"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id" > "$directory/metadata.json"
+            [[ "$(jq -er .name "$directory/metadata.json")" == "$expected_name" ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$directory/artifact.zip"
+            [[ "$(unzip -Z1 "$directory/artifact.zip")" == "$payload_name" ]]
+            unzip -q "$directory/artifact.zip" -d "$directory/unpacked"
+          }
+          runtime_id="$(jq -er .subject.productionImage.runtimeSubjectArtifactId "$RUNNER_TEMP/verified-payload.json")"
+          recovery_id="$(jq -er .recoveryEvidence.producer.artifactId "$RUNNER_TEMP/verified-payload.json")"
+          fetch_artifact "$runtime_id" ocr-runtime-subject-v1 runtime-subject.json "$RUNNER_TEMP/runtime-subject"
+          fetch_artifact "$recovery_id" ocr-recovery-evidence-v1 recovery-evidence.json "$RUNNER_TEMP/recovery-evidence"
+          tree="$(jq -er .subject.git.tree "$RUNNER_TEMP/verified-payload.json")"
+          runtime_run="$(jq -er .subject.productionImage.runtimeSubjectWorkflowRunId "$RUNNER_TEMP/verified-payload.json")"
+          recovery_run="$(jq -er .recoveryEvidence.producer.runId "$RUNNER_TEMP/verified-payload.json")"
+          jq -nc --arg artifactId "$runtime_id" --arg repositoryId "$GITHUB_REPOSITORY_ID" --arg runId "$runtime_run" --argjson runAttempt 1 --arg commitSha "$MAIN_SHA" --arg treeSha "$tree" --arg workflowSha "$MAIN_SHA" "{artifactId:\$artifactId,repositoryId:\$repositoryId,runId:\$runId,runAttempt:\$runAttempt,commitSha:\$commitSha,treeSha:\$treeSha,workflowSha:\$workflowSha}" > "$RUNNER_TEMP/runtime-subject/expected.json"
+          jq -nc --arg artifactId "$recovery_id" --arg repositoryId "$GITHUB_REPOSITORY_ID" --arg runId "$recovery_run" --argjson runAttempt 1 --arg commitSha "$MAIN_SHA" --arg treeSha "$tree" --arg workflowSha "$MAIN_SHA" "{artifactId:\$artifactId,repositoryId:\$repositoryId,runId:\$runId,runAttempt:\$runAttempt,commitSha:\$commitSha,treeSha:\$treeSha,workflowSha:\$workflowSha}" > "$RUNNER_TEMP/recovery-evidence/expected.json"
+          node scripts/ci/ocr-runtime-subject.mjs verify-artifact "$RUNNER_TEMP/runtime-subject/metadata.json" "$RUNNER_TEMP/runtime-subject/artifact.zip" "$RUNNER_TEMP/runtime-subject/unpacked/runtime-subject.json" "$RUNNER_TEMP/runtime-subject/expected.json" > "$RUNNER_TEMP/runtime-subject/verified.json"
+          node scripts/ci/ocr-recovery-evidence.mjs verify-artifact "$RUNNER_TEMP/recovery-evidence/metadata.json" "$RUNNER_TEMP/recovery-evidence/artifact.zip" "$RUNNER_TEMP/recovery-evidence/unpacked/recovery-evidence.json" "$RUNNER_TEMP/recovery-evidence/expected.json" > "$RUNNER_TEMP/recovery-evidence/verified.json"
+          [[ "$(jq -er .runtimeSubjectArtifactSha256 "$RUNNER_TEMP/runtime-subject/verified.json")" == "$(jq -er .subject.productionImage.runtimeSubjectArtifactSha256 "$RUNNER_TEMP/verified-payload.json")" ]]
+          [[ "$(jq -er .githubArtifactDigest "$RUNNER_TEMP/runtime-subject/verified.json")" == "$(jq -er .subject.productionImage.runtimeSubjectGithubArtifactDigest "$RUNNER_TEMP/verified-payload.json")" ]]
+          [[ "$(jq -er .recoveryEvidenceArtifactSha256 "$RUNNER_TEMP/recovery-evidence/verified.json")" == "$(jq -er .recoveryEvidence.producer.payloadSha256 "$RUNNER_TEMP/verified-payload.json")" ]]
+          [[ "$(jq -er .githubArtifactDigest "$RUNNER_TEMP/recovery-evidence/verified.json")" == "$(jq -er .recoveryEvidence.producer.githubArtifactDigest "$RUNNER_TEMP/verified-payload.json")" ]]
+          image="$(jq -er .receipt.image.reference "$RUNNER_TEMP/runtime-subject/verified.json")"
+          flyctl auth docker
+          docker pull --platform linux/amd64 "$image"
+          docker image inspect "$image" > "$RUNNER_TEMP/runtime-subject/image-inspect.json"
+          entrypoint="$(node scripts/ci/ocr-runtime-subject.mjs resolve-path "$RUNNER_TEMP/runtime-subject/image-inspect.json")"
+          container_id="$(docker create "$image")"
+          cleanup() { docker rm -f "$container_id" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker cp -L "$container_id:$entrypoint" "$RUNNER_TEMP/runtime-subject/application-entrypoint"
+          jq -c ".receipt | {repository:.repository.name,repositoryId:.repository.id,repositoryOwnerId:.repository.ownerId,commitSha:.git.commitSha,treeSha:.git.treeSha,workflowSha:.workflow.sha,runId:.workflow.runId,runAttempt:.workflow.runAttempt,imageReference:.image.reference,observedAt:.observedAt}" "$RUNNER_TEMP/runtime-subject/verified.json" > "$RUNNER_TEMP/runtime-subject/context.json"
+          node scripts/ci/ocr-runtime-subject.mjs verify "$RUNNER_TEMP/runtime-subject/unpacked/runtime-subject.json" "$RUNNER_TEMP/runtime-subject/image-inspect.json" "$RUNNER_TEMP/runtime-subject/application-entrypoint" "$RUNNER_TEMP/runtime-subject/context.json"
+          [[ "$MAIN_SHA" == "$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")" ]]
+          printf "subject_sha=%s\nsubject_tree=%s\nproduction_image=%s\nimage_digest=%s\nconfig_digest=%s\nentrypoint_path=%s\nentrypoint_size=%s\nexecutable_sha256=%s\n" "$MAIN_SHA" "$tree" "$image" "$(jq -er .receipt.image.digest "$RUNNER_TEMP/runtime-subject/verified.json")" "$(jq -er .receipt.image.ociConfigDigest "$RUNNER_TEMP/runtime-subject/verified.json")" "$entrypoint" "$(jq -er .receipt.image.applicationEntrypointSize "$RUNNER_TEMP/runtime-subject/verified.json")" "$(jq -er .receipt.image.executableSha256 "$RUNNER_TEMP/runtime-subject/verified.json")" >> "$GITHUB_OUTPUT"
+
+  authorize-activation:
+    needs: validate-signed-subject
+    runs-on: ubuntu-latest
+    environment: ocr-production-activation
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.validate-signed-subject.outputs.subject_sha }}
+          persist-credentials: false
+      - name: Require current main and explicit dormant profile authorization
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.validate-signed-subject.outputs.subject_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" == "$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")" ]]
+          [[ "$(jq -r .requiredFlagsBeforeAuthorization.IMPORT_OCR_ENABLED deploy/ocr/activation-policy.json)" == "false" ]]
+          [[ "$(jq -r .requiredFlagsBeforeAuthorization.IMPORT_VAULT_ENABLED deploy/ocr/activation-policy.json)" == "false" ]]
+          if [[ "$(jq -r .enabled deploy/ocr/activation-policy.json)" != "true" ]]; then
+            printf "%s\n" "ACTIVATION_BLOCKED_RUNTIME_PROFILE_OFF" >&2
+            exit 1
+          fi
+
+  deploy-dormant-exact-digest:
+    needs: [validate-signed-subject, authorize-activation]
+    runs-on: ubuntu-latest
+    environment: ocr-production-activation
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.validate-signed-subject.outputs.subject_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy exact digest with OCR and vault forced OFF and rollback on failure
+        shell: bash
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          EXPECTED_SHA: ${{ needs.validate-signed-subject.outputs.subject_sha }}
+          IMAGE: ${{ needs.validate-signed-subject.outputs.production_image }}
+          CONFIG_DIGEST: ${{ needs.validate-signed-subject.outputs.config_digest }}
+          ENTRYPOINT_PATH: ${{ needs.validate-signed-subject.outputs.entrypoint_path }}
+          ENTRYPOINT_SIZE: ${{ needs.validate-signed-subject.outputs.entrypoint_size }}
+          EXECUTABLE_SHA256: ${{ needs.validate-signed-subject.outputs.executable_sha256 }}
+        run: |
+          set -euo pipefail
+          app="reformaflow-api"
+          [[ "$EXPECTED_SHA" == "$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")" ]]
+          flyctl auth docker
+          docker pull --platform linux/amd64 "$IMAGE"
+          [[ "$(docker image inspect "$IMAGE" --format "{{.Id}}")" == "$CONFIG_DIGEST" ]]
+          container_id="$(docker create "$IMAGE")"
+          docker cp -L "$container_id:$ENTRYPOINT_PATH" "$RUNNER_TEMP/application-entrypoint"
+          docker rm -f "$container_id" >/dev/null
+          [[ "$(stat -c %s "$RUNNER_TEMP/application-entrypoint")" == "$ENTRYPOINT_SIZE" ]]
+          [[ "$(sha256sum "$RUNNER_TEMP/application-entrypoint" | awk "{print \$1}")" == "$EXECUTABLE_SHA256" ]]
+          before="$(flyctl machines list --app "$app" --json)"
+          [[ "$(jq "[.[] | select(.state == \"started\")] | length" <<<"$before")" == "1" ]]
+          previous_image="$(jq -er "[.[] | select(.state == \"started\")][0].config.image" <<<"$before")"
+          docker pull --platform linux/amd64 "$previous_image"
+          previous_immutable="$(docker image inspect "$previous_image" --format "{{index .RepoDigests 0}}")"
+          [[ "$previous_immutable" =~ ^registry\.fly\.io/reformaflow-api@sha256:[0-9a-f]{64}$ ]]
+          rollback() {
+            printf "%s\n" "Activation verification failed; rolling back exact prior image." >&2
+            flyctl deploy -c apps/api/fly.toml --image "$previous_immutable" --strategy immediate --ha=false --update-only --env IMPORT_OCR_ENABLED=false --env IMPORT_VAULT_ENABLED=false
+          }
+          trap rollback ERR
+          flyctl deploy -c apps/api/fly.toml --image "$IMAGE" --strategy immediate --ha=false --update-only --env IMPORT_OCR_ENABLED=false --env IMPORT_VAULT_ENABLED=false
+          machine="$(FLY_APP="$app" EXPECTED_GH_SHA="$EXPECTED_SHA" timeout --signal=TERM --kill-after=15s 330s scripts/ci/wait-for-fly-machine.sh)"
+          machines="$(flyctl machines list --app "$app" --json)"
+          [[ "$(jq "[.[] | select(.state == \"started\")] | length" <<<"$machines")" == "1" ]]
+          [[ "$(jq -er .config.image <<<"$machine")" == "$IMAGE" ]]
+          [[ "$(jq -er .image_ref.labels.GH_SHA <<<"$machine")" == "$EXPECTED_SHA" ]]
+          checks="$(flyctl checks list --app "$app" --json)"
+          machine_id="$(jq -er .id <<<"$machine")"
+          jq -e --arg id "$machine_id" "has(\$id) and (.[$id] | length == 1) and (.[$id][0].status == \"passing\")" <<<"$checks" >/dev/null
+          docs_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out "%{http_code}" https://reformaflow-api.fly.dev/api/docs-json)"
+          auth_status="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out "%{http_code}" https://reformaflow-api.fly.dev/auth/me)"
+          [[ "$docs_status" == "200" && "$auth_status" == "401" ]]
+          [[ "$EXPECTED_SHA" == "$(git ls-remote --exit-code origin refs/heads/main | awk "{print \$1}")" ]]
+          trap - ERR
