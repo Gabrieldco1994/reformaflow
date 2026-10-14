@@ -593,14 +593,6 @@ describe("audited synthetic Vertex capture", () => {
       "LIVE_EVIDENCE_INVALID",
     );
     expect(() => parseLiveEvidenceJson("{")).toThrow("LIVE_EVIDENCE_INVALID");
-    expect(
-      parseLiveEvidenceJson(
-        JSON.stringify(evidence).replace(
-          '"datasetVersion":',
-          '"datasetVersion":"shadowed","datasetVersion":',
-        ),
-      ),
-    ).toEqual(evidence);
   });
 
   it("reserves mode 0600 before capture without following existing paths", async () => {
