@@ -88,6 +88,7 @@ export interface ImportListState {
 export function useImportSessionList(
   userId: string | null,
   scope: ImportListScope,
+  enabled = true,
 ): ImportListState {
   const client = useQueryClient();
   const namespace = userId ?? "anonymous";
@@ -95,7 +96,7 @@ export function useImportSessionList(
   const query = useInfiniteQuery({
     ...FRESH_READ,
     queryKey: key,
-    enabled: userId !== null,
+    enabled: userId !== null && enabled,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const read = await listImportSessions(scope, pageParam);
@@ -130,7 +131,7 @@ export function useImportSessionList(
   const failure = query.isError ? classifyImportFailure(query.error) : null;
 
   let status: ImportListState["status"] = "ready";
-  if (userId === null) status = "disabled";
+  if (userId === null || !enabled) status = "disabled";
   else if (!query.data) status = query.isError ? "error" : "loading";
 
   let freshness: ImportFreshness = "none";
@@ -143,11 +144,11 @@ export function useImportSessionList(
 
   return {
     entry:
-      userId && !query.isFetching && !query.isError
+      userId && enabled && !query.isFetching && !query.isError
         ? (query.data?.pages.at(-1)?.entry ?? null)
         : null,
     status,
-    items: userId === null ? [] : items,
+    items: userId === null || !enabled ? [] : items,
     hasMore: query.hasNextPage === true,
     freshness,
     failure,

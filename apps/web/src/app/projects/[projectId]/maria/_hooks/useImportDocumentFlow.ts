@@ -116,6 +116,8 @@ export function useImportDocumentFlow(
   );
   if (
     scope.current.userId !== userId ||
+    (scope.current.sessionId !== requestedSessionId &&
+      scope.current.adoption === null) ||
     (scope.current.contextKey !== contextKey && !adopting) ||
     scope.current.invalidated
   ) {

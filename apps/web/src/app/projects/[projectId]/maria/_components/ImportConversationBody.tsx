@@ -17,7 +17,9 @@ import {
   useCancelImportSession,
   useImportUserId,
 } from "../_hooks/useImportSessions";
+import { useImportObservations } from "../_hooks/useImportObservations";
 import { useImportCatalog } from "../_hooks/useImportCatalog";
+import { usePersistedImportContinuation } from "../_hooks/usePersistedImportContinuation";
 import { buildReceiptView } from "../_lib/import-receipt-view";
 import {
   ImportFocusedQuestion,
@@ -34,6 +36,10 @@ import {
   ImportDeclaredFacts,
 } from "./ImportReviewBlockerNotice";
 import { ImportReceipt } from "./ImportReceipt";
+import {
+  formatImportPurchaseContext,
+  withImportObservationContext,
+} from "./ImportFocusedDraftQuestion";
 import { questionIntersectsSelectedLines } from "../_lib/import-question-selection";
 type AgentChannel = "TEXT" | "VOICE";
 
@@ -58,6 +64,14 @@ function Conversation({
   const router = useRouter();
   const { cancel } = useCancelImportSession(conversation.userId);
   const { view, question, error } = conversation;
+  const observations = useImportObservations(
+    conversation.userId,
+    sessionId,
+    view?.revision ?? null,
+    Boolean(
+      view?.attachments.some((attachment) => attachment.state === "ATTACHED"),
+    ),
+  );
   const [ignoredCount, setIgnoredCount] = useState(0);
   const [cancelPending, setCancelPending] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -75,6 +89,9 @@ function Conversation({
     )
       ? conversation.guided
       : null;
+  const guidedLine = guided
+    ? view?.lines.find((line) => line.id === guided.lineId)
+    : undefined;
   const relatedQuestions =
     question && "subject" in question && view
       ? view.questions.filter(
@@ -97,9 +114,23 @@ function Conversation({
     conversation.userId,
     conversation.result !== null,
   );
-  const receipt = conversation.result?.receipt
+  const receiptView = conversation.result?.receipt
     ? buildReceiptView(conversation.result.receipt, names)
     : null;
+  const persistedContinuationSessionId = usePersistedImportContinuation(
+    conversation.userId,
+    sessionId,
+    Boolean(receiptView && !receiptView.continuationSessionId),
+  );
+  const receipt =
+    receiptView &&
+    !receiptView.continuationSessionId &&
+    persistedContinuationSessionId
+      ? {
+          ...receiptView,
+          continuationSessionId: persistedContinuationSessionId,
+        }
+      : receiptView;
   const openContinuation = useCallback(
     (continuationSessionId: string) => {
       onContinuationRequest?.(continuationSessionId);
@@ -238,8 +269,7 @@ function Conversation({
     >
       <ImportQuestionViewportOwner>
         <p className="text-sm text-lifeone-ink-2">
-          Importação {sessionId}
-          {view ? ` · Revisão ${view.revision}` : ""}
+          Importação{view ? ` · Revisão ${view.revision}` : ""}
         </p>
         {busy && <p role="status">Consultando a importação…</p>}
         {error && (
@@ -348,7 +378,7 @@ function Conversation({
           view.lines.map((line) => (
             <ImportReviewBlockerNotice
               key={line.id}
-              line={line}
+              line={withImportObservationContext(line, observations.data ?? [])}
               blockers={view.reviewBlockers}
               selected={view.selectedLineIds.includes(line.id)}
               showLine
@@ -376,7 +406,7 @@ function Conversation({
             {view.lines.map((line) => (
               <ImportDeclaredFacts
                 key={line.id}
-                lineId={line.id}
+                line={line}
                 facts={view.declaredFacts}
               />
             ))}
@@ -390,25 +420,41 @@ function Conversation({
                     view.selectedLineIds,
                   ),
               )
-              .map((question) => (
-                <div key={question.id} className="space-y-2 text-sm">
-                  <p>{question.text}</p>
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      !mayAnswer ||
-                      Boolean(error) ||
-                      Boolean(documents.error)
-                    }
-                    aria-label={`Editar compra ${question.lineIds[0]}: ${IMPORT_QUESTION_FIELD_LABEL[question.field]}`}
-                    className="min-h-11 rounded-xl border px-3"
-                    onClick={() => conversation.editQuestion(question.id)}
-                  >
-                    Editar {IMPORT_QUESTION_FIELD_LABEL[question.field]}
-                  </button>
-                </div>
-              ))}
+              .map((question) => {
+                const line = view.lines.find(
+                  (candidate) => candidate.id === question.lineIds[0],
+                );
+                const purchaseContext = line
+                  ? formatImportPurchaseContext(
+                      withImportObservationContext(
+                        line,
+                        observations.data ?? [],
+                        "subject" in question
+                          ? question.subject.observationId
+                          : undefined,
+                      ),
+                    )
+                  : "Compra";
+                return (
+                  <div key={question.id} className="space-y-2 text-sm">
+                    <p>{question.text}</p>
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        !mayAnswer ||
+                        Boolean(error) ||
+                        Boolean(documents.error)
+                      }
+                      aria-label={`Editar compra ${purchaseContext}: ${IMPORT_QUESTION_FIELD_LABEL[question.field]}`}
+                      className="min-h-11 rounded-xl border px-3"
+                      onClick={() => conversation.editQuestion(question.id)}
+                    >
+                      Editar {IMPORT_QUESTION_FIELD_LABEL[question.field]}
+                    </button>
+                  </div>
+                );
+              })}
           </div>
         )}
         {conversation.review && !documents.error && (
@@ -453,11 +499,10 @@ function Conversation({
         )}
         {!error?.privateContextLost && (
           <div className="min-w-0 space-y-3">
-            {guided && (
+            {guided && guidedLine && (
               <div className="space-y-1 break-words text-sm">
                 <p>
-                  Resposta recebida · Compra {guided.lineId} · Observação{" "}
-                  {guided.observationId}
+                  Resposta recebida · {formatImportPurchaseContext(guidedLine)}
                 </p>
                 <p>{guided.literal}</p>
               </div>
@@ -467,6 +512,7 @@ function Conversation({
                 <ImportFocusedQuestion
                   question={question}
                   lines={view.lines}
+                  observations={observations.data ?? []}
                   value={conversation.literal}
                   onTextChange={conversation.setLiteral}
                   inputLabel="Sua resposta sobre esta compra"

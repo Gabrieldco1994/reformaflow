@@ -2,7 +2,6 @@
 
 import { useEffect, useId, useRef } from "react";
 import type {
-  ImportSessionDraftLineV1,
   ImportSessionViewV1,
   ImportDeclaredFactViewV1,
 } from "@reformaflow/domain";
@@ -10,6 +9,12 @@ import {
   declarationFieldLabel,
   declarationValueLabel,
 } from "./ImportFocusedQuestion";
+import {
+  formatImportPurchaseAmountContext,
+  formatImportPurchaseContext,
+  formatImportPurchaseIdentity,
+  type ImportPurchaseContextLine,
+} from "./ImportFocusedDraftQuestion";
 import journeyStyles from "@/components/import/ImportJourney.module.css";
 
 const FACT_LABEL: Record<ImportDeclaredFactViewV1["status"], string> = {
@@ -19,23 +24,28 @@ const FACT_LABEL: Record<ImportDeclaredFactViewV1["status"], string> = {
 };
 
 export function ImportDeclaredFacts({
+  line,
   lineId,
   facts,
 }: {
-  lineId: string;
+  line?: ImportPurchaseContextLine;
+  lineId?: string;
   facts: readonly ImportDeclaredFactViewV1[];
 }) {
+  const matchingLineId = line?.id ?? lineId;
+  if (!matchingLineId) return null;
+  const purchaseContext = line ? formatImportPurchaseContext(line) : "Compra";
   return facts
-    .filter((fact) => fact.lineId === lineId)
+    .filter((fact) => fact.lineId === matchingLineId)
     .map((fact) => (
       <div
         key={`${fact.questionId}:${fact.field}:${fact.meaningContext}`}
         role="group"
-        aria-label={declarationFieldLabel(fact)}
+        aria-label={`${declarationFieldLabel(fact)} · ${purchaseContext}`}
         className="min-w-0 space-y-1 rounded-xl bg-lifeone-surface p-3 text-sm"
       >
         <p>
-          {declarationFieldLabel(fact)} · Compra {fact.lineId}
+          {declarationFieldLabel(fact)} · {purchaseContext}
         </p>
         <p>{FACT_LABEL[fact.status]}</p>
         <p className="break-words">
@@ -86,7 +96,7 @@ export function ImportReviewBlockerNotice({
   pending = false,
   hasQuestion = false,
 }: {
-  line: Pick<ImportSessionDraftLineV1, "id" | "titulo">;
+  line: ImportPurchaseContextLine;
   blockers: ImportSessionViewV1["reviewBlockers"];
   selected: boolean;
   showLine?: boolean;
@@ -117,14 +127,16 @@ export function ImportReviewBlockerNotice({
     wasSelected.current = selected;
   }, [selected, visible]);
   if (!visible && !showLine && !onInclude && !onRemove) return null;
+  const purchaseContext = formatImportPurchaseContext(line);
+  const purchaseIdentity = formatImportPurchaseIdentity(line);
+  const purchaseAmount = formatImportPurchaseAmountContext(line);
   return (
     <article
       aria-labelledby={`${id}-line`}
-      data-review-blocker-line={line.id}
       className="min-w-0 space-y-2 break-words rounded-xl border border-darc-linen bg-lifeone-surface p-3 text-sm text-lifeone-ink"
     >
       <h4 id={`${id}-line`} className="font-semibold">
-        {line.titulo || "Compra sem título"} · Compra {line.id}
+        {purchaseContext}
       </h4>
       {visible && (
         <>
@@ -167,22 +179,46 @@ export function ImportReviewBlockerNotice({
         <button
           type="button"
           disabled={pending}
-          aria-label={`Retirar compra ${line.id} da seleção`}
+          aria-label={`Retirar compra ${purchaseContext} da seleção`}
           onClick={() => onRemove(line.id)}
           className="min-h-11 rounded-xl border px-3 focus-visible:outline focus-visible:outline-2"
         >
-          Retirar da seleção
+          Retirar {purchaseIdentity}
+          {purchaseAmount && (
+            <>
+              {" · "}
+              <span
+                data-workflow-money
+                className={`${journeyStyles.money} whitespace-nowrap`}
+              >
+                {purchaseAmount}
+              </span>
+            </>
+          )}{" "}
+          da seleção
         </button>
       )}
       {!selected && onInclude && (
         <button
           type="button"
           disabled={pending}
-          aria-label={`Incluir compra ${line.id} na revisão`}
+          aria-label={`Incluir compra ${purchaseContext} na revisão`}
           onClick={() => onInclude(line.id)}
           className="min-h-11 rounded-xl border px-3 focus-visible:outline focus-visible:outline-2"
         >
-          Incluir na revisão
+          Incluir {purchaseIdentity}
+          {purchaseAmount && (
+            <>
+              {" · "}
+              <span
+                data-workflow-money
+                className={`${journeyStyles.money} whitespace-nowrap`}
+              >
+                {purchaseAmount}
+              </span>
+            </>
+          )}{" "}
+          na revisão
         </button>
       )}
     </article>

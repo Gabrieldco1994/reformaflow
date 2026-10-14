@@ -131,6 +131,7 @@ const CARD = {
 const CREATE_ID = "11111111-1111-4111-8111-111111111111";
 const ATTACHMENT_A = "22222222-2222-4222-8222-222222222222";
 const ATTACHMENT_B = "33333333-3333-4333-8333-333333333333";
+const DEEP_LINK_SESSION = "44444444-4444-4444-8444-444444444444";
 
 let client: QueryClient;
 let requests: CapturedRequest[];
@@ -274,6 +275,7 @@ beforeEach(() => {
   navigation.search = "";
   navigation.push.mockReset();
   navigation.replace.mockReset();
+  window.history.replaceState({}, "", "/projects/proj-1/maria");
   actor.user = { id: "user-a" };
   client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -333,6 +335,30 @@ afterEach(() => {
 });
 
 describe("Maria import adoption lifecycle", () => {
+  it("scrubs a deep-link UUID from the URL and resumes it after reload", async () => {
+    navigation.search = `outside=1&importSessionId=${DEEP_LINK_SESSION}`;
+    window.history.replaceState(
+      {},
+      "",
+      `/projects/proj-1/maria?${navigation.search}`,
+    );
+    const mounted = mountEntry();
+
+    expect(await screen.findByTestId("active-session")).toHaveTextContent(
+      DEEP_LINK_SESSION,
+    );
+    await waitFor(() => expect(window.location.search).toBe("?outside=1"));
+    expect(window.location.href).not.toContain(DEEP_LINK_SESSION);
+
+    mounted.unmount();
+    navigation.search = "outside=1";
+    mountEntry();
+
+    expect(await screen.findByTestId("active-session")).toHaveTextContent(
+      DEEP_LINK_SESSION,
+    );
+  });
+
   it.each(["RESERVE", "PUT"] as const)(
     "keeps exact adoption alive while %s is in flight",
     async (phase) => {
@@ -436,11 +462,11 @@ describe("Maria import adoption lifecycle", () => {
     ).toMatchObject({ revision: 19 });
     expectNoFinancialWrites();
 
-    // Once the owning request settles, the source URL is no longer an adoption echo.
+    // The private history state keeps the settled import resumable after URL scrubbing.
     navigation.search = "";
     mounted.rerenderEntry();
     await waitFor(() =>
-      expect(screen.queryByTestId("active-session")).not.toBeInTheDocument(),
+      expect(screen.getByTestId("active-session")).toHaveTextContent("sess-1"),
     );
   });
 

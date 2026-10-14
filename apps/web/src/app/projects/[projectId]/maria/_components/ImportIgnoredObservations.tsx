@@ -2,12 +2,8 @@
 
 import { useState, useId } from "react";
 import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { IMPORT_SESSION_LIMITS } from "@reformaflow/domain";
-import { getImportObservations } from "../_lib/import-session-api";
-import { importKeys } from "../_lib/import-session-keys";
-import { ImportWorkflowResponseError } from "../_lib/import-session-workflow-read";
 import type { ImportObservationView } from "../_lib/import-session-workflow-read";
+import { useImportObservations } from "../_hooks/useImportObservations";
 
 const IGNORED_REASON_LABEL: Record<
   NonNullable<ImportObservationView["ignoredReason"]>,
@@ -16,37 +12,6 @@ const IGNORED_REASON_LABEL: Record<
   INVOICE_PAYMENT:
     "Pagamento de fatura de cartão não é uma compra e não será importado.",
 };
-
-async function readAllObservations(
-  sessionId: string,
-  signal: AbortSignal,
-): Promise<ImportObservationView[]> {
-  const observations: ImportObservationView[] = [];
-  const seenIds = new Set<string>();
-  const seenCursors = new Set<string>();
-  const maxPages = Math.ceil(
-    IMPORT_SESSION_LIMITS.parsedRowsPerSession / IMPORT_SESSION_LIMITS.pageSize,
-  );
-  let cursor: string | null = null;
-
-  for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
-    const page = await getImportObservations(sessionId, cursor, signal);
-    for (const item of page.items) {
-      if (seenIds.has(item.id)) throw new ImportWorkflowResponseError();
-      seenIds.add(item.id);
-      observations.push(item);
-    }
-    if (observations.length > IMPORT_SESSION_LIMITS.parsedRowsPerSession)
-      throw new ImportWorkflowResponseError();
-    if (page.nextCursor === null) return observations;
-    if (seenCursors.has(page.nextCursor))
-      throw new ImportWorkflowResponseError();
-    seenCursors.add(page.nextCursor);
-    cursor = page.nextCursor;
-  }
-
-  throw new ImportWorkflowResponseError();
-}
 
 function IgnoredObservation({
   observation,
@@ -97,16 +62,7 @@ export function ImportIgnoredObservations({
   revision: number;
   onIgnoredCountChange?: (count: number) => void;
 }) {
-  const query = useQuery({
-    queryKey: importKeys.observations(userId, sessionId, revision),
-    queryFn: ({ signal }) => readAllObservations(sessionId, signal),
-    gcTime: 0,
-    staleTime: 0,
-    retry: false,
-    networkMode: "always",
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  });
+  const query = useImportObservations(userId, sessionId, revision);
   const ignored = query.data?.filter(
     (observation) => observation.ignoredReason === "INVOICE_PAYMENT",
   );

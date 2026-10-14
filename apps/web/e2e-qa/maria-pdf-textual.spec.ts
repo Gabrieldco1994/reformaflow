@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { expect, test, type Page, type Response } from "@playwright/test";
+import { expect, test, type Response } from "@playwright/test";
 import {
   isPendingImportQuestion,
   type ImportSessionViewV1,
@@ -30,6 +30,7 @@ import {
   nativeFocusedOnly,
   visibleCurrentQuestionForm,
 } from "./helpers/focused-draft-answer";
+import { reviewBlockerActionButton } from "./helpers/review-blocker-selectors";
 
 let fixtures: string;
 test.beforeAll(async () => {
@@ -39,8 +40,6 @@ test.afterAll(async () => {
   if (fixtures) await fs.rm(fixtures, { recursive: true, force: true });
 });
 
-const sessionFromUrl = (page: Page) =>
-  new URL(page.url()).searchParams.get("importSessionId") ?? "";
 const sessionResponse =
   (sessionId: string, suffix = "", method = "GET") =>
   (response: Response) =>
@@ -81,7 +80,7 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
     await expect(files.getByRole("listitem")).toHaveCount(2);
     await expect(files).toContainText("textual-invoice.pdf");
     await expect(files).toContainText("renamed-textual-invoice.pdf");
-    expect(sessionFromUrl(page)).toBe("");
+    expect(new URL(page.url()).searchParams.has("importSessionId")).toBe(false);
     await journey.noFinance();
     await evidence.capture("local-files-before-documentary-consent");
     const consent = page.getByRole("button", {
@@ -125,7 +124,10 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
     await expect(
       page.getByRole("region", { name: "Conversa da importação", exact: true }),
     ).toBeVisible();
-    expect(sessionFromUrl(page)).toBe(sessionId);
+    expect(
+      new URL(page.url()).searchParams.has("importSessionId"),
+      "Reload must preserve the private session without restoring its ID to the URL",
+    ).toBe(false);
     await expect(journey.filePicker).toHaveCount(0);
     assertPurchases(await view());
     await journey.noFinance();
@@ -154,21 +156,15 @@ test("real typed-origin PDF → one integral REFORMA target → ignored payment 
       .map((line) => line.id);
     expect(selectedIds).toHaveLength(2);
     for (const line of (await view()).lines) {
-      const row = page
-        .locator(`[data-review-blocker-line="${line.id}"]`)
-        .first();
-      await expect(row).toBeVisible();
       const desired = selectedIds.includes(line.id);
       const current = (await view()).selectedLineIds.includes(line.id);
+      const button = await reviewBlockerActionButton(
+        page,
+        line,
+        current ? "remove" : "include",
+      );
       if (current !== desired) {
-        await row
-          .getByRole("button", {
-            name: desired
-              ? `Incluir compra ${line.id} na revisão`
-              : `Retirar compra ${line.id} da seleção`,
-            exact: true,
-          })
-          .click();
+        await button.click();
       }
       await expect
         .poll(async () => (await view()).selectedLineIds.includes(line.id))
@@ -450,7 +446,9 @@ for (const fixture of [
       await journey.filePicker.setInputFiles(
         path.join(fixtures, `${fixture.name}-invoice.pdf`),
       );
-      expect(sessionFromUrl(page)).toBe("");
+      expect(new URL(page.url()).searchParams.has("importSessionId")).toBe(
+        false,
+      );
       await journey.noFinance();
       await evidence.capture("local-document-before-consent");
       // Learn the exact attachment URL from the real reservation response BEFORE analysis.
@@ -540,6 +538,10 @@ for (const fixture of [
           exact: true,
         }),
       ).toBeVisible();
+      expect(
+        new URL(page.url()).searchParams.has("importSessionId"),
+        "Reload must preserve the private session without restoring its ID to the URL",
+      ).toBe(false);
       await assertUnpublished();
       await evidence.capture("reloaded-unpublished-no-financial-effects");
     } catch (error) {

@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   documentsLoaded: true,
   receiptSessionId: "source-session",
   continuationSessionId: "continuation-session",
+  receiptContinuationSessionId: "continuation-session" as string | null,
+  appliedContinuationSessionId: null as string | null,
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -36,11 +38,19 @@ vi.mock("@/contexts/auth-context", () => ({
 vi.mock("../_hooks/useImportSessions", () => ({
   useImportUserId: () => "user-1",
   useCancelImportSession: () => ({ cancel: vi.fn() }),
-  useImportSessionList: () => ({
+  useImportSessionList: (_userId: string | null, scope: string) => ({
     entry: null,
     failure: null,
     status: "ready",
-    items: [],
+    items:
+      scope === "applied" && state.appliedContinuationSessionId
+        ? [
+            {
+              id: state.receiptSessionId,
+              continuationSessionId: state.appliedContinuationSessionId,
+            },
+          ]
+        : [],
     hasMore: false,
     freshness: "fresh",
     failedNext: false,
@@ -100,22 +110,25 @@ vi.mock("@/components/agent/useSpeechRecognition", () => ({
 }));
 vi.mock("../_lib/import-receipt-view", () => ({
   buildReceiptView: () => ({
-    continuationSessionId: state.continuationSessionId,
+    continuationSessionId: state.receiptContinuationSessionId,
   }),
 }));
 vi.mock("./ImportReceipt", () => ({
   ImportReceipt: ({
+    view,
     onOpenContinuation,
   }: {
+    view: { continuationSessionId: string | null };
     onOpenContinuation?: (sessionId: string) => void;
-  }) => (
-    <button
-      type="button"
-      onClick={() => onOpenContinuation?.(state.continuationSessionId)}
-    >
-      Ver rascunho restante
-    </button>
-  ),
+  }) =>
+    view.continuationSessionId ? (
+      <button
+        type="button"
+        onClick={() => onOpenContinuation?.(state.continuationSessionId)}
+      >
+        Ver rascunho restante
+      </button>
+    ) : null,
 }));
 vi.mock("./ImportRecoveryEntry", () => ({
   ImportRecoveryEntry: ({
@@ -161,11 +174,24 @@ beforeEach(() => {
   state.documentsLoaded = true;
   state.receiptSessionId = "source-session";
   state.continuationSessionId = "continuation-session";
+  state.receiptContinuationSessionId = "continuation-session";
+  state.appliedContinuationSessionId = null;
   mocks.replace.mockReset();
   mocks.invalidate.mockReset();
 });
 
 describe("MariaImportEntry continuation focus", () => {
+  it("reconstructs remaining-draft navigation from the applied server list after reload", () => {
+    state.receiptContinuationSessionId = null;
+    state.appliedContinuationSessionId = "continuation-session";
+
+    renderEntry();
+
+    expect(
+      screen.getByRole("button", { name: "Ver rascunho restante" }),
+    ).toBeInTheDocument();
+  });
+
   it("keeps the continuation intent across the loading unmount and consumes it after focus", async () => {
     const rendered = renderEntry();
     const sourceRegion = screen.getByRole("region", {
@@ -255,6 +281,7 @@ describe("MariaImportEntry continuation focus", () => {
     state.search = "importSessionId=race-a";
     state.receiptSessionId = "race-a";
     state.continuationSessionId = "race-a";
+    state.receiptContinuationSessionId = "race-a";
     const rendered = renderEntry();
     const region = screen.getByRole("region", {
       name: "Conversa da importação",
@@ -267,6 +294,7 @@ describe("MariaImportEntry continuation focus", () => {
       "focus",
       () => {
         state.continuationSessionId = "race-b";
+        state.receiptContinuationSessionId = "race-b";
         continuationButton.click();
       },
       { once: true },

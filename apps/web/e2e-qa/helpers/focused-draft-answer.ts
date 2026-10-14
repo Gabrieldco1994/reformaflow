@@ -12,6 +12,7 @@ import {
   type ImportSessionQuestionV1,
   type ImportSessionViewV1,
 } from "@reformaflow/domain";
+import { reviewBlockerArticleName } from "./review-blocker-selectors";
 
 type FixtureFocusedDraftAnswer =
   | { field: "amountMeaning"; value: "TOTAL_PURCHASE" | "INSTALLMENT_CHARGE" }
@@ -365,7 +366,13 @@ export async function fillFocusedDraftPreview(
     for (const id of question.lineIds) {
       const line = current.lines.find((line) => line.id === id);
       expect(line).toBeTruthy();
-      await expect(affected).toContainText(`${line!.titulo} — Compra ${id}`);
+      // Focused-question listitems expose this context as text content, not as
+      // an accessible name. Keep the role boundary and match the full context.
+      await expect(
+        affected
+          .getByRole("listitem")
+          .filter({ hasText: reviewBlockerArticleName(line!) }),
+      ).toHaveCount(1);
     }
   }
   return answer;
