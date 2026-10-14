@@ -10,6 +10,7 @@ import {
   IMPORT_SESSION_PRIMITIVES,
   IMPORT_SESSION_PROTOCOL_VERSION,
   IMPORT_SESSION_AUDIT_OUTCOME,
+  PDF_OCR_VERSION,
   ImportSessionArtifactState,
   ImportSessionAttachmentState,
   ImportSessionErrorCode,
@@ -320,11 +321,14 @@ export function buildImportPreparationPlan(input: {
     string,
     ReturnType<typeof parseStoredImportObservationEvidence>
   >();
+  const trustedOcrObservationIds = new Set<string>();
   for (const observation of observations) {
     const evidence = parseStoredImportObservationEvidence(
       observation.evidenceJson,
     );
     evidenceByObservationId.set(observation.id, evidence);
+    if (evidence.ocr?.provenanceVersion === PDF_OCR_VERSION)
+      trustedOcrObservationIds.add(observation.id);
     const ignoredReason = ignoredImportObservation(evidence);
     if (ignoredReason === null) continue;
     terminalObservations.add(observation.id);
@@ -474,6 +478,7 @@ export function buildImportPreparationPlan(input: {
   let continuationDraft: ImportSessionStoredDraftV1 | null = null;
   if (hasContinuation) {
     const remainingObservations = new Set(deferredObservationIds);
+    const ocrReviewOnlyLineIds = new Set<string>();
     const lines = draft.lines
       .filter(
         (line) =>
@@ -483,6 +488,14 @@ export function buildImportPreparationPlan(input: {
           ),
       )
       .map((line) => {
+        if (
+          line.observationIds.some((observationId) =>
+            trustedOcrObservationIds.has(observationId),
+          )
+        ) {
+          ocrReviewOnlyLineIds.add(line.id);
+          return line;
+        }
         if (line.amountCents !== null || line.observationIds.length !== 1)
           return line;
         const observationId = line.observationIds[0];
@@ -504,6 +517,7 @@ export function buildImportPreparationPlan(input: {
       version: IMPORT_SESSION_PROTOCOL_VERSION,
       lines,
       selectedLineIds: lines
+        .filter((line) => !ocrReviewOnlyLineIds.has(line.id))
         .slice(0, IMPORT_SESSION_LIMITS.selectedLines)
         .map((line) => line.id),
       questions: draft.questions.filter((question) =>
