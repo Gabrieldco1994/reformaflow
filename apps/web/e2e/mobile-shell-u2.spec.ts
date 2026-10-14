@@ -352,7 +352,11 @@ test.describe('U2 shell mobile — provas comportamentais', () => {
       page,
       'abrir o próprio projeto pelo card terminou em /no-permission',
     ).not.toHaveURL(/no-permission/);
-    await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/monthly$`));
+    // `next dev` compila `/monthly` sob demanda; sob carga de CI essa
+    // navegação fria pode exceder o default de 5s sem mudar os gates.
+    await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/monthly$`), {
+      timeout: 20_000,
+    });
   });
 
   // U2-P20 — deep-link direto /conta?mes=2026-03 tem de abrir MARÇO. Prova que

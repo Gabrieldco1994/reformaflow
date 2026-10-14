@@ -998,8 +998,12 @@ test.describe("issue #564 — cockpit shell census", () => {
         `/projects/${PROJECT_ID}/maria`,
       );
       await mariaTab.click();
+      // `/maria` is compiled on demand by `next dev`; the OCR surface made
+      // that cold compile exceed Playwright's 5s assertion default on CI.
+      // Keep the destination exact while allowing the dev server to settle.
       await expect(page).toHaveURL(
         (url) => url.pathname === `/projects/${PROJECT_ID}/maria`,
+        { timeout: 20_000 },
       );
 
       expect(await readMainPaddingRight(page)).toBe(20);
