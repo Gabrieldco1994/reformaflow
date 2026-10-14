@@ -636,4 +636,23 @@ describe("quality-closure mechanical evidence binding", () => {
     for (const raw of duplicates)
       expect(() => parseLiveEvidenceJson(raw)).toThrow("LIVE_EVIDENCE_INVALID");
   });
+
+  it("rejects reordered case identities instead of treating the corpus as a set", async () => {
+    const evidence = await liveEvidence();
+    [evidence.predictions[0], evidence.predictions[1]] = [
+      evidence.predictions[1]!,
+      evidence.predictions[0]!,
+    ];
+    expect(() => parseLiveEvidence(evidence)).toThrow("LIVE_EVIDENCE_INVALID");
+  });
+
+  it("scores an artifact hash rewrite against the generated corpus as GAPS", async () => {
+    const evidence = await liveEvidence();
+    const replacement = "f".repeat(64);
+    evidence.predictions[0]!.artifactSha256 = replacement;
+    const parsed = parseLiveEvidence(evidence);
+    const report = await evaluateOcrSynth(parsed);
+    expect(report.perCase[0]!.issues).toContain("ARTIFACT_HASH_MISMATCH");
+    expect(report.releaseStatus).toBe("GAPS");
+  });
 });

@@ -37,11 +37,18 @@ try {
     infraPath,
     runtimeSubjectPath,
     recoveryEvidencePath,
+    assessmentPath,
+    spendRequestPath,
   ] = process.argv.slice(2);
-  if (!recoveryEvidencePath) fail();
+  if (!spendRequestPath) fail();
   const raw = await bytes(rawPath);
   const reportBytes = await bytes(reportPath);
+  const assessmentBytes = await bytes(assessmentPath);
   const report = parseStrictJson(reportBytes.value.toString("utf8"));
+  const rawEvidence = parseStrictJson(raw.value.toString("utf8"));
+  const spendRequest = parseStrictJson(
+    await readFile(resolve(spendRequestPath), "utf8"),
+  );
   const reviews = parseStrictJson(await readFile(resolve(reviewsPath), "utf8"));
   const infra = parseStrictJson(await readFile(resolve(infraPath), "utf8"));
   const runtime = parseStrictJson(
@@ -52,21 +59,30 @@ try {
   );
   const candidateRecords = Array.isArray(report.candidate?.records)
     ? report.candidate.records
-    : [];
+    : Array.isArray(rawEvidence.predictions)
+      ? rawEvidence.predictions
+      : [];
   const observedModelVersion =
-    typeof report.provider?.observedModelVersion === "string" &&
-    /^[!-~]{1,192}$/.test(report.provider.observedModelVersion)
-      ? report.provider.observedModelVersion
+    typeof (
+      report.provider?.observedModelVersion ?? report.candidate?.modelVersion
+    ) === "string" &&
+    /^[!-~]{1,192}$/.test(
+      report.provider?.observedModelVersion ?? report.candidate?.modelVersion,
+    )
+      ? (report.provider?.observedModelVersion ??
+        report.candidate?.modelVersion)
       : "UNAVAILABLE";
+  const provider = report.provider ?? report.candidate;
   if (
     report.reportSchemaVersion !== 4 ||
     Object.hasOwn(report, "schemaVersion") ||
-    report.provider?.provider !== infra.provider?.provider ||
-    report.provider?.requestedModelAlias !==
+    report.historicalComparison !== "NOT_PERFORMED_P1_DEFERRED" ||
+    provider?.provider !== infra.provider?.provider ||
+    (provider?.requestedModelAlias ?? provider?.model) !==
       infra.provider?.requestedModelAlias ||
-    report.provider?.region !== infra.provider?.region ||
-    report.provider?.endpoint !== infra.provider?.endpoint ||
-    report.provider?.promptSha256 !== infra.provider?.promptSha256 ||
+    provider?.region !== infra.provider?.region ||
+    provider?.endpoint !== infra.provider?.endpoint ||
+    provider?.promptSha256 !== infra.provider?.promptSha256 ||
     (report.evidenceClass !== "TEST_ONLY" &&
       candidateRecords.length > 0 &&
       observedModelVersion === "UNAVAILABLE")
@@ -147,16 +163,30 @@ try {
         size: reportBytes.size,
         artifactId: env("OCR_REPORT_ARTIFACT_ID", /^[1-9][0-9]*$/),
       },
-      requestIds: candidateRecords.map((item) => item.requestId),
-      responseIds: candidateRecords.map((item) => item.responseId),
+      assessment: {
+        sha256: sha256(assessmentBytes.value),
+        size: assessmentBytes.size,
+        artifactId: env("OCR_ASSESSMENT_ARTIFACT_ID", /^[1-9][0-9]*$/),
+        githubArtifactDigest: env(
+          "OCR_ASSESSMENT_ARTIFACT_DIGEST",
+          /^sha256:[0-9a-f]{64}$/,
+        ),
+      },
+      requestIds: candidateRecords.map(
+        (item) => item.requestId ?? item.adapterTrace?.requestId,
+      ),
+      responseIds: candidateRecords.map(
+        (item) => item.responseId ?? item.adapterTrace?.responseId,
+      ),
     },
     spend: {
       currency: "USD",
       hardLimitMicros: infra.pricing.maxTotalCostMicros,
       reservedMicros: infra.pricing.maxTotalCostMicros,
-      measuredMicros: report.spend.measuredMicros,
-      admissionSha256: report.spend.admissionSha256,
-      admittedAt: report.spend.admittedAt,
+      measuredMicros:
+        report.spend?.measuredMicros ?? report.metrics.totalCostMicros,
+      admissionSha256: sha256(canonicalize(spendRequest)),
+      admittedAt: spendRequest.admittedAt,
     },
     recoveryEvidence: {
       producer: {

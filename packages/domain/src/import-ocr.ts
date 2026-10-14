@@ -64,7 +64,10 @@ export interface PdfOcrUsageV2 {
   readonly totalTokens: number;
 }
 
-export type VertexAuthTraceV2 = "LOCAL_ADC" | "SERVICE_ACCOUNT_FILE_ADC";
+export type VertexAuthTraceV2 =
+  | "LOCAL_ADC"
+  | "SERVICE_ACCOUNT_FILE_ADC"
+  | "GITHUB_OIDC_WIF";
 
 export interface PdfOcrProviderRequestTraceV2 {
   readonly requestId: string;

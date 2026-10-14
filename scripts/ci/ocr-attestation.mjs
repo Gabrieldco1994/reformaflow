@@ -1032,13 +1032,32 @@ export function validatePayload(payload, options = {}) {
     fail("PROVIDER_BINDING_INVALID");
   match(payload.provider.promptSha256, HASH, "PROVIDER_BINDING_INVALID");
 
-  exact(payload.evidence, ["raw", "report", "requestIds", "responseIds"]);
+  exact(payload.evidence, [
+    "raw",
+    "report",
+    "assessment",
+    "requestIds",
+    "responseIds",
+  ]);
   for (const artifact of [payload.evidence.raw, payload.evidence.report]) {
     exact(artifact, ["sha256", "size", "artifactId"]);
     match(artifact.sha256, HASH);
     integer(artifact.size, 1);
     match(artifact.artifactId, DECIMAL_ID);
   }
+  exact(payload.evidence.assessment, [
+    "sha256",
+    "size",
+    "artifactId",
+    "githubArtifactDigest",
+  ]);
+  match(payload.evidence.assessment.sha256, HASH);
+  integer(payload.evidence.assessment.size, 1);
+  match(payload.evidence.assessment.artifactId, DECIMAL_ID);
+  match(
+    payload.evidence.assessment.githubArtifactDigest,
+    /^sha256:[0-9a-f]{64}$/,
+  );
   for (const ids of [
     payload.evidence.requestIds,
     payload.evidence.responseIds,

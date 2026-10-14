@@ -142,6 +142,7 @@ interface Counters {
 
 export interface OcrEvalReport {
   reportSchemaVersion: 4;
+  historicalComparison: "NOT_PERFORMED_P1_DEFERRED";
   datasetVersion: "ocr-synth-v1-direct-pdf-vertex-v3";
   corpusSampleCount: 52;
   releaseScannedPdfSampleCount: 18;
@@ -557,7 +558,8 @@ function addTraceIssues(
     issues.push("WRONG_MODEL");
   if (
     (trace.authTrace !== "LOCAL_ADC" &&
-      trace.authTrace !== "SERVICE_ACCOUNT_FILE_ADC") ||
+      trace.authTrace !== "SERVICE_ACCOUNT_FILE_ADC" &&
+      trace.authTrace !== "GITHUB_OIDC_WIF") ||
     trace.apiKeyUsed
   )
     issues.push("API_KEY_OR_AUTH_VIOLATION");
@@ -1154,8 +1156,6 @@ export async function evaluateOcrSynth(
     gaps.push("DATASET_VERSION_MISMATCH");
   if (input.run.mode !== "LIVE_CAPTURE")
     gaps.push("LIVE_PROVIDER_RUN_NOT_SUPPLIED");
-  if (input.run.mode === "LIVE_CAPTURE")
-    gaps.push("VERIFIED_BASELINE_EXECUTION_MISSING");
   if (
     input.run.baseline.sha !== OCR_SYNTH_DATASET.baseSha ||
     input.run.baseline.behavior !== "OCR_REQUIRED" ||
@@ -1377,7 +1377,9 @@ export async function evaluateOcrSynth(
   if (
     input.run.mode === "LIVE_CAPTURE" &&
     input.predictions.some(
-      (item) => item.adapterTrace?.authTrace !== "SERVICE_ACCOUNT_FILE_ADC",
+      (item) =>
+        item.adapterTrace?.authTrace !== "SERVICE_ACCOUNT_FILE_ADC" &&
+        item.adapterTrace?.authTrace !== "GITHUB_OIDC_WIF",
     )
   )
     gaps.push("PRODUCTION_SERVICE_ACCOUNT_AUTH_NOT_PROVED");
@@ -1393,6 +1395,7 @@ export async function evaluateOcrSynth(
   const uniqueGaps = [...new Set(gaps)];
   return {
     reportSchemaVersion: 4,
+    historicalComparison: "NOT_PERFORMED_P1_DEFERRED",
     datasetVersion: OCR_SYNTH_DATASET.datasetVersion,
     corpusSampleCount: OCR_SYNTH_DATASET.cases.length as 52,
     releaseScannedPdfSampleCount: OCR_SYNTH_SCANNED_RELEASE_CASES.length as 18,

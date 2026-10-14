@@ -172,6 +172,7 @@ jobs:
     permissions: { actions: read, contents: read, id-token: write }
     outputs:
       raw_artifact_id: ${{ steps.raw.outputs.artifact-id }}
+      raw_artifact_digest: ${{ steps.raw.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -229,6 +230,7 @@ jobs:
           }
       - env:
           ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          OCR_GCP_PROJECT_ID: ${{ vars.GCP_CAPTURE_PROJECT_ID }}
           SUBJECT_SHA: ${{ github.sha }}
           SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
           QUALIFICATION_IMAGE_DIGEST: ${{ needs.offline-materialize.outputs.image_digest }}
@@ -236,7 +238,7 @@ jobs:
         run: |
           set -euo pipefail
           PRODUCTION_IMAGE="$(jq -er .receipt.image.reference "$RUNNER_TEMP/transfer/runtime-subject-binding.json")"
-          printf "%s" "$ACCESS_TOKEN" | docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m --env OCR_CAPTURE_AUTH_MODE=GITHUB_OIDC_WIF --env OCR_SUBJECT_SHA="$SUBJECT_SHA" --env OCR_SUBJECT_TREE="$SUBJECT_TREE" --env OCR_PRODUCTION_IMAGE="$PRODUCTION_IMAGE" --env OCR_QUALIFICATION_IMAGE_DIGEST="$QUALIFICATION_IMAGE_DIGEST" --env OCR_EXECUTABLE_DIGEST="$EXECUTABLE_DIGEST" --env OCR_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" --env OCR_WORKFLOW_RUN_ID="$GITHUB_RUN_ID" --env OCR_WORKFLOW_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" --env OCR_POLICY_SHA256="$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" --env OCR_CORPUS_SHA256="$(jq -r .corpus.sha256 deploy/ocr/infra-policy.json)" --env OCR_REQUESTED_MODEL_ALIAS="$(jq -r .provider.requestedModelAlias deploy/ocr/infra-policy.json)" --env OCR_PROMPT_SHA256="$(jq -r .provider.promptSha256 deploy/ocr/infra-policy.json)" --env OCR_INPUT_MICROS_PER_MILLION_TOKENS="$(jq -r .pricing.inputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --env OCR_OUTPUT_MICROS_PER_MILLION_TOKENS="$(jq -r .pricing.outputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --env OCR_EXPECTED_CASE_COUNT="$(jq -r .qualification.candidateCaseCount deploy/ocr/infra-policy.json)" --env OCR_REVIEW_SET_B64="$(base64 -w0 "$RUNNER_TEMP/reviews.json")" --env OCR_SPEND_REQUEST_B64="$(base64 -w0 "$RUNNER_TEMP/spend-request.json")" "$QUALIFICATION_TAG" capture > "$RUNNER_TEMP/raw-evidence.json"
+          printf "%s" "$ACCESS_TOKEN" | docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --mount type=volume,destination=/opt/qualification/prisma --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m --env OCR_CAPTURE_AUTH_MODE=GITHUB_OIDC_WIF --env OCR_GCP_PROJECT_ID --env OCR_SUBJECT_SHA="$SUBJECT_SHA" --env OCR_SUBJECT_TREE="$SUBJECT_TREE" --env OCR_PRODUCTION_IMAGE="$PRODUCTION_IMAGE" --env OCR_QUALIFICATION_IMAGE_DIGEST="$QUALIFICATION_IMAGE_DIGEST" --env OCR_EXECUTABLE_DIGEST="$EXECUTABLE_DIGEST" --env OCR_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" --env OCR_WORKFLOW_RUN_ID="$GITHUB_RUN_ID" --env OCR_WORKFLOW_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" --env OCR_POLICY_SHA256="$(jq -r .policy.sha256 deploy/ocr/infra-policy.json)" --env OCR_CORPUS_SHA256="$(jq -r .corpus.sha256 deploy/ocr/infra-policy.json)" --env OCR_MAX_TOTAL_COST_MICROS="$(jq -r .pricing.maxTotalCostMicros deploy/ocr/infra-policy.json)" --env OCR_REQUESTED_MODEL_ALIAS="$(jq -r .provider.requestedModelAlias deploy/ocr/infra-policy.json)" --env OCR_PROMPT_SHA256="$(jq -r .provider.promptSha256 deploy/ocr/infra-policy.json)" --env OCR_INPUT_MICROS_PER_MILLION_TOKENS="$(jq -r .pricing.inputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --env OCR_OUTPUT_MICROS_PER_MILLION_TOKENS="$(jq -r .pricing.outputMicrosPerMillionTokens deploy/ocr/infra-policy.json)" --env OCR_EXPECTED_CASE_COUNT="$(jq -r .qualification.candidateCaseCount deploy/ocr/infra-policy.json)" --env OCR_REVIEW_SET_B64="$(base64 -w0 "$RUNNER_TEMP/reviews.json")" --env OCR_SPEND_REQUEST_B64="$(base64 -w0 "$RUNNER_TEMP/spend-request.json")" "$QUALIFICATION_TAG" capture > "$RUNNER_TEMP/raw-evidence.json"
           mkdir "$RUNNER_TEMP/raw" && cp "$RUNNER_TEMP/raw-evidence.json" "$RUNNER_TEMP/reviews.json" "$RUNNER_TEMP/spend-request.json" "$RUNNER_TEMP/raw/"
       - id: raw
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
@@ -275,21 +277,34 @@ jobs:
             if-no-files-found: error,
             retention-days: 7,
           }
-      - name: verify-baseline-artifact
-        run: |
-          set -euo pipefail
-          jq -e '.baselineArtifact.verified == true and (.baselineArtifact.records | length) == 18' "$RUNNER_TEMP/verify/raw-evidence.json" >/dev/null
       - name: verify-candidate-artifact
+        env:
+          RAW_ARTIFACT_ID: ${{ needs.capture-vertex.outputs.raw_artifact_id }}
+          RAW_ARTIFACT_DIGEST: ${{ needs.capture-vertex.outputs.raw_artifact_digest }}
+          SUBJECT_SHA: ${{ github.sha }}
+          SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
         run: |
           set -euo pipefail
-          jq -e '.candidateArtifact != null and .rawEvidence != null' "$RUNNER_TEMP/verify/raw-evidence.json" >/dev/null
+          PAYLOAD_SHA="$(node scripts/ci/ocr-attestation.mjs canonicalize "$RUNNER_TEMP/verify/raw-evidence.json" | sha256sum | awk '{print $1}')"
+          jq -n --argjson repositoryId "$GITHUB_REPOSITORY_ID" --arg workflowPath ".github/workflows/ocr-qualification.yml" --arg workflowSha "$GITHUB_WORKFLOW_SHA" --argjson runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg headSha "$SUBJECT_SHA" --arg headTree "$SUBJECT_TREE" --argjson artifactId "$RAW_ARTIFACT_ID" --arg artifactName "ocr-raw-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --arg artifactDigest "sha256:$RAW_ARTIFACT_DIGEST" --arg memberName "raw-evidence.json" --arg payloadSha256 "$PAYLOAD_SHA" '{expected:{repositoryId:$repositoryId,workflowPath:$workflowPath,workflowRunId:$runId,workflowRunAttempt:$runAttempt,artifactId:$artifactId,artifactName:$artifactName,workflowSha:$workflowSha,workflowHeadSha:$headSha,workflowHeadTree:$headTree,subjectSha:$headSha,subjectTree:$headTree,memberName:$memberName},metadata:{id:$artifactId,name:$artifactName,expired:false,digest:$artifactDigest,workflow_run:{id:$runId,head_sha:$headSha}},payloadSha256:$payloadSha256,bindings:{workflowPath:$workflowPath,workflowSha:$workflowSha,workflowHeadTree:$headTree,subjectSha:$headSha,subjectTree:$headTree}}' > "$RUNNER_TEMP/verify/candidate-artifact.json"
       - env:
           EVIDENCE_CLASS: LIVE
+          OCR_RAW_ARTIFACT_ID: ${{ needs.capture-vertex.outputs.raw_artifact_id }}
+          OCR_RAW_ARTIFACT_DIGEST: sha256:${{ needs.capture-vertex.outputs.raw_artifact_digest }}
+          OCR_RAW_ARTIFACT_NAME: ocr-raw-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          OCR_RAW_ARTIFACT_MEMBER: raw-evidence.json
+          OCR_AUTH_WORKFLOW_PATH: .github/workflows/ocr-qualification.yml
+          OCR_AUTH_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          OCR_AUTH_WORKFLOW_HEAD_SHA: ${{ github.sha }}
+          OCR_AUTH_WORKFLOW_HEAD_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
+          OCR_SUBJECT_SHA: ${{ github.sha }}
+          OCR_SUBJECT_TREE: ${{ needs.offline-materialize.outputs.subject_tree }}
         run: |
           set -euo pipefail
-          jq -n --arg evidenceClass "$EVIDENCE_CLASS" --slurpfile evidence "$RUNNER_TEMP/verify/raw-evidence.json" --slurpfile report "$RUNNER_TEMP/report.json" '{evidenceClass:$evidenceClass,report:$report[0],rawEvidence:$evidence[0].rawEvidence,baselineArtifact:$evidence[0].baselineArtifact,candidateArtifact:$evidence[0].candidateArtifact,boundaryObservations:$evidence[0].boundaryObservations,attemptLedger:$evidence[0].attemptLedger}' > "$RUNNER_TEMP/assessment-bundle.json"
-          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" assess-report - < "$RUNNER_TEMP/assessment-bundle.json" > "$RUNNER_TEMP/report-assessment.json"
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+          jq -n --arg evidenceClass "$EVIDENCE_CLASS" --slurpfile evidence "$RUNNER_TEMP/verify/raw-evidence.json" --slurpfile report "$RUNNER_TEMP/report.json" --slurpfile candidate "$RUNNER_TEMP/verify/candidate-artifact.json" '{evidenceClass:$evidenceClass,report:$report[0],rawEvidence:$evidence[0],candidateArtifact:$candidate[0]}' > "$RUNNER_TEMP/assessment-bundle.json"
+          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m --env GITHUB_REPOSITORY_ID --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT --env OCR_RAW_ARTIFACT_ID --env OCR_RAW_ARTIFACT_DIGEST --env OCR_RAW_ARTIFACT_NAME --env OCR_RAW_ARTIFACT_MEMBER --env OCR_AUTH_WORKFLOW_PATH --env OCR_AUTH_WORKFLOW_SHA --env OCR_AUTH_WORKFLOW_HEAD_SHA --env OCR_AUTH_WORKFLOW_HEAD_TREE --env OCR_SUBJECT_SHA --env OCR_SUBJECT_TREE "$QUALIFICATION_TAG" assess-report - < "$RUNNER_TEMP/assessment-bundle.json" > "$RUNNER_TEMP/report-assessment.json"
+      - id: assessment
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
           {
             name: "ocr-report-assessment-${{ github.run_id }}-${{ github.run_attempt }}",
@@ -312,11 +327,13 @@ jobs:
           OCR_KMS_KEY_RESOURCE: ${{ vars.GCP_KMS_KEY_RESOURCE }}
           OCR_KMS_KEY_VERSION: ${{ vars.GCP_KMS_CRYPTO_KEY_VERSION }}
           OCR_KMS_PUBLIC_KEY_SHA256: ${{ vars.GCP_KMS_PUBLIC_KEY_SHA256 }}
+          OCR_ASSESSMENT_ARTIFACT_ID: ${{ steps.assessment.outputs.artifact-id }}
+          OCR_ASSESSMENT_ARTIFACT_DIGEST: sha256:${{ steps.assessment.outputs.artifact-digest }}
         run: |
           set -euo pipefail
           mkdir "$RUNNER_TEMP/unsigned"
-          node deploy/ocr/workflow-payload-template.mjs "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/reviews.json" deploy/ocr/infra-policy.json "$RUNNER_TEMP/verify/runtime-subject-binding.json" "$RUNNER_TEMP/verify/recovery-evidence-binding.json" > "$RUNNER_TEMP/template.json"
-          node deploy/ocr/evidence-bundle.mjs "$RUNNER_TEMP/template.json" "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/spend-request.json" > "$RUNNER_TEMP/unsigned-bundle.json"
+          node deploy/ocr/workflow-payload-template.mjs "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/reviews.json" deploy/ocr/infra-policy.json "$RUNNER_TEMP/verify/runtime-subject-binding.json" "$RUNNER_TEMP/verify/recovery-evidence-binding.json" "$RUNNER_TEMP/report-assessment.json" "$RUNNER_TEMP/verify/spend-request.json" > "$RUNNER_TEMP/template.json"
+          node deploy/ocr/evidence-bundle.mjs "$RUNNER_TEMP/template.json" "$RUNNER_TEMP/verify/raw-evidence.json" "$RUNNER_TEMP/report.json" "$RUNNER_TEMP/verify/spend-request.json" "$RUNNER_TEMP/report-assessment.json" > "$RUNNER_TEMP/unsigned-bundle.json"
           docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges --network none --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --tmpfs /run/ocr:rw,noexec,nosuid,nodev,size=1m "$QUALIFICATION_TAG" build-unsigned - < "$RUNNER_TEMP/unsigned-bundle.json" > "$RUNNER_TEMP/unsigned/unsigned-package.json"
           node scripts/ci/ocr-attestation.mjs extract-activation-draft "$RUNNER_TEMP/unsigned/unsigned-package.json" > "$RUNNER_TEMP/unsigned/activation-payload-draft.json"
           node scripts/ci/ocr-attestation.mjs extract-runtime-payload "$RUNNER_TEMP/unsigned/unsigned-package.json" > "$RUNNER_TEMP/unsigned/runtime-payload.json"

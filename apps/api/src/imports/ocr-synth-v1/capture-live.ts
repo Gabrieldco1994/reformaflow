@@ -1,5 +1,12 @@
 import { writeQualifiedLiveEvidenceExclusive } from "./capture-live-file";
 import type { OcrEvalInput } from "./evaluator";
+import { VertexPdfOcrProvider } from "../import-session/ocr/vertex-pdf-ocr.provider";
+import { captureLiveEvidence } from "./capture-live-core";
+import {
+  assertQualityRepositorySnapshot,
+  attestQualityClosure,
+  readFinalReviewHashes,
+} from "./quality-closure-attestation";
 
 const PROTECTED_DEPENDENCIES_MISSING =
   "LIVE_CAPTURE_PROTECTED_DEPENDENCIES_MISSING";
@@ -23,6 +30,7 @@ export interface ProtectedLiveCaptureDependencies {
 export interface ProtectedWifLiveCaptureDependencies {
   readonly authMode: "GITHUB_OIDC_WIF";
   readonly projectId: string;
+  readonly accessToken: string;
 }
 
 const WIF_OUTPUT_PATH = "/run/ocr/raw-evidence.json";
@@ -39,7 +47,9 @@ const failClosed = (code: string): never => {
  * Executes capture only when the protected caller supplies the credential
  * binding and all side-effecting dependencies explicitly.
  */
-export async function runProtectedLiveCapture(input: unknown): Promise<void> {
+export async function runProtectedLiveCapture(
+  input: unknown,
+): Promise<OcrEvalInput> {
   if (!object(input)) throw new Error(PROTECTED_DEPENDENCIES_MISSING);
   const credentials = input.credentials;
   if (
@@ -65,12 +75,18 @@ export async function runProtectedLiveCapture(input: unknown): Promise<void> {
     return failClosed(PROTECTED_DEPENDENCIES_MISSING);
   }
 
+  let captured: OcrEvalInput | undefined;
   await writeQualifiedLiveEvidenceExclusive(
     input.outputPath,
     input.lockPath,
-    input.captureEvidence as () => Promise<OcrEvalInput>,
+    async () => {
+      captured = await (input.captureEvidence as () => Promise<OcrEvalInput>)();
+      return captured;
+    },
     input.verifyRepository as () => Promise<void>,
   );
+  if (!captured) return failClosed(PROTECTED_DEPENDENCIES_MISSING);
+  return captured;
 }
 
 /**
@@ -79,14 +95,27 @@ export async function runProtectedLiveCapture(input: unknown): Promise<void> {
  */
 export async function runProtectedWifLiveCapture(
   input: ProtectedWifLiveCaptureDependencies,
-): Promise<void> {
+): Promise<OcrEvalInput> {
   if (
     !object(input) ||
     input.authMode !== "GITHUB_OIDC_WIF" ||
     typeof input.projectId !== "string" ||
-    input.projectId.length === 0
+    input.projectId.length === 0 ||
+    typeof input.accessToken !== "string" ||
+    input.accessToken.length < 20
   )
     return failClosed(CREDENTIALS_MISSING);
+  const attestation = await attestQualityClosure();
+  const finalReviewHashes = await readFinalReviewHashes(attestation.policy);
+  const verifyRepository = async () =>
+    assertQualityRepositorySnapshot(
+      attestation.closure.snapshot,
+      attestation.policy,
+    );
+  const provider = new VertexPdfOcrProvider(input.projectId, {
+    authTrace: "GITHUB_OIDC_WIF",
+    accessToken: async () => input.accessToken,
+  });
   return runProtectedLiveCapture({
     outputPath: WIF_OUTPUT_PATH,
     lockPath: WIF_LOCK_PATH,
@@ -95,10 +124,17 @@ export async function runProtectedWifLiveCapture(
       serviceAccountPath: "GITHUB_OIDC_WIF_INHERITED_TOKEN",
       [PROTECTED_CONTEXT]: true,
     },
-    captureEvidence: async () =>
-      failClosed("LIVE_CAPTURE_PROTECTED_DEPENDENCIES_MISSING"),
-    verifyRepository: async () =>
-      failClosed("LIVE_CAPTURE_PROTECTED_DEPENDENCIES_MISSING"),
+    captureEvidence: () =>
+      captureLiveEvidence({
+        provider,
+        mechanical: {
+          policy: attestation.policy,
+          qualityClosure: attestation.closure,
+          finalReviewHashes,
+          verifySnapshot: verifyRepository,
+        },
+      }),
+    verifyRepository,
   });
 }
 

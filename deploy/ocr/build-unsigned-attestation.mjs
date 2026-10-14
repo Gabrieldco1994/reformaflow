@@ -454,7 +454,96 @@ function parseRawVertexJson(bytes) {
   }
 }
 
-function validateCandidateArtifactShape(value) {
+function validateCandidateArtifactAuthority(authority) {
+  exact(
+    authority,
+    [
+      "repositoryId",
+      "workflowPath",
+      "workflowSha",
+      "workflowRunId",
+      "workflowRunAttempt",
+      "workflowHeadSha",
+      "workflowHeadTree",
+      "subjectSha",
+      "subjectTree",
+      "artifactId",
+      "artifactName",
+      "artifactDigest",
+      "memberName",
+    ],
+    "CANDIDATE_ARTIFACT_AUTHORITY_INVALID",
+  );
+  integer(authority.repositoryId, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  nonempty(authority.workflowPath, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  match(authority.workflowSha, COMMIT, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  integer(authority.workflowRunId, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  integer(authority.workflowRunAttempt, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  match(
+    authority.workflowHeadSha,
+    COMMIT,
+    "CANDIDATE_ARTIFACT_AUTHORITY_INVALID",
+  );
+  match(
+    authority.workflowHeadTree,
+    COMMIT,
+    "CANDIDATE_ARTIFACT_AUTHORITY_INVALID",
+  );
+  match(authority.subjectSha, COMMIT, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  match(authority.subjectTree, COMMIT, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  integer(authority.artifactId, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  nonempty(authority.artifactName, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  match(
+    authority.artifactDigest,
+    /^sha256:[0-9a-f]{64}$/,
+    "CANDIDATE_ARTIFACT_AUTHORITY_INVALID",
+  );
+  nonempty(authority.memberName, "CANDIDATE_ARTIFACT_AUTHORITY_INVALID");
+  return authority;
+}
+
+function validateCandidateArtifactShape(value, authorityInput, payloadInput) {
+  const authority = validateCandidateArtifactAuthority(authorityInput);
+  if (object(value) && typeof value.payloadSha256 === "string") {
+    exact(
+      value,
+      ["expected", "metadata", "payloadSha256", "bindings"],
+      "CANDIDATE_ARTIFACT_PROVENANCE_INVALID",
+    );
+    const { expected, metadata, bindings } = value;
+    if (
+      !object(expected) ||
+      !object(metadata) ||
+      !object(metadata.workflow_run) ||
+      !object(bindings) ||
+      value.payloadSha256 !== sha256(Buffer.from(canonicalize(payloadInput))) ||
+      expected.repositoryId !== authority.repositoryId ||
+      expected.workflowPath !== authority.workflowPath ||
+      expected.workflowSha !== authority.workflowSha ||
+      expected.workflowRunId !== authority.workflowRunId ||
+      expected.workflowRunAttempt !== authority.workflowRunAttempt ||
+      expected.workflowHeadSha !== authority.workflowHeadSha ||
+      expected.workflowHeadTree !== authority.workflowHeadTree ||
+      expected.subjectSha !== authority.subjectSha ||
+      expected.subjectTree !== authority.subjectTree ||
+      expected.artifactId !== authority.artifactId ||
+      expected.artifactName !== authority.artifactName ||
+      expected.memberName !== authority.memberName ||
+      metadata.id !== authority.artifactId ||
+      metadata.name !== authority.artifactName ||
+      metadata.expired !== false ||
+      metadata.digest !== authority.artifactDigest ||
+      metadata.workflow_run.id !== authority.workflowRunId ||
+      metadata.workflow_run.head_sha !== authority.workflowHeadSha ||
+      bindings.workflowPath !== authority.workflowPath ||
+      bindings.workflowSha !== authority.workflowSha ||
+      bindings.workflowHeadTree !== authority.workflowHeadTree ||
+      bindings.subjectSha !== authority.subjectSha ||
+      bindings.subjectTree !== authority.subjectTree
+    )
+      fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
+    return;
+  }
   exact(
     value,
     ["expected", "metadata", "archiveBytes", "members", "payload", "bindings"],
@@ -484,15 +573,37 @@ function validateCandidateArtifactShape(value) {
     bindings.workflowHeadTree !== expected.workflowHeadTree ||
     bindings.subjectSha !== expected.subjectSha ||
     bindings.subjectTree !== expected.subjectTree ||
+    expected.repositoryId !== authority.repositoryId ||
+    expected.workflowPath !== authority.workflowPath ||
+    expected.workflowSha !== authority.workflowSha ||
+    expected.workflowRunId !== authority.workflowRunId ||
+    expected.workflowRunAttempt !== authority.workflowRunAttempt ||
+    expected.workflowHeadSha !== authority.workflowHeadSha ||
+    expected.workflowHeadTree !== authority.workflowHeadTree ||
+    expected.subjectSha !== authority.subjectSha ||
+    expected.subjectTree !== authority.subjectTree ||
+    expected.artifactId !== authority.artifactId ||
+    expected.artifactName !== authority.artifactName ||
+    expected.memberName !== authority.memberName ||
+    metadata.id !== authority.artifactId ||
+    metadata.name !== authority.artifactName ||
+    metadata.digest !== authority.artifactDigest ||
+    metadata.workflow_run.id !== authority.workflowRunId ||
+    metadata.workflow_run.head_sha !== authority.workflowHeadSha ||
+    bindings.workflowPath !== authority.workflowPath ||
+    bindings.workflowSha !== authority.workflowSha ||
+    bindings.workflowHeadTree !== authority.workflowHeadTree ||
+    bindings.subjectSha !== authority.subjectSha ||
+    bindings.subjectTree !== authority.subjectTree ||
     canonicalize(parseRawVertexJson(members[0].bytes)) !== canonicalize(payload)
   )
     fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
 }
 
-export async function verifyCandidateArtifactV4(value) {
+export async function verifyCandidateArtifactV4(value, authority, payload) {
   try {
-    validateCandidateArtifactShape(value);
-    return value.payload;
+    validateCandidateArtifactShape(value, authority, payload ?? value?.payload);
+    return payload ?? value.payload;
   } catch {
     fail("CANDIDATE_ARTIFACT_PROVENANCE_INVALID");
   }
@@ -501,6 +612,7 @@ export async function verifyCandidateArtifactV4(value) {
 function validateCanonicalReportV4(report) {
   exact(report, [
     "reportSchemaVersion",
+    "historicalComparison",
     "datasetVersion",
     "corpusSampleCount",
     "releaseScannedPdfSampleCount",
@@ -521,6 +633,7 @@ function validateCanonicalReportV4(report) {
   ]);
   if (
     report.reportSchemaVersion !== 4 ||
+    report.historicalComparison !== "NOT_PERFORMED_P1_DEFERRED" ||
     report.datasetVersion !== "ocr-synth-v1-direct-pdf-vertex-v3" ||
     report.corpusSampleCount !== 52 ||
     report.releaseScannedPdfSampleCount !== 18 ||
@@ -530,7 +643,8 @@ function validateCanonicalReportV4(report) {
     report.baseline.behavior !== "OCR_REQUIRED" ||
     report.baseline.sampleCount !== 18 ||
     !object(report.candidate) ||
-    report.candidate.evidenceClass !== "LIVE" ||
+    (report.candidate.mode !== "LIVE_CAPTURE" &&
+      report.candidate.evidenceClass !== "LIVE") ||
     !Array.isArray(report.perCase) ||
     report.perCase.length !== 18 ||
     !Array.isArray(report.routingCases) ||
@@ -620,7 +734,19 @@ function validateCanonicalRawCandidate(rawCase, index, issues) {
     add(issues, "MONEY_MISMATCH");
 }
 
-export async function assessCanonicalReport(input) {
+async function recomputeApplicationReport(rawEvidence) {
+  const module =
+    await import("../../apps/api/dist/imports/ocr-synth-v1/offline-report.js");
+  if (typeof module.evaluateOfflineReport !== "function")
+    fail("CANONICAL_REPORT_V4_AUTHORITY_NOT_IMPLEMENTED");
+  return await module.evaluateOfflineReport(canonicalize(rawEvidence));
+}
+
+export async function assessCanonicalReport(
+  input,
+  authority,
+  dependencies = {},
+) {
   if (!object(input)) fail("REPORT_V4_SCHEMA_INVALID");
   if (input.evidenceClass === "TEST_ONLY") {
     return Object.freeze({
@@ -649,6 +775,48 @@ export async function assessCanonicalReport(input) {
     });
   }
   const issues = new Set();
+  if (
+    object(input.rawEvidence?.run) &&
+    Array.isArray(input.rawEvidence?.predictions)
+  ) {
+    try {
+      validateCanonicalReportV4(input.report);
+      if (input.evidenceClass !== "LIVE") fail("LIVE_EVIDENCE_BINDING_INVALID");
+      await verifyCandidateArtifactV4(
+        input.candidateArtifact,
+        authority,
+        input.rawEvidence,
+      );
+      const recomputed = await (
+        dependencies.recompute ?? recomputeApplicationReport
+      )(input.rawEvidence);
+      if (!same(recomputed, input.report))
+        fail("REPORT_V4_DERIVATION_MISMATCH");
+    } catch (error) {
+      add(
+        issues,
+        error instanceof Error && /^[A-Z][A-Z0-9_]+$/.test(error.message)
+          ? error.message
+          : "REPORT_V4_SCHEMA_INVALID",
+      );
+    }
+    const result = canonicalAuthorityAssessment(
+      input.report,
+      input.rawEvidence,
+      issues,
+    );
+    return Object.freeze({
+      ...result,
+      bindings: Object.freeze({
+        ...result.bindings,
+        reportSchemaSha256: sha256(
+          await readFile(
+            resolve(import.meta.dirname, "../..", CANONICAL_REPORT_SCHEMA),
+          ),
+        ),
+      }),
+    });
+  }
   try {
     validateCanonicalReportV4(input.report);
     if (
@@ -672,6 +840,8 @@ export async function assessCanonicalReport(input) {
       fail("LIVE_EVIDENCE_BINDING_INVALID");
     const candidatePayload = await verifyCandidateArtifactV4(
       input.candidateArtifact,
+      authority,
+      input.rawEvidence,
     );
     input.rawEvidence.cases.forEach((rawCase, index) =>
       validateCanonicalRawCandidate(rawCase, index, issues),
@@ -1039,7 +1209,8 @@ export function assessReportV4(payload, raw, reportBytes) {
 
 function validateSpendBinding(report, request, payload) {
   if (
-    report?.spend?.admissionSha256 !== sha256(canonicalize(request)) ||
+    (report?.spend?.admissionSha256 ?? payload?.spend?.admissionSha256) !==
+      sha256(canonicalize(request)) ||
     request.subjectSha !== payload.subject.git.sha ||
     request.subjectTree !== payload.subject.git.tree ||
     request.productionImage !== payload.subject.productionImage.reference ||
@@ -1064,11 +1235,48 @@ export function buildUnsignedPayloadFromBytes(
   raw,
   reportBytes,
   spendRequestBytes,
+  assessmentBytes,
   options = {},
 ) {
+  if (assessmentBytes && !Buffer.isBuffer(assessmentBytes)) {
+    options = assessmentBytes;
+    assessmentBytes = undefined;
+  }
   const payload = structuredClone(payloadInput);
   payload.attestationId = "0".repeat(64);
-  const reportAssessment = assessReportV4(payload, raw, reportBytes);
+  let persistedAssessment;
+  if (assessmentBytes) {
+    try {
+      const rawValue = parseStrictJson(raw.toString("utf8"));
+      const reportValue = parseStrictJson(reportBytes.toString("utf8"));
+      persistedAssessment = parseStrictJson(assessmentBytes.toString("utf8"));
+      if (
+        persistedAssessment.reportSchemaVersion !== 4 ||
+        persistedAssessment.releaseStatus !== "PASS" ||
+        persistedAssessment.signable !== true ||
+        !Array.isArray(persistedAssessment.issues) ||
+        persistedAssessment.issues.length !== 0 ||
+        persistedAssessment.bindings?.rawEvidenceSha256 !==
+          sha256(Buffer.from(canonicalize(rawValue))) ||
+        persistedAssessment.bindings?.reportSha256 !==
+          sha256(Buffer.from(canonicalize(reportValue))) ||
+        reportValue.reportSchemaVersion !== 4 ||
+        reportValue.historicalComparison !== "NOT_PERFORMED_P1_DEFERRED" ||
+        reportValue.releaseStatus !== "PASS"
+      )
+        fail("PERSISTED_REPORT_ASSESSMENT_INVALID");
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "PERSISTED_REPORT_ASSESSMENT_INVALID"
+      )
+        throw error;
+      fail("PERSISTED_REPORT_ASSESSMENT_INVALID");
+    }
+  }
+  const reportAssessment = assessmentBytes
+    ? persistedAssessment
+    : assessReportV4(payload, raw, reportBytes);
   if (!reportAssessment.signable) return reportAssessment;
   let report;
   let request;
@@ -1082,7 +1290,10 @@ export function buildUnsignedPayloadFromBytes(
     payload.evidence.raw.sha256 !== sha256(raw) ||
     payload.evidence.raw.size !== raw.length ||
     payload.evidence.report.sha256 !== sha256(reportBytes) ||
-    payload.evidence.report.size !== reportBytes.length
+    payload.evidence.report.size !== reportBytes.length ||
+    (assessmentBytes &&
+      (payload.evidence.assessment?.sha256 !== sha256(assessmentBytes) ||
+        payload.evidence.assessment?.size !== assessmentBytes.length))
   )
     return assessment(
       reportBytes,
@@ -1095,14 +1306,26 @@ export function buildUnsignedPayloadFromBytes(
     return assessment(reportBytes, raw, new Set(["SPEND_BINDING_INVALID"]));
   }
   if (options.assessmentOnly) return reportAssessment;
-  payload.evidence.requestIds = report.candidate.records.map(
-    (item) => item.requestId,
-  );
-  payload.evidence.responseIds = report.candidate.records.map(
-    (item) => item.responseId,
-  );
-  payload.provider.modelVersion = report.provider.observedModelVersion;
-  payload.spend.measuredMicros = report.spend.measuredMicros;
+  if (assessmentBytes) {
+    const rawValue = parseStrictJson(raw.toString("utf8"));
+    payload.evidence.requestIds = rawValue.predictions.map(
+      (item) => item.adapterTrace.requestId,
+    );
+    payload.evidence.responseIds = rawValue.predictions.map(
+      (item) => item.adapterTrace.responseId,
+    );
+    payload.provider.modelVersion = report.candidate.modelVersion;
+    payload.spend.measuredMicros = report.metrics.totalCostMicros;
+  } else {
+    payload.evidence.requestIds = report.candidate.records.map(
+      (item) => item.requestId,
+    );
+    payload.evidence.responseIds = report.candidate.records.map(
+      (item) => item.responseId,
+    );
+    payload.provider.modelVersion = report.provider.observedModelVersion;
+    payload.spend.measuredMicros = report.spend.measuredMicros;
+  }
   return prepareRuntimeReleaseDraft(payload);
 }
 export async function buildUnsignedPayload(
@@ -1112,12 +1335,13 @@ export async function buildUnsignedPayload(
 ) {
   if (
     !object(input) ||
-    Reflect.ownKeys(input).length !== 5 ||
+    Reflect.ownKeys(input).length !== 6 ||
     input.schemaVersion !== 1 ||
     input.mode !== "FILES" ||
     typeof input.rawEvidencePath !== "string" ||
     typeof input.reportPath !== "string" ||
     typeof input.spendRequestPath !== "string" ||
+    typeof input.assessmentPath !== "string" ||
     !input.payload
   )
     fail("UNSIGNED_INPUT_INVALID");
@@ -1126,15 +1350,17 @@ export async function buildUnsignedPayload(
     await bounded(resolve(root, input.rawEvidencePath)),
     await bounded(resolve(root, input.reportPath)),
     await bounded(resolve(root, input.spendRequestPath)),
+    await bounded(resolve(root, input.assessmentPath)),
     options,
   );
 }
 export function buildUnsignedPayloadFromBundle(input, options = {}) {
   if (
     !object(input) ||
-    Reflect.ownKeys(input).length !== 6 ||
+    Reflect.ownKeys(input).length !== 7 ||
     input.schemaVersion !== 1 ||
     input.mode !== "BUNDLE" ||
+    typeof input.assessmentBase64 !== "string" ||
     !input.payload
   )
     fail("UNSIGNED_INPUT_INVALID");
@@ -1143,8 +1369,27 @@ export function buildUnsignedPayloadFromBundle(input, options = {}) {
     decode(input.rawEvidenceBase64),
     decode(input.reportBase64),
     decode(input.spendRequestBase64),
+    decode(input.assessmentBase64),
     options,
   );
+}
+
+function canonicalAuthorityFromEnvironment(environment = process.env) {
+  return {
+    repositoryId: Number(environment.GITHUB_REPOSITORY_ID),
+    workflowPath: environment.OCR_AUTH_WORKFLOW_PATH,
+    workflowSha: environment.OCR_AUTH_WORKFLOW_SHA,
+    workflowRunId: Number(environment.GITHUB_RUN_ID),
+    workflowRunAttempt: Number(environment.GITHUB_RUN_ATTEMPT),
+    workflowHeadSha: environment.OCR_AUTH_WORKFLOW_HEAD_SHA,
+    workflowHeadTree: environment.OCR_AUTH_WORKFLOW_HEAD_TREE,
+    subjectSha: environment.OCR_SUBJECT_SHA,
+    subjectTree: environment.OCR_SUBJECT_TREE,
+    artifactId: Number(environment.OCR_RAW_ARTIFACT_ID),
+    artifactName: environment.OCR_RAW_ARTIFACT_NAME,
+    artifactDigest: environment.OCR_RAW_ARTIFACT_DIGEST,
+    memberName: environment.OCR_RAW_ARTIFACT_MEMBER,
+  };
 }
 
 const invoked =
@@ -1165,7 +1410,10 @@ if (invoked) {
       Object.hasOwn(input, "evidenceClass") &&
       Object.hasOwn(input, "report") &&
       Object.hasOwn(input, "rawEvidence")
-        ? await assessCanonicalReport(input)
+        ? await assessCanonicalReport(
+            input,
+            canonicalAuthorityFromEnvironment(),
+          )
         : input.mode === "BUNDLE"
           ? buildUnsignedPayloadFromBundle(input, options)
           : await buildUnsignedPayload(

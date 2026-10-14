@@ -331,7 +331,8 @@ function validTrace(value: unknown): boolean {
     string(value.region) &&
     string(value.model) &&
     (value.authTrace === "LOCAL_ADC" ||
-      value.authTrace === "SERVICE_ACCOUNT_FILE_ADC") &&
+      value.authTrace === "SERVICE_ACCOUNT_FILE_ADC" ||
+      value.authTrace === "GITHUB_OIDC_WIF") &&
     strings(value.adcScopes) &&
     bool(value.apiKeyUsed) &&
     bool(value.globalEndpointFallbackUsed) &&
@@ -567,13 +568,6 @@ export function isValidLiveProbe(
   );
 }
 
-function exactIdSet(values: readonly string[], expected: readonly string[]) {
-  return (
-    values.length === expected.length &&
-    new Set(values).size === values.length &&
-    expected.every((id) => values.includes(id))
-  );
-}
 const unique = (values: readonly string[]): boolean =>
   new Set(values).size === values.length;
 const exactStrings = (value: unknown, expected: readonly string[]): boolean =>
@@ -941,11 +935,12 @@ export function parseLiveEvidence(value: unknown): OcrEvalInput {
       !isValidLiveRun(value.run) ||
       !Array.isArray(value.predictions) ||
       !value.predictions.every((item) => validPrediction(item)) ||
-      !exactIdSet(
+      !exactStrings(
         value.predictions.map((item) => item.caseId),
         OCR_SYNTH_SCANNED_RELEASE_CASES.map((item) => item.id),
       ) ||
       !unique(value.predictions.map((item) => item.adapterTrace.requestId)) ||
+      !unique(value.predictions.map((item) => item.adapterTrace.responseId)) ||
       !validCapturedQualityClosure(
         value.qualityClosure,
         object(value.run) ? value.run.candidateSha : undefined,
@@ -984,19 +979,20 @@ export function parseLiveEvidence(value: unknown): OcrEvalInput {
     !value.routingCases.every((item) => isValidLiveRoute(item)) ||
     !Array.isArray(value.safetyProbes) ||
     !value.safetyProbes.every((item) => isValidLiveProbe(item)) ||
-    !exactIdSet(
+    !exactStrings(
       value.predictions.map((item) => item.caseId),
       OCR_SYNTH_SCANNED_RELEASE_CASES.map((item) => item.id),
     ) ||
-    !exactIdSet(
+    !exactStrings(
       value.routingCases.map((item) => item.caseId),
       OCR_SYNTH_ROUTING_CASES.map((item) => item.id),
     ) ||
-    !exactIdSet(
+    !exactStrings(
       value.safetyProbes.map((item) => item.id),
       SAFETY_PROBE_IDS,
     ) ||
     !unique(value.predictions.map((item) => item.adapterTrace.requestId)) ||
+    !unique(value.predictions.map((item) => item.adapterTrace.responseId)) ||
     !object(value.run) ||
     ("qualityClosure" in value &&
       !validQualityClosure(value.qualityClosure, value.run.candidateSha)) ||

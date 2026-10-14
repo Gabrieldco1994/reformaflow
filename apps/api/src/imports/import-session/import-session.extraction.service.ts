@@ -255,7 +255,7 @@ function boundOcrAuthTrace(
     provider: string;
     model: string;
   }>,
-): VertexAuthTraceV2 {
+): Exclude<VertexAuthTraceV2, "GITHUB_OIDC_WIF"> {
   const provenance = document?.provenance;
   const trace = provenance?.requestTrace;
   const usage = provenance?.usage;
@@ -718,7 +718,8 @@ export class ImportSessionExtractionService {
     let ocrFailureProvenance: PdfOcrProviderProvenanceV2 | null = null;
     let ocrFailureUsage: PdfOcrUsageV2 | null = null;
     let ocrDocument: PdfOcrDocumentV2 | null = null;
-    let ocrAuthTrace: VertexAuthTraceV2 | null = null;
+    let ocrAuthTrace: Exclude<VertexAuthTraceV2, "GITHUB_OIDC_WIF"> | null =
+      null;
     const publicationLive = (): undefined => {
       live();
       if (

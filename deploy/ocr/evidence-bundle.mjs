@@ -25,9 +25,20 @@ async function bytes(path) {
   }
 }
 try {
-  const [payloadTemplatePath, rawPath, reportPath, spendRequestPath] =
-    process.argv.slice(2);
-  if (!payloadTemplatePath || !rawPath || !reportPath || !spendRequestPath)
+  const [
+    payloadTemplatePath,
+    rawPath,
+    reportPath,
+    spendRequestPath,
+    assessmentPath,
+  ] = process.argv.slice(2);
+  if (
+    !payloadTemplatePath ||
+    !rawPath ||
+    !reportPath ||
+    !spendRequestPath ||
+    !assessmentPath
+  )
     throw new Error("EVIDENCE_BUNDLE_INVALID");
   const payload = parseStrictJson(
     await readFile(resolve(payloadTemplatePath), "utf8"),
@@ -40,6 +51,7 @@ try {
       rawEvidenceBase64: (await bytes(rawPath)).toString("base64"),
       reportBase64: (await bytes(reportPath)).toString("base64"),
       spendRequestBase64: (await bytes(spendRequestPath)).toString("base64"),
+      assessmentBase64: (await bytes(assessmentPath)).toString("base64"),
     }),
   );
 } catch {

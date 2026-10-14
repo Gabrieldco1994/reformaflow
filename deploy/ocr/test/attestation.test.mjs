@@ -132,6 +132,12 @@ function fixture(publicKeySha256) {
     evidence: {
       raw: { sha256: "7".repeat(64), size: 1234, artifactId: "7001" },
       report: { sha256: "8".repeat(64), size: 2345, artifactId: "7002" },
+      assessment: {
+        sha256: "6".repeat(64),
+        size: 3456,
+        artifactId: "7003",
+        githubArtifactDigest: `sha256:${"4".repeat(64)}`,
+      },
       requestIds: Array.from(
         { length: 18 },
         (_, index) => `request-${String(index + 1).padStart(2, "0")}`,
@@ -772,6 +778,21 @@ test("V1 and hybrid reports are structured GAPS and never signable", () => {
   }
 });
 
+test("production bundle cannot bypass the persisted V4 assessment", () => {
+  assert.throws(
+    () =>
+      unsignedAttestation.buildUnsignedPayloadFromBundle({
+        schemaVersion: 1,
+        mode: "BUNDLE",
+        payload: fixture("f".repeat(64)),
+        rawEvidenceBase64: Buffer.from("{}").toString("base64"),
+        reportBase64: Buffer.from("{}").toString("base64"),
+        spendRequestBase64: Buffer.from("{}").toString("base64"),
+      }),
+    /UNSIGNED_INPUT_INVALID/,
+  );
+});
+
 test("TEST_ONLY and absent executions retain deterministic missing codes", () => {
   const input = unsignedInputs();
   const testOnly = evaluateMutation(input, {
@@ -1180,6 +1201,7 @@ function rawCandidateCase(index) {
 function canonicalApplicationReport() {
   return {
     reportSchemaVersion: 4,
+    historicalComparison: "NOT_PERFORMED_P1_DEFERRED",
     datasetVersion: canonicalDatasetVersion,
     corpusSampleCount: 52,
     releaseScannedPdfSampleCount: 18,
@@ -1315,11 +1337,33 @@ async function canonicalAuthorityInputs(options = {}) {
   };
 }
 
+function canonicalExternalAuthority(input) {
+  const expected = input.candidateArtifact.expected;
+  return {
+    repositoryId: expected.repositoryId,
+    workflowPath: expected.workflowPath,
+    workflowSha: expected.workflowSha,
+    workflowRunId: expected.workflowRunId,
+    workflowRunAttempt: expected.workflowRunAttempt,
+    workflowHeadSha: expected.workflowHeadSha,
+    workflowHeadTree: expected.workflowHeadTree,
+    subjectSha: expected.subjectSha,
+    subjectTree: expected.subjectTree,
+    artifactId: expected.artifactId,
+    artifactName: expected.artifactName,
+    artifactDigest: input.candidateArtifact.metadata.digest,
+    memberName: expected.memberName,
+  };
+}
+
 async function assessCanonicalMutation(input, mutation) {
-  return canonicalAuthorityBoundary().assessCanonicalReport({
-    ...input,
-    ...mutation,
-  });
+  return canonicalAuthorityBoundary().assessCanonicalReport(
+    {
+      ...input,
+      ...mutation,
+    },
+    canonicalExternalAuthority(input),
+  );
 }
 
 test("provider outcome wrappers are not accepted as raw Vertex response bytes", async () => {
@@ -1468,16 +1512,100 @@ test("candidate GitHub artifact provenance is externally bound", async () => {
     const artifact = structuredClone(input.candidateArtifact);
     mutate(artifact);
     await assert.rejects(
-      () => canonicalAuthorityBoundary().verifyCandidateArtifactV4(artifact),
+      () =>
+        canonicalAuthorityBoundary().verifyCandidateArtifactV4(
+          artifact,
+          canonicalExternalAuthority(input),
+        ),
       /CANDIDATE_ARTIFACT_PROVENANCE_INVALID/,
     );
   }
 });
 
+test("coordinated candidate copies cannot replace external GitHub authority", async () => {
+  const input = await canonicalAuthorityInputs();
+  const artifact = structuredClone(input.candidateArtifact);
+  artifact.expected.artifactId = 9009;
+  artifact.metadata.id = 9009;
+  artifact.expected.workflowRunId = 8118;
+  artifact.metadata.workflow_run.id = 8118;
+  artifact.expected.subjectSha = "9".repeat(40);
+  artifact.bindings.subjectSha = "9".repeat(40);
+
+  await assert.rejects(
+    () =>
+      canonicalAuthorityBoundary().verifyCandidateArtifactV4(
+        artifact,
+        canonicalExternalAuthority(input),
+      ),
+    /CANDIDATE_ARTIFACT_PROVENANCE_INVALID/,
+  );
+});
+
+test("product raw evidence is recomputed before application V4 can pass", async () => {
+  const report = canonicalApplicationReport();
+  const rawEvidence = {
+    run: {
+      candidateSha: "d".repeat(40),
+      candidateTree: "e".repeat(40),
+    },
+    predictions: [],
+  };
+  const artifact = candidateGithubArtifactFixture(rawEvidence);
+  const authority = canonicalExternalAuthority({
+    candidateArtifact: artifact,
+  });
+  const candidateArtifact = {
+    expected: structuredClone(artifact.expected),
+    metadata: structuredClone(artifact.metadata),
+    payloadSha256: sha256(Buffer.from(canonicalize(rawEvidence))),
+    bindings: structuredClone(artifact.bindings),
+  };
+  let recomputations = 0;
+  const assessment = await canonicalAuthorityBoundary().assessCanonicalReport(
+    {
+      evidenceClass: "LIVE",
+      rawEvidence,
+      report,
+      candidateArtifact,
+    },
+    authority,
+    {
+      recompute: async (value) => {
+        recomputations += 1;
+        assert.deepEqual(value, rawEvidence);
+        return structuredClone(report);
+      },
+    },
+  );
+
+  assert.equal(recomputations, 1);
+  assert.equal(assessment.releaseStatus, "PASS");
+  assert.equal(assessment.signable, true);
+
+  const claimed = structuredClone(report);
+  claimed.metrics.exactMoneyRate = 0;
+  const rejected = await canonicalAuthorityBoundary().assessCanonicalReport(
+    {
+      evidenceClass: "LIVE",
+      rawEvidence,
+      report: claimed,
+      candidateArtifact,
+    },
+    authority,
+    { recompute: async () => structuredClone(report) },
+  );
+  assert.equal(rejected.releaseStatus, "GAPS");
+  assert.equal(rejected.signable, false);
+  assert.ok(rejected.issues.includes("REPORT_V4_DERIVATION_MISMATCH"));
+});
+
 test("only the application-owned report V4 is accepted with no SRE transformation", async () => {
   const input = await canonicalAuthorityInputs();
-  const result =
-    await canonicalAuthorityBoundary().assessCanonicalReport(input);
+  const result = await canonicalAuthorityBoundary().assessCanonicalReport(
+    input,
+    canonicalExternalAuthority(input),
+  );
   const schemaBytes = await readFile(
     resolve(authorityRoot, canonicalReportSchemaPath),
   );
@@ -1495,9 +1623,13 @@ test("only the application-owned report V4 is accepted with no SRE transformatio
 
 test("TEST_ONLY remains deterministic GAPS with every live-evidence deficit", async () => {
   const input = await canonicalAuthorityInputs({ evidenceClass: "TEST_ONLY" });
-  const first = await canonicalAuthorityBoundary().assessCanonicalReport(input);
+  const first = await canonicalAuthorityBoundary().assessCanonicalReport(
+    input,
+    canonicalExternalAuthority(input),
+  );
   const second = await canonicalAuthorityBoundary().assessCanonicalReport(
     structuredClone(input),
+    canonicalExternalAuthority(input),
   );
 
   assert.deepEqual(second, first);

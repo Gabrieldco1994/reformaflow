@@ -196,8 +196,7 @@ test("qualification OCI layout intentionally disables provenance", () => {
   assert.equal((q.match(/--provenance=false/g) ?? []).length, 1);
 });
 
-test("baseline, candidate, assessment and persisted GAPS precede payload construction", () => {
-  const baseline = q.indexOf("verify-baseline-artifact");
+test("candidate, assessment and persisted GAPS precede payload construction", () => {
   const candidate = q.indexOf("verify-candidate-artifact");
   const assessmentBundle = q.indexOf("assessment-bundle");
   const assess = q.indexOf("assess-report");
@@ -210,8 +209,8 @@ test("baseline, candidate, assessment and persisted GAPS precede payload constru
   const buildUnsigned = q.indexOf("build-unsigned");
   const signing = q.indexOf("sign-kms:");
 
-  assert.ok(baseline > 0);
-  assert.ok(candidate > baseline);
+  assert.ok(candidate > 0);
+  assert.doesNotMatch(q, /\.baselineArtifact\.verified/);
   assert.ok(assessmentBundle > candidate);
   assert.ok(assess > assessmentBundle);
   assert.ok(assessmentArtifact > assess);

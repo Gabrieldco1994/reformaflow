@@ -1,5 +1,4 @@
 import {
-  assertReleaseQualified,
   buildOraclePredictions,
   buildOracleRoutingCases,
   buildOracleSafetyProbes,
@@ -123,17 +122,15 @@ const parseableEvidence = async (): Promise<OcrEvalInput> => {
 };
 
 describe("Band-3 activation authority remains fail closed", () => {
-  it("[B3] perfect functional evidence without an independent baseline remains release GAPS", async () => {
+  it("[B3] pilot qualification declares historical comparison deferred without inventing a baseline", async () => {
     const report = await evaluateOcrSynth(await functionalEvidence());
 
     expect(report.functionalStatus).toBe("PASS");
-    expect(report.releaseStatus).toBe("GAPS");
-    expect(report.liveEvidenceGaps).toContain(
+    expect(report.historicalComparison).toBe("NOT_PERFORMED_P1_DEFERRED");
+    expect(report.liveEvidenceGaps).not.toContain(
       "VERIFIED_BASELINE_EXECUTION_MISSING",
     );
-    expect(() => assertReleaseQualified(report)).toThrow(
-      "VERIFIED_BASELINE_EXECUTION_MISSING",
-    );
+    expect(report.baseline.behavior).toBe("OCR_REQUIRED");
   });
 
   it("[B3] marker strings, exact lengths, caller totals, and arbitrary observations grant no authority", async () => {

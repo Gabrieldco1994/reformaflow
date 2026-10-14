@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "reportSchemaVersion",
+    "historicalComparison",
     "datasetVersion",
     "corpusSampleCount",
     "releaseScannedPdfSampleCount",
@@ -26,6 +27,7 @@
   ],
   "properties": {
     "reportSchemaVersion": { "const": 4 },
+    "historicalComparison": { "const": "NOT_PERFORMED_P1_DEFERRED" },
     "datasetVersion": { "const": "ocr-synth-v1-direct-pdf-vertex-v3" },
     "corpusSampleCount": { "const": 52 },
     "releaseScannedPdfSampleCount": { "const": 18 },

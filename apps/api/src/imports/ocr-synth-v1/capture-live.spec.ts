@@ -505,10 +505,8 @@ describe("audited synthetic Vertex capture", () => {
       );
     expect(report.functionalStatus).toBe("PASS");
     expect(report.releaseStatus).toBe("GAPS");
-    expect(report.liveEvidenceGaps).toEqual([
-      "QUALITY_CLOSURE_NOT_VERIFIED",
-      "VERIFIED_BASELINE_EXECUTION_MISSING",
-    ]);
+    expect(report.historicalComparison).toBe("NOT_PERFORMED_P1_DEFERRED");
+    expect(report.liveEvidenceGaps).toEqual(["QUALITY_CLOSURE_NOT_VERIFIED"]);
   });
 
   it("[B3] parser invokes ledger verification instead of accepting a detached valid shape", () => {

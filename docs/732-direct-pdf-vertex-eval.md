@@ -192,41 +192,18 @@ the first provider request.
 
 ### Authentication decision and prerequisites
 
-Workload Identity Federation (WIF) was evaluated and deferred. The supported
-`google-auth-library` STS exchange path does not expose the required explicit per-exchange
-timeout/cancellation and no-retry control needed to preserve the pre-dispatch/unknown-dispatch
-boundary. `fly-wif` is therefore rejected rather than silently degrading that contract.
-
-The selected production fallback is exactly one dedicated service-account credential
-`reformaflow-ocr@<GOOGLE_CLOUD_PROJECT>.iam.gserviceaccount.com`, read only from the fixed
-Fly secret-file path `/secrets/vertex-sa.json`. There is no ambient ADC discovery or credential
-fallback. The candidate's `apps/api/fly.toml` intentionally has **no** `[[files]]` mount: first
-create the private Fly secret, then add the fixed mount in a separately reviewed operational
-change. OCR must stay OFF until both exist and all release gates pass.
-
-Local qualification is deterministic rather than ambient: `VERTEX_AUTH_MODE=local-adc` securely
-opens only `~/.config/gcloud/application_default_credentials.json`, requires the exact
-`authorized_user` shape and owner-only file, and passes the admitted in-memory values directly to
-`GoogleAuth`. It rejects API keys, `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_CONFIG`, metadata
-host overrides and every fallback. A local run records `LOCAL_ADC` and is diagnostic only; it
-cannot satisfy the production-auth gate.
-
-Run capture from a clean checkout at the current tested PR head. The operator must supply that full
-SHA as `CANDIDATE_SHA`; it must equal both Git `HEAD` and the audited manifest's exact
-`candidateSha`. Never copy the implementation snapshot above into a future run by default. The
-first argument is the new evidence output; the second is the audited manifest. The only cloud
-configuration is ADC plus the project environment variable; endpoint, region and model are fixed
-in the production adapter. A production-qualifying run requires the fixed service-account file
-mounted at `/secrets/vertex-sa.json`; it records `SERVICE_ACCOUNT_FILE_ADC` on all 18 requests.
-The runtime parser accepts `LOCAL_ADC` for local diagnostics, but such a capture remains GAPS and
-cannot prove production authentication. Legacy undifferentiated `ADC_OAUTH` evidence is rejected.
+The qualification workflow obtains one bounded access token through its protected GitHub
+OIDC/WIF environment and passes it on stdin to the capture container. The adapter records
+`GITHUB_OIDC_WIF` on all 18 requests. It rejects absent project/token configuration and never
+relabels WIF as local ADC or service-account-file ADC. Runtime OCR remains separately disabled by
+default and retains its existing activation and credential contracts.
 
 Live capture is not a local CLI. Direct execution of `capture-live.ts` always stops with
 `LIVE_CAPTURE_PROTECTED_ENTRYPOINT_UNAVAILABLE` before arguments, credentials, provider setup or
 filesystem side effects. Importing the module is side-effect free. Its exported runner is reached
-only through the existing protected WIF adapter in the qualification image. The adapter remains
-fail-closed while the protected project/token-consumer configuration is absent; it never falls
-back to ADC, a service-account file supplied by a caller, or an API key.
+only through the protected WIF adapter in the qualification image. The adapter validates review,
+spend and workflow bindings before dispatch, emits canonical raw evidence on stdout, and remains
+fail-closed while protected configuration is absent.
 
 The protected runner generates only the in-repository synthetic `scan-001` through `scan-018` PDFs in
 memory, hashes and admits all of them before dispatch, then calls
@@ -241,9 +218,9 @@ symlink, concurrent writer, write failure, repository-SHA drift, duplicate reque
 mixed model version, adapter failure, or incomplete trace stops the command and leaves no partial
 new output. Git HEAD is checked again after all calls and before publication. Failure cleanup
 unlinks only when the path still has the reserved file's device and inode, never a replacement.
-Stderr contains only a fixed `LIVE_CAPTURE_*` code. The evidence contains typed candidates and
-sanitized request provenance, never PDF bytes, base64 payloads, access tokens, credentials, raw
-wire responses or raw provider errors.
+Stderr contains only a fixed `LIVE_CAPTURE_*` code. The evidence contains typed candidates,
+sanitized request provenance and bounded exact Vertex response bytes needed for independent
+offline recomputation; it never contains PDF input bytes, access tokens or credentials.
 
 Qualification of immutable evidence is also authority-gated:
 
@@ -262,6 +239,13 @@ issued after the complete canonical evidence digest is recomputed and its detach
 signature verifies against the compiled OCR trust bundle. The bundle is intentionally empty while
 OCR is OFF, so a positive qualification additionally requires a separately reviewed trusted key;
 no self-issued key or fallback is accepted.
+
+The application-owned report has one V4 shape. Offline scoring parses the exact capture with the
+production parser and recomputes all 18 ground-truth cases, 10 routing cases and 35 probes. The
+persisted assessment is bound into the unsigned package before the KMS boundary. Historical
+candidate-to-candidate reconstruction is explicitly deferred as
+`historicalComparison: NOT_PERFORMED_P1_DEFERRED`; the older `OCR_REQUIRED` behavior is not claimed
+as a comparable Vertex baseline.
 
 ## Evidence status
 
