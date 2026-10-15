@@ -233,6 +233,12 @@ for (const shape of SESSION_SHAPES) {
       }) => {
         await mockGuestSession(page, baseURL!, shape.role);
         await page.goto(`/projects/${PERSONAL_ID}/dashboard`);
+        // PESSOAL redireciona /dashboard para o Cockpit. Abrir a folha antes
+        // desse replace terminar cria um falso verde momentâneo: a troca de
+        // pathname fecha overlays e remove a folha logo após ela ficar visível.
+        await expect(page).toHaveURL(
+          new RegExp(`/projects/${PERSONAL_ID}/monthly$`),
+        );
 
         const sheet = page.getByRole("dialog");
         // O clique tem de ser RETENTADO, não apenas aguardado: em `next dev` o
